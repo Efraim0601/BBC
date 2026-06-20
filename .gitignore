@@ -1,0 +1,28 @@
+# Java / Maven
+backend/target/
+*.class
+
+# Node / Angular
+frontend/node_modules/
+frontend/dist/
+frontend/.angular/
+frontend/out-tsc/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Env
+*.local.env
+
+# Machine-specific exported CA bundle (keep the folder, not the certs)
+frontend/certs/*.crt
+
+# Large Claude Design export (design source-of-truth kept outside git;
+# the decoded reference lives in tools/prototype_design.html)
+BBC_SMS_standalone*.html

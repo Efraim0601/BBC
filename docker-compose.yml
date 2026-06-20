@@ -1,0 +1,54 @@
+# Base stack = PRODUCTION (clean schema, NO demo data).
+#   Production : docker compose up -d --build           (or: make prod)
+#   Demo       : add the override file docker-compose.demo.yml  (or: make demo)
+# See README.md → "Démarrage rapide".
+services:
+  db:
+    image: postgres:16-alpine
+    # snap-packaged dockerd (profile snap.docker.dockerd) cannot signal the
+    # default container profile on recent kernels -> `docker stop` fails with
+    # "permission denied". Running unconfined restores the container lifecycle.
+    security_opt:
+      - apparmor=unconfined
+    environment:
+      POSTGRES_DB: bbc_sms
+      POSTGRES_USER: bbc
+      POSTGRES_PASSWORD: bbc
+    ports:
+      - "5433:5432"
+    volumes:
+      - bbc_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bbc -d bbc_sms"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: ./backend
+    security_opt:
+      - apparmor=unconfined
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:postgresql://db:5432/bbc_sms
+      DB_USER: bbc
+      DB_PASSWORD: bbc
+      BBC_CORS_ORIGINS: http://localhost:4200,http://localhost:8081
+      # Override in real deployments:
+      BBC_JWT_SECRET: Y2hhbmdlLW1lLXRoaXMtaXMtYS1kZXYtb25seS1zZWNyZXQtMzJieXRlcyE=
+    ports:
+      - "8080:8080"
+
+  frontend:
+    build: ./frontend
+    security_opt:
+      - apparmor=unconfined
+    depends_on:
+      - backend
+    ports:
+      - "8081:80"
+
+volumes:
+  bbc_pgdata:

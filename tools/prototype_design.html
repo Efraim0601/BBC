@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="fr"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BBC — Système de Gestion Scolaire</title>
+<link rel="icon" href="1642c9c0-d930-4e84-8ffb-a0c2b153e289">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<style>/* vietnamese */
+@font-face {
+  font-family: 'Fraunces';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("927d98d3-0236-4ed0-bcd5-b6b899758544") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Fraunces';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("8f77da84-1218-46b5-aa63-529b57f84eea") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Fraunces';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("29572d83-fc65-4c9f-b1ee-f7da09442dec") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Fraunces';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("927d98d3-0236-4ed0-bcd5-b6b899758544") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Fraunces';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("8f77da84-1218-46b5-aa63-529b57f84eea") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Fraunces';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("29572d83-fc65-4c9f-b1ee-f7da09442dec") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Fraunces';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("927d98d3-0236-4ed0-bcd5-b6b899758544") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Fraunces';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("8f77da84-1218-46b5-aa63-529b57f84eea") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Fraunces';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("29572d83-fc65-4c9f-b1ee-f7da09442dec") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("856263ce-75f4-403f-86e2-900da5c856f7") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("adc94749-aa4e-4c29-a01e-44b892b76b28") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* greek */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("95c06a02-8dc0-45a4-b532-bd1e39060beb") format('woff2');
+  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("f8a1d5f7-900b-4d1b-9565-3191cb4e0181") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("932f45ac-a0e4-4039-91b6-4f03d4f72004") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("407a0d2c-af51-4dbb-a929-90fa4082f52c") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("856263ce-75f4-403f-86e2-900da5c856f7") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("adc94749-aa4e-4c29-a01e-44b892b76b28") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* greek */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("95c06a02-8dc0-45a4-b532-bd1e39060beb") format('woff2');
+  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("f8a1d5f7-900b-4d1b-9565-3191cb4e0181") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("932f45ac-a0e4-4039-91b6-4f03d4f72004") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("407a0d2c-af51-4dbb-a929-90fa4082f52c") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("856263ce-75f4-403f-86e2-900da5c856f7") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("adc94749-aa4e-4c29-a01e-44b892b76b28") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* greek */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("95c06a02-8dc0-45a4-b532-bd1e39060beb") format('woff2');
+  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("f8a1d5f7-900b-4d1b-9565-3191cb4e0181") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("932f45ac-a0e4-4039-91b6-4f03d4f72004") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("407a0d2c-af51-4dbb-a929-90fa4082f52c") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("856263ce-75f4-403f-86e2-900da5c856f7") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("adc94749-aa4e-4c29-a01e-44b892b76b28") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* greek */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("95c06a02-8dc0-45a4-b532-bd1e39060beb") format('woff2');
+  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("f8a1d5f7-900b-4d1b-9565-3191cb4e0181") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("932f45ac-a0e4-4039-91b6-4f03d4f72004") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("407a0d2c-af51-4dbb-a929-90fa4082f52c") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("856263ce-75f4-403f-86e2-900da5c856f7") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("adc94749-aa4e-4c29-a01e-44b892b76b28") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* greek */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("95c06a02-8dc0-45a4-b532-bd1e39060beb") format('woff2');
+  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("f8a1d5f7-900b-4d1b-9565-3191cb4e0181") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("932f45ac-a0e4-4039-91b6-4f03d4f72004") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("407a0d2c-af51-4dbb-a929-90fa4082f52c") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+</style>
+<!-- Tailwind CDN is required on first launch (the bundler cannot inline it).
+     Pinned to v3 so the in-page tailwind.config below stays compatible. -->
+<script src="https://cdn.tailwindcss.com/3.4.16"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          brand: {
+            50:  '#F1F5FA',
+            100: '#DCE6F1',
+            200: '#B7CADC',
+            300: '#7E9CBA',
+            400: '#4F75A0',
+            500: '#2D5586',
+            600: '#1B3A5C',  /* primary */
+            700: '#152F4B',
+            800: '#0F2238',
+            900: '#0A1828',
+          },
+          gold: {
+            50:  '#FBF6E8',
+            100: '#F5E9C1',
+            200: '#ECD58A',
+            300: '#E2C05A',
+            400: '#D4A843',  /* accent */
+            500: '#B98B25',
+            600: '#94701D',
+          },
+          ink: '#0F2238',
+          mute: '#5B6B82',
+          surface: '#F5F6FA',
+        },
+        fontFamily: {
+          sans: ['Manrope', 'ui-sans-serif', 'system-ui'],
+          display: ['Fraunces', 'serif'],
+        },
+        boxShadow: {
+          card: '0 1px 2px rgba(15,34,56,0.05), 0 4px 16px rgba(15,34,56,0.06)',
+          pop: '0 12px 32px rgba(15,34,56,0.16)',
+        },
+        borderRadius: { xl2: '14px' },
+      }
+    }
+  }
+</script>
+<style>:root{
+  --brand-600:#1B3A5C;
+  --brand-700:#152F4B;
+  --gold-400:#D4A843;
+  --gold-500:#B98B25;
+  --ok:#16A34A;
+  --warn:#F59E0B;
+  --bad:#DC2626;
+}
+
+html, body, #root { height: 100%; }
+body { overflow: hidden; }
+
+/* scrollbar */
+.scroll-y { overflow-y: auto; scrollbar-width: thin; scrollbar-color: #C7D2E0 transparent; }
+.scroll-y::-webkit-scrollbar { width: 10px; height: 10px; }
+.scroll-y::-webkit-scrollbar-thumb { background: #C7D2E0; border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
+.scroll-y::-webkit-scrollbar-thumb:hover { background: #97A8BD; background-clip: padding-box; border: 2px solid transparent; }
+
+/* fingerprint pulse */
+@keyframes fp-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(212,168,67,0.55); }
+  70% { box-shadow: 0 0 0 22px rgba(212,168,67,0); }
+  100% { box-shadow: 0 0 0 0 rgba(212,168,67,0); }
+}
+.fp-pulse { animation: fp-pulse 2.2s ease-out infinite; }
+
+@keyframes slide-in-row {
+  from { opacity: 0; transform: translateY(-6px); background: rgba(212,168,67,0.12); }
+  to { opacity: 1; transform: translateY(0); background: transparent; }
+}
+.row-new { animation: slide-in-row 1.4s ease-out; }
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.fade-in { animation: fade-in 0.28s ease-out; }
+
+/* toast */
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.toast { animation: toast-in 0.25s ease-out; }
+
+/* status dot */
+.dot { width: 8px; height: 8px; border-radius: 999px; display: inline-block; }
+
+/* live scan ticker beat */
+@keyframes beat {
+  0%,100% { transform: scale(1); }
+  50% { transform: scale(1.4); }
+}
+.beat { animation: beat 1.6s ease-in-out infinite; }
+
+/* print */
+@media print {
+  .no-print { display:none !important; }
+  body { overflow: visible; }
+}
+
+/* nav active indicator */
+.nav-active {
+  background: linear-gradient(90deg, rgba(212,168,67,0.18), rgba(212,168,67,0));
+  border-left: 3px solid #D4A843;
+}
+
+/* receipt paper texture */
+.receipt-bg{
+  background:
+    repeating-linear-gradient(0deg, #fff 0 22px, #f7f8fb 22px 23px);
+}
+
+/* shimmer */
+@keyframes shimmer {
+  0% { background-position: -200px 0; }
+  100% { background-position: 200px 0; }
+}
+
+/* mini sparkline grid */
+.grid-bg { background-image: linear-gradient(rgba(27,58,92,0.04) 1px, transparent 1px); background-size: 100% 24px; }
+
+/* fp icon ring */
+.fp-ring { background: radial-gradient(circle at 30% 30%, #fff, #FBF6E8 60%, #F5E9C1); }
+</style>
+<script src="f7a915e4-e409-40f2-9a82-cda8c2d21d16" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="ae3a2bb8-1a3b-450f-8dd0-5bb7ec6940ae" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="db488770-eedd-4308-b937-9fefd7479df7" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="8b0e5487-1034-4c30-8278-0517460218fc"></script>
+<script src="f026f4b3-eed0-496e-99ee-9c5599cdd139"></script>
+</head>
+<body class="bg-surface text-ink font-sans antialiased">
+  
+  <script>
+    // Suppress noisy console output to keep the production app clean.
+    // Tailwind CDN + Babel in-browser print warnings that aren't actionable.
+    (function(){
+      const origLog = console.log, origWarn = console.warn, origErr = console.error;
+      const noise = [
+        'defaultProps will be removed',
+        'cdn.tailwindcss.com should not be used in production',
+        'in-browser Babel transformer',
+        'You are using the in-browser',
+        'Be sure to precompile',
+        'should not be used in production',
+      ];
+      function isNoise(a){
+        const s = String(a[0] || '');
+        return noise.some(n => s.includes(n));
+      }
+      console.log  = function(...a){ if (!isNoise(a)) origLog.apply(console, a); };
+      console.warn = function(...a){ if (!isNoise(a)) origWarn.apply(console, a); };
+      console.error= function(...a){ if (!isNoise(a)) origErr.apply(console, a); };
+    })();
+
+    // Graceful fallback if Tailwind/CDN fails to load (e.g. offline).
+    window.addEventListener('load', () => {
+      if (typeof tailwind === 'undefined') {
+        const banner = document.createElement('div');
+        banner.style.cssText = 'position:fixed;top:0;left:0;right:0;padding:12px;background:#1B3A5C;color:#fff;font:13px/1.4 system-ui;text-align:center;z-index:99999';
+        banner.innerHTML = '⚠ Tailwind CSS n\u2019a pas pu être chargé (connexion Internet requise au premier lancement). Reconnectez-vous puis rafraîchissez la page.';
+        document.body.appendChild(banner);
+      }
+    });
+  </script>
+  <div id="root"></div>
+
+  <script src="b43beb8d-fa28-45ce-be4e-ea504ab2d22c"></script>
+  <script type="text/babel" src="74192ea3-cb5e-4e8c-b1a2-33440f856ace"></script>
+  <script type="text/babel" src="9fdf56af-d456-4981-a603-e5c580def593"></script>
+  <script type="text/babel" src="c3e1eeb6-ed1c-49e4-93ff-a3dacf80de87"></script>
+  <script type="text/babel" src="355b0af0-fda9-48b1-8cae-9ade418055a5"></script>
+  <script type="text/babel" src="80462ec6-7aaa-4ef0-8aca-17474cc2aa64"></script>
+  <script type="text/babel" src="0088b5ce-8bb8-451b-b5e7-8d9c7fd1b943"></script>
+  <script type="text/babel" src="24bde1ea-b075-4ec7-bf97-35ed36be7611"></script>
+  <script type="text/babel" src="517b8755-dbb7-4257-be48-f75125e09b39"></script>
+  <script type="text/babel" src="a7d0f36a-f403-4dbc-8373-b400bb5b2762"></script>
+  <script type="text/babel" src="7fea50e4-bedb-4dff-a691-46c31e07cd3b"></script>
+  <script type="text/babel" src="f935b6c4-3d0a-4b1e-9ba2-95ec2e3d9904"></script>
+  <script type="text/babel" src="59ecc50e-91e6-4cee-82a3-f65e1aac625e"></script>
+  <script type="text/babel" src="a106c87c-be1f-4ad9-9857-e563afa3fb35"></script>
+  <script type="text/babel" src="3a6033eb-cfdc-4539-be98-262d76df710b"></script>
+  <script type="text/babel" src="f287e778-4d80-4e66-8b6d-c19f62aa918e"></script>
+  <script type="text/babel" src="14c6c2a8-3cf8-4c86-a3f9-e94ca37598fb"></script>
+  <script type="text/babel" src="9ce5084b-ee78-49dc-aacc-faed70869530"></script>
+
+
+</body></html>
