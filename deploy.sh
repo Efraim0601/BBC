@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # ============================================================================
 #  BBC SMS — server (re)deployment.
+#  - pulls the latest code from Git BEFORE building anything,
 #  - generates a self-signed TLS certificate on first run,
 #  - rebuilds the images and force-recreates the containers,
 #  - cleans up dangling images and waits for the API to be healthy.
@@ -11,6 +12,31 @@
 # ============================================================================
 set -euo pipefail
 cd "$(dirname "$0")"
+
+# 0) Pull the latest code BEFORE building anything. If the pull updates this very
+#    script, re-exec it once so the new version runs (guarded against a loop).
+if [ -z "${BBC_DEPLOY_REEXEC:-}" ] && [ -d .git ] && command -v git >/dev/null 2>&1; then
+  branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
+  echo "→ Recherche de mises à jour Git (branche ${branch})…"
+  if git fetch --quiet origin "${branch}" 2>/dev/null; then
+    local_rev="$(git rev-parse HEAD)"
+    remote_rev="$(git rev-parse "origin/${branch}" 2>/dev/null || echo "")"
+    if [ -n "${remote_rev}" ] && [ "${local_rev}" != "${remote_rev}" ]; then
+      echo "→ Mise à jour disponible (${local_rev:0:7} → ${remote_rev:0:7}) — git pull…"
+      if ! git pull --ff-only origin "${branch}"; then
+        echo "✗ Fast-forward impossible (modifications locales ou divergence)." >&2
+        echo "  Réglez le conflit puis relancez ./deploy.sh." >&2
+        exit 1
+      fi
+      echo "→ Code mis à jour. Redémarrage du script…"
+      export BBC_DEPLOY_REEXEC=1
+      exec bash "$0" "$@"          # re-run the freshly pulled deploy.sh
+    fi
+    echo "→ Déjà à jour ($(git rev-parse --short HEAD))."
+  else
+    echo "⚠ git fetch a échoué (réseau ?). Poursuite avec le code local."
+  fi
+fi
 
 # docker compose reads .env natively for the containers. The script itself only
 # needs DOMAIN (for the cert CN); read it safely without sourcing the file.
