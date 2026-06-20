@@ -1,0 +1,2 @@
+Drop your corporate root CA(s) here as .crt (PEM) so Maven can fetch
+dependencies behind a TLS-intercepting proxy. Only .gitkeep is tracked.

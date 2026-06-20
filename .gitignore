@@ -26,6 +26,7 @@ certs-tls/
 
 # Machine-specific exported CA bundle (keep the folder, not the certs)
 frontend/certs/*.crt
+backend/certs/*.crt
 
 # Large Claude Design export (design source-of-truth kept outside git;
 # the decoded reference lives in tools/prototype_design.html)
