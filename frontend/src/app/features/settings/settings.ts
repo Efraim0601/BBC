@@ -1,5 +1,6 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@angular/core';
-import { SettingsApi, PermissionMatrix, RoleView } from './settings.api';
+import { FormsModule } from '@angular/forms';
+import { SettingsApi, PermissionMatrix, RoleView, MailConfigUpdate } from './settings.api';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
 import {
@@ -12,7 +13,7 @@ type Level = 'none' | 'read' | 'write';
   selector: 'bbc-settings',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, CardComponent, PageHeaderComponent, EmptyComponent, TabsComponent],
+  imports: [FormsModule, IconComponent, CardComponent, PageHeaderComponent, EmptyComponent, TabsComponent],
   template: `
     <div class="fade-in max-w-6xl mx-auto">
       <bbc-page-header [title]="i18n.t('settings')"
@@ -173,6 +174,120 @@ type Level = 'none' | 'read' | 'write';
             }
           </bbc-card>
         }
+
+        <!-- ===================== MESSAGERIE (SMTP) ===================== -->
+        @case ('mail') {
+          <div class="grid grid-cols-12 gap-4">
+            <bbc-card className="col-span-12 lg:col-span-7"
+              [title]="fr() ? 'Serveur SMTP' : 'SMTP server'"
+              [subtitle]="fr() ? 'Envoi des e-mails (notifications, etc.)' : 'Outgoing e-mail (notifications, etc.)'">
+              <div action class="w-8 h-8 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center">
+                <bbc-icon name="mail" [s]="18" />
+              </div>
+
+              <div class="space-y-3">
+                <label class="flex items-center gap-2.5 cursor-pointer">
+                  <input type="checkbox" [(ngModel)]="mailDraft.enabled" [disabled]="!canWrite"
+                    class="w-4 h-4 rounded accent-brand-600" />
+                  <span class="text-sm font-semibold text-ink">{{ fr() ? 'Activer l’envoi d’e-mails' : 'Enable e-mail sending' }}</span>
+                </label>
+
+                <div class="grid grid-cols-3 gap-3">
+                  <div class="col-span-2">
+                    <label class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'Hôte' : 'Host' }}</label>
+                    <input [(ngModel)]="mailDraft.host" [disabled]="!canWrite" placeholder="smtp.exemple.com"
+                      class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400 disabled:bg-slate-50" />
+                  </div>
+                  <div>
+                    <label class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'Port' : 'Port' }}</label>
+                    <input type="number" [(ngModel)]="mailDraft.port" [disabled]="!canWrite"
+                      class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400 disabled:bg-slate-50" />
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <label class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'Utilisateur' : 'Username' }}</label>
+                    <input [(ngModel)]="mailDraft.username" [disabled]="!canWrite" autocomplete="off"
+                      class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400 disabled:bg-slate-50" />
+                  </div>
+                  <div>
+                    <label class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'Mot de passe' : 'Password' }}</label>
+                    <input type="password" [(ngModel)]="mailDraft.password" [disabled]="!canWrite" autocomplete="new-password"
+                      [placeholder]="passwordSet() ? '••••••••' : ''"
+                      class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400 disabled:bg-slate-50" />
+                    @if (passwordSet()) {
+                      <div class="text-[11px] text-mute mt-1">{{ fr() ? 'Laisser vide pour conserver le mot de passe actuel.' : 'Leave empty to keep the current password.' }}</div>
+                    }
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <label class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'Adresse expéditeur' : 'From address' }}</label>
+                    <input [(ngModel)]="mailDraft.fromAddress" [disabled]="!canWrite" placeholder="no-reply@exemple.com"
+                      class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400 disabled:bg-slate-50" />
+                  </div>
+                  <div>
+                    <label class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'Nom expéditeur' : 'From name' }}</label>
+                    <input [(ngModel)]="mailDraft.fromName" [disabled]="!canWrite" placeholder="BBC SMS"
+                      class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400 disabled:bg-slate-50" />
+                  </div>
+                </div>
+
+                <label class="flex items-center gap-2.5 cursor-pointer">
+                  <input type="checkbox" [(ngModel)]="mailDraft.useTls" [disabled]="!canWrite" class="w-4 h-4 rounded accent-brand-600" />
+                  <span class="text-sm text-ink">{{ fr() ? 'STARTTLS (chiffrement)' : 'STARTTLS (encryption)' }}</span>
+                </label>
+
+                @if (canWrite) {
+                  <div class="flex items-center gap-2 pt-1">
+                    <button (click)="saveMail()" [disabled]="savingMail()"
+                      class="inline-flex items-center gap-2 h-10 px-4 text-sm font-semibold rounded-lg bg-brand-600 hover:bg-brand-700 text-white disabled:opacity-60">
+                      <bbc-icon name="check" [s]="16" /> {{ savingMail() ? '…' : (fr() ? 'Enregistrer' : 'Save') }}
+                    </button>
+                  </div>
+                }
+
+                @if (mailMsg(); as m) {
+                  <div class="text-xs rounded-lg px-3 py-2" [class]="m.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-600'">{{ m.text }}</div>
+                }
+              </div>
+            </bbc-card>
+
+            <bbc-card className="col-span-12 lg:col-span-5"
+              [title]="fr() ? 'Notifications' : 'Notifications'"
+              [subtitle]="fr() ? 'Événements déclenchant un e-mail' : 'Events that trigger an e-mail'">
+              <div action class="w-8 h-8 rounded-lg bg-gold-50 text-gold-500 flex items-center justify-center">
+                <bbc-icon name="bell" [s]="18" />
+              </div>
+              <div class="space-y-4">
+                <label class="flex items-start gap-2.5 cursor-pointer">
+                  <input type="checkbox" [(ngModel)]="mailDraft.notifyOnUserCreate" [disabled]="!canWrite" class="w-4 h-4 mt-0.5 rounded accent-brand-600" />
+                  <span>
+                    <span class="text-sm font-semibold text-ink block">{{ fr() ? 'Création d’un utilisateur' : 'User created' }}</span>
+                    <span class="text-xs text-mute">{{ fr() ? 'Envoyer un e-mail au nouvel employé (si une adresse est renseignée).' : 'E-mail the new employee (when an address is set).' }}</span>
+                  </span>
+                </label>
+
+                @if (canWrite) {
+                  <div class="border-t border-slate-100 pt-4">
+                    <label class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'Tester l’envoi' : 'Test sending' }}</label>
+                    <div class="flex items-center gap-2">
+                      <input [(ngModel)]="testTo" type="email" placeholder="vous@exemple.com"
+                        class="flex-1 h-10 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
+                      <button (click)="testMail()" [disabled]="testingMail() || !testTo"
+                        class="inline-flex items-center gap-2 h-10 px-3 text-sm font-semibold rounded-lg bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-60">
+                        <bbc-icon name="send" [s]="16" /> {{ testingMail() ? '…' : (fr() ? 'Envoyer' : 'Send') }}
+                      </button>
+                    </div>
+                    <div class="text-[11px] text-mute mt-1.5">{{ fr() ? 'Enregistrez d’abord la configuration.' : 'Save the configuration first.' }}</div>
+                  </div>
+                }
+              </div>
+            </bbc-card>
+          </div>
+        }
       }
     </div>
   `,
@@ -185,7 +300,18 @@ export class SettingsComponent {
   protected matrix = signal<PermissionMatrix | null>(null);
   protected canWrite = this.auth.can('settings', 'write');
   protected currentUser = this.auth.user;
-  protected tab = signal<'general' | 'perms' | 'roles'>('general');
+  protected tab = signal<'general' | 'perms' | 'roles' | 'mail'>('general');
+
+  // SMTP / mail config
+  protected mailDraft: MailConfigUpdate = {
+    enabled: false, host: '', port: 587, username: '', password: '',
+    fromAddress: '', fromName: '', useTls: true, notifyOnUserCreate: true,
+  };
+  protected passwordSet = signal(false);
+  protected savingMail = signal(false);
+  protected testingMail = signal(false);
+  protected testTo = '';
+  protected mailMsg = signal<{ ok: boolean; text: string } | null>(null);
 
   protected fr = () => this.i18n.lang() === 'fr';
 
@@ -194,6 +320,7 @@ export class SettingsComponent {
       { id: 'general', label: this.fr() ? 'Général' : 'General' },
       { id: 'perms', label: this.fr() ? 'Permissions' : 'Permissions' },
       { id: 'roles', label: this.fr() ? 'Rôles' : 'Roles' },
+      { id: 'mail', label: this.fr() ? 'Messagerie' : 'E-mail' },
     ];
     return t;
   });
@@ -236,10 +363,55 @@ export class SettingsComponent {
 
   constructor() {
     this.reload();
+    this.loadMail();
   }
 
   private reload(): void {
     this.api.getMatrix().subscribe((m) => this.matrix.set(m));
+  }
+
+  private loadMail(): void {
+    this.api.getMail().subscribe((c) => {
+      this.mailDraft = {
+        enabled: c.enabled, host: c.host ?? '', port: c.port, username: c.username ?? '',
+        password: '', fromAddress: c.fromAddress ?? '', fromName: c.fromName ?? '',
+        useTls: c.useTls, notifyOnUserCreate: c.notifyOnUserCreate,
+      };
+      this.passwordSet.set(c.passwordSet);
+    });
+  }
+
+  protected saveMail(): void {
+    this.savingMail.set(true);
+    this.mailMsg.set(null);
+    this.api.updateMail(this.mailDraft).subscribe({
+      next: (c) => {
+        this.passwordSet.set(c.passwordSet);
+        this.mailDraft.password = '';
+        this.savingMail.set(false);
+        this.mailMsg.set({ ok: true, text: this.fr() ? 'Configuration enregistrée.' : 'Settings saved.' });
+      },
+      error: (e) => {
+        this.savingMail.set(false);
+        this.mailMsg.set({ ok: false, text: e?.error?.message ?? (this.fr() ? 'Échec de l’enregistrement.' : 'Save failed.') });
+      },
+    });
+  }
+
+  protected testMail(): void {
+    if (!this.testTo) return;
+    this.testingMail.set(true);
+    this.mailMsg.set(null);
+    this.api.testMail(this.testTo).subscribe({
+      next: () => {
+        this.testingMail.set(false);
+        this.mailMsg.set({ ok: true, text: (this.fr() ? 'E-mail de test envoyé à ' : 'Test e-mail sent to ') + this.testTo });
+      },
+      error: (e) => {
+        this.testingMail.set(false);
+        this.mailMsg.set({ ok: false, text: e?.error?.message ?? (this.fr() ? 'Échec de l’envoi.' : 'Send failed.') });
+      },
+    });
   }
 
   protected levelOf(roleCode: string, module: string): Level {

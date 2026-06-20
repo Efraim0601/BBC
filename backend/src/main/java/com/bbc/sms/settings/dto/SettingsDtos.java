@@ -22,4 +22,31 @@ public class SettingsDtos {
             @NotBlank String level) {}
 
     public record UpdateRequest(@NotNull List<PermissionUpdate> updates) {}
+
+    // ---- SMTP / mail configuration (§ admin) --------------------------------
+    /** Current SMTP config for the editor. The password is never echoed back. */
+    public record MailConfigView(
+            boolean enabled,
+            String host,
+            int port,
+            String username,
+            boolean passwordSet,
+            String fromAddress,
+            String fromName,
+            boolean useTls,
+            boolean notifyOnUserCreate) {}
+
+    /** Update payload. A blank/absent password keeps the stored one. */
+    public record MailConfigUpdate(
+            boolean enabled,
+            String host,
+            Integer port,
+            String username,
+            String password,
+            String fromAddress,
+            String fromName,
+            Boolean useTls,
+            Boolean notifyOnUserCreate) {}
+
+    public record TestMailRequest(@NotBlank String to) {}
 }

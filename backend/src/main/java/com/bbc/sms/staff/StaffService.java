@@ -1,6 +1,7 @@
 package com.bbc.sms.staff;
 
 import com.bbc.sms.platform.common.ApiException;
+import com.bbc.sms.platform.mail.MailService;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.staff.dto.StaffDtos.*;
 import org.springframework.stereotype.Service;
@@ -8,14 +9,19 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
 public class StaffService {
 
     private final EmployeeRepository repo;
+    private final MailService mail;
 
-    public StaffService(EmployeeRepository repo) { this.repo = repo; }
+    public StaffService(EmployeeRepository repo, MailService mail) {
+        this.repo = repo;
+        this.mail = mail;
+    }
 
     @Transactional(readOnly = true)
     public List<EmployeeView> list() {
@@ -37,7 +43,10 @@ public class StaffService {
         e.setCode(nextCode(schoolId));
         apply(e, in);
         e.setInitials(initials(in.name()));
-        return toView(repo.save(e));
+        Employee saved = repo.save(e);
+        // Fire-and-forget e-mail notification (no-op unless SMTP is configured).
+        mail.notifyUserCreated(schoolId, saved.getName(), saved.getEmail());
+        return toView(saved);
     }
 
     @Transactional
@@ -62,14 +71,19 @@ public class StaffService {
 
     private void apply(Employee e, EmployeeUpsert in) {
         e.setName(in.name());
-        e.setSex(in.sex());
+        e.setSex(blankToNull(in.sex()));   // "" would violate CHECK (sex IN ('M','F'))
         if (in.type() != null && !in.type().isBlank()) e.setType(in.type());
-        e.setEmail(in.email());
-        e.setPhone(in.phone());
-        e.setFormClass(in.formClass());
+        e.setEmail(blankToNull(in.email()));
+        e.setPhone(blankToNull(in.phone()));
+        e.setFormClass(blankToNull(in.formClass()));
         e.setMonthlySalary(in.monthlySalary());
         e.setHourlyRate(in.hourlyRate());
         e.setRoles(in.roles() == null ? new HashSet<>() : new HashSet<>(in.roles()));
+    }
+
+    /** Turn empty/blank input into null so optional, CHECK-constrained columns stay valid. */
+    private static String blankToNull(String s) {
+        return (s == null || s.isBlank()) ? null : s.trim();
     }
 
     private String nextCode(UUID schoolId) {
@@ -93,8 +107,11 @@ public class StaffService {
     }
 
     private EmployeeView toView(Employee e) {
+        // Copy the lazy @ElementCollection into a plain set while the session is
+        // still open, otherwise JSON serialization fails with LazyInitializationException.
+        Set<String> roles = e.getRoles() == null ? Set.of() : new HashSet<>(e.getRoles());
         return new EmployeeView(e.getId(), e.getCode(), e.getName(), e.getInitials(),
                 e.getSex(), e.getType(), e.getEmail(), e.getPhone(), e.getFormClass(),
-                e.getMonthlySalary(), e.getHourlyRate(), e.getRoles(), e.isActive());
+                e.getMonthlySalary(), e.getHourlyRate(), roles, e.isActive());
     }
 }
