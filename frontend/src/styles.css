@@ -1,0 +1,91 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Design tokens — verbatim from the BBC SMS prototype */
+:root{
+  --brand-600:#1B3A5C;
+  --brand-700:#152F4B;
+  --gold-400:#D4A843;
+  --gold-500:#B98B25;
+  --ok:#16A34A;
+  --warn:#F59E0B;
+  --bad:#DC2626;
+}
+
+html, body, #root, bbc-root { height: 100%; }
+html, body { margin: 0; background: theme('colors.surface'); color: theme('colors.ink'); }
+body { overflow: hidden; font-family: 'Manrope', ui-sans-serif, system-ui, -apple-system, sans-serif; }
+
+/* scrollbar */
+.scroll-y { overflow-y: auto; scrollbar-width: thin; scrollbar-color: #C7D2E0 transparent; }
+.scroll-y::-webkit-scrollbar { width: 10px; height: 10px; }
+.scroll-y::-webkit-scrollbar-thumb { background: #C7D2E0; border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
+.scroll-y::-webkit-scrollbar-thumb:hover { background: #97A8BD; background-clip: padding-box; border: 2px solid transparent; }
+
+/* fingerprint pulse */
+@keyframes fp-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(212,168,67,0.55); }
+  70% { box-shadow: 0 0 0 22px rgba(212,168,67,0); }
+  100% { box-shadow: 0 0 0 0 rgba(212,168,67,0); }
+}
+.fp-pulse { animation: fp-pulse 2.2s ease-out infinite; }
+
+@keyframes slide-in-row {
+  from { opacity: 0; transform: translateY(-6px); background: rgba(212,168,67,0.12); }
+  to { opacity: 1; transform: translateY(0); background: transparent; }
+}
+.row-new { animation: slide-in-row 1.4s ease-out; }
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.fade-in { animation: fade-in 0.28s ease-out; }
+
+/* toast */
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.toast { animation: toast-in 0.25s ease-out; }
+
+/* status dot */
+.dot { width: 8px; height: 8px; border-radius: 999px; display: inline-block; }
+
+/* live scan ticker beat */
+@keyframes beat {
+  0%,100% { transform: scale(1); }
+  50% { transform: scale(1.4); }
+}
+.beat { animation: beat 1.6s ease-in-out infinite; }
+
+/* print */
+@media print {
+  .no-print { display:none !important; }
+  body { overflow: visible; }
+}
+
+/* nav active indicator */
+.nav-active {
+  background: linear-gradient(90deg, rgba(212,168,67,0.18), rgba(212,168,67,0));
+  border-left: 3px solid #D4A843;
+}
+
+/* receipt paper texture */
+.receipt-bg{
+  background:
+    repeating-linear-gradient(0deg, #fff 0 22px, #f7f8fb 22px 23px);
+}
+
+/* shimmer */
+@keyframes shimmer {
+  0% { background-position: -200px 0; }
+  100% { background-position: 200px 0; }
+}
+
+/* mini sparkline grid */
+.grid-bg { background-image: linear-gradient(rgba(27,58,92,0.04) 1px, transparent 1px); background-size: 100% 24px; }
+
+/* fp icon ring */
+.fp-ring { background: radial-gradient(circle at 30% 30%, #fff, #FBF6E8 60%, #F5E9C1); }

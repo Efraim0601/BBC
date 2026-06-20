@@ -1,0 +1,2 @@
+# Place your corporate root CA certificate(s) here as *.crt (PEM format)
+# to let npm install through a TLS-intercepting proxy. See README.
