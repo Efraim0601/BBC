@@ -55,6 +55,41 @@ pour un déploiement réel.
 
 ---
 
+## Déploiement serveur (HTTPS auto-signé)
+
+Pour un serveur, `docker-compose.server.yml` lance la **production derrière nginx en TLS**
+(certificat **auto-signé**) avec des ports dans la tranche **20000-30000** (pour éviter les
+conflits). Seul le frontend est public ; backend et base sont liés à `127.0.0.1`.
+
+| Service | Port | Exposition |
+|---|---|---|
+| Frontend HTTPS | **20443** | public |
+| Frontend HTTP (→ 301 HTTPS) | **20080** | public |
+| Backend API | **28080** | `127.0.0.1` (le SPA passe par le proxy nginx) |
+| PostgreSQL | **25432** | `127.0.0.1` (admin/psql) |
+
+```bash
+cp .env.example .env     # éditez DOMAIN, BBC_ADMIN_PASSWORD, BBC_JWT_SECRET…
+./deploy.sh              # = make deploy
+```
+
+`deploy.sh` (script de **(re)déploiement**, à relancer après chaque mise à jour) :
+1. génère le certificat auto-signé dans `certs-tls/` au premier lancement (CN/SAN = `DOMAIN`) ;
+2. **reconstruit les images et recrée les conteneurs** (`up -d --build --force-recreate`) ;
+3. purge les images orphelines et attend que l'API réponde.
+
+```bash
+make redeploy      # idem deploy.sh — pour appliquer une mise à jour
+make server-down   # arrête la stack serveur (conserve les données)
+make server-logs   # logs backend
+```
+
+> Le certificat étant auto-signé, le navigateur affichera un avertissement (normal). Pour le
+> régénérer : supprimez `certs-tls/` puis relancez `./deploy.sh`. La stack serveur tourne dans
+> le projet Docker isolé `bbc-server` (volume dédié).
+
+---
+
 ## Développement local
 
 ### Backend

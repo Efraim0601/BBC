@@ -1,5 +1,5 @@
 # BBC SMS — one-command launch helpers.
-.PHONY: prod demo down reset logs ps
+.PHONY: prod demo down reset logs ps deploy redeploy server-down server-logs
 
 ## prod  — PRODUCTION: clean schema, NO demo data (create your first admin yourself).
 prod:
@@ -24,3 +24,16 @@ logs:
 ## ps    — show stack status.
 ps:
 	docker compose ps
+
+## deploy / redeploy — SERVER deployment: self-signed TLS, ports 20000-30000.
+##   Generates the cert if missing, rebuilds images and recreates containers.
+deploy redeploy:
+	./deploy.sh
+
+## server-down — stop the server stack (keep data).
+server-down:
+	docker compose -f docker-compose.server.yml down
+
+## server-logs — follow the server backend logs.
+server-logs:
+	docker compose -f docker-compose.server.yml logs -f backend
