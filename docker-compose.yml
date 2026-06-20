@@ -37,7 +37,14 @@ services:
       DB_PASSWORD: bbc
       BBC_CORS_ORIGINS: http://localhost:4200,http://localhost:8081
       # Override in real deployments:
-      BBC_JWT_SECRET: Y2hhbmdlLW1lLXRoaXMtaXMtYS1kZXYtb25seS1zZWNyZXQtMzJieXRlcyE=
+      BBC_JWT_SECRET: ${BBC_JWT_SECRET:-Y2hhbmdlLW1lLXRoaXMtaXMtYS1kZXYtb25seS1zZWNyZXQtMzJieXRlcyE=}
+      # Production first-run admin bootstrap — set these in .env (see .env.example).
+      # Ignored in demo mode and once a user already exists.
+      BBC_ADMIN_USERNAME: ${BBC_ADMIN_USERNAME:-admin}
+      BBC_ADMIN_PASSWORD: ${BBC_ADMIN_PASSWORD:-}
+      BBC_ADMIN_NAME: ${BBC_ADMIN_NAME:-Administrateur}
+      BBC_SCHOOL_NAME: ${BBC_SCHOOL_NAME:-Mon établissement}
+      BBC_SCHOOL_CODE: ${BBC_SCHOOL_CODE:-SCHOOL}
     ports:
       - "8080:8080"
 

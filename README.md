@@ -34,9 +34,21 @@ make down    # arrête les conteneurs (conserve la base)
 
 ### Mode production
 `make prod` applique **uniquement le schéma** (migrations `db/migration`, aucune donnée de
-démonstration). La base démarre donc **vide** — créez le premier établissement et le compte
-administrateur via votre procédure d'enrôlement (ou un script d'amorçage). Pensez aussi à
-surcharger `BBC_JWT_SECRET` et `BBC_CORS_ORIGINS` pour un déploiement réel.
+démonstration). Au **tout premier démarrage sur une base vide**, le backend crée
+automatiquement **un établissement + un compte administrateur** (rôle `principal`, accès
+complet à tous les modules, y compris **Paramètres**) à partir duquel vous configurez ensuite
+toute l'application.
+
+```bash
+cp .env.example .env          # puis éditez BBC_ADMIN_PASSWORD (et le nom de l'établissement)
+make prod
+# Connexion : BBC_ADMIN_USERNAME (défaut « admin ») / BBC_ADMIN_PASSWORD
+```
+
+L'amorçage est **ignoré** en mode démo et dès qu'un compte existe (il ne s'exécute qu'une
+fois). Si `BBC_ADMIN_PASSWORD` n'est pas défini, la base reste vide (un avertissement le
+rappelle dans les logs). Pensez aussi à surcharger `BBC_JWT_SECRET` et `BBC_CORS_ORIGINS`
+pour un déploiement réel.
 
 > Le jeu de démo vit dans `db/seed` et n'est chargé que par le profil Spring `demo`
 > (`SPRING_PROFILES_ACTIVE=demo`, activé par `docker-compose.demo.yml`).

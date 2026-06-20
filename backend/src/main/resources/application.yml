@@ -32,6 +32,16 @@ bbc:
     refresh-token-days: 7
   cors:
     allowed-origins: ${BBC_CORS_ORIGINS:http://localhost:4200}
+  # First-run PRODUCTION bootstrap (skipped once any user exists, e.g. demo).
+  # Set BBC_ADMIN_PASSWORD to create the initial school + admin on an empty DB.
+  bootstrap:
+    enabled: ${BBC_BOOTSTRAP_ENABLED:true}
+    admin-username: ${BBC_ADMIN_USERNAME:admin}
+    admin-password: ${BBC_ADMIN_PASSWORD:}
+    admin-name: ${BBC_ADMIN_NAME:Administrateur}
+    school-name: ${BBC_SCHOOL_NAME:Mon établissement}
+    school-code: ${BBC_SCHOOL_CODE:SCHOOL}
+    year-label: ${BBC_YEAR_LABEL:2025-2026}
 
 springdoc:
   swagger-ui:
