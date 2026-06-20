@@ -28,12 +28,18 @@ echo "────────────────────────�
 
 # 1) Self-signed certificate (generated once; delete certs-tls/ to renew).
 if [ ! -s "${CERT_DIR}/server.crt" ] || [ ! -s "${CERT_DIR}/server.key" ]; then
-  echo "→ Génération du certificat auto-signé (CN=${DOMAIN}, validité 825 j)…"
+  # A bare IP must go in an IP: SAN entry, a hostname in a DNS: entry.
+  if printf '%s' "${DOMAIN}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+    SAN="IP:${DOMAIN},DNS:localhost,IP:127.0.0.1"
+  else
+    SAN="DNS:${DOMAIN},DNS:localhost,IP:127.0.0.1"
+  fi
+  echo "→ Génération du certificat auto-signé (CN=${DOMAIN}, SAN=${SAN}, 825 j)…"
   mkdir -p "${CERT_DIR}"
   openssl req -x509 -nodes -newkey rsa:2048 -days 825 \
     -keyout "${CERT_DIR}/server.key" -out "${CERT_DIR}/server.crt" \
     -subj "/CN=${DOMAIN}" \
-    -addext "subjectAltName=DNS:${DOMAIN},DNS:localhost,IP:127.0.0.1"
+    -addext "subjectAltName=${SAN}"
   chmod 600 "${CERT_DIR}/server.key"
 else
   echo "→ Certificat existant réutilisé (${CERT_DIR}/server.crt)."
