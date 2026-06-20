@@ -64,13 +64,18 @@ public class StudentService {
     private void apply(Student s, StudentUpsert in) {
         s.setFirstName(in.firstName());
         s.setLastName(in.lastName());
-        s.setSex(in.sex());
+        s.setSex(blankToNull(in.sex()));   // "" would violate CHECK (sex IN ('M','F'))
         s.setDob(in.dob());
         s.setClassName(in.className());
         s.setSubsystem(in.subsystem());
         s.setLevel(in.level());
         s.setParentName(in.parentName());
         s.setParentPhone(in.parentPhone());
+    }
+
+    /** Turn empty/blank input into null so optional, CHECK-constrained columns stay valid. */
+    private static String blankToNull(String s) {
+        return (s == null || s.isBlank()) ? null : s.trim();
     }
 
     private String nextMatricule(UUID schoolId) {

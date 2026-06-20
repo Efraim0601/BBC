@@ -1,21 +1,27 @@
 package com.bbc.sms.platform.common;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.time.OffsetDateTime;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 /** Turns exceptions into a consistent JSON error body. */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     public record ApiError(OffsetDateTime timestamp, int status, String error, Object message) {}
 
@@ -39,9 +45,27 @@ public class GlobalExceptionHandler {
             .body(new ApiError(OffsetDateTime.now(), 400, "Validation", fields));
     }
 
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiError> handleNotFound(NoResourceFoundException ex) {
+        return body(HttpStatus.NOT_FOUND, "Ressource introuvable.");
+    }
+
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ApiError> handleMethod(HttpRequestMethodNotSupportedException ex) {
+        return body(HttpStatus.METHOD_NOT_ALLOWED, "Méthode non autorisée.");
+    }
+
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ApiError> handleIntegrity(DataIntegrityViolationException ex) {
+        log.warn("Data integrity violation: {}", ex.getMostSpecificCause().getMessage());
+        return body(HttpStatus.BAD_REQUEST,
+            "Données invalides ou en conflit (une contrainte n'est pas respectée).");
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiError> handleOther(Exception ex) {
-        return body(HttpStatus.INTERNAL_SERVER_ERROR, ex.getMessage());
+        log.error("Unhandled exception", ex);   // full detail in logs, not in the response
+        return body(HttpStatus.INTERNAL_SERVER_ERROR, "Erreur interne du serveur.");
     }
 
     private ResponseEntity<ApiError> body(HttpStatus status, Object message) {
