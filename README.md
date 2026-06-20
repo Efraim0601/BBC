@@ -9,18 +9,37 @@ Application de gestion scolaire bilingue (FR/EN), multi-tenant, **temps réel**.
 
 ## Démarrage rapide (Docker)
 
+Deux modes, **une seule commande** chacun (via le `Makefile`) :
+
+| Mode | Commande | Base de données |
+|---|---|---|
+| **Démo** | `make demo` | schéma **+ jeu de données de démonstration** |
+| **Production** | `make prod` | schéma **seul**, *aucune donnée* (mode par défaut) |
+
 ```bash
-docker compose up --build
+make demo    # ou : docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d --build
+make prod    # ou : docker compose up -d --build
+make reset   # vide le volume DB — à lancer pour basculer entre démo et prod
+make down    # arrête les conteneurs (conserve la base)
 ```
 
 - Frontend : http://localhost:8081
 - API + Swagger : http://localhost:8080/swagger-ui.html
-- Postgres : localhost:5432 (`bbc` / `bbc`)
+- Postgres : localhost:**5433** (`bbc` / `bbc`)
 
-**Comptes de démonstration** (mot de passe : `password`) :
+### Mode démo — comptes de démonstration (mot de passe : `password`)
 - `principal` — tous modules, Finance en lecture seule, gère la matrice de permissions
 - `econome` — Finance complète (CRUD + config frais), situation/débiteurs
 - `parent1` — portail parent (2 enfants liés), notes, présence, frais, suggestions
+
+### Mode production
+`make prod` applique **uniquement le schéma** (migrations `db/migration`, aucune donnée de
+démonstration). La base démarre donc **vide** — créez le premier établissement et le compte
+administrateur via votre procédure d'enrôlement (ou un script d'amorçage). Pensez aussi à
+surcharger `BBC_JWT_SECRET` et `BBC_CORS_ORIGINS` pour un déploiement réel.
+
+> Le jeu de démo vit dans `db/seed` et n'est chargé que par le profil Spring `demo`
+> (`SPRING_PROFILES_ACTIVE=demo`, activé par `docker-compose.demo.yml`).
 
 ---
 
@@ -30,9 +49,11 @@ docker compose up --build
 ```bash
 cd backend
 # Postgres requis (ou: docker compose up db)
-mvn spring-boot:run
+mvn spring-boot:run                              # production : schéma seul
+SPRING_PROFILES_ACTIVE=demo mvn spring-boot:run  # démo : schéma + données
 ```
-Flyway crée le schéma et insère les données de démo au premier lancement.
+Flyway applique le schéma (`db/migration`) au premier lancement ; le profil `demo` ajoute
+en plus le jeu de données de `db/seed`.
 
 ### Frontend
 ```bash
