@@ -1,0 +1,320 @@
+import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@angular/core';
+import { SettingsApi, PermissionMatrix, RoleView } from './settings.api';
+import { AuthService } from '../../core/auth.service';
+import { I18nService } from '../../core/i18n.service';
+import {
+  IconComponent, CardComponent, PageHeaderComponent, EmptyComponent, TabsComponent,
+} from '../../core/ui';
+
+type Level = 'none' | 'read' | 'write';
+
+@Component({
+  selector: 'bbc-settings',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [IconComponent, CardComponent, PageHeaderComponent, EmptyComponent, TabsComponent],
+  template: `
+    <div class="fade-in max-w-6xl mx-auto">
+      <bbc-page-header [title]="i18n.t('settings')"
+        [subtitle]="fr() ? 'Configuration générale de l’établissement' : 'General school configuration'">
+        <div right class="flex items-center gap-2">
+          @if (currentUser(); as u) {
+            <span class="inline-flex items-center gap-1.5 h-9 px-3 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-mute">
+              <bbc-icon name="shield" [s]="14" /> {{ u.role }}
+            </span>
+          }
+        </div>
+      </bbc-page-header>
+
+      <bbc-tabs [tabs]="tabs()" [value]="tab()" (change)="tab.set($any($event))" />
+
+      @switch (tab()) {
+        <!-- ===================== GENERAL ===================== -->
+        @case ('general') {
+          <div class="grid grid-cols-12 gap-4">
+            <bbc-card className="col-span-12 lg:col-span-6" [title]="fr() ? 'Établissement' : 'School'">
+              <div action class="w-8 h-8 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center">
+                <bbc-icon name="building" [s]="18" />
+              </div>
+              <div class="space-y-0.5">
+                @for (r of schoolRows(); track r.label) {
+                  <div class="flex items-center justify-between py-2 border-b border-slate-50 last:border-0">
+                    <div class="text-sm text-mute">{{ r.label }}</div>
+                    <div class="text-sm font-semibold text-ink">{{ r.value }}</div>
+                  </div>
+                }
+              </div>
+            </bbc-card>
+
+            <bbc-card className="col-span-12 lg:col-span-6" [title]="fr() ? 'Lecteur d’empreintes' : 'Fingerprint reader'">
+              <div action class="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                <bbc-icon name="fingerprint" [s]="18" />
+              </div>
+              <div class="space-y-0.5">
+                @for (r of readerRows(); track r.label) {
+                  <div class="flex items-center justify-between py-2 border-b border-slate-50 last:border-0">
+                    <div class="text-sm text-mute">{{ r.label }}</div>
+                    @if (r.online) {
+                      <div class="text-sm font-semibold text-emerald-700 flex items-center gap-1.5">
+                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>{{ r.value }}
+                      </div>
+                    } @else {
+                      <div class="text-sm font-semibold text-ink">{{ r.value }}</div>
+                    }
+                  </div>
+                }
+              </div>
+            </bbc-card>
+          </div>
+        }
+
+        <!-- ===================== PERMISSIONS MATRIX ===================== -->
+        @case ('perms') {
+          @if (matrix(); as m) {
+            <bbc-card [title]="fr() ? 'Matrice des permissions' : 'Permission matrix'"
+              [subtitle]="fr() ? 'Accès granulaire par module pour chaque rôle' : 'Granular per-module access for each role'">
+              <div action class="flex items-center gap-3 text-xs">
+                @for (l of legend(); track l.level) {
+                  <span class="flex items-center gap-1.5">
+                    <span class="w-2.5 h-2.5 rounded-full" [class]="l.dot"></span>
+                    <span class="text-mute font-semibold">{{ l.label }}</span>
+                  </span>
+                }
+              </div>
+
+              @if (canWrite) {
+                <div class="text-xs text-mute mb-3">
+                  {{ fr() ? 'Cliquez sur une cellule pour faire défiler — appliqué immédiatement.' : 'Click a cell to cycle — applied immediately.' }}
+                </div>
+              }
+
+              <div class="overflow-x-auto -mx-5">
+                <table class="min-w-full text-sm border-collapse">
+                  <thead>
+                    <tr class="border-y border-slate-100 bg-slate-50/50">
+                      <th class="text-left font-semibold text-[11px] uppercase text-mute py-3 pl-5 sticky left-0 bg-slate-50 min-w-[160px]">
+                        {{ fr() ? 'Module' : 'Module' }}
+                      </th>
+                      @for (role of m.roles; track role.code) {
+                        <th class="py-3 px-3 min-w-[120px]">
+                          <div class="flex flex-col items-center gap-1">
+                            <span class="text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded" [class]="roleColor(role)">
+                              {{ fr() ? role.labelFr : role.labelEn }}
+                            </span>
+                            @if (role.builtin) {
+                              <span class="text-[10px] text-mute font-normal normal-case">
+                                {{ fr() ? 'intégré' : 'built-in' }}
+                              </span>
+                            }
+                          </div>
+                        </th>
+                      }
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (mod of m.modules; track mod) {
+                      <tr class="border-b border-slate-50 last:border-0 hover:bg-slate-50/30">
+                        <td class="py-2 pl-5 sticky left-0 bg-white font-semibold text-ink whitespace-nowrap">
+                          {{ i18n.moduleLabel(mod) }}
+                        </td>
+                        @for (role of m.roles; track role.code) {
+                          <td class="py-2 px-3 text-center">
+                            @if (canWrite) {
+                              <button (click)="cycle(role.code, mod)"
+                                class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition hover:ring-2 hover:ring-brand-300"
+                                [class]="cellClass(levelOf(role.code, mod))">
+                                <span class="w-2 h-2 rounded-full" [class]="dotClass(levelOf(role.code, mod))"></span>
+                                {{ cellLabel(levelOf(role.code, mod)) }}
+                              </button>
+                            } @else {
+                              <span class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold"
+                                [class]="cellClass(levelOf(role.code, mod))">
+                                <span class="w-2 h-2 rounded-full" [class]="dotClass(levelOf(role.code, mod))"></span>
+                                {{ cellLabel(levelOf(role.code, mod)) }}
+                              </span>
+                            }
+                          </td>
+                        }
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            </bbc-card>
+          } @else {
+            <bbc-card>
+              <bbc-empty icon="shield" [label]="fr() ? 'Chargement de la matrice…' : 'Loading matrix…'" />
+            </bbc-card>
+          }
+        }
+
+        <!-- ===================== ROLES ===================== -->
+        @case ('roles') {
+          <bbc-card [title]="fr() ? 'Rôles utilisateurs' : 'User roles'"
+            [subtitle]="fr() ? 'Rôles définis dans le système' : 'Roles defined in the system'">
+            <div action class="w-8 h-8 rounded-lg bg-violet-50 text-violet-600 flex items-center justify-center">
+              <bbc-icon name="users" [s]="18" />
+            </div>
+            @if (matrix(); as m) {
+              <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
+                @for (role of m.roles; track role.code) {
+                  <div class="p-3 rounded-lg" [class]="roleCard(role)">
+                    <div class="text-[10px] uppercase tracking-wide font-semibold">
+                      {{ fr() ? role.labelFr : role.labelEn }}
+                    </div>
+                    <div class="text-sm font-bold mt-0.5">
+                      {{ role.builtin ? (fr() ? 'Intégré' : 'Built-in') : (fr() ? 'Personnalisé' : 'Custom') }}
+                    </div>
+                  </div>
+                }
+              </div>
+            } @else {
+              <bbc-empty icon="users" [label]="fr() ? 'Aucun rôle' : 'No roles'" />
+            }
+          </bbc-card>
+        }
+      }
+    </div>
+  `,
+})
+export class SettingsComponent {
+  protected i18n = inject(I18nService);
+  protected auth = inject(AuthService);
+  private api = inject(SettingsApi);
+
+  protected matrix = signal<PermissionMatrix | null>(null);
+  protected canWrite = this.auth.can('settings', 'write');
+  protected currentUser = this.auth.user;
+  protected tab = signal<'general' | 'perms' | 'roles'>('general');
+
+  protected fr = () => this.i18n.lang() === 'fr';
+
+  protected tabs = computed(() => {
+    const t = [
+      { id: 'general', label: this.fr() ? 'Général' : 'General' },
+      { id: 'perms', label: this.fr() ? 'Permissions' : 'Permissions' },
+      { id: 'roles', label: this.fr() ? 'Rôles' : 'Roles' },
+    ];
+    return t;
+  });
+
+  protected schoolRows = computed(() => {
+    const f = this.fr();
+    return [
+      { label: f ? 'Nom' : 'Name', value: 'Bayo Bilingual Complex' },
+      { label: f ? 'Ville' : 'City', value: 'Maroua, Cameroun' },
+      { label: f ? 'Année scolaire' : 'Academic year', value: '2025-2026' },
+      { label: f ? 'Devise' : 'Currency', value: 'FCFA (XAF)' },
+      { label: f ? 'Langues' : 'Languages', value: 'Français · English' },
+    ];
+  });
+
+  protected readerRows = computed(() => {
+    const f = this.fr();
+    return [
+      { label: f ? 'Statut' : 'Status', value: f ? 'En ligne' : 'Online', online: true },
+      { label: f ? 'Emplacement' : 'Location', value: f ? 'Entrée principale' : 'Main gate', online: false },
+      { label: f ? 'Modèle' : 'Model', value: 'ZKTeco MultiBio 800', online: false },
+      { label: f ? 'Dernière synchro' : 'Last sync', value: f ? 'Il y a 3 min' : '3 min ago', online: false },
+    ];
+  });
+
+  protected legend = computed(() => {
+    const f = this.fr();
+    return [
+      { level: 'none', label: f ? 'Aucun' : 'None', dot: 'bg-slate-300' },
+      { level: 'read', label: f ? 'Lecture' : 'Read', dot: 'bg-amber-500' },
+      { level: 'write', label: f ? 'Complet' : 'Write', dot: 'bg-emerald-500' },
+    ];
+  });
+
+  private readonly NEXT: Record<string, Level> = {
+    none: 'read',
+    read: 'write',
+    write: 'none',
+  };
+
+  constructor() {
+    this.reload();
+  }
+
+  private reload(): void {
+    this.api.getMatrix().subscribe((m) => this.matrix.set(m));
+  }
+
+  protected levelOf(roleCode: string, module: string): Level {
+    const m = this.matrix();
+    if (!m) return 'none';
+    const row = m.matrix[roleCode];
+    return ((row && row[module]) as Level) ?? 'none';
+  }
+
+  protected cycle(roleCode: string, module: string): void {
+    if (!this.canWrite) return;
+    const m = this.matrix();
+    if (!m) return;
+
+    const current = this.levelOf(roleCode, module);
+    const newLevel = this.NEXT[current] ?? 'none';
+
+    // Optimistic local update (clone to keep the signal immutable).
+    const nextMatrix: Record<string, Record<string, string>> = {};
+    for (const code of Object.keys(m.matrix)) {
+      nextMatrix[code] = { ...m.matrix[code] };
+    }
+    if (!nextMatrix[roleCode]) nextMatrix[roleCode] = {};
+    nextMatrix[roleCode][module] = newLevel;
+    this.matrix.set({ ...m, matrix: nextMatrix });
+
+    this.api.update([{ roleCode, module, level: newLevel }]).subscribe({
+      next: (updated) => this.matrix.set(updated),
+      error: () => this.reload(), // revert to server truth on failure
+    });
+  }
+
+  protected cellClass(level: Level): string {
+    switch (level) {
+      case 'write':
+        return 'bg-emerald-100 text-emerald-700';
+      case 'read':
+        return 'bg-amber-100 text-amber-700';
+      default:
+        return 'bg-slate-100 text-slate-400';
+    }
+  }
+
+  protected dotClass(level: Level): string {
+    switch (level) {
+      case 'write':
+        return 'bg-emerald-500';
+      case 'read':
+        return 'bg-amber-500';
+      default:
+        return 'bg-slate-300';
+    }
+  }
+
+  protected cellLabel(level: Level): string {
+    const f = this.fr();
+    switch (level) {
+      case 'write':
+        return f ? 'Complet' : 'Write';
+      case 'read':
+        return f ? 'Lecture' : 'Read';
+      default:
+        return f ? 'Aucun' : 'None';
+    }
+  }
+
+  protected roleColor(role: RoleView): string {
+    return role.builtin
+      ? 'bg-brand-100 text-brand-700'
+      : 'bg-gold-100 text-gold-600';
+  }
+
+  protected roleCard(role: RoleView): string {
+    return role.builtin
+      ? 'bg-brand-50 text-brand-700'
+      : 'bg-gold-50 text-gold-600';
+  }
+}
