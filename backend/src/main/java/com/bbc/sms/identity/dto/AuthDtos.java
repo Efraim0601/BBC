@@ -1,0 +1,36 @@
+package com.bbc.sms.identity.dto;
+
+import jakarta.validation.constraints.NotBlank;
+
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+public class AuthDtos {
+
+    public record LoginRequest(
+            @NotBlank String username,
+            @NotBlank String password,
+            String schoolCode) {}
+
+    public record RefreshRequest(@NotBlank String refreshToken) {}
+
+    public record UserView(
+            UUID id,
+            String username,
+            String displayName,
+            String initials,
+            String role,
+            UUID schoolId,
+            String schoolCode,
+            String schoolName,
+            String locale,
+            Map<String, String> permissions,   // module -> none|read|write
+            List<String> modules) {}            // modules the role may open
+
+    public record TokenResponse(
+            String accessToken,
+            String refreshToken,
+            long expiresInMs,
+            UserView user) {}
+}
