@@ -1,0 +1,11 @@
+# Demo override — layers the demonstration dataset on top of the base stack.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d --build
+#        (or simply: make demo)
+#
+# Activating the `demo` Spring profile makes Flyway also load db/seed, which
+# inserts the school, demo logins (principal / econome / parent1, password:
+# "password") and a full sample dataset (students, grades, fees, events…).
+services:
+  backend:
+    environment:
+      SPRING_PROFILES_ACTIVE: demo

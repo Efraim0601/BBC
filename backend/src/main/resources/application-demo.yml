@@ -1,0 +1,7 @@
+# Demo profile — activate with SPRING_PROFILES_ACTIVE=demo.
+# Adds the db/seed location so Flyway loads the demonstration dataset
+# (school, demo logins principal/econome/parent1, students, grades, fees…)
+# on top of the production schema in db/migration.
+spring:
+  flyway:
+    locations: classpath:db/migration,classpath:db/seed
