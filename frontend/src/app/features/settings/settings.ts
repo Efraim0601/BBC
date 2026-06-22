@@ -6,6 +6,7 @@ import { I18nService } from '../../core/i18n.service';
 import {
   IconComponent, CardComponent, PageHeaderComponent, EmptyComponent, TabsComponent,
 } from '../../core/ui';
+import { AcademicSetupComponent } from '../setup/academic-setup';
 
 type Level = 'none' | 'read' | 'write';
 
@@ -13,7 +14,7 @@ type Level = 'none' | 'read' | 'write';
   selector: 'bbc-settings',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, IconComponent, CardComponent, PageHeaderComponent, EmptyComponent, TabsComponent],
+  imports: [FormsModule, IconComponent, CardComponent, PageHeaderComponent, EmptyComponent, TabsComponent, AcademicSetupComponent],
   template: `
     <div class="fade-in max-w-6xl mx-auto">
       <bbc-page-header [title]="i18n.t('settings')"
@@ -30,6 +31,11 @@ type Level = 'none' | 'read' | 'write';
       <bbc-tabs [tabs]="tabs()" [value]="tab()" (change)="tab.set($any($event))" />
 
       @switch (tab()) {
+        <!-- ===================== ACADEMIC SETUP ===================== -->
+        @case ('academic') {
+          <bbc-academic-setup />
+        }
+
         <!-- ===================== GENERAL ===================== -->
         @case ('general') {
           <div class="grid grid-cols-12 gap-4">
@@ -300,7 +306,7 @@ export class SettingsComponent {
   protected matrix = signal<PermissionMatrix | null>(null);
   protected canWrite = this.auth.can('settings', 'write');
   protected currentUser = this.auth.user;
-  protected tab = signal<'general' | 'perms' | 'roles' | 'mail'>('general');
+  protected tab = signal<'academic' | 'general' | 'perms' | 'roles' | 'mail'>('academic');
 
   // SMTP / mail config
   protected mailDraft: MailConfigUpdate = {
@@ -317,6 +323,7 @@ export class SettingsComponent {
 
   protected tabs = computed(() => {
     const t = [
+      { id: 'academic', label: this.fr() ? 'Scolarité' : 'Academics' },
       { id: 'general', label: this.fr() ? 'Général' : 'General' },
       { id: 'perms', label: this.fr() ? 'Permissions' : 'Permissions' },
       { id: 'roles', label: this.fr() ? 'Rôles' : 'Roles' },
