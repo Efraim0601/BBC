@@ -5,9 +5,6 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { AuthService } from '../../core/auth.service';
 import { I18nService, Lang } from '../../core/i18n.service';
 
-/** Demo accounts wired to the seeded backend users (password: "password"). */
-interface DemoUser { username: string; name: string; title: string; initials: string; gradient: string; }
-
 @Component({
   selector: 'bbc-login',
   standalone: true,
@@ -115,23 +112,6 @@ interface DemoUser { username: string; name: string; title: string; initials: st
               </div>
             </div>
 
-            <div>
-              <label class="block text-xs font-semibold text-mute uppercase tracking-wide mb-2">{{ fr() ? 'Comptes de démonstration' : 'Demo accounts' }}</label>
-              <div class="grid grid-cols-3 gap-1.5">
-                @for (u of demoUsers; track u.username) {
-                  <button type="button" (click)="pick(u)"
-                    class="px-2 py-2 rounded-lg text-xs font-bold border-2 transition text-left"
-                    [class]="username === u.username ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-slate-200 text-mute hover:border-slate-300 bg-white'">
-                    <div class="flex items-center gap-1.5">
-                      <span class="w-6 h-6 rounded-full bg-gradient-to-br text-white flex items-center justify-center text-[10px] shrink-0" [class]="u.gradient">{{ u.initials }}</span>
-                      <span class="truncate">{{ u.username }}</span>
-                    </div>
-                    <div class="text-[10px] font-semibold opacity-60 mt-1 truncate">{{ u.title }}</div>
-                  </button>
-                }
-              </div>
-            </div>
-
             @if (error()) {
               <div class="text-xs text-rose-600 bg-rose-50 rounded-lg px-3 py-2">{{ error() }}</div>
             }
@@ -143,15 +123,6 @@ interface DemoUser { username: string; name: string; title: string; initials: st
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m9 18 6-6-6-6"/></svg>
               }
             </button>
-
-            <div class="bg-amber-50 border border-amber-100 rounded-lg p-3 flex items-start gap-2.5 mt-3">
-              <svg class="text-amber-600 mt-0.5 shrink-0" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-              <div class="text-[12px] text-amber-900 leading-relaxed">
-                <b>{{ fr() ? 'Démo :' : 'Demo:' }}</b> {{ fr() ? 'mot de passe' : 'password' }}
-                <code class="bg-amber-100 px-1 py-0.5 rounded font-mono text-[11px]">password</code>.
-                {{ fr() ? 'Choisissez un compte pour explorer son rôle.' : 'Pick an account to explore that role.' }}
-              </div>
-            </div>
           </form>
         </div>
       </div>
@@ -165,19 +136,13 @@ export class LoginComponent {
   private sanitizer = inject(DomSanitizer);
 
   protected readonly langs: Lang[] = ['fr', 'en'];
-  protected username = 'principal';
-  protected password = 'password';
+  protected username = '';
+  protected password = '';
   protected showPwd = signal(false);
   protected loading = signal(false);
   protected error = signal<string | null>(null);
 
   protected fr = () => this.i18n.lang() === 'fr';
-
-  protected readonly demoUsers: DemoUser[] = [
-    { username: 'principal', name: 'NGANOU Aïcha', title: 'Principal', initials: 'NA', gradient: 'from-gold-400 to-gold-600' },
-    { username: 'econome', name: 'MBAH Junior', title: 'Économe', initials: 'MJ', gradient: 'from-gold-500 to-gold-700' },
-    { username: 'parent1', name: 'Parent', title: 'Parent', initials: 'P1', gradient: 'from-orange-400 to-orange-600' },
-  ];
 
   private icon(svg: string): SafeHtml { return this.sanitizer.bypassSecurityTrustHtml(svg); }
 
@@ -187,11 +152,6 @@ export class LoginComponent {
     { label: this.fr() ? 'Bulletins automatisés' : 'Auto report cards', icon: this.icon('<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>') },
     { label: this.fr() ? 'SMS aux parents' : 'Parent SMS', icon: this.icon('<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m22 2-7 20-4-9-9-4 20-7z"/></svg>') },
   ];
-
-  protected pick(u: DemoUser): void {
-    this.username = u.username;
-    this.password = 'password';
-  }
 
   submit(): void {
     this.loading.set(true);
