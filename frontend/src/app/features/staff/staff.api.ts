@@ -13,6 +13,8 @@ export interface EmployeeView {
   email: string;
   phone: string;
   formClass: string;
+  departmentId: string | null;
+  departmentName: string | null;
   monthlySalary: number;
   hourlyRate: number;
   roles: string[];
@@ -26,6 +28,7 @@ export interface EmployeeUpsert {
   email?: string;
   phone?: string;
   formClass?: string;
+  departmentId?: string | null;
   monthlySalary?: number;
   hourlyRate?: number;
   roles?: string[];

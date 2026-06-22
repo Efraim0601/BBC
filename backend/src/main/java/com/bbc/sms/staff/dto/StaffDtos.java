@@ -17,6 +17,8 @@ public class StaffDtos {
             String email,
             String phone,
             String formClass,
+            UUID departmentId,
+            String departmentName,
             long monthlySalary,
             int hourlyRate,
             Set<String> roles,
@@ -29,6 +31,7 @@ public class StaffDtos {
             String email,
             String phone,
             String formClass,
+            UUID departmentId,
             long monthlySalary,
             int hourlyRate,
             Set<String> roles) {}

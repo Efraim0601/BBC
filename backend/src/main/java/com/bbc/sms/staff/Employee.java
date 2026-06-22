@@ -44,6 +44,9 @@ public class Employee {
     @Column(name = "form_class")
     private String formClass;
 
+    @Column(name = "department_id")
+    private UUID departmentId;
+
     @Column(name = "hired_on")
     private LocalDate hiredOn;
 

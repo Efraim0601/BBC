@@ -1,5 +1,7 @@
 package com.bbc.sms.staff;
 
+import com.bbc.sms.hr.Department;
+import com.bbc.sms.hr.DepartmentRepository;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.mail.MailService;
 import com.bbc.sms.platform.tenant.TenantContext;
@@ -7,8 +9,10 @@ import com.bbc.sms.staff.dto.StaffDtos.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -16,18 +20,22 @@ import java.util.UUID;
 public class StaffService {
 
     private final EmployeeRepository repo;
+    private final DepartmentRepository departments;
     private final MailService mail;
 
-    public StaffService(EmployeeRepository repo, MailService mail) {
+    public StaffService(EmployeeRepository repo, DepartmentRepository departments, MailService mail) {
         this.repo = repo;
+        this.departments = departments;
         this.mail = mail;
     }
 
     @Transactional(readOnly = true)
     public List<EmployeeView> list() {
         UUID schoolId = TenantContext.get();
+        Map<UUID, String> deptNames = new HashMap<>();
+        for (Department d : departments.findBySchoolIdOrderByName(schoolId)) deptNames.put(d.getId(), d.getName());
         return repo.findBySchoolIdAndActiveTrueOrderByNameAsc(schoolId).stream()
-                .map(this::toView).toList();
+                .map(e -> toView(e, deptNames)).toList();
     }
 
     @Transactional(readOnly = true)
@@ -76,6 +84,11 @@ public class StaffService {
         e.setEmail(blankToNull(in.email()));
         e.setPhone(blankToNull(in.phone()));
         e.setFormClass(blankToNull(in.formClass()));
+        if (in.departmentId() != null
+                && departments.findByIdAndSchoolId(in.departmentId(), TenantContext.get()).isEmpty()) {
+            throw ApiException.badRequest("Département inconnu");
+        }
+        e.setDepartmentId(in.departmentId());
         e.setMonthlySalary(in.monthlySalary());
         e.setHourlyRate(in.hourlyRate());
         e.setRoles(in.roles() == null ? new HashSet<>() : new HashSet<>(in.roles()));
@@ -107,11 +120,23 @@ public class StaffService {
     }
 
     private EmployeeView toView(Employee e) {
+        String deptName = e.getDepartmentId() == null ? null
+                : departments.findByIdAndSchoolId(e.getDepartmentId(), e.getSchoolId())
+                        .map(Department::getName).orElse(null);
+        return toView(e, deptName);
+    }
+
+    private EmployeeView toView(Employee e, Map<UUID, String> deptNames) {
+        return toView(e, e.getDepartmentId() == null ? null : deptNames.get(e.getDepartmentId()));
+    }
+
+    private EmployeeView toView(Employee e, String deptName) {
         // Copy the lazy @ElementCollection into a plain set while the session is
         // still open, otherwise JSON serialization fails with LazyInitializationException.
         Set<String> roles = e.getRoles() == null ? Set.of() : new HashSet<>(e.getRoles());
         return new EmployeeView(e.getId(), e.getCode(), e.getName(), e.getInitials(),
                 e.getSex(), e.getType(), e.getEmail(), e.getPhone(), e.getFormClass(),
+                e.getDepartmentId(), deptName,
                 e.getMonthlySalary(), e.getHourlyRate(), roles, e.isActive());
     }
 }
