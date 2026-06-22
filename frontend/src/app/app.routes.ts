@@ -26,6 +26,36 @@ export const routes: Routes = [
         loadComponent: () => import('./features/students/students').then((m) => m.StudentsComponent),
       },
       {
+        path: 'journey',
+        canActivate: [permissionGuard('journey')],
+        loadComponent: () => import('./features/journey/journey').then((m) => m.JourneyComponent),
+      },
+      {
+        path: 'alerts',
+        canActivate: [permissionGuard('alerts')],
+        loadComponent: () => import('./features/alerts/alerts').then((m) => m.AlertsComponent),
+      },
+      {
+        path: 'messages',
+        canActivate: [permissionGuard('messages')],
+        loadComponent: () => import('./features/messages/messages').then((m) => m.MessagesComponent),
+      },
+      {
+        path: 'coursebook',
+        canActivate: [permissionGuard('coursebook')],
+        loadComponent: () => import('./features/coursebook/coursebook').then((m) => m.CoursebookComponent),
+      },
+      {
+        path: 'health',
+        canActivate: [permissionGuard('health')],
+        loadComponent: () => import('./features/health/health').then((m) => m.HealthComponent),
+      },
+      {
+        path: 'documents',
+        canActivate: [permissionGuard('documents')],
+        loadComponent: () => import('./features/documents/documents').then((m) => m.DocumentsComponent),
+      },
+      {
         path: 'presence',
         canActivate: [permissionGuard('presence')],
         loadComponent: () => import('./features/attendance/attendance').then((m) => m.AttendanceComponent),

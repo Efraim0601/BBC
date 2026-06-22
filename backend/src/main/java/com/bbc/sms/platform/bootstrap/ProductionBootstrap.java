@@ -36,7 +36,8 @@ public class ProductionBootstrap implements ApplicationRunner {
     /** Every module the permission matrix can grant. */
     private static final String[] MODULES = {
         "dashboard", "presence", "students", "hr", "academic", "finance",
-        "timetable", "events", "discipline", "reports", "settings"
+        "timetable", "events", "discipline", "reports", "settings", "journey",
+        "alerts", "messages", "coursebook", "health", "documents"
     };
 
     private final JdbcTemplate jdbc;
@@ -89,14 +90,14 @@ public class ProductionBootstrap implements ApplicationRunner {
         // Permission matrix. Admin (principal) gets full write everywhere; the
         // other roles get a sensible default the admin can refine in Settings.
         for (String m : MODULES) grant(schoolId, "principal", m, "write");
-        grants(schoolId, "prefect", "write", "presence", "timetable", "events", "discipline");
-        grants(schoolId, "prefect", "read", "dashboard", "students", "academic", "reports");
+        grants(schoolId, "prefect", "write", "presence", "timetable", "events", "discipline", "journey", "alerts", "messages", "documents");
+        grants(schoolId, "prefect", "read", "dashboard", "students", "academic", "reports", "coursebook", "health");
         grants(schoolId, "econome", "write", "finance");
-        grants(schoolId, "econome", "read", "dashboard", "students", "reports");
-        grants(schoolId, "form_teacher", "write", "academic", "discipline");
-        grants(schoolId, "form_teacher", "read", "dashboard", "presence", "students", "timetable", "events");
-        grants(schoolId, "teacher", "write", "academic");
-        grants(schoolId, "teacher", "read", "dashboard", "presence", "timetable", "events");
+        grants(schoolId, "econome", "read", "dashboard", "students", "reports", "alerts");
+        grants(schoolId, "form_teacher", "write", "academic", "discipline", "coursebook", "messages");
+        grants(schoolId, "form_teacher", "read", "dashboard", "presence", "students", "timetable", "events", "journey", "alerts", "health", "documents");
+        grants(schoolId, "teacher", "write", "academic", "coursebook");
+        grants(schoolId, "teacher", "read", "dashboard", "presence", "timetable", "events", "messages");
         grant(schoolId, "parent", "parent", "read");
 
         jdbc.update("INSERT INTO app_user (school_id, username, password_hash, display_name, initials, role_code) "
