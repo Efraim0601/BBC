@@ -3,6 +3,8 @@ package com.bbc.sms.student;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.student.dto.StudentDtos.*;
+import com.bbc.sms.timetable.SchoolClass;
+import com.bbc.sms.timetable.SchoolClassRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -14,8 +16,12 @@ import java.util.concurrent.ThreadLocalRandom;
 public class StudentService {
 
     private final StudentRepository repo;
+    private final SchoolClassRepository classes;
 
-    public StudentService(StudentRepository repo) { this.repo = repo; }
+    public StudentService(StudentRepository repo, SchoolClassRepository classes) {
+        this.repo = repo;
+        this.classes = classes;
+    }
 
     @Transactional(readOnly = true)
     public List<StudentView> list(String className) {
@@ -62,13 +68,29 @@ public class StudentService {
     }
 
     private void apply(Student s, StudentUpsert in) {
+        UUID schoolId = TenantContext.get();
         s.setFirstName(in.firstName());
         s.setLastName(in.lastName());
         s.setSex(blankToNull(in.sex()));   // "" would violate CHECK (sex IN ('M','F'))
         s.setDob(in.dob());
-        s.setClassName(in.className());
-        s.setSubsystem(in.subsystem());
-        s.setLevel(in.level());
+
+        if (in.classId() != null) {
+            // Authoritative path: bind a real class and copy its name/subsystem/level so
+            // free typing can never create phantom classes (review issue #1).
+            SchoolClass cls = classes.findByIdAndSchoolId(in.classId(), schoolId)
+                    .orElseThrow(() -> ApiException.badRequest("Classe inconnue"));
+            s.setClassId(cls.getId());
+            s.setClassName(cls.getName());
+            s.setSubsystem(cls.getSubsystem());
+            s.setLevel(cls.getLevel());
+        } else {
+            // Unassigned student (no class yet) — keep any legacy/manual hints.
+            s.setClassId(null);
+            s.setClassName(blankToNull(in.className()));
+            s.setSubsystem(blankToNull(in.subsystem()));
+            s.setLevel(blankToNull(in.level()));
+        }
+
         s.setParentName(in.parentName());
         s.setParentPhone(in.parentPhone());
     }
@@ -90,7 +112,7 @@ public class StudentService {
     private StudentView toView(Student s) {
         String name = s.getLastName().toUpperCase() + " " + s.getFirstName();
         return new StudentView(s.getId(), s.getMatricule(), s.getFirstName(), s.getLastName(),
-                name, s.getSex(), s.getDob(), s.getClassName(), s.getSubsystem(), s.getLevel(),
+                name, s.getSex(), s.getDob(), s.getClassId(), s.getClassName(), s.getSubsystem(), s.getLevel(),
                 s.getParentName(), s.getParentPhone(), s.getPhotoHue());
     }
 }

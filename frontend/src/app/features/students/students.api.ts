@@ -9,11 +9,26 @@ export interface StudentUpsert {
   lastName: string;
   sex?: string;
   dob?: string | null;
+  classId?: string | null;
   className?: string;
   subsystem?: string;
   level?: string;
   parentName?: string;
   parentPhone?: string;
+}
+
+export interface ParentAccountView {
+  userId: string;
+  displayName: string;
+  username: string;
+  active: boolean;
+  childCount: number;
+}
+
+export interface ParentLinkRequest {
+  displayName: string;
+  username: string;
+  password?: string;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -33,5 +48,16 @@ export class StudentApi {
   }
   remove(id: string): Observable<void> {
     return this.http.delete<void>(`${this.base}/${id}`);
+  }
+
+  // Parent accounts (review issue #2)
+  listParents(studentId: string): Observable<ParentAccountView[]> {
+    return this.http.get<ParentAccountView[]>(`${this.base}/${studentId}/parents`);
+  }
+  linkParent(studentId: string, body: ParentLinkRequest): Observable<ParentAccountView> {
+    return this.http.post<ParentAccountView>(`${this.base}/${studentId}/parents`, body);
+  }
+  unlinkParent(studentId: string, parentUserId: string): Observable<void> {
+    return this.http.delete<void>(`${this.base}/${studentId}/parents/${parentUserId}`);
   }
 }

@@ -15,6 +15,7 @@ public class StudentDtos {
             String name,
             String sex,
             LocalDate dob,
+            UUID classId,
             String className,
             String subsystem,
             String level,
@@ -27,9 +28,23 @@ public class StudentDtos {
             @NotBlank String lastName,
             String sex,
             LocalDate dob,
+            UUID classId,
             String className,
             String subsystem,
             String level,
             String parentName,
             String parentPhone) {}
+
+    /** A real parent login linked to this student (review issue #2). */
+    public record ParentAccountView(
+            UUID userId,
+            String displayName,
+            String username,
+            boolean active,
+            int childCount) {}
+
+    public record ParentLinkRequest(
+            @NotBlank String displayName,
+            @NotBlank String username,
+            String password) {}
 }

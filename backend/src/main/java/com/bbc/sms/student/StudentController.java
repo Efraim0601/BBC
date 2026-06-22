@@ -14,8 +14,12 @@ import java.util.UUID;
 public class StudentController {
 
     private final StudentService service;
+    private final ParentLinkService parentLinks;
 
-    public StudentController(StudentService service) { this.service = service; }
+    public StudentController(StudentService service, ParentLinkService parentLinks) {
+        this.service = service;
+        this.parentLinks = parentLinks;
+    }
 
     @GetMapping
     @PreAuthorize("@perm.can('students','read')")
@@ -47,5 +51,26 @@ public class StudentController {
     @PreAuthorize("@perm.can('students','write')")
     public void delete(@PathVariable UUID id) {
         service.delete(id);
+    }
+
+    // ---- Parent accounts (review issue #2) ---------------------------------
+    @GetMapping("/{id}/parents")
+    @PreAuthorize("@perm.can('students','read')")
+    public List<ParentAccountView> parents(@PathVariable UUID id) {
+        return parentLinks.list(id);
+    }
+
+    @PostMapping("/{id}/parents")
+    @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("@perm.can('students','write')")
+    public ParentAccountView linkParent(@PathVariable UUID id, @Valid @RequestBody ParentLinkRequest in) {
+        return parentLinks.link(id, in);
+    }
+
+    @DeleteMapping("/{id}/parents/{parentUserId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("@perm.can('students','write')")
+    public void unlinkParent(@PathVariable UUID id, @PathVariable UUID parentUserId) {
+        parentLinks.unlink(id, parentUserId);
     }
 }

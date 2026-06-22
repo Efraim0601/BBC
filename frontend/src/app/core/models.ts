@@ -29,6 +29,7 @@ export interface Student {
   name: string;
   sex: string;
   dob: string | null;
+  classId: string | null;
   className: string;
   subsystem: string;
   level: string;
