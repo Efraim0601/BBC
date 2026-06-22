@@ -1,3 +1,4 @@
 export * from './icon';
 export * from './ui';
 export * from './charts';
+export * from './data-table';

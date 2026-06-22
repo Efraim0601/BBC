@@ -3,53 +3,8 @@ import { Router } from '@angular/router';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { AuthService } from '../core/auth.service';
 import { I18nService } from '../core/i18n.service';
+import { NAV_GROUPS } from '../core/nav-items';
 
-interface Mod {
-  id: string;
-  route: string;
-  iconBg: string;
-  color: string;
-  svg: string;
-  subFr: string;
-  subEn: string;
-}
-interface Group { key: string; labelFr: string; labelEn: string; mods: Mod[]; }
-
-const I = {
-  users: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
-  building: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4M9 6h.01M15 6h.01M9 10h.01M15 10h.01M9 14h.01M15 14h.01"/></svg>',
-  book: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>',
-  fingerprint: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 11v3M7 8a8 8 0 0 1 10 0M5 12a10 10 0 0 1 14 0M9 14.5a4 4 0 0 1 6 0M9.5 19a8 8 0 0 0 5 0"/></svg>',
-  shield: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
-  wallet: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M20 12V8H6a2 2 0 0 1 0-4h12v4"/><path d="M4 6v12a2 2 0 0 0 2 2h14v-4"/><path d="M18 12a2 2 0 0 0 0 4h4v-4z"/></svg>',
-  calendar: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>',
-  bell: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>',
-  home: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></svg>',
-  chart: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>',
-  settings: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
-};
-
-const GROUPS: Group[] = [
-  { key: 'community', labelFr: 'Communauté', labelEn: 'Community', mods: [
-    { id: 'students', route: '/students', iconBg: 'bg-rose-100 text-rose-700', color: 'from-rose-500 to-rose-700', svg: I.users, subFr: 'Élèves, parents, familles', subEn: 'Students, parents, families' },
-    { id: 'hr', route: '/staff', iconBg: 'bg-violet-100 text-violet-700', color: 'from-violet-500 to-violet-700', svg: I.building, subFr: 'Personnel & ressources humaines', subEn: 'Staff & human resources' },
-  ]},
-  { key: 'education', labelFr: 'Pédagogie', labelEn: 'Education', mods: [
-    { id: 'academic', route: '/academic', iconBg: 'bg-emerald-100 text-emerald-700', color: 'from-emerald-500 to-emerald-700', svg: I.book, subFr: 'Notes, bulletins, procès-verbaux', subEn: 'Grades, report cards, master sheets' },
-    { id: 'presence', route: '/presence', iconBg: 'bg-amber-100 text-amber-700', color: 'from-amber-500 to-amber-700', svg: I.fingerprint, subFr: 'Empreinte digitale, SMS auto', subEn: 'Biometric, auto SMS' },
-    { id: 'discipline', route: '/discipline', iconBg: 'bg-orange-100 text-orange-700', color: 'from-orange-500 to-orange-700', svg: I.shield, subFr: 'Incidents, SMS parents', subEn: 'Incidents, parent SMS' },
-  ]},
-  { key: 'operations', labelFr: 'Opérations', labelEn: 'Operations', mods: [
-    { id: 'finance', route: '/finance', iconBg: 'bg-gold-50 text-gold-600', color: 'from-gold-400 to-gold-600', svg: I.wallet, subFr: 'Recettes, dépenses, débiteurs', subEn: 'Revenue, expenses, debtors' },
-    { id: 'timetable', route: '/timetable', iconBg: 'bg-cyan-100 text-cyan-700', color: 'from-cyan-500 to-cyan-700', svg: I.calendar, subFr: 'Grilles, créneaux, conflits', subEn: 'Grids, slots, conflicts' },
-    { id: 'events', route: '/events', iconBg: 'bg-pink-100 text-pink-700', color: 'from-pink-500 to-pink-700', svg: I.bell, subFr: 'Annonces & notifications parents', subEn: 'Announcements & parent alerts' },
-  ]},
-  { key: 'steering', labelFr: 'Pilotage', labelEn: 'Steering', mods: [
-    { id: 'dashboard', route: '/dashboard', iconBg: 'bg-brand-100 text-brand-700', color: 'from-brand-500 to-brand-700', svg: I.home, subFr: "Vue d'ensemble · KPIs", subEn: 'Overview · KPIs' },
-    { id: 'reports', route: '/reports', iconBg: 'bg-indigo-100 text-indigo-700', color: 'from-indigo-500 to-indigo-700', svg: I.chart, subFr: 'Analytique école entière', subEn: 'School-wide analytics' },
-    { id: 'settings', route: '/settings', iconBg: 'bg-slate-100 text-slate-700', color: 'from-slate-500 to-slate-700', svg: I.settings, subFr: 'Configuration, rôles, lecteur', subEn: 'Config, roles, reader' },
-  ]},
-];
 
 @Component({
   selector: 'bbc-apps-home',
@@ -122,7 +77,7 @@ export class AppsHomeComponent {
 
   protected visibleGroups = computed(() => {
     const allowed = new Set(this.auth.user()?.modules ?? []);
-    return GROUPS
+    return NAV_GROUPS
       .map((g) => ({ ...g, mods: g.mods.filter((m) => allowed.has(m.id)) }))
       .filter((g) => g.mods.length > 0);
   });
