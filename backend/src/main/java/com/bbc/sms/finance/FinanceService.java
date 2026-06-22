@@ -3,6 +3,8 @@ package com.bbc.sms.finance;
 import com.bbc.sms.finance.dto.FinanceDtos.*;
 import com.bbc.sms.platform.realtime.RealtimeService;
 import com.bbc.sms.platform.tenant.TenantContext;
+import com.bbc.sms.student.Student;
+import com.bbc.sms.student.StudentRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,11 +21,19 @@ public class FinanceService {
     private final PaymentRepository payments;
     private final ExpenseRepository expenses;
     private final RealtimeService realtime;
+    private final StudentFeeRepository studentFees;
+    private final FeeConfigRepository feeConfigs;
+    private final StudentRepository students;
 
-    public FinanceService(PaymentRepository payments, ExpenseRepository expenses, RealtimeService realtime) {
+    public FinanceService(PaymentRepository payments, ExpenseRepository expenses, RealtimeService realtime,
+                          StudentFeeRepository studentFees, FeeConfigRepository feeConfigs,
+                          StudentRepository students) {
         this.payments = payments;
         this.expenses = expenses;
         this.realtime = realtime;
+        this.studentFees = studentFees;
+        this.feeConfigs = feeConfigs;
+        this.students = students;
     }
 
     @Transactional(readOnly = true)
@@ -50,8 +60,70 @@ public class FinanceService {
         p.setTranche(in.tranche());
         p.setPaidOn(in.paidOn() == null ? LocalDate.now() : in.paidOn());
         PaymentView view = toView(payments.save(p));
+
+        // Reconcile the student's running balance — without this, recording a payment
+        // never reduced what the student owes (the dashboard/debtor figures went stale).
+        reconcileStudentFee(schoolId, in.studentId(), in.amount());
+
         realtime.broadcast(schoolId, "payments", view);
         return view;
+    }
+
+    /** Apply a payment to the student's {@code student_fee} row, creating it from the fee grid if absent. */
+    private void reconcileStudentFee(UUID schoolId, UUID studentId, long amount) {
+        StudentFee fee = studentFees.findBySchoolIdAndStudentId(schoolId, studentId)
+                .orElseGet(() -> {
+                    StudentFee fresh = new StudentFee();
+                    fresh.setSchoolId(schoolId);
+                    fresh.setStudentId(studentId);
+                    fresh.setTotal(expectedTotal(schoolId, studentId));
+                    fresh.setPaid(0);
+                    fresh.setTranchesPaid(0);
+                    return fresh;
+                });
+
+        long paid = fee.getPaid() + amount;
+        long total = Math.max(fee.getTotal(), paid);   // never let balance go negative
+        long balance = Math.max(0, total - paid);
+
+        fee.setTotal(total);
+        fee.setPaid(paid);
+        fee.setBalance(balance);
+        fee.setTranchesPaid(tranchesCovered(schoolId, studentId, paid, fee.getTranchesPaid()));
+        fee.setStatus(balance <= 0 ? "paid" : (paid > 0 ? "partial" : "unpaid"));
+        studentFees.save(fee);
+    }
+
+    /** Fee-grid total for the student's level/subsystem, or 0 when no grid matches. */
+    private long expectedTotal(UUID schoolId, UUID studentId) {
+        Student s = students.findByIdAndSchoolId(studentId, schoolId).orElse(null);
+        if (s == null || s.getLevel() == null) return 0;
+        return feeConfigs.findBySchoolIdAndLevel(schoolId, s.getLevel()).stream()
+                .filter(c -> c.getSubsystem() == null || c.getSubsystem().equals(s.getSubsystem()))
+                .mapToLong(FeeConfig::getTotal)
+                .findFirst()
+                .orElse(0L);
+    }
+
+    /** How many cumulative tranches the total paid now covers (falls back to the current count). */
+    private int tranchesCovered(UUID schoolId, UUID studentId, long paid, int current) {
+        Student s = students.findByIdAndSchoolId(studentId, schoolId).orElse(null);
+        if (s == null || s.getLevel() == null) return current;
+        List<Long> tranches = feeConfigs.findBySchoolIdAndLevel(schoolId, s.getLevel()).stream()
+                .filter(c -> c.getSubsystem() == null || c.getSubsystem().equals(s.getSubsystem()))
+                .map(FeeConfig::getTranches)
+                .filter(t -> t != null && !t.isEmpty())
+                .findFirst()
+                .orElse(null);
+        if (tranches == null) return current;
+        long cumulative = 0;
+        int covered = 0;
+        for (Long t : tranches) {
+            cumulative += t;
+            if (paid >= cumulative) covered++;
+            else break;
+        }
+        return covered;
     }
 
     @Transactional
