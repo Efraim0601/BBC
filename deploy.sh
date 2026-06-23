@@ -38,33 +38,84 @@ if [ -z "${BBC_DEPLOY_REEXEC:-}" ] && [ -d .git ] && command -v git >/dev/null 2
   fi
 fi
 
-# docker compose reads .env natively for the containers. The script itself only
-# needs DOMAIN (for the cert CN); read it safely without sourcing the file.
-if [ -z "${DOMAIN:-}" ] && [ -f .env ]; then
-  DOMAIN="$(grep -E '^DOMAIN=' .env | tail -1 | cut -d= -f2- | tr -d '"'\''' | xargs || true)"
+# docker compose reads .env natively for the containers. The script itself needs
+# DOMAIN (cert CN) and USE_SSLIP; read them safely without sourcing the file.
+read_env() { grep -E "^$1=" .env | tail -1 | cut -d= -f2- | tr -d '"'\''' | xargs || true; }
+if [ -f .env ]; then
+  [ -z "${DOMAIN:-}" ]    && DOMAIN="$(read_env DOMAIN)"
+  [ -z "${USE_SSLIP:-}" ] && USE_SSLIP="$(read_env USE_SSLIP)"
 fi
 DOMAIN="${DOMAIN:-localhost}"
+USE_SSLIP="${USE_SSLIP:-0}"
 HTTPS_PORT="20443"
 CERT_DIR="./certs-tls"
 COMPOSE="docker compose -f docker-compose.server.yml"
 
+is_ipv4() { printf '%s' "$1" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; }
+
+# sslip.io support — give a bare IP a real DNS name without owning a domain.
+# <ip>.sslip.io (dotted) and <ip-with-dashes>.sslip.io both resolve straight back
+# to <ip>, so the browser gets a hostname and the cert a proper DNS SAN. Two ways:
+#   • USE_SSLIP=1 with a bare-IP DOMAIN          → derive <ip-dashes>.sslip.io
+#   • DOMAIN already set to a *.sslip.io name     → used as-is (IP recovered for SAN)
+EFFECTIVE_DOMAIN="${DOMAIN}"
+SSLIP_IP=""
+case "${USE_SSLIP}" in 1|true|yes|on|TRUE|YES|ON) SSLIP_ON=1 ;; *) SSLIP_ON=0 ;; esac
+
+if [ "${SSLIP_ON}" = "1" ] && is_ipv4 "${DOMAIN}"; then
+  SSLIP_IP="${DOMAIN}"
+  EFFECTIVE_DOMAIN="${DOMAIN//./-}.sslip.io"
+  echo "→ sslip.io activé : ${DOMAIN} → ${EFFECTIVE_DOMAIN}"
+elif printf '%s' "${DOMAIN}" | grep -qiE '\.sslip\.io\.?$'; then
+  # DOMAIN is already an sslip.io hostname — recover the embedded IPv4 for the SAN.
+  label="${DOMAIN%.}"; label="${label%.sslip.io}"; label="${label##*.}"
+  if printf '%s' "${label}" | grep -qE '^[0-9]+-[0-9]+-[0-9]+-[0-9]+$'; then
+    SSLIP_IP="${label//-/.}"
+  else
+    SSLIP_IP="$(printf '%s' "${DOMAIN}" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | tail -1)"
+  fi
+  echo "→ Domaine sslip.io détecté : ${EFFECTIVE_DOMAIN}${SSLIP_IP:+ (IP ${SSLIP_IP})}"
+fi
+
+# Keep CORS in step with the host the browser actually uses. When sslip.io
+# rewrites the host, advertise BOTH origins (sslip name + bare IP) — unless the
+# caller already pinned PUBLIC_ORIGIN in the shell environment.
+if [ "${EFFECTIVE_DOMAIN}" != "${DOMAIN}" ] && [ -z "${PUBLIC_ORIGIN:-}" ]; then
+  PUBLIC_ORIGIN="https://${EFFECTIVE_DOMAIN}:${HTTPS_PORT}"
+  [ -n "${SSLIP_IP}" ] && PUBLIC_ORIGIN="${PUBLIC_ORIGIN},https://${SSLIP_IP}:${HTTPS_PORT}"
+  export PUBLIC_ORIGIN
+  echo "→ PUBLIC_ORIGIN (CORS) = ${PUBLIC_ORIGIN}"
+fi
+
 echo "──────────────────────────────────────────────────────────────"
-echo "  BBC SMS — déploiement serveur  (domaine: ${DOMAIN})"
+echo "  BBC SMS — déploiement serveur  (domaine: ${EFFECTIVE_DOMAIN})"
 echo "──────────────────────────────────────────────────────────────"
 
-# 1) Self-signed certificate (generated once; delete certs-tls/ to renew).
+# 1) Self-signed certificate. Regenerated when missing OR when it no longer covers
+#    the current host (e.g. you just switched a bare IP over to sslip.io).
+need_cert=0
 if [ ! -s "${CERT_DIR}/server.crt" ] || [ ! -s "${CERT_DIR}/server.key" ]; then
-  # A bare IP must go in an IP: SAN entry, a hostname in a DNS: entry.
-  if printf '%s' "${DOMAIN}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
-    SAN="IP:${DOMAIN},DNS:localhost,IP:127.0.0.1"
+  need_cert=1
+elif ! openssl x509 -in "${CERT_DIR}/server.crt" -noout -text 2>/dev/null \
+        | grep -qiF "${EFFECTIVE_DOMAIN}"; then
+  echo "→ Le certificat existant ne couvre pas ${EFFECTIVE_DOMAIN} — régénération…"
+  need_cert=1
+fi
+
+if [ "${need_cert}" = "1" ]; then
+  # A bare IP goes in an IP: SAN, a hostname in a DNS: entry. With sslip.io we add
+  # both the DNS name and the underlying IP so either way of connecting validates.
+  if is_ipv4 "${EFFECTIVE_DOMAIN}"; then
+    SAN="IP:${EFFECTIVE_DOMAIN},DNS:localhost,IP:127.0.0.1"
   else
-    SAN="DNS:${DOMAIN},DNS:localhost,IP:127.0.0.1"
+    SAN="DNS:${EFFECTIVE_DOMAIN},DNS:localhost,IP:127.0.0.1"
+    [ -n "${SSLIP_IP}" ] && SAN="DNS:${EFFECTIVE_DOMAIN},IP:${SSLIP_IP},DNS:localhost,IP:127.0.0.1"
   fi
-  echo "→ Génération du certificat auto-signé (CN=${DOMAIN}, SAN=${SAN}, 825 j)…"
+  echo "→ Génération du certificat auto-signé (CN=${EFFECTIVE_DOMAIN}, SAN=${SAN}, 825 j)…"
   mkdir -p "${CERT_DIR}"
   openssl req -x509 -nodes -newkey rsa:2048 -days 825 \
     -keyout "${CERT_DIR}/server.key" -out "${CERT_DIR}/server.crt" \
-    -subj "/CN=${DOMAIN}" \
+    -subj "/CN=${EFFECTIVE_DOMAIN}" \
     -addext "subjectAltName=${SAN}"
   chmod 600 "${CERT_DIR}/server.key"
 else
@@ -90,7 +141,7 @@ done
 
 echo "──────────────────────────────────────────────────────────────"
 echo "  ✓ Déployé."
-echo "    Frontend : https://${DOMAIN}:${HTTPS_PORT}"
+echo "    Frontend : https://${EFFECTIVE_DOMAIN}:${HTTPS_PORT}"
 echo "    (certificat auto-signé — avertissement navigateur attendu)"
 echo "──────────────────────────────────────────────────────────────"
 ${COMPOSE} ps
