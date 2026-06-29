@@ -90,6 +90,7 @@ import { IconComponent, CardComponent, TabsComponent, EmptyComponent } from '../
         }
 
         @if (v.items.length) {
+          <div class="overflow-x-auto">
           <table class="min-w-full text-sm">
             <thead><tr class="border-b border-slate-100 text-[11px] uppercase text-mute text-left">
               <th class="py-2 pr-3 font-semibold">{{ kind() === 'books' ? (fr() ? 'Titre' : 'Title') : (fr() ? 'Fourniture' : 'Supply') }}</th>
@@ -122,6 +123,7 @@ import { IconComponent, CardComponent, TabsComponent, EmptyComponent } from '../
               }
             </tbody>
           </table>
+          </div>
         } @else {
           <bbc-empty icon="book" [label]="fr() ? 'Liste vide — ajoutez des éléments.' : 'Empty list — add items.'" />
         }

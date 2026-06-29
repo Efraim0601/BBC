@@ -18,33 +18,48 @@ type Lvl = Parcours['level'];
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="min-h-screen w-screen bg-surface flex flex-col items-center justify-center p-6 scroll-y">
-      <div class="absolute top-6 right-6 flex items-center bg-slate-100 rounded-lg p-0.5">
-        @for (l of langs; track l) {
-          <button (click)="i18n.setLang(l)"
-            class="px-3 h-8 text-xs font-bold rounded-md transition"
-            [class]="i18n.lang() === l ? 'bg-white text-brand-700 shadow-sm' : 'text-mute hover:text-ink'">
-            {{ l.toUpperCase() }}
-          </button>
-        }
-      </div>
-
-      <div class="w-full max-w-3xl">
-        <div class="flex items-center gap-3 mb-8">
-          <div class="w-12 h-12 bg-white rounded-lg p-1 shadow-pop shrink-0">
+    <div class="min-h-screen w-screen bg-surface flex flex-col">
+      <!-- Top bar — logo stays where the navbar normally sits -->
+      <header class="h-16 bg-brand-700 text-white px-4 flex items-center gap-3 shrink-0 shadow-sm">
+        <div class="flex items-center gap-2.5 px-2 py-1.5 shrink-0">
+          <div class="w-8 h-8 bg-white rounded-md p-0.5 shrink-0">
             <img src="bbc-logo.png" alt="BBC" class="w-full h-full object-contain" />
           </div>
-          <div>
-            <h1 class="font-display text-2xl font-bold text-ink leading-tight">
-              {{ step() === 'level'
-                ? (fr() ? 'Choisissez un parcours' : 'Choose a parcours')
-                : (fr() ? 'Choisissez la section' : 'Choose the section') }}
-            </h1>
-            <p class="text-mute text-sm mt-0.5">
-              {{ fr() ? 'Chaque parcours dispose de ses propres données et bulletins.'
-                      : 'Each parcours has its own data and report cards.' }}
-            </p>
+          <div class="text-left hidden md:block">
+            <div class="font-display font-bold text-[14px] leading-tight">BBC SMS</div>
+            <div class="text-[10px] text-gold-200">{{ schoolName() }}</div>
           </div>
+        </div>
+
+        <div class="flex-1"></div>
+
+        <div class="flex items-center bg-white/10 rounded-lg p-0.5">
+          @for (l of langs; track l) {
+            <button (click)="i18n.setLang(l)"
+              class="px-2.5 h-7 text-[11px] font-bold rounded-md transition"
+              [class]="i18n.lang() === l ? 'bg-white text-brand-700' : 'text-brand-100 hover:text-white'">
+              {{ l.toUpperCase() }}
+            </button>
+          }
+        </div>
+
+        <button (click)="signOut()" class="ml-1 text-[11px] text-brand-100 hover:text-white underline">
+          {{ fr() ? 'Déconnexion' : 'Sign out' }}
+        </button>
+      </header>
+
+      <div class="flex-1 flex items-center justify-center p-6 scroll-y">
+      <div class="w-full max-w-3xl">
+        <div class="mb-8">
+          <h1 class="font-display text-2xl font-bold text-ink leading-tight">
+            {{ step() === 'level'
+              ? (fr() ? 'Choisissez un parcours' : 'Choose a parcours')
+              : (fr() ? 'Choisissez la section' : 'Choose the section') }}
+          </h1>
+          <p class="text-mute text-sm mt-0.5">
+            {{ fr() ? 'Chaque parcours dispose de ses propres données et bulletins.'
+                    : 'Each parcours has its own data and report cards.' }}
+          </p>
         </div>
 
         @if (step() === 'level') {
@@ -73,6 +88,7 @@ type Lvl = Parcours['level'];
           </button>
         }
       </div>
+      </div>
     </div>
   `,
 })
@@ -85,6 +101,8 @@ export class ParcoursPickerComponent {
 
   protected readonly langs: Lang[] = ['fr', 'en'];
   protected fr = () => this.i18n.lang() === 'fr';
+  protected schoolName = computed(() => this.auth.user()?.schoolName || 'Bayo Bilingual Complex');
+  protected signOut(): void { this.auth.logout(); }
 
   protected step = signal<'level' | 'section'>('level');
   private chosenLevel = signal<Lvl | null>(null);
