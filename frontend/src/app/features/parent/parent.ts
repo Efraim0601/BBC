@@ -1,4 +1,5 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@angular/core';
+import { DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { I18nService } from '../../core/i18n.service';
 import {
@@ -11,6 +12,7 @@ import {
   GradeView,
   SuggestionView,
   SuggestionRequest,
+  ClassResourceView,
 } from './parent.api';
 
 interface CategoryOption {
@@ -28,7 +30,7 @@ const fmtMoney = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} FCFA`;
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
-    FormsModule, IconComponent, CardComponent, KpiComponent, EmptyComponent,
+    FormsModule, DecimalPipe, IconComponent, CardComponent, KpiComponent, EmptyComponent,
     AvatarComponent, TabsComponent, StatusPillComponent,
   ],
   template: `
@@ -179,6 +181,52 @@ const fmtMoney = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} FCFA`;
             </bbc-card>
           }
 
+          @case ('resources') {
+            <div class="grid grid-cols-12 gap-4">
+              <bbc-card className="col-span-12 lg:col-span-6"
+                [title]="fr() ? 'Fournitures' : 'Supplies'" [subtitle]="sel.className">
+                @if (supplies()?.published && supplies()!.items.length) {
+                  <ul class="divide-y divide-slate-100">
+                    @for (it of supplies()!.items; track it.id) {
+                      <li class="flex items-center gap-3 py-2.5">
+                        <bbc-icon name="check" [s]="15" [sw]="2.5" />
+                        <span class="flex-1 text-sm font-semibold text-ink">{{ it.label }}</span>
+                        @if (it.quantity) { <span class="text-xs text-mute">× {{ it.quantity }}</span> }
+                        @if (it.note) { <span class="text-[11px] text-mute italic">{{ it.note }}</span> }
+                      </li>
+                    }
+                  </ul>
+                } @else {
+                  <bbc-empty icon="book" [label]="fr() ? 'Aucune liste de fournitures publiée.' : 'No published supply list.'" />
+                }
+              </bbc-card>
+
+              <bbc-card className="col-span-12 lg:col-span-6"
+                [title]="fr() ? 'Livres à payer' : 'Payable books'" [subtitle]="sel.className">
+                @if (books()?.published && books()!.items.length) {
+                  <table class="w-full text-sm">
+                    <tbody>
+                      @for (it of books()!.items; track it.id) {
+                        <tr class="border-b border-slate-50 last:border-0">
+                          <td class="py-2.5 font-semibold text-ink">{{ it.label }}</td>
+                          <td class="py-2.5 text-right text-mute">{{ it.price != null ? (it.price | number) + ' FCFA' : '—' }}</td>
+                        </tr>
+                      }
+                      @if (booksTotal() > 0) {
+                        <tr class="bg-brand-50 font-bold border-t-2 border-brand-600">
+                          <td class="py-2.5 text-brand-700">{{ fr() ? 'Total' : 'Total' }}</td>
+                          <td class="py-2.5 text-right text-brand-700">{{ booksTotal() | number }} FCFA</td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                } @else {
+                  <bbc-empty icon="book" [label]="fr() ? 'Aucune liste de livres publiée.' : 'No published book list.'" />
+                }
+              </bbc-card>
+            </div>
+          }
+
           @case ('suggest') {
             <div class="grid grid-cols-12 gap-4">
               <bbc-card className="col-span-12 lg:col-span-6"
@@ -267,7 +315,9 @@ export class ParentComponent {
   protected selected = signal<ChildView | null>(null);
   protected grades = signal<GradeView[]>([]);
   protected suggestions = signal<SuggestionView[]>([]);
-  protected tab = signal<'overview' | 'grades' | 'suggest'>('overview');
+  protected supplies = signal<ClassResourceView | null>(null);
+  protected books = signal<ClassResourceView | null>(null);
+  protected tab = signal<'overview' | 'grades' | 'resources' | 'suggest'>('overview');
 
   protected fr = () => this.i18n.lang() === 'fr';
   protected money = fmtMoney;
@@ -275,8 +325,12 @@ export class ParentComponent {
   protected tabs = computed(() => [
     { id: 'overview', label: this.fr() ? 'Vue d’ensemble' : 'Overview' },
     { id: 'grades', label: this.fr() ? 'Notes' : 'Grades' },
+    { id: 'resources', label: this.fr() ? 'Fournitures & livres' : 'Supplies & books' },
     { id: 'suggest', label: this.fr() ? 'Boîte à suggestions' : 'Suggestion box' },
   ]);
+
+  protected booksTotal = computed(() =>
+    (this.books()?.items ?? []).reduce((sum, it) => sum + (it.price ?? 0), 0));
 
   protected gradeAvg = computed(() => {
     const gs = this.grades();
@@ -307,7 +361,11 @@ export class ParentComponent {
   protected select(child: ChildView): void {
     this.selected.set(child);
     this.grades.set([]);
+    this.supplies.set(null);
+    this.books.set(null);
     this.api.grades(child.studentId).subscribe((g) => this.grades.set(g));
+    this.api.resources(child.studentId, 'supplies').subscribe((r) => this.supplies.set(r));
+    this.api.resources(child.studentId, 'books').subscribe((r) => this.books.set(r));
   }
 
   protected send(): void {

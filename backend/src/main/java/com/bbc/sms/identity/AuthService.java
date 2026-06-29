@@ -4,6 +4,7 @@ import com.bbc.sms.identity.dto.AuthDtos.*;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AppUserPrincipal;
 import com.bbc.sms.platform.security.JwtService;
+import com.bbc.sms.platform.security.ParcoursAccessService;
 import io.jsonwebtoken.Claims;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -21,14 +22,17 @@ public class AuthService {
     private final PasswordEncoder encoder;
     private final JwtService jwt;
     private final JdbcTemplate jdbc;
+    private final ParcoursAccessService parcoursAccess;
 
     public AuthService(AppUserRepository users, SchoolRepository schools,
-                       PasswordEncoder encoder, JwtService jwt, JdbcTemplate jdbc) {
+                       PasswordEncoder encoder, JwtService jwt, JdbcTemplate jdbc,
+                       ParcoursAccessService parcoursAccess) {
         this.users = users;
         this.schools = schools;
         this.encoder = encoder;
         this.jwt = jwt;
         this.jdbc = jdbc;
+        this.parcoursAccess = parcoursAccess;
     }
 
     @Transactional(readOnly = true)
@@ -87,8 +91,10 @@ public class AuthService {
         List<String> modules = perms.entrySet().stream()
                 .filter(e -> !"none".equals(e.getValue()))
                 .map(Map.Entry::getKey).toList();
+        List<Parcours> allowedParcours = parcoursAccess.allowed(user.getId()).stream()
+                .map(s -> new Parcours(s.level(), s.subsystem())).toList();
         return new UserView(user.getId(), user.getUsername(), user.getDisplayName(),
                 user.getInitials(), user.getRoleCode(), user.getSchoolId(),
-                school.getCode(), school.getName(), user.getLocale(), perms, modules);
+                school.getCode(), school.getName(), user.getLocale(), perms, modules, allowedParcours);
     }
 }

@@ -19,9 +19,10 @@ import java.util.UUID;
 public class SetupController {
 
     private static final String READ =
-        "@perm.can('settings','read') or @perm.can('students','read') "
-      + "or @perm.can('academic','read') or @perm.can('timetable','read')";
-    private static final String WRITE = "@perm.can('settings','write')";
+        "@parcours.allows() and ("
+      + "@perm.can('settings','read') or @perm.can('students','read') "
+      + "or @perm.can('academic','read') or @perm.can('timetable','read'))";
+    private static final String WRITE = "@parcours.allows() and @perm.can('settings','write')";
 
     private final SetupService service;
 
@@ -68,6 +69,21 @@ public class SetupController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @PreAuthorize(WRITE)
     public void deleteClass(@PathVariable UUID id) { service.deleteClass(id); }
+
+    // ---- Class ↔ teachers ---------------------------------------------------
+    @GetMapping("/teachers")
+    @PreAuthorize(READ)
+    public List<TeacherOption> assignableTeachers() { return service.assignableTeachers(); }
+
+    @GetMapping("/classes/{id}/teachers")
+    @PreAuthorize(READ)
+    public List<TeacherOption> classTeachers(@PathVariable UUID id) { return service.classTeachers(id); }
+
+    @PutMapping("/classes/{id}/teachers")
+    @PreAuthorize(WRITE)
+    public List<TeacherOption> setClassTeachers(@PathVariable UUID id, @RequestBody SetClassTeachers in) {
+        return service.setClassTeachers(id, in.employeeIds());
+    }
 
     // ---- Subjects -----------------------------------------------------------
     @GetMapping("/subjects")

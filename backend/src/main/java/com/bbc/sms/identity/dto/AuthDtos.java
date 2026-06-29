@@ -15,6 +15,9 @@ public class AuthDtos {
 
     public record RefreshRequest(@NotBlank String refreshToken) {}
 
+    /** A parcours the user may access (level × subsystem). */
+    public record Parcours(String level, String subsystem) {}
+
     public record UserView(
             UUID id,
             String username,
@@ -26,7 +29,8 @@ public class AuthDtos {
             String schoolName,
             String locale,
             Map<String, String> permissions,   // module -> none|read|write
-            List<String> modules) {}            // modules the role may open
+            List<String> modules,               // modules the role may open
+            List<Parcours> allowedParcours) {}  // empty = all parcours (admin)
 
     public record TokenResponse(
             String accessToken,

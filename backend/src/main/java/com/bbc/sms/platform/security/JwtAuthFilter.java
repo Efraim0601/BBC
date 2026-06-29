@@ -1,5 +1,6 @@
 package com.bbc.sms.platform.security;
 
+import com.bbc.sms.platform.tenant.ParcoursContext;
 import com.bbc.sms.platform.tenant.TenantContext;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
@@ -38,6 +39,10 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                     auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                     SecurityContextHolder.getContext().setAuthentication(auth);
                     TenantContext.set(principal.schoolId());
+                    // Optional parcours scope (Maternelle/Primaire/Secondaire × FR/EN) used
+                    // to compartmentalise list views. Validated against the user's allowed
+                    // parcours by @parcours when an endpoint requires it.
+                    ParcoursContext.set(ParcoursContext.parse(request.getHeader("X-Parcours")));
                 }
             } catch (Exception ignored) {
                 // invalid/expired token -> stays anonymous, secured endpoints will 401
@@ -47,6 +52,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             chain.doFilter(request, response);
         } finally {
             TenantContext.clear();
+            ParcoursContext.clear();
         }
     }
 }

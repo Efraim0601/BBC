@@ -31,6 +31,23 @@ export interface SuggestionRequest {
   message: string;
 }
 
+export type ResourceKind = 'supplies' | 'books';
+export interface ResourceItem {
+  id: string;
+  label: string;
+  quantity: number | null;
+  price: number | null;
+  note: string | null;
+}
+export interface ClassResourceView {
+  classId: string | null;
+  className: string;
+  kind: ResourceKind;
+  published: boolean;
+  publishedAt: string | null;
+  items: ResourceItem[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class ParentApi {
   private http = inject(HttpClient);
@@ -41,6 +58,9 @@ export class ParentApi {
   }
   grades(studentId: string): Observable<GradeView[]> {
     return this.http.get<GradeView[]>(`${this.base}/children/${studentId}/grades`);
+  }
+  resources(studentId: string, kind: ResourceKind): Observable<ClassResourceView> {
+    return this.http.get<ClassResourceView>(`${this.base}/children/${studentId}/resources/${kind}`);
   }
   addSuggestion(body: SuggestionRequest): Observable<SuggestionView> {
     return this.http.post<SuggestionView>(`${this.base}/suggestions`, body);

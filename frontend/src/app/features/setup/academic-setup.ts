@@ -3,7 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
 import {
-  SetupApi, SectionView, SectionUpsert, ClassView, ClassUpsert, SubjectView, SubjectUpsert,
+  SetupApi, SectionView, SectionUpsert, ClassView, ClassUpsert, SubjectView, SubjectUpsert, TeacherOption,
 } from '../../core/setup.api';
 import { IconComponent, CardComponent, TabsComponent, EmptyComponent } from '../../core/ui';
 
@@ -50,6 +50,7 @@ import { IconComponent, CardComponent, TabsComponent, EmptyComponent } from '../
               <label class="block">
                 <span class="text-xs font-semibold text-ink">{{ fr() ? 'Niveau' : 'Level' }}</span>
                 <select [(ngModel)]="secDraft.level" name="level" class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 bg-white">
+                  <option value="maternelle">{{ fr() ? 'Maternelle' : 'Kindergarten' }}</option>
                   <option value="primary">{{ fr() ? 'Primaire' : 'Primary' }}</option>
                   <option value="secondary">{{ fr() ? 'Secondaire' : 'Secondary' }}</option>
                 </select>
@@ -133,6 +134,7 @@ import { IconComponent, CardComponent, TabsComponent, EmptyComponent } from '../
                 <th class="py-2 px-3 font-semibold">{{ fr() ? 'Section' : 'Section' }}</th>
                 <th class="py-2 px-3 font-semibold">{{ fr() ? 'Niveau' : 'Level' }}</th>
                 <th class="py-2 px-3 font-semibold text-center">{{ fr() ? 'Élèves' : 'Students' }}</th>
+                <th class="py-2 px-3 font-semibold text-center">{{ fr() ? 'Enseignants' : 'Teachers' }}</th>
                 <th></th>
               </tr></thead>
               <tbody>
@@ -142,6 +144,11 @@ import { IconComponent, CardComponent, TabsComponent, EmptyComponent } from '../
                     <td class="py-2 px-3 text-mute">{{ c.sectionLabel }}</td>
                     <td class="py-2 px-3">{{ levelLabel(c.level) }} · {{ c.subsystem }}</td>
                     <td class="py-2 px-3 text-center">{{ c.studentCount }}</td>
+                    <td class="py-2 px-3 text-center">
+                      <button (click)="openTeachers(c)" class="inline-flex items-center gap-1 text-mute hover:text-brand-600" title="{{ fr() ? 'Gérer les enseignants' : 'Manage teachers' }}">
+                        <bbc-icon name="users" [s]="15" /> {{ c.teacherCount }}
+                      </button>
+                    </td>
                     <td class="py-2 pl-3 text-right whitespace-nowrap">
                       @if (canWrite) {
                         <button (click)="editClass(c)" class="text-mute hover:text-brand-600 px-1.5"><bbc-icon name="edit" [s]="15" /></button>
@@ -152,6 +159,39 @@ import { IconComponent, CardComponent, TabsComponent, EmptyComponent } from '../
                 }
               </tbody>
             </table>
+          }
+
+          <!-- Teacher assignment panel (0..N teachers per class) -->
+          @if (teacherClass(); as tc) {
+            <div class="mt-4 p-4 rounded-lg border border-brand-100 bg-brand-50/40">
+              <div class="flex items-center justify-between mb-3">
+                <div class="font-semibold text-ink">
+                  {{ fr() ? 'Enseignants de' : 'Teachers of' }} « {{ tc.name }} »
+                </div>
+                <button (click)="teacherClass.set(null)" class="text-mute hover:text-ink"><bbc-icon name="x" [s]="16" /></button>
+              </div>
+              @if (allTeachers().length) {
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-64 overflow-auto">
+                  @for (t of allTeachers(); track t.id) {
+                    <label class="flex items-center gap-2 px-3 h-10 rounded-lg bg-white border border-slate-200 cursor-pointer hover:border-brand-300">
+                      <input type="checkbox" [checked]="picked().has(t.id)" (change)="toggleTeacher(t.id)" [disabled]="!canWrite"
+                        class="rounded border-slate-300 text-brand-600 focus:ring-brand-400" />
+                      <span class="text-sm text-ink truncate">{{ t.name }}</span>
+                      <span class="ml-auto text-[11px] font-mono text-mute">{{ t.code }}</span>
+                    </label>
+                  }
+                </div>
+                @if (canWrite) {
+                  <div class="flex items-center justify-end gap-2 mt-3">
+                    <span class="text-xs text-mute mr-auto">{{ picked().size }} {{ fr() ? 'sélectionné(s)' : 'selected' }}</span>
+                    <button (click)="teacherClass.set(null)" class="h-9 px-4 rounded-lg bg-slate-100 text-sm font-semibold text-ink hover:bg-slate-200">{{ i18n.t('cancel') }}</button>
+                    <button (click)="saveTeachers()" class="h-9 px-5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold">{{ fr() ? 'Enregistrer' : 'Save' }}</button>
+                  </div>
+                }
+              } @else {
+                <bbc-empty icon="users" [label]="fr() ? 'Aucun enseignant — ajoutez du personnel d’abord.' : 'No staff — add employees first.'" />
+              }
+            </div>
           } @else {
             <bbc-empty icon="book" [label]="fr() ? 'Aucune classe.' : 'No classes.'" />
           }
@@ -265,6 +305,11 @@ export class AcademicSetupComponent {
   protected clsEditId = signal<string | null>(null);
   protected clsDraft: ClassUpsert = { name: '', sectionId: '' };
 
+  // Teacher assignment panel (0..N teachers per class)
+  protected teacherClass = signal<ClassView | null>(null);
+  protected allTeachers = signal<TeacherOption[]>([]);
+  protected picked = signal<Set<string>>(new Set());
+
   // Subject form (split label fields for editing)
   protected subjForm = signal(false);
   protected subjEditId = signal<string | null>(null);
@@ -285,7 +330,11 @@ export class AcademicSetupComponent {
   }
 
   protected levelLabel(l: string): string {
-    return (l || '').toLowerCase() === 'primary' ? (this.fr() ? 'Primaire' : 'Primary') : (this.fr() ? 'Secondaire' : 'Secondary');
+    switch ((l || '').toLowerCase()) {
+      case 'maternelle': return this.fr() ? 'Maternelle' : 'Kindergarten';
+      case 'secondary': return this.fr() ? 'Secondaire' : 'Secondary';
+      default: return this.fr() ? 'Primaire' : 'Primary';
+    }
   }
   protected subjectLabel(s: SubjectView): string {
     const l = s.label || {};
@@ -325,6 +374,28 @@ export class AcademicSetupComponent {
     if (!confirm(this.fr() ? `Supprimer la classe « ${c.name} » ?` : `Delete class "${c.name}"?`)) return;
     this.err.set(null);
     this.api.deleteClass(c.id).subscribe({ next: () => { this.loadClasses(); this.loadSections(); }, error: this.fail });
+  }
+
+  // ---- Teacher assignment ----
+  protected openTeachers(c: ClassView): void {
+    this.err.set(null);
+    this.teacherClass.set(c);
+    this.api.assignableTeachers().subscribe((t) => this.allTeachers.set(t));
+    this.api.classTeachers(c.id).subscribe((t) => this.picked.set(new Set(t.map((x) => x.id))));
+  }
+  protected toggleTeacher(id: string): void {
+    const next = new Set(this.picked());
+    next.has(id) ? next.delete(id) : next.add(id);
+    this.picked.set(next);
+  }
+  protected saveTeachers(): void {
+    const c = this.teacherClass();
+    if (!c) return;
+    this.err.set(null);
+    this.api.setClassTeachers(c.id, [...this.picked()]).subscribe({
+      next: () => { this.teacherClass.set(null); this.loadClasses(); },
+      error: this.fail,
+    });
   }
 
   // ---- Subjects ----

@@ -2,6 +2,7 @@ import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@a
 import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { AuthService } from '../core/auth.service';
+import { ScopeService } from '../core/scope.service';
 import { I18nService, Lang } from '../core/i18n.service';
 import { NAV_GROUPS } from '../core/nav-items';
 
@@ -31,6 +32,15 @@ const NAV_COLLAPSE_KEY = 'bbc.nav.collapsed';
         </a>
 
         <div class="flex-1"></div>
+
+        @if (scopeLabel(); as sl) {
+          <a routerLink="/parcours" title="{{ fr() ? 'Changer de parcours' : 'Switch parcours' }}"
+            class="hidden sm:flex items-center gap-2 h-8 px-3 rounded-lg bg-white/10 hover:bg-white/20 transition text-[11px] font-bold">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h18M3 12h18M3 17h18"/></svg>
+            <span>{{ sl }}</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m6 9 6 6 6-6"/></svg>
+          </a>
+        }
 
         <div class="flex items-center bg-white/10 rounded-lg p-0.5">
           @for (l of langs; track l) {
@@ -103,12 +113,23 @@ const NAV_COLLAPSE_KEY = 'bbc.nav.collapsed';
 export class ShellComponent {
   protected auth = inject(AuthService);
   protected i18n = inject(I18nService);
+  private scope = inject(ScopeService);
   private sanitizer = inject(DomSanitizer);
 
   protected user = this.auth.user;
   protected langs: Lang[] = ['fr', 'en'];
   protected fr = () => this.i18n.lang() === 'fr';
   protected trust = (svg: string): SafeHtml => this.sanitizer.bypassSecurityTrustHtml(svg);
+
+  /** Compact label of the active parcours shown in the header (e.g. "Primaire · FR"). */
+  protected scopeLabel = computed(() => {
+    const s = this.scope.scope();
+    if (!s) return null;
+    const lvl = s.level === 'maternelle' ? (this.fr() ? 'Maternelle' : 'Kindergarten')
+      : s.level === 'secondary' ? (this.fr() ? 'Secondaire' : 'Secondary')
+      : (this.fr() ? 'Primaire' : 'Primary');
+    return `${lvl} · ${s.subsystem}`;
+  });
 
   protected collapsed = signal(localStorage.getItem(NAV_COLLAPSE_KEY) === '1');
 

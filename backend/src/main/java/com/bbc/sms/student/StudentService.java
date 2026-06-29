@@ -1,6 +1,8 @@
 package com.bbc.sms.student;
 
 import com.bbc.sms.platform.common.ApiException;
+import com.bbc.sms.platform.tenant.ParcoursContext;
+import com.bbc.sms.platform.tenant.ParcoursContext.Scope;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.student.dto.StudentDtos.*;
 import com.bbc.sms.timetable.SchoolClass;
@@ -29,7 +31,17 @@ public class StudentService {
         List<Student> rows = (className == null || className.isBlank())
                 ? repo.findBySchoolIdAndActiveTrueOrderByLastNameAsc(schoolId)
                 : repo.findBySchoolIdAndClassNameAndActiveTrueOrderByLastNameAsc(schoolId, className);
-        return rows.stream().map(this::toView).toList();
+        Scope scope = ParcoursContext.get();
+        return rows.stream()
+                .filter(s -> inScope(scope, s.getLevel(), s.getSubsystem()))
+                .map(this::toView).toList();
+    }
+
+    /** Keep a row when no parcours scope is active, or when its level+subsystem match it. */
+    public static boolean inScope(Scope scope, String level, String subsystem) {
+        if (scope == null) return true;
+        return scope.level().equalsIgnoreCase(level == null ? "" : level)
+                && scope.subsystem().equalsIgnoreCase(subsystem == null ? "" : subsystem);
     }
 
     @Transactional(readOnly = true)

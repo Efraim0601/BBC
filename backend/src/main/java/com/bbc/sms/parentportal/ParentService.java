@@ -2,6 +2,8 @@ package com.bbc.sms.parentportal;
 
 import com.bbc.sms.academic.Grade;
 import com.bbc.sms.academic.GradeRepository;
+import com.bbc.sms.classkit.ClassKitService;
+import com.bbc.sms.classkit.dto.ClassKitDtos.ClassResourceView;
 import com.bbc.sms.parentportal.dto.ParentDtos.*;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AppUserPrincipal;
@@ -27,15 +29,18 @@ public class ParentService {
     private final StudentRepository students;
     private final GradeRepository grades;
     private final SuggestionRepository suggestions;
+    private final ClassKitService classKit;
 
     public ParentService(JdbcTemplate jdbc,
                          StudentRepository students,
                          GradeRepository grades,
-                         SuggestionRepository suggestions) {
+                         SuggestionRepository suggestions,
+                         ClassKitService classKit) {
         this.jdbc = jdbc;
         this.students = students;
         this.grades = grades;
         this.suggestions = suggestions;
+        this.classKit = classKit;
     }
 
     /** Student ids linked to the given parent account. */
@@ -96,6 +101,17 @@ public class ParentService {
             out.add(new GradeView(g.getSubjectCode(), g.getSequence(), g.getMark()));
         }
         return out;
+    }
+
+    /** Published supplies/books list for the class of one of the parent's children. */
+    public ClassResourceView resources(AppUserPrincipal p, UUID studentId, String kind) {
+        assertOwnership(p.schoolId(), p.userId(), studentId);
+        Student s = students.findByIdAndSchoolId(studentId, p.schoolId())
+                .orElseThrow(() -> ApiException.notFound("Élève"));
+        if (s.getClassId() == null) {
+            return new ClassResourceView(null, s.getClassName(), kind, false, null, List.of());
+        }
+        return classKit.publishedForClass(s.getClassId(), kind);
     }
 
     public SuggestionView createSuggestion(AppUserPrincipal p, SuggestionRequest req) {

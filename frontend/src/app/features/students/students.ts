@@ -406,6 +406,7 @@ export class StudentsComponent {
   ]);
 
   protected levelOptions = computed(() => [
+    { value: 'maternelle', label: this.fr() ? 'Maternelle' : 'Kindergarten' },
     { value: 'primary', label: this.fr() ? 'Primaire' : 'Primary' },
     { value: 'secondary', label: this.fr() ? 'Secondaire' : 'Secondary' },
   ]);
@@ -481,14 +482,16 @@ export class StudentsComponent {
   }
 
   protected levelLabel(level: string): string {
-    return (level || '').toLowerCase() === 'primary' ? (this.fr() ? 'Primaire' : 'Primary') : (this.fr() ? 'Secondaire' : 'Secondary');
+    switch ((level || '').toLowerCase()) {
+      case 'maternelle': return this.fr() ? 'Maternelle' : 'Kindergarten';
+      case 'secondary': return this.fr() ? 'Secondaire' : 'Secondary';
+      default: return this.fr() ? 'Primaire' : 'Primary';
+    }
   }
 
   protected sectionLabel(s: Student): string {
-    const prim = (s.level || '').toLowerCase() === 'primary';
     const f = (s.subsystem || '').toUpperCase().startsWith('F');
-    if (f) return prim ? 'Primaire FR' : 'Secondaire FR';
-    return prim ? 'Primary EN' : 'Secondary EN';
+    return `${this.levelLabel(s.level)} ${f ? 'FR' : 'EN'}`;
   }
 
   protected dobLabel(dob: string | null): string {

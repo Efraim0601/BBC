@@ -157,7 +157,7 @@ export class LoginComponent {
     this.loading.set(true);
     this.error.set(null);
     this.auth.login(this.username, this.password).subscribe({
-      next: (res) => this.router.navigate([res.user.role === 'parent' ? '/parent' : '/apps']),
+      next: (res) => this.router.navigate([res.user.role === 'parent' ? '/parent' : '/parcours']),
       error: (e) => {
         this.error.set(e?.error?.message ?? 'Connexion impossible');
         this.loading.set(false);

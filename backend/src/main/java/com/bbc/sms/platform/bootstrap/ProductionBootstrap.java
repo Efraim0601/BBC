@@ -37,7 +37,7 @@ public class ProductionBootstrap implements ApplicationRunner {
     private static final String[] MODULES = {
         "dashboard", "presence", "students", "hr", "academic", "finance",
         "timetable", "events", "discipline", "reports", "settings", "journey",
-        "alerts", "messages", "coursebook", "health", "documents"
+        "alerts", "messages", "coursebook", "health", "documents", "classkit"
     };
 
     private final JdbcTemplate jdbc;
@@ -91,10 +91,10 @@ public class ProductionBootstrap implements ApplicationRunner {
         // other roles get a sensible default the admin can refine in Settings.
         for (String m : MODULES) grant(schoolId, "principal", m, "write");
         grants(schoolId, "prefect", "write", "presence", "timetable", "events", "discipline", "journey", "alerts", "messages", "documents");
-        grants(schoolId, "prefect", "read", "dashboard", "students", "academic", "reports", "coursebook", "health");
+        grants(schoolId, "prefect", "read", "dashboard", "students", "academic", "reports", "coursebook", "health", "classkit");
         grants(schoolId, "econome", "write", "finance");
         grants(schoolId, "econome", "read", "dashboard", "students", "reports", "alerts");
-        grants(schoolId, "form_teacher", "write", "academic", "discipline", "coursebook", "messages");
+        grants(schoolId, "form_teacher", "write", "academic", "discipline", "coursebook", "messages", "classkit");
         grants(schoolId, "form_teacher", "read", "dashboard", "presence", "students", "timetable", "events", "journey", "alerts", "health", "documents");
         grants(schoolId, "teacher", "write", "academic", "coursebook");
         grants(schoolId, "teacher", "read", "dashboard", "presence", "timetable", "events", "messages");
