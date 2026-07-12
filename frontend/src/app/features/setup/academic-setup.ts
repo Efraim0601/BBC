@@ -5,6 +5,8 @@ import { I18nService } from '../../core/i18n.service';
 import {
   SetupApi, SectionView, SectionUpsert, ClassView, ClassUpsert, SubjectView, SubjectUpsert, TeacherOption,
 } from '../../core/setup.api';
+import { defaultSubjects } from './subject-defaults';
+import { forkJoin } from 'rxjs';
 import { IconComponent, CardComponent, TabsComponent, EmptyComponent } from '../../core/ui';
 
 /**
@@ -200,8 +202,8 @@ import { IconComponent, CardComponent, TabsComponent, EmptyComponent } from '../
 
       <!-- ===================== SUBJECTS ===================== -->
       @case ('subjects') {
-        <bbc-card [title]="fr() ? 'Matières' : 'Subjects'"
-          [subtitle]="fr() ? 'Avec coefficient pour le calcul des moyennes pondérées' : 'With coefficient for weighted averages'">
+        <bbc-card [title]="fr() ? 'Matières & coefficients' : 'Subjects & coefficients'"
+          [subtitle]="fr() ? 'Listes distinctes par sous-système, avec coefficient pour les moyennes pondérées' : 'Distinct lists per subsystem, with coefficient for weighted averages'">
           <div action>
             @if (canWrite) {
               <button (click)="newSubject()" class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-brand-600 hover:bg-brand-700 text-white">
@@ -210,12 +212,32 @@ import { IconComponent, CardComponent, TabsComponent, EmptyComponent } from '../
             }
           </div>
 
+          <!-- Subsystem filter -->
+          <div class="flex items-center gap-1.5 mb-4 flex-wrap">
+            @for (f of subjFilters; track f.value) {
+              <button (click)="subjFilter.set(f.value)"
+                class="px-3 py-1.5 rounded-full text-xs font-semibold transition"
+                [class]="subjFilter() === f.value ? 'bg-brand-600 text-white' : 'bg-white text-mute border border-slate-200 hover:border-brand-300'">
+                {{ fr() ? f.fr : f.en }}
+                <span class="ml-1 opacity-70">{{ countFor(f.value) }}</span>
+              </button>
+            }
+          </div>
+
           @if (canWrite && subjForm()) {
-            <form (ngSubmit)="saveSubject()" class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4 p-3 rounded-lg bg-slate-50">
+            <form (ngSubmit)="saveSubject()" class="grid grid-cols-1 md:grid-cols-5 gap-3 mb-4 p-3 rounded-lg bg-slate-50">
               <label class="block">
                 <span class="text-xs font-semibold text-ink">{{ fr() ? 'Code' : 'Code' }} *</span>
                 <input [(ngModel)]="subjCode" name="scode" required placeholder="MATH" [disabled]="!!subjEditId()"
                   class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400 disabled:bg-slate-100 uppercase" />
+              </label>
+              <label class="block">
+                <span class="text-xs font-semibold text-ink">{{ fr() ? 'Sous-système' : 'Subsystem' }}</span>
+                <select [(ngModel)]="subjSub" name="ssub" class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400">
+                  <option value="FR">{{ fr() ? 'Francophone' : 'Francophone' }}</option>
+                  <option value="EN">{{ fr() ? 'Anglophone' : 'Anglophone' }}</option>
+                  <option value="">{{ fr() ? 'Commune (FR + EN)' : 'Common (FR + EN)' }}</option>
+                </select>
               </label>
               <label class="block">
                 <span class="text-xs font-semibold text-ink">{{ fr() ? 'Nom (FR)' : 'Name (FR)' }}</span>
@@ -232,27 +254,34 @@ import { IconComponent, CardComponent, TabsComponent, EmptyComponent } from '../
                 <input type="number" min="1" [(ngModel)]="subjCoef" name="scoef"
                   class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
               </label>
-              <div class="md:col-span-4 flex items-center justify-end gap-2">
+              <div class="md:col-span-5 flex items-center justify-end gap-2">
                 <button type="button" (click)="subjForm.set(false)" class="h-9 px-4 rounded-lg bg-slate-100 text-sm font-semibold text-ink hover:bg-slate-200">{{ i18n.t('cancel') }}</button>
                 <button type="submit" [disabled]="!subjCode" class="h-9 px-5 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-semibold">{{ fr() ? 'Enregistrer' : 'Save' }}</button>
               </div>
             </form>
           }
 
-          @if (subjects().length) {
+          @if (filteredSubjects().length) {
             <table class="min-w-full text-sm">
               <thead><tr class="border-b border-slate-100 text-[11px] uppercase text-mute text-left">
                 <th class="py-2 pr-3 font-semibold">{{ fr() ? 'Code' : 'Code' }}</th>
                 <th class="py-2 px-3 font-semibold">{{ fr() ? 'Nom' : 'Name' }}</th>
+                <th class="py-2 px-3 font-semibold text-center">{{ fr() ? 'Section' : 'Section' }}</th>
                 <th class="py-2 px-3 font-semibold text-center">{{ fr() ? 'Coef.' : 'Coef.' }}</th>
                 <th></th>
               </tr></thead>
               <tbody>
-                @for (s of subjects(); track s.id) {
+                @for (s of filteredSubjects(); track s.id) {
                   <tr class="border-b border-slate-50 hover:bg-slate-50/40">
                     <td class="py-2 pr-3 font-mono font-semibold text-ink">{{ s.code }}</td>
                     <td class="py-2 px-3">{{ subjectLabel(s) }}</td>
-                    <td class="py-2 px-3 text-center">{{ s.coef }}</td>
+                    <td class="py-2 px-3 text-center">
+                      <span class="inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold"
+                        [class]="s.subsystem === 'FR' ? 'bg-brand-50 text-brand-700' : s.subsystem === 'EN' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'">
+                        {{ s.subsystem === 'FR' ? 'FR' : s.subsystem === 'EN' ? 'EN' : (fr() ? 'FR+EN' : 'FR+EN') }}
+                      </span>
+                    </td>
+                    <td class="py-2 px-3 text-center font-semibold">{{ s.coef }}</td>
                     <td class="py-2 pl-3 text-right whitespace-nowrap">
                       @if (canWrite) {
                         <button (click)="editSubject(s)" class="text-mute hover:text-brand-600 px-1.5"><bbc-icon name="edit" [s]="15" /></button>
@@ -264,7 +293,15 @@ import { IconComponent, CardComponent, TabsComponent, EmptyComponent } from '../
               </tbody>
             </table>
           } @else {
-            <bbc-empty icon="book" [label]="fr() ? 'Aucune matière.' : 'No subjects.'" />
+            <div class="py-8 text-center">
+              <bbc-empty icon="book" [label]="fr() ? 'Aucune matière dans cette liste.' : 'No subject in this list.'" />
+              @if (canWrite && subjFilter() !== 'ALL') {
+                <button (click)="importDefaults()" class="mt-3 inline-flex items-center gap-2 h-9 px-4 text-sm font-semibold rounded-lg bg-gold-400 hover:bg-gold-500 text-brand-800">
+                  <bbc-icon name="plus" [s]="16" />
+                  {{ fr() ? 'Importer les matières standard ' + subjFilter() : 'Import standard ' + subjFilter() + ' subjects' }}
+                </button>
+              }
+            </div>
           }
         </bbc-card>
       }
@@ -314,9 +351,32 @@ export class AcademicSetupComponent {
   protected subjForm = signal(false);
   protected subjEditId = signal<string | null>(null);
   protected subjCode = '';
+  protected subjSub = 'FR';
   protected subjFr = '';
   protected subjEn = '';
   protected subjCoef = 1;
+
+  // Subject subsystem filter
+  protected subjFilter = signal<'FR' | 'EN' | 'ALL'>('FR');
+  protected readonly subjFilters: { value: 'FR' | 'EN' | 'ALL'; fr: string; en: string }[] = [
+    { value: 'FR', fr: 'Francophone', en: 'Francophone' },
+    { value: 'EN', fr: 'Anglophone', en: 'Anglophone' },
+    { value: 'ALL', fr: 'Toutes', en: 'All' },
+  ];
+
+  protected filteredSubjects = computed(() => {
+    const f = this.subjFilter();
+    const all = this.subjects();
+    if (f === 'ALL') return all;
+    // FR/EN lists include subjects common to both (subsystem null).
+    return all.filter((s) => s.subsystem === f || !s.subsystem);
+  });
+
+  protected countFor(f: 'FR' | 'EN' | 'ALL'): number {
+    const all = this.subjects();
+    if (f === 'ALL') return all.length;
+    return all.filter((s) => s.subsystem === f || !s.subsystem).length;
+  }
 
   constructor() {
     this.loadSections();
@@ -399,14 +459,26 @@ export class AcademicSetupComponent {
   }
 
   // ---- Subjects ----
-  protected newSubject(): void { this.subjEditId.set(null); this.subjCode = ''; this.subjFr = ''; this.subjEn = ''; this.subjCoef = 1; this.subjForm.set(true); }
+  protected newSubject(): void {
+    this.subjEditId.set(null);
+    this.subjCode = ''; this.subjFr = ''; this.subjEn = ''; this.subjCoef = 1;
+    // Default the new subject's subsystem to whichever list is being viewed.
+    this.subjSub = this.subjFilter() === 'EN' ? 'EN' : 'FR';
+    this.subjForm.set(true);
+  }
   protected editSubject(s: SubjectView): void {
     this.subjEditId.set(s.id); this.subjCode = s.code;
+    this.subjSub = s.subsystem ?? '';
     this.subjFr = s.label?.['fr'] ?? ''; this.subjEn = s.label?.['en'] ?? ''; this.subjCoef = s.coef; this.subjForm.set(true);
   }
   protected saveSubject(): void {
     this.err.set(null);
-    const body: SubjectUpsert = { code: this.subjCode, label: { fr: this.subjFr, en: this.subjEn }, coef: this.subjCoef || 1 };
+    const body: SubjectUpsert = {
+      code: this.subjCode,
+      subsystem: this.subjSub || null,
+      label: { fr: this.subjFr, en: this.subjEn },
+      coef: this.subjCoef || 1,
+    };
     const id = this.subjEditId();
     const req = id ? this.api.updateSubject(id, body) : this.api.createSubject(body);
     req.subscribe({ next: () => { this.subjForm.set(false); this.loadSubjects(); }, error: this.fail });
@@ -415,5 +487,21 @@ export class AcademicSetupComponent {
     if (!confirm(this.fr() ? `Supprimer la matière « ${s.code} » ?` : `Delete subject "${s.code}"?`)) return;
     this.err.set(null);
     this.api.deleteSubject(s.id).subscribe({ next: () => this.loadSubjects(), error: this.fail });
+  }
+
+  /** Bulk-create the standard subject list for the active subsystem (skips existing codes). */
+  protected importDefaults(): void {
+    const sub = this.subjFilter();
+    if (sub !== 'FR' && sub !== 'EN') return;
+    this.err.set(null);
+    const existing = new Set(
+      this.subjects().filter((s) => s.subsystem === sub).map((s) => s.code.toUpperCase()),
+    );
+    const toCreate = defaultSubjects(sub).filter((d) => !existing.has(d.code.toUpperCase()));
+    if (!toCreate.length) return;
+    const reqs = toCreate.map((d) =>
+      this.api.createSubject({ code: d.code, subsystem: sub, label: { fr: d.fr, en: d.en }, coef: 1 }),
+    );
+    forkJoin(reqs).subscribe({ next: () => this.loadSubjects(), error: this.fail });
   }
 }

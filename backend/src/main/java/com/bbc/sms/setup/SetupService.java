@@ -209,12 +209,18 @@ public class SetupService {
     public SubjectView createSubject(SubjectUpsert in) {
         UUID schoolId = TenantContext.get();
         String code = in.code().trim().toUpperCase();
-        if (subjects.existsBySchoolIdAndCode(schoolId, code)) {
-            throw ApiException.conflict("Une matière « " + code + " » existe déjà");
+        String subsystem = normSubsystem(in.subsystem());
+        boolean dup = subjects.findBySchoolIdOrderByCode(schoolId).stream()
+                .anyMatch(x -> code.equals(x.getCode())
+                        && java.util.Objects.equals(subsystem, normSubsystem(x.getSubsystem())));
+        if (dup) {
+            throw ApiException.conflict("Une matière « " + code + " » existe déjà"
+                    + (subsystem == null ? "" : " (" + subsystem + ")"));
         }
         Subject s = new Subject();
         s.setSchoolId(schoolId);
         s.setCode(code);
+        s.setSubsystem(subsystem);
         s.setLabel(in.label());
         s.setCoef(Math.max(1, in.coef()));
         return toView(subjects.save(s));
@@ -225,9 +231,17 @@ public class SetupService {
         UUID schoolId = TenantContext.get();
         Subject s = subjects.findByIdAndSchoolId(id, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Matière"));
+        s.setSubsystem(normSubsystem(in.subsystem()));
         s.setLabel(in.label());
         s.setCoef(Math.max(1, in.coef()));
         return toView(subjects.save(s));
+    }
+
+    /** Normalise a subsystem tag to 'FR' | 'EN' | null (common to both). */
+    private static String normSubsystem(String raw) {
+        if (raw == null) return null;
+        String v = raw.trim().toUpperCase();
+        return (v.equals("FR") || v.equals("EN")) ? v : null;
     }
 
     @Transactional
@@ -255,7 +269,7 @@ public class SetupService {
     }
 
     private SubjectView toView(Subject s) {
-        return new SubjectView(s.getId(), s.getCode(), s.getLabel(), s.getCoef());
+        return new SubjectView(s.getId(), s.getCode(), s.getSubsystem(), s.getLabel(), s.getCoef());
     }
 
     /** Deterministic short id from subsystem+level (mat-fr, pri-fr, sec-en…), suffixed if taken. */

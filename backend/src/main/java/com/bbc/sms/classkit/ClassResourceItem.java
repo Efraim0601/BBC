@@ -39,6 +39,13 @@ public class ClassResourceItem {
 
     private String note;
 
+    @Column(name = "subject_code")
+    private String subjectCode; // books only — links to the subject
+
+    private String author;      // books only — author / edition
+
+    private Boolean mandatory;  // books only — required vs optional textbook
+
     @Column(nullable = false)
     private int position;
 }

@@ -14,8 +14,8 @@ export interface ClassUpsert { name: string; sectionId: string; }
 
 export interface TeacherOption { id: string; name: string; code: string; }
 
-export interface SubjectView { id: string; code: string; label: Record<string, string>; coef: number; }
-export interface SubjectUpsert { code: string; label: Record<string, string>; coef: number; }
+export interface SubjectView { id: string; code: string; subsystem: string | null; label: Record<string, string>; coef: number; }
+export interface SubjectUpsert { code: string; subsystem: string | null; label: Record<string, string>; coef: number; }
 
 /** Academic Setup — the relational backbone (sections, classes, subjects). */
 @Injectable({ providedIn: 'root' })

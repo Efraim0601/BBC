@@ -38,6 +38,9 @@ export interface ResourceItem {
   quantity: number | null;
   price: number | null;
   note: string | null;
+  subjectCode: string | null;
+  author: string | null;
+  mandatory: boolean | null;
 }
 export interface ClassResourceView {
   classId: string | null;

@@ -9,13 +9,17 @@ import java.util.UUID;
 /** Class resources (fournitures & livres) payloads. */
 public class ClassKitDtos {
 
-    public record ItemView(UUID id, String label, Integer quantity, Long price, String note) {}
+    public record ItemView(UUID id, String label, Integer quantity, Long price, String note,
+                           String subjectCode, String author, Boolean mandatory) {}
 
     public record ItemUpsert(
             @NotBlank String label,
             Integer quantity,
             Long price,
-            String note) {}
+            String note,
+            String subjectCode,
+            String author,
+            Boolean mandatory) {}
 
     /** A class' list for one kind, plus its publish state. */
     public record ClassResourceView(

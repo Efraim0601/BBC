@@ -3,7 +3,7 @@ import { DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
-import { SetupApi, ClassView } from '../../core/setup.api';
+import { SetupApi, ClassView, SubjectView } from '../../core/setup.api';
 import { ClassKitApi, ResourceKind, ClassResourceView, ResourceItem, ResourceItemUpsert } from './classkit.api';
 import { IconComponent, CardComponent, TabsComponent, EmptyComponent } from '../../core/ui';
 
@@ -20,7 +20,7 @@ import { IconComponent, CardComponent, TabsComponent, EmptyComponent } from '../
   template: `
     <bbc-tabs [tabs]="kindTabs()" [value]="kind()" (change)="switchKind($any($event))" />
 
-    <bbc-card [title]="kind() === 'books' ? (fr() ? 'Livres à payer' : 'Payable books') : (fr() ? 'Fournitures' : 'Supplies')"
+    <bbc-card [title]="kind() === 'books' ? (fr() ? 'Manuels scolaires' : 'School textbooks') : (fr() ? 'Fournitures' : 'Supplies')"
       [subtitle]="fr() ? 'Configurez la liste par classe, puis publiez-la pour les parents'
                        : 'Configure the per-class list, then publish it for parents'">
       <div action class="flex items-center gap-2">
@@ -66,6 +66,24 @@ import { IconComponent, CardComponent, TabsComponent, EmptyComponent } from '../
                 <input type="number" min="0" [(ngModel)]="draft.price" name="price"
                   class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
               </label>
+              <label class="block md:col-span-4">
+                <span class="text-xs font-semibold text-ink">{{ fr() ? 'Matière' : 'Subject' }}</span>
+                <select [(ngModel)]="draft.subjectCode" name="subj"
+                  class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400">
+                  <option [ngValue]="null">{{ fr() ? '— Aucune —' : '— None —' }}</option>
+                  @for (s of subjects(); track s.id) { <option [ngValue]="s.code">{{ subjectLabel(s) }}</option> }
+                </select>
+              </label>
+              <label class="block md:col-span-4">
+                <span class="text-xs font-semibold text-ink">{{ fr() ? 'Auteur / édition' : 'Author / edition' }}</span>
+                <input [(ngModel)]="draft.author" name="author"
+                  class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
+              </label>
+              <label class="flex items-center gap-2 md:col-span-4 mt-1">
+                <input type="checkbox" [(ngModel)]="draft.mandatory" name="mand"
+                  class="w-4 h-4 rounded border-slate-300 text-brand-600" />
+                <span class="text-xs font-semibold text-ink">{{ fr() ? 'Manuel obligatoire' : 'Mandatory textbook' }}</span>
+              </label>
             } @else {
               <label class="block md:col-span-3">
                 <span class="text-xs font-semibold text-ink">{{ fr() ? 'Quantité' : 'Quantity' }}</span>
@@ -94,6 +112,10 @@ import { IconComponent, CardComponent, TabsComponent, EmptyComponent } from '../
           <table class="min-w-full text-sm">
             <thead><tr class="border-b border-slate-100 text-[11px] uppercase text-mute text-left">
               <th class="py-2 pr-3 font-semibold">{{ kind() === 'books' ? (fr() ? 'Titre' : 'Title') : (fr() ? 'Fourniture' : 'Supply') }}</th>
+              @if (kind() === 'books') {
+                <th class="py-2 px-3 font-semibold">{{ fr() ? 'Matière' : 'Subject' }}</th>
+                <th class="py-2 px-3 font-semibold">{{ fr() ? 'Auteur' : 'Author' }}</th>
+              }
               <th class="py-2 px-3 font-semibold text-center">{{ kind() === 'books' ? (fr() ? 'Prix' : 'Price') : (fr() ? 'Qté' : 'Qty') }}</th>
               <th class="py-2 px-3 font-semibold">{{ fr() ? 'Note' : 'Note' }}</th>
               <th></th>
@@ -101,7 +123,16 @@ import { IconComponent, CardComponent, TabsComponent, EmptyComponent } from '../
             <tbody>
               @for (it of v.items; track it.id) {
                 <tr class="border-b border-slate-50 hover:bg-slate-50/40">
-                  <td class="py-2 pr-3 font-semibold text-ink">{{ it.label }}</td>
+                  <td class="py-2 pr-3 font-semibold text-ink">
+                    {{ it.label }}
+                    @if (kind() === 'books' && it.mandatory === false) {
+                      <span class="ml-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">{{ fr() ? 'optionnel' : 'optional' }}</span>
+                    }
+                  </td>
+                  @if (kind() === 'books') {
+                    <td class="py-2 px-3 text-mute">{{ subjectName(it.subjectCode) }}</td>
+                    <td class="py-2 px-3 text-mute">{{ it.author || '—' }}</td>
+                  }
                   <td class="py-2 px-3 text-center">
                     {{ kind() === 'books' ? (it.price != null ? (it.price | number) + ' F' : '—') : (it.quantity ?? '—') }}
                   </td>
@@ -116,7 +147,7 @@ import { IconComponent, CardComponent, TabsComponent, EmptyComponent } from '../
               }
               @if (kind() === 'books' && booksTotal() > 0) {
                 <tr class="font-semibold text-ink">
-                  <td class="py-2 pr-3 text-right">{{ fr() ? 'Total' : 'Total' }}</td>
+                  <td class="py-2 pr-3 text-right" [attr.colspan]="3">{{ fr() ? 'Total' : 'Total' }}</td>
                   <td class="py-2 px-3 text-center">{{ booksTotal() | number }} F</td>
                   <td colspan="2"></td>
                 </tr>
@@ -144,6 +175,7 @@ export class ClasskitComponent {
 
   protected kind = signal<ResourceKind>('supplies');
   protected classes = signal<ClassView[]>([]);
+  protected subjects = signal<SubjectView[]>([]);
   protected classId = '';
   protected view = signal<ClassResourceView | null>(null);
   protected err = signal<string | null>(null);
@@ -153,7 +185,7 @@ export class ClasskitComponent {
 
   protected kindTabs = computed(() => [
     { id: 'supplies', label: this.fr() ? 'Fournitures' : 'Supplies' },
-    { id: 'books', label: this.fr() ? 'Livres à payer' : 'Payable books' },
+    { id: 'books', label: this.fr() ? 'Manuels scolaires' : 'School textbooks' },
   ]);
 
   protected booksTotal = computed(() =>
@@ -161,9 +193,22 @@ export class ClasskitComponent {
 
   constructor() {
     this.setupApi.listClasses().subscribe((c) => this.classes.set(c));
+    this.setupApi.listSubjects().subscribe((s) => this.subjects.set(s));
   }
 
-  private blank(): ResourceItemUpsert { return { label: '', quantity: null, price: null, note: '' }; }
+  protected subjectLabel(s: SubjectView): string {
+    const l = s.label || {};
+    return (this.fr() ? l['fr'] : l['en']) || l['fr'] || l['en'] || s.code;
+  }
+  protected subjectName(code: string | null): string {
+    if (!code) return '—';
+    const s = this.subjects().find((x) => x.code === code);
+    return s ? this.subjectLabel(s) : code;
+  }
+
+  private blank(): ResourceItemUpsert {
+    return { label: '', quantity: null, price: null, note: '', subjectCode: null, author: '', mandatory: true };
+  }
   private fail = (e: any) => this.err.set(e?.error?.message ?? (this.fr() ? 'Opération impossible.' : 'Operation failed.'));
 
   protected switchKind(k: ResourceKind): void { this.kind.set(k); this.resetForm(); this.reload(); }
@@ -179,7 +224,10 @@ export class ClasskitComponent {
 
   protected edit(it: ResourceItem): void {
     this.editId.set(it.id);
-    this.draft = { label: it.label, quantity: it.quantity, price: it.price, note: it.note };
+    this.draft = {
+      label: it.label, quantity: it.quantity, price: it.price, note: it.note,
+      subjectCode: it.subjectCode, author: it.author ?? '', mandatory: it.mandatory ?? true,
+    };
   }
 
   protected save(): void {

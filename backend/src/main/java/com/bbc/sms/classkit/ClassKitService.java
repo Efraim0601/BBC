@@ -124,11 +124,22 @@ public class ClassKitService {
         if ("books".equals(it.getKind())) {
             it.setPrice(in.price());
             it.setQuantity(null);
+            it.setSubjectCode(blankToNull(in.subjectCode()));
+            it.setAuthor(blankToNull(in.author()));
+            // Default a book to mandatory unless explicitly marked optional.
+            it.setMandatory(in.mandatory() == null ? Boolean.TRUE : in.mandatory());
         } else {
             it.setQuantity(in.quantity());
             it.setPrice(null);
+            it.setSubjectCode(null);
+            it.setAuthor(null);
+            it.setMandatory(null);
         }
         it.setNote(in.note() == null || in.note().isBlank() ? null : in.note().trim());
+    }
+
+    private static String blankToNull(String s) {
+        return s == null || s.isBlank() ? null : s.trim();
     }
 
     private boolean isPublished(UUID schoolId, UUID classId, String kind) {
@@ -155,6 +166,7 @@ public class ClassKitService {
     }
 
     private ItemView toView(ClassResourceItem it) {
-        return new ItemView(it.getId(), it.getLabel(), it.getQuantity(), it.getPrice(), it.getNote());
+        return new ItemView(it.getId(), it.getLabel(), it.getQuantity(), it.getPrice(), it.getNote(),
+                it.getSubjectCode(), it.getAuthor(), it.getMandatory());
     }
 }

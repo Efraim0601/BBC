@@ -33,10 +33,11 @@ public class SetupDtos {
     public record SetClassTeachers(List<UUID> employeeIds) {}
 
     // ---- Subjects -----------------------------------------------------------
-    public record SubjectView(UUID id, String code, Map<String, String> label, int coef) {}
+    public record SubjectView(UUID id, String code, String subsystem, Map<String, String> label, int coef) {}
 
     public record SubjectUpsert(
             @NotBlank String code,
+            @Pattern(regexp = "FR|EN") String subsystem,
             Map<String, String> label,
             @PositiveOrZero int coef) {}
 }

@@ -202,14 +202,22 @@ const fmtMoney = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} FCFA`;
               </bbc-card>
 
               <bbc-card className="col-span-12 lg:col-span-6"
-                [title]="fr() ? 'Livres à payer' : 'Payable books'" [subtitle]="sel.className">
+                [title]="fr() ? 'Manuels scolaires' : 'School textbooks'" [subtitle]="sel.className">
                 @if (books()?.published && books()!.items.length) {
                   <table class="w-full text-sm">
                     <tbody>
                       @for (it of books()!.items; track it.id) {
                         <tr class="border-b border-slate-50 last:border-0">
-                          <td class="py-2.5 font-semibold text-ink">{{ it.label }}</td>
-                          <td class="py-2.5 text-right text-mute">{{ it.price != null ? (it.price | number) + ' FCFA' : '—' }}</td>
+                          <td class="py-2.5">
+                            <div class="font-semibold text-ink">
+                              {{ it.label }}
+                              @if (it.mandatory === false) {
+                                <span class="ml-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">{{ fr() ? 'optionnel' : 'optional' }}</span>
+                              }
+                            </div>
+                            @if (it.author) { <div class="text-[11px] text-mute">{{ it.author }}</div> }
+                          </td>
+                          <td class="py-2.5 text-right text-mute align-top whitespace-nowrap">{{ it.price != null ? (it.price | number) + ' FCFA' : '—' }}</td>
                         </tr>
                       }
                       @if (booksTotal() > 0) {
@@ -221,7 +229,7 @@ const fmtMoney = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} FCFA`;
                     </tbody>
                   </table>
                 } @else {
-                  <bbc-empty icon="book" [label]="fr() ? 'Aucune liste de livres publiée.' : 'No published book list.'" />
+                  <bbc-empty icon="book" [label]="fr() ? 'Aucune liste de manuels publiée.' : 'No published textbook list.'" />
                 }
               </bbc-card>
             </div>
@@ -325,7 +333,7 @@ export class ParentComponent {
   protected tabs = computed(() => [
     { id: 'overview', label: this.fr() ? 'Vue d’ensemble' : 'Overview' },
     { id: 'grades', label: this.fr() ? 'Notes' : 'Grades' },
-    { id: 'resources', label: this.fr() ? 'Fournitures & livres' : 'Supplies & books' },
+    { id: 'resources', label: this.fr() ? 'Fournitures & manuels' : 'Supplies & textbooks' },
     { id: 'suggest', label: this.fr() ? 'Boîte à suggestions' : 'Suggestion box' },
   ]);
 
