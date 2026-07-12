@@ -1,5 +1,5 @@
 # BBC SMS — one-command launch helpers.
-.PHONY: prod demo down reset logs ps deploy redeploy server-down server-logs
+.PHONY: prod demo down reset logs ps deploy redeploy server-down server-logs deploy-domain domain-down domain-logs
 
 ## prod  — PRODUCTION: clean schema, NO demo data (create your first admin yourself).
 prod:
@@ -37,3 +37,16 @@ server-down:
 ## server-logs — follow the server backend logs.
 server-logs:
 	docker compose -f docker-compose.server.yml logs -f backend
+
+## deploy-domain — DOMAIN deployment: trusted Let's Encrypt TLS, ports 80/443.
+##   Requires DOMAIN's DNS A record to already point at this server.
+deploy-domain:
+	./deploy-domain.sh
+
+## domain-down — stop the domain stack (keep data).
+domain-down:
+	docker compose -f docker-compose.letsencrypt.yml down
+
+## domain-logs — follow the domain backend logs.
+domain-logs:
+	docker compose -f docker-compose.letsencrypt.yml logs -f backend

@@ -90,6 +90,49 @@ make server-logs   # logs backend
 
 ---
 
+## Déploiement domaine (HTTPS Let's Encrypt)
+
+Pour un **nom de domaine possédé** (ex: `bbcomplex.com`), `docker-compose.letsencrypt.yml`
+lance la production derrière nginx avec un **certificat Let's Encrypt fiable** (aucun
+avertissement navigateur), sur les ports standard **80/443**. Backend et base restent liés à
+`127.0.0.1`.
+
+| Service | Port | Exposition |
+|---|---|---|
+| Frontend HTTPS | **443** | public |
+| Frontend HTTP (→ 301 HTTPS, sauf défi ACME) | **80** | public |
+| Backend API | **28081** | `127.0.0.1` |
+| PostgreSQL | **25433** | `127.0.0.1` |
+
+**Préalable** : l'enregistrement DNS **A** de `DOMAIN` (et `www.DOMAIN` si utilisé) doit déjà
+pointer vers l'IP publique de ce serveur — sinon la validation ACME HTTP-01 échoue.
+
+```bash
+cp .env.example .env     # éditez DOMAIN=bbcomplex.com, LETSENCRYPT_EMAIL, BBC_ADMIN_PASSWORD…
+./deploy-domain.sh       # = make deploy-domain
+```
+
+`deploy-domain.sh` (sûr à relancer après chaque mise à jour) :
+1. vérifie que `DOMAIN` résout bien vers l'IP publique de ce serveur ;
+2. génère la conf nginx à partir du template (`frontend/nginx.letsencrypt.conf`) ;
+3. au premier lancement : certificat temporaire → démarrage → demande du vrai certificat
+   Let's Encrypt (webroot) → rechargement nginx ;
+4. relances suivantes : rebuild + recrée les conteneurs (le certificat existant est réutilisé) ;
+5. installe un cron hebdomadaire qui recharge nginx (le conteneur `certbot` renouvelle le
+   certificat en tâche de fond, nginx doit relire le fichier).
+
+```bash
+make deploy-domain  # applique une mise à jour (idem ./deploy-domain.sh)
+make domain-down    # arrête la stack domaine (conserve les données)
+make domain-logs    # logs backend
+```
+
+> La stack domaine tourne dans le projet Docker isolé `bbc-prod` (volume dédié, distinct de
+> `bbc-server`). Les deux stacks peuvent coexister mais **pas sur les mêmes ports** — le domaine
+> utilise 80/443/28081/25433, le mode IP auto-signé utilise 20080/20443/28080/25432.
+
+---
+
 ## Développement local
 
 ### Backend

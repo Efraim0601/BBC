@@ -24,6 +24,9 @@ Thumbs.db
 # Self-signed TLS material generated at deploy time
 certs-tls/
 
+# nginx conf generated from template by deploy-domain.sh (has real domain baked in)
+nginx-domain.generated.conf
+
 # Machine-specific exported CA bundle (keep the folder, not the certs)
 frontend/certs/*.crt
 backend/certs/*.crt
