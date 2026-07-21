@@ -25,6 +25,10 @@ public class Subject {
     @Column(nullable = false)
     private String code;
 
+    /** 'FR' | 'EN' — or null for a subject common to both subsystems. */
+    @Column
+    private String subsystem;
+
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(columnDefinition = "jsonb")
     private Map<String, String> label;

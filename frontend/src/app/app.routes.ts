@@ -1,5 +1,5 @@
 import { Routes } from '@angular/router';
-import { authGuard, permissionGuard } from './core/guards';
+import { authGuard, permissionGuard, scopeGuard } from './core/guards';
 
 export const routes: Routes = [
   {
@@ -7,8 +7,13 @@ export const routes: Routes = [
     loadComponent: () => import('./features/login/login').then((m) => m.LoginComponent),
   },
   {
-    path: '',
+    path: 'parcours',
     canActivate: [authGuard],
+    loadComponent: () => import('./features/parcours/parcours-picker').then((m) => m.ParcoursPickerComponent),
+  },
+  {
+    path: '',
+    canActivate: [authGuard, scopeGuard],
     loadComponent: () => import('./layout/shell').then((m) => m.ShellComponent),
     children: [
       {
@@ -99,6 +104,11 @@ export const routes: Routes = [
         path: 'reports',
         canActivate: [permissionGuard('reports')],
         loadComponent: () => import('./features/reports/reports').then((m) => m.ReportsComponent),
+      },
+      {
+        path: 'classkit',
+        canActivate: [permissionGuard('classkit')],
+        loadComponent: () => import('./features/classkit/classkit').then((m) => m.ClasskitComponent),
       },
       {
         path: 'parent',

@@ -1,5 +1,11 @@
 export type Level = 'none' | 'read' | 'write';
 
+/** A parcours the user may access (level × subsystem). */
+export interface Parcours {
+  level: 'maternelle' | 'primary' | 'secondary';
+  subsystem: 'FR' | 'EN';
+}
+
 export interface UserView {
   id: string;
   username: string;
@@ -12,6 +18,7 @@ export interface UserView {
   locale: string;
   permissions: Record<string, Level>;
   modules: string[];
+  allowedParcours: Parcours[]; // empty = all parcours (admin)
 }
 
 export interface TokenResponse {

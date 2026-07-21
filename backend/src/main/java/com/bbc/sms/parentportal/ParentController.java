@@ -1,5 +1,6 @@
 package com.bbc.sms.parentportal;
 
+import com.bbc.sms.classkit.dto.ClassKitDtos.ClassResourceView;
 import com.bbc.sms.parentportal.dto.ParentDtos.*;
 import com.bbc.sms.platform.security.AppUserPrincipal;
 import jakarta.validation.Valid;
@@ -32,6 +33,13 @@ public class ParentController {
     public List<GradeView> grades(@AuthenticationPrincipal AppUserPrincipal principal,
                                   @PathVariable UUID studentId) {
         return service.grades(principal, studentId);
+    }
+
+    @GetMapping("/children/{studentId}/resources/{kind}")
+    @PreAuthorize("@perm.isParent()")
+    public ClassResourceView resources(@AuthenticationPrincipal AppUserPrincipal principal,
+                                       @PathVariable UUID studentId, @PathVariable String kind) {
+        return service.resources(principal, studentId, kind);
     }
 
     @PostMapping("/suggestions")

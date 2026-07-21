@@ -22,7 +22,7 @@ public class StudentController {
     }
 
     @GetMapping
-    @PreAuthorize("@perm.can('students','read')")
+    @PreAuthorize("@parcours.allows() and @perm.can('students','read')")
     public List<StudentView> list(@RequestParam(required = false) String className) {
         return service.list(className);
     }

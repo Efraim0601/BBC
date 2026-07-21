@@ -8,12 +8,14 @@ export interface SectionUpsert { label: string; subsystem: string; level: string
 
 export interface ClassView {
   id: string; name: string; sectionId: string; sectionLabel: string;
-  subsystem: string; level: string; studentCount: number;
+  subsystem: string; level: string; studentCount: number; teacherCount: number;
 }
 export interface ClassUpsert { name: string; sectionId: string; }
 
-export interface SubjectView { id: string; code: string; label: Record<string, string>; coef: number; }
-export interface SubjectUpsert { code: string; label: Record<string, string>; coef: number; }
+export interface TeacherOption { id: string; name: string; code: string; }
+
+export interface SubjectView { id: string; code: string; subsystem: string | null; label: Record<string, string>; coef: number; }
+export interface SubjectUpsert { code: string; subsystem: string | null; label: Record<string, string>; coef: number; }
 
 /** Academic Setup — the relational backbone (sections, classes, subjects). */
 @Injectable({ providedIn: 'root' })
@@ -32,6 +34,13 @@ export class SetupApi {
   createClass(b: ClassUpsert): Observable<ClassView> { return this.http.post<ClassView>(`${this.base}/classes`, b); }
   updateClass(id: string, b: ClassUpsert): Observable<ClassView> { return this.http.put<ClassView>(`${this.base}/classes/${id}`, b); }
   deleteClass(id: string): Observable<void> { return this.http.delete<void>(`${this.base}/classes/${id}`); }
+
+  // Class ↔ teachers (0..N teachers per class)
+  assignableTeachers(): Observable<TeacherOption[]> { return this.http.get<TeacherOption[]>(`${this.base}/teachers`); }
+  classTeachers(classId: string): Observable<TeacherOption[]> { return this.http.get<TeacherOption[]>(`${this.base}/classes/${classId}/teachers`); }
+  setClassTeachers(classId: string, employeeIds: string[]): Observable<TeacherOption[]> {
+    return this.http.put<TeacherOption[]>(`${this.base}/classes/${classId}/teachers`, { employeeIds });
+  }
 
   // Subjects
   listSubjects(): Observable<SubjectView[]> { return this.http.get<SubjectView[]>(`${this.base}/subjects`); }

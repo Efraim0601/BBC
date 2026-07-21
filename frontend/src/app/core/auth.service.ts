@@ -4,6 +4,7 @@ import { Router } from '@angular/router';
 import { Observable, tap } from 'rxjs';
 import { environment } from '../../environments/environment';
 import { Level, TokenResponse, UserView } from './models';
+import { ScopeService } from './scope.service';
 
 const ACCESS_KEY = 'bbc-access';
 const REFRESH_KEY = 'bbc-refresh';
@@ -13,6 +14,7 @@ const USER_KEY = 'bbc-user';
 export class AuthService {
   private http = inject(HttpClient);
   private router = inject(Router);
+  private scope = inject(ScopeService);
 
   // Signals — the single source of truth the whole UI reacts to.
   readonly user = signal<UserView | null>(this.restoreUser());
@@ -44,6 +46,7 @@ export class AuthService {
     localStorage.removeItem(ACCESS_KEY);
     localStorage.removeItem(REFRESH_KEY);
     localStorage.removeItem(USER_KEY);
+    this.scope.clear();
     this.user.set(null);
     this.router.navigate(['/login']);
   }

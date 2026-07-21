@@ -13,12 +13,12 @@ import { NAV_GROUPS } from '../core/nav-items';
   template: `
     <div class="fade-in min-h-full">
       <!-- Hero -->
-      <div class="relative bg-gradient-to-br from-brand-700 via-brand-800 to-brand-900 text-white px-8 py-10 -mx-6 -mt-6 mb-8 overflow-hidden">
+      <div class="relative bg-gradient-to-br from-brand-700 via-brand-800 to-brand-900 text-white px-6 sm:px-8 py-8 sm:py-10 -mx-4 sm:-mx-6 -mt-4 sm:-mt-6 mb-6 sm:mb-8 overflow-hidden">
         <div class="absolute -top-24 -right-24 w-96 h-96 rounded-full bg-gold-400/15 blur-3xl"></div>
         <div class="absolute -bottom-32 -left-16 w-96 h-96 rounded-full bg-brand-500/30 blur-3xl"></div>
         <div class="relative max-w-5xl">
           <div class="text-[11px] uppercase tracking-[0.2em] text-gold-300 font-bold mb-2">Bayo Bilingual Complex — SMS</div>
-          <h1 class="font-display text-4xl font-bold leading-tight">
+          <h1 class="font-display text-3xl sm:text-4xl font-bold leading-tight">
             {{ fr() ? 'Bonjour' : 'Hello' }} <span class="text-gold-300">{{ firstName() }}</span>.
           </h1>
           <p class="text-brand-100 text-sm mt-2 max-w-xl">

@@ -3,8 +3,10 @@ import { FormsModule } from '@angular/forms';
 import { StudentApi } from '../students/students.api';
 import { AcademicApi, BulletinView, PvView } from './academic.api';
 import { AuthService } from '../../core/auth.service';
+import { ScopeService } from '../../core/scope.service';
 import { I18nService } from '../../core/i18n.service';
 import { Student } from '../../core/models';
+import { ApcBulletinComponent } from './apc-bulletin';
 import {
   IconComponent, CardComponent, PageHeaderComponent, EmptyComponent,
   AvatarComponent, TabsComponent, ChipFilterComponent,
@@ -27,7 +29,7 @@ const appreciation = (avg: number, fr: boolean): string => {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     FormsModule, IconComponent, CardComponent, PageHeaderComponent,
-    EmptyComponent, AvatarComponent, TabsComponent, ChipFilterComponent,
+    EmptyComponent, AvatarComponent, TabsComponent, ChipFilterComponent, ApcBulletinComponent,
   ],
   template: `
     <div class="fade-in max-w-6xl mx-auto">
@@ -97,6 +99,10 @@ const appreciation = (avg: number, fr: boolean): string => {
       <!-- ============ BULLETIN ============ -->
       @if (mode() === 'bulletin') {
         @if (bulletin(); as b) {
+          @if (isApc()) {
+            <!-- Maternelle / Primaire — competency-based (APC) report card -->
+            <bbc-card className="overflow-x-auto"><bbc-apc-bulletin [view]="b" /></bbc-card>
+          } @else {
           <bbc-card className="overflow-hidden">
             <div class="bg-white rounded-xl2 overflow-hidden -m-5 print:m-0">
               <!-- Navy header -->
@@ -256,6 +262,7 @@ const appreciation = (avg: number, fr: boolean): string => {
               </div>
             </div>
           </bbc-card>
+          }
         } @else {
           <bbc-card>
             <bbc-empty icon="doc" [label]="fr() ? 'Choisissez un élève et une séquence.' : 'Choose a student and a sequence.'" />
@@ -322,9 +329,16 @@ export class AcademicComponent {
   private studentApi = inject(StudentApi);
   private api = inject(AcademicApi);
   private auth = inject(AuthService);
+  private scope = inject(ScopeService);
 
   protected readonly sequences = [1, 2, 3, 4, 5, 6] as const;
   protected canWrite = this.auth.can('academic', 'write');
+
+  /** Maternelle & Primaire use the competency-based (APC) report card; Secondaire uses marks/20. */
+  protected isApc = computed(() => {
+    const lvl = this.scope.scope()?.level;
+    return lvl === 'maternelle' || lvl === 'primary';
+  });
 
   protected students = signal<Student[]>([]);
   protected selectedStudentId = signal<string>('');
