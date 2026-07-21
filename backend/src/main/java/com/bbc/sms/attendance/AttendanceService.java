@@ -9,14 +9,23 @@ import com.bbc.sms.student.StudentRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.OffsetDateTime;
 import java.util.*;
 
 @Service
 public class AttendanceService {
 
     private static final LocalTime SCHOOL_START = LocalTime.of(7, 30);
+
+    /**
+     * A reader counts as online if it checked in within this window. The on-site agent
+     * posts on every scan, so a quiet stretch mid-lesson is normal — the window is wide
+     * enough not to flap, tight enough that an unplugged reader shows up within the hour.
+     */
+    private static final Duration ONLINE_WINDOW = Duration.ofMinutes(60);
 
     private final AttendanceRepository repo;
     private final DeviceRepository devices;
@@ -29,6 +38,22 @@ public class AttendanceService {
         this.devices = devices;
         this.students = students;
         this.realtime = realtime;
+    }
+
+    /** Reader health for the tenant — drives the Attendance and Settings status cards. */
+    @Transactional(readOnly = true)
+    public List<DeviceView> devices() {
+        OffsetDateTime now = OffsetDateTime.now();
+        return devices.findBySchoolIdOrderByLabel(TenantContext.get()).stream()
+                .map(d -> {
+                    OffsetDateTime seen = d.getLastSeenAt();
+                    Long minutes = seen == null ? null : Duration.between(seen, now).toMinutes();
+                    boolean online = d.isActive() && seen != null
+                            && Duration.between(seen, now).compareTo(ONLINE_WINDOW) <= 0;
+                    return new DeviceView(d.getId(), d.getLabel(), d.getLocation(), d.getModel(),
+                            d.isActive(), online, seen, minutes);
+                })
+                .toList();
     }
 
     @Transactional(readOnly = true)
@@ -72,6 +97,11 @@ public class AttendanceService {
         Device device = devices.findByIdAndApiKeyAndActiveTrue(deviceId, apiKey)
                 .orElseThrow(() -> new ApiException(org.springframework.http.HttpStatus.UNAUTHORIZED, "Périphérique non autorisé"));
         UUID schoolId = device.getSchoolId();
+
+        // Heartbeat: stamped even for a deduplicated replay — the reader did reach us,
+        // which is exactly what the "online" indicator is asking about.
+        device.setLastSeenAt(OffsetDateTime.now());
+        devices.save(device);
 
         if (in.dedupKey() != null && repo.existsByDedupKey(in.dedupKey())) {
             // Idempotent replay after a reconnection — ignore silently.

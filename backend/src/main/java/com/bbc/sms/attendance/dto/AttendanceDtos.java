@@ -4,6 +4,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -40,4 +41,18 @@ public class AttendanceDtos {
             int late,
             int absent,
             List<AttendanceView> records) {}
+
+    /**
+     * Reader health. {@code online} means the device checked in within the freshness
+     * window — see AttendanceService.ONLINE_WINDOW — not that a green dot was hardcoded.
+     */
+    public record DeviceView(
+            UUID id,
+            String label,
+            String location,
+            String model,
+            boolean active,
+            boolean online,
+            OffsetDateTime lastSeenAt,
+            Long minutesSinceLastSeen) {}
 }
