@@ -1,6 +1,6 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { StaffApi, EmployeeUpsert, EmployeeView } from './staff.api';
+import { StaffApi, EmployeeUpsert, EmployeeView, AccountResult } from './staff.api';
 import { HrApi, DepartmentView, DepartmentUpsert, LeaveView, LeaveCreate } from './hr.api';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
@@ -180,6 +180,41 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                         <div class="text-sm font-semibold text-ink truncate">{{ sexLabel(e.sex) }}</div>
                       </div>
                     </div>
+                  </div>
+
+                  <!-- Login account -->
+                  <div>
+                    <div class="text-[11px] uppercase tracking-wider text-mute font-semibold mb-2">{{ fr() ? 'Compte de connexion' : 'Login account' }}</div>
+                    <div class="flex items-center justify-between gap-3 p-3 rounded-lg bg-slate-50">
+                      <div class="min-w-0">
+                        @if (e.hasLogin) {
+                          <div class="text-sm font-semibold text-ink">
+                            {{ fr() ? 'Identifiant' : 'Username' }} : <span class="font-mono">{{ e.username }}</span>
+                          </div>
+                          <div class="text-[11px] text-mute mt-0.5">
+                            {{ fr() ? 'Le mot de passe n’est jamais affiché — réinitialisez pour en envoyer un nouveau par e-mail.'
+                                    : 'The password is never shown — reset to e-mail a new one.' }}
+                          </div>
+                        } @else {
+                          <div class="text-sm font-semibold text-ink">{{ fr() ? 'Aucun compte de connexion' : 'No login account' }}</div>
+                          <div class="text-[11px] text-mute mt-0.5">
+                            {{ e.email
+                                ? (fr() ? 'Créez le compte pour envoyer les identifiants par e-mail.' : 'Create the account to e-mail the credentials.')
+                                : (fr() ? 'Ajoutez d’abord un e-mail à la fiche.' : 'Add an e-mail to the record first.') }}
+                          </div>
+                        }
+                      </div>
+                      @if (canWrite) {
+                        <button (click)="resetCredentials(e)" [disabled]="resetting() || (!e.hasLogin && !e.email)"
+                          class="shrink-0 inline-flex items-center gap-1.5 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50 disabled:opacity-50">
+                          <bbc-icon name="send" [s]="15" />
+                          {{ e.hasLogin ? (fr() ? 'Réinitialiser' : 'Reset') : (fr() ? 'Créer le compte' : 'Create account') }}
+                        </button>
+                      }
+                    </div>
+                    @if (accountMsg(); as m) {
+                      <div class="mt-2 text-xs rounded-lg px-3 py-2" [class]="m.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'">{{ m.text }}</div>
+                    }
                   </div>
 
                   <!-- Compensation -->
@@ -458,6 +493,30 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                     class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
                 </label>
               </div>
+
+              @if (!editId()) {
+                <div class="mt-4 p-3 rounded-lg border border-slate-200 bg-slate-50/60">
+                  <label class="flex items-start gap-2.5 cursor-pointer select-none"
+                    [class.opacity-50]="!draft.email?.trim()">
+                    <input type="checkbox" [ngModel]="createLogin()" (ngModelChange)="createLogin.set($event)"
+                      [disabled]="!draft.email?.trim()"
+                      class="mt-0.5 w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-400" />
+                    <span>
+                      <span class="text-sm font-semibold text-ink flex items-center gap-1.5">
+                        <bbc-icon name="send" [s]="14" />
+                        {{ fr() ? 'Créer un compte de connexion' : 'Create a login account' }}
+                      </span>
+                      <span class="text-[11px] text-mute block mt-0.5">
+                        {{ draft.email?.trim()
+                            ? (fr() ? 'Les identifiants seront envoyés par e-mail à ' + draft.email + '. Le rôle du compte est le rôle principal ci-dessous.'
+                                    : 'Credentials will be e-mailed to ' + draft.email + '. The account role is the primary role below.')
+                            : (fr() ? 'Renseignez un e-mail ci-dessus pour activer cette option.'
+                                    : 'Enter an e-mail above to enable this option.') }}
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              }
             </section>
 
             <section>
@@ -572,6 +631,9 @@ export class StaffComponent {
   protected canWrite = this.auth.can('hr', 'write');
   protected draft: EmployeeUpsert = this.blank();
   protected draftRoles = signal<string[]>([]);
+  protected createLogin = signal(true);
+  protected accountMsg = signal<{ text: string; ok: boolean } | null>(null);
+  protected resetting = signal(false);
   protected trackId = (e: EmployeeView) => e.id;
 
   protected fr = () => this.i18n.lang() === 'fr';
@@ -697,6 +759,7 @@ export class StaffComponent {
 
   protected select(e: EmployeeView): void {
     this.selectedId.set(e.id);
+    this.accountMsg.set(null);
   }
 
   protected hue(id: string): number {
@@ -719,8 +782,29 @@ export class StaffComponent {
   protected openCreate(): void {
     this.draft = this.blank();
     this.draftRoles.set(['teacher']);
+    this.createLogin.set(true);
     this.editId.set(null);
     this.editing.set(true);
+  }
+
+  protected resetCredentials(e: EmployeeView): void {
+    const action = e.hasLogin
+      ? (this.fr() ? `réinitialiser les identifiants de « ${e.name} » ?` : `reset credentials for "${e.name}"?`)
+      : (this.fr() ? `créer le compte de connexion de « ${e.name} » ?` : `create a login account for "${e.name}"?`);
+    if (!confirm((this.fr() ? 'Voulez-vous ' : 'Do you want to ') + action)) return;
+    this.resetting.set(true);
+    this.accountMsg.set(null);
+    this.api.resetCredentials(e.id).subscribe({
+      next: (r: AccountResult) => {
+        this.resetting.set(false);
+        this.accountMsg.set({ text: r.message, ok: r.emailSent });
+        this.reload();
+      },
+      error: (err) => {
+        this.resetting.set(false);
+        this.accountMsg.set({ text: err?.error?.message ?? (this.fr() ? 'Opération impossible.' : 'Operation failed.'), ok: false });
+      },
+    });
   }
 
   protected openEdit(e: EmployeeView): void {
@@ -751,13 +835,24 @@ export class StaffComponent {
 
   save(): void {
     if (!this.draft.name?.trim()) return;
-    const body: EmployeeUpsert = { ...this.draft, roles: this.draftRoles() };
+    const isNew = !this.editId();
+    const wantsLogin = isNew && !!this.draft.email?.trim() && this.createLogin();
+    const body: EmployeeUpsert = { ...this.draft, roles: this.draftRoles(), createLogin: wantsLogin };
     const id = this.editId();
     const req = id ? this.api.update(id, body) : this.api.create(body);
     req.subscribe((res) => {
       this.editing.set(false);
       this.selectedId.set(res?.id ?? id);
-      this.reload();
+      this.accountMsg.set(null);
+      if (wantsLogin && res?.id) {
+        // Provision the login + e-mail the credentials, then show the real outcome.
+        this.api.resetCredentials(res.id).subscribe({
+          next: (r: AccountResult) => { this.accountMsg.set({ text: r.message, ok: r.emailSent }); this.reload(); },
+          error: (err) => { this.accountMsg.set({ text: err?.error?.message ?? (this.fr() ? 'Compte non créé.' : 'Account not created.'), ok: false }); this.reload(); },
+        });
+      } else {
+        this.reload();
+      }
     });
   }
 

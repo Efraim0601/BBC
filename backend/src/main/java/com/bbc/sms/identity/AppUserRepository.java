@@ -9,4 +9,7 @@ import java.util.UUID;
 public interface AppUserRepository extends JpaRepository<AppUser, UUID> {
     List<AppUser> findByUsernameAndActiveTrue(String username);
     Optional<AppUser> findBySchoolIdAndUsernameAndActiveTrue(UUID schoolId, String username);
+    Optional<AppUser> findByEmployeeId(UUID employeeId);
+    List<AppUser> findBySchoolIdAndEmployeeIdNotNull(UUID schoolId);
+    boolean existsBySchoolIdAndUsername(UUID schoolId, String username);
 }

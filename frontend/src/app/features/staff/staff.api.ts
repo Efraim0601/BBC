@@ -19,6 +19,8 @@ export interface EmployeeView {
   hourlyRate: number;
   roles: string[];
   active: boolean;
+  hasLogin: boolean;
+  username: string | null;
 }
 
 export interface EmployeeUpsert {
@@ -32,6 +34,14 @@ export interface EmployeeUpsert {
   monthlySalary?: number;
   hourlyRate?: number;
   roles?: string[];
+  createLogin?: boolean;
+}
+
+export interface AccountResult {
+  hasAccount: boolean;
+  username: string;
+  emailSent: boolean;
+  message: string;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -53,5 +63,8 @@ export class StaffApi {
   }
   remove(id: string): Observable<void> {
     return this.http.delete<void>(`${this.base}/${id}`);
+  }
+  resetCredentials(id: string): Observable<AccountResult> {
+    return this.http.post<AccountResult>(`${this.base}/${id}/reset-credentials`, {});
   }
 }

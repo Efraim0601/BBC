@@ -2,6 +2,8 @@ package com.bbc.sms.staff;
 
 import com.bbc.sms.hr.Department;
 import com.bbc.sms.hr.DepartmentRepository;
+import com.bbc.sms.identity.AppUser;
+import com.bbc.sms.identity.AppUserRepository;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.mail.MailService;
 import com.bbc.sms.platform.tenant.TenantContext;
@@ -22,11 +24,16 @@ public class StaffService {
     private final EmployeeRepository repo;
     private final DepartmentRepository departments;
     private final MailService mail;
+    private final StaffAccountService accounts;
+    private final AppUserRepository users;
 
-    public StaffService(EmployeeRepository repo, DepartmentRepository departments, MailService mail) {
+    public StaffService(EmployeeRepository repo, DepartmentRepository departments, MailService mail,
+                        StaffAccountService accounts, AppUserRepository users) {
         this.repo = repo;
         this.departments = departments;
         this.mail = mail;
+        this.accounts = accounts;
+        this.users = users;
     }
 
     @Transactional(readOnly = true)
@@ -34,8 +41,9 @@ public class StaffService {
         UUID schoolId = TenantContext.get();
         Map<UUID, String> deptNames = new HashMap<>();
         for (Department d : departments.findBySchoolIdOrderByName(schoolId)) deptNames.put(d.getId(), d.getName());
+        Map<UUID, String> logins = loginUsernames(schoolId);
         return repo.findBySchoolIdAndActiveTrueOrderByNameAsc(schoolId).stream()
-                .map(e -> toView(e, deptNames)).toList();
+                .map(e -> toView(e, deptNames.get(e.getDepartmentId()), logins.get(e.getId()))).toList();
     }
 
     @Transactional(readOnly = true)
@@ -52,8 +60,13 @@ public class StaffService {
         apply(e, in);
         e.setInitials(initials(in.name()));
         Employee saved = repo.save(e);
-        // Fire-and-forget e-mail notification (no-op unless SMTP is configured).
-        mail.notifyUserCreated(schoolId, saved.getName(), saved.getEmail());
+        // When a login account is requested, the UI follows up with reset-credentials
+        // (which e-mails the actual credentials and reports delivery), so skip the vague
+        // courtesy notice here to avoid sending the employee two e-mails. Otherwise send
+        // the fire-and-forget notice (no-op unless SMTP is configured).
+        if (!Boolean.TRUE.equals(in.createLogin())) {
+            mail.notifyUserCreated(schoolId, saved.getName(), saved.getEmail());
+        }
         return toView(saved);
     }
 
@@ -72,9 +85,24 @@ public class StaffService {
         repo.save(e);
     }
 
+    /** (Re)issue the employee's login credentials and e-mail them; admin action. */
+    @Transactional
+    public AccountResult resetCredentials(UUID id) {
+        return accounts.provisionOrReset(find(id));
+    }
+
     private Employee find(UUID id) {
         return repo.findByIdAndSchoolId(id, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Employé"));
+    }
+
+    /** employeeId -> username for every staff-linked account in this school. */
+    private Map<UUID, String> loginUsernames(UUID schoolId) {
+        Map<UUID, String> map = new HashMap<>();
+        for (AppUser u : users.findBySchoolIdAndEmployeeIdNotNull(schoolId)) {
+            map.put(u.getEmployeeId(), u.getUsername());
+        }
+        return map;
     }
 
     private void apply(Employee e, EmployeeUpsert in) {
@@ -123,20 +151,18 @@ public class StaffService {
         String deptName = e.getDepartmentId() == null ? null
                 : departments.findByIdAndSchoolId(e.getDepartmentId(), e.getSchoolId())
                         .map(Department::getName).orElse(null);
-        return toView(e, deptName);
+        String username = users.findByEmployeeId(e.getId()).map(AppUser::getUsername).orElse(null);
+        return toView(e, deptName, username);
     }
 
-    private EmployeeView toView(Employee e, Map<UUID, String> deptNames) {
-        return toView(e, e.getDepartmentId() == null ? null : deptNames.get(e.getDepartmentId()));
-    }
-
-    private EmployeeView toView(Employee e, String deptName) {
+    private EmployeeView toView(Employee e, String deptName, String username) {
         // Copy the lazy @ElementCollection into a plain set while the session is
         // still open, otherwise JSON serialization fails with LazyInitializationException.
         Set<String> roles = e.getRoles() == null ? Set.of() : new HashSet<>(e.getRoles());
         return new EmployeeView(e.getId(), e.getCode(), e.getName(), e.getInitials(),
                 e.getSex(), e.getType(), e.getEmail(), e.getPhone(), e.getFormClass(),
                 e.getDepartmentId(), deptName,
-                e.getMonthlySalary(), e.getHourlyRate(), roles, e.isActive());
+                e.getMonthlySalary(), e.getHourlyRate(), roles, e.isActive(),
+                username != null, username);
     }
 }

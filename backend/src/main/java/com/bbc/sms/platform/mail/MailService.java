@@ -47,6 +47,38 @@ public class MailService {
         }
     }
 
+    /**
+     * Sends login credentials to a newly-provisioned (or reset) staff account.
+     * Synchronous so the caller knows whether the mail actually went out: the
+     * temporary password is never shown in the UI, so a silent failure would
+     * leave the account unusable. Returns {@code false} (without throwing) when
+     * SMTP is off/unconfigured or the send fails — the caller turns that into a
+     * clear "configure SMTP then reset" message for the admin.
+     */
+    public boolean sendCredentials(UUID schoolId, String displayName, String toEmail,
+                                   String username, String tempPassword, String schoolCode) {
+        if (toEmail == null || toEmail.isBlank()) return false;
+        MailConfig c = repo.findById(schoolId).orElse(null);
+        if (c == null || !c.isEnabled() || c.getHost() == null || c.getHost().isBlank()) return false;
+        String subject = "BBC SMS — vos identifiants de connexion";
+        String body = "Bonjour " + (displayName == null ? "" : displayName) + ",\n\n"
+                + "Un compte de connexion vient d'être créé pour vous dans BBC SMS.\n\n"
+                + "  • Identifiant       : " + username + "\n"
+                + "  • Mot de passe      : " + tempPassword + "\n"
+                + (schoolCode == null || schoolCode.isBlank() ? "" : "  • Code établissement : " + schoolCode + "\n")
+                + "\nConnectez-vous avec ces identifiants. Pour toute réinitialisation,\n"
+                + "rapprochez-vous de l'administration.\n\n"
+                + "— BBC SMS";
+        try {
+            send(c, toEmail, subject, body);
+            log.info("Identifiants envoyés à {}", toEmail);
+            return true;
+        } catch (Exception e) {
+            log.error("Échec d'envoi des identifiants à {} : {}", toEmail, e.getMessage());
+            return false;
+        }
+    }
+
     /** Synchronous test send — surfaces SMTP errors to the caller (admin UI). */
     public void sendTest(UUID schoolId, String to) {
         MailConfig c = repo.findById(schoolId)

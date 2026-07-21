@@ -22,7 +22,9 @@ public class StaffDtos {
             long monthlySalary,
             int hourlyRate,
             Set<String> roles,
-            boolean active) {}
+            boolean active,
+            boolean hasLogin,
+            String username) {}
 
     public record EmployeeUpsert(
             @NotBlank String name,
@@ -34,5 +36,16 @@ public class StaffDtos {
             UUID departmentId,
             long monthlySalary,
             int hourlyRate,
-            Set<String> roles) {}
+            Set<String> roles,
+            // When true, the UI will follow up with reset-credentials to provision the
+            // login and e-mail the password; create() then skips its courtesy notice so
+            // the employee doesn't receive two e-mails.
+            Boolean createLogin) {}
+
+    /** Outcome of provisioning/resetting a staff login — never carries the password. */
+    public record AccountResult(
+            boolean hasAccount,
+            String username,
+            boolean emailSent,
+            String message) {}
 }

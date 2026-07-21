@@ -48,4 +48,15 @@ public class StaffController {
     public void delete(@PathVariable UUID id) {
         service.delete(id);
     }
+
+    /**
+     * Create the employee's login account if missing, otherwise regenerate its
+     * password; the new credentials are e-mailed to the employee. Doubles as the
+     * admin "reset credentials" action.
+     */
+    @PostMapping("/{id}/reset-credentials")
+    @PreAuthorize("@perm.can('hr','write')")
+    public AccountResult resetCredentials(@PathVariable UUID id) {
+        return service.resetCredentials(id);
+    }
 }
