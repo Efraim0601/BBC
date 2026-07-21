@@ -10,6 +10,38 @@ public class SettingsDtos {
 
     public record RoleView(String code, String labelFr, String labelEn, boolean builtin) {}
 
+    // ---- School profile -----------------------------------------------------
+
+    /**
+     * The school's own identity. Readable by any signed-in user because bulletins,
+     * receipts and the parent portal all print it; writable only with settings:write.
+     */
+    public record SchoolProfileView(
+            String code,
+            String name,
+            String motto,
+            String city,
+            String country,
+            String address,
+            String phone,
+            String email,
+            String website,
+            String currency,
+            String authority,
+            String academicYear) {}
+
+    public record SchoolProfileUpdate(
+            @NotBlank String name,
+            String motto,
+            String city,
+            String country,
+            String address,
+            String phone,
+            String email,
+            String website,
+            String currency,
+            String authority) {}
+
     /** Full permission matrix for the Settings editor (§13.1). */
     public record PermissionMatrix(
             List<String> modules,
