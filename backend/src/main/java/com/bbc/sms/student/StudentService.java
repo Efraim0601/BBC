@@ -10,7 +10,10 @@ import com.bbc.sms.timetable.SchoolClassRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -72,6 +75,68 @@ public class StudentService {
         Student s = find(id);
         s.setActive(false);   // soft delete — keeps financial/academic history intact
         repo.save(s);
+    }
+
+    /**
+     * Bulk-create students into one existing class. Each row is validated on its
+     * own: a bad row is skipped and reported, the rest still import. Matricules
+     * are handed out from a local running counter so a whole batch stays unique
+     * within itself (a COUNT-based query can't see rows not yet flushed).
+     */
+    @Transactional
+    public StudentImportResult importForClass(StudentImportRequest in) {
+        UUID schoolId = TenantContext.get();
+        SchoolClass cls = classes.findByIdAndSchoolId(in.classId(), schoolId)
+                .orElseThrow(() -> ApiException.badRequest("Classe inconnue"));
+
+        long seq = repo.countBySchoolIdAndActiveTrue(schoolId) + 1001;
+        Set<String> usedMatricules = new HashSet<>();
+        List<StudentImportError> errors = new ArrayList<>();
+        int created = 0;
+        int lineNo = 0;
+
+        for (StudentImportRow row : in.rows()) {
+            lineNo++;
+            String label = ((row.lastName() == null ? "" : row.lastName().trim()) + " "
+                          + (row.firstName() == null ? "" : row.firstName().trim())).trim();
+            try {
+                if (row.firstName() == null || row.firstName().isBlank()
+                        || row.lastName() == null || row.lastName().isBlank()) {
+                    throw new IllegalArgumentException("Nom et prénom obligatoires");
+                }
+                String sex = blankToNull(row.sex());
+                if (sex != null) {
+                    sex = sex.trim().toUpperCase();
+                    if (!sex.equals("M") && !sex.equals("F")) {
+                        throw new IllegalArgumentException("Sexe invalide (attendu M ou F)");
+                    }
+                }
+                String matricule;
+                do { matricule = "BBC-" + seq++; }
+                while (usedMatricules.contains(matricule) || repo.existsBySchoolIdAndMatricule(schoolId, matricule));
+                usedMatricules.add(matricule);
+
+                Student s = new Student();
+                s.setSchoolId(schoolId);
+                s.setMatricule(matricule);
+                s.setPhotoHue(ThreadLocalRandom.current().nextInt(0, 360));
+                s.setFirstName(row.firstName().trim());
+                s.setLastName(row.lastName().trim());
+                s.setSex(sex);
+                s.setDob(row.dob());
+                s.setClassId(cls.getId());
+                s.setClassName(cls.getName());
+                s.setSubsystem(cls.getSubsystem());
+                s.setLevel(cls.getLevel());
+                s.setParentName(blankToNull(row.parentName()));
+                s.setParentPhone(blankToNull(row.parentPhone()));
+                repo.save(s);
+                created++;
+            } catch (RuntimeException ex) {
+                errors.add(new StudentImportError(lineNo, label.isBlank() ? "?" : label, ex.getMessage()));
+            }
+        }
+        return new StudentImportResult(created, errors.size(), errors);
     }
 
     private Student find(UUID id) {

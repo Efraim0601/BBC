@@ -1,6 +1,6 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed, effect } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { StudentApi, StudentUpsert, ParentAccountView, ParentLinkRequest } from './students.api';
+import { StudentApi, StudentUpsert, ParentAccountView, ParentLinkRequest, StudentImportRow, StudentImportResult } from './students.api';
 import { SetupApi, ClassView } from '../../core/setup.api';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
@@ -29,6 +29,10 @@ import {
               <bbc-icon name="download" [s]="16" /> {{ fr() ? 'Exporter liste' : 'Export list' }}
             </button>
             @if (canWrite) {
+              <button (click)="openImport()"
+                class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
+                <bbc-icon name="download" [s]="16" /> {{ fr() ? 'Importer' : 'Import' }}
+              </button>
               <button (click)="openCreate()"
                 class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-brand-600 hover:bg-brand-700 text-white">
                 <bbc-icon name="plus" [s]="16" /> {{ i18n.t('newStudent') }}
@@ -238,7 +242,7 @@ import {
            </div>
           </bbc-card>
         }
-      } @else {
+      } @else if (mode() === 'edit') {
         <!-- Full-page entity form (replaces the create/edit modal) -->
         <form (ngSubmit)="save()">
           <bbc-card>
@@ -342,6 +346,148 @@ import {
             </div>
           </bbc-card>
         </form>
+      } @else {
+        <!-- Bulk import students into a class -->
+        <bbc-card>
+          <div class="flex items-center gap-3 pb-4 mb-4 border-b border-slate-100">
+            <button type="button" (click)="closeImport()"
+              class="w-9 h-9 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-ink">
+              <bbc-icon name="chevronLeft" [s]="18" />
+            </button>
+            <div class="flex-1">
+              <div class="text-[17px] font-bold text-ink font-display">{{ fr() ? 'Importer des élèves' : 'Import students' }}</div>
+              <div class="text-xs text-mute">{{ fr() ? 'Ajoutez plusieurs élèves d’un coup dans une classe.' : 'Add many students at once to a class.' }}</div>
+            </div>
+          </div>
+
+          @if (importResult(); as res) {
+            <!-- Result screen -->
+            <div class="max-w-2xl space-y-4">
+              <div class="flex items-center gap-3 p-4 rounded-lg" [class]="res.failed ? 'bg-amber-50' : 'bg-emerald-50'">
+                <div class="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
+                  [class]="res.failed ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'">
+                  <bbc-icon name="check" [s]="20" />
+                </div>
+                <div>
+                  <div class="font-semibold text-ink">{{ res.created }} {{ fr() ? 'élève(s) importé(s)' : 'student(s) imported' }}</div>
+                  @if (res.failed) { <div class="text-sm text-amber-700">{{ res.failed }} {{ fr() ? 'ligne(s) ignorée(s)' : 'row(s) skipped' }}</div> }
+                </div>
+              </div>
+              @if (res.errors.length) {
+                <div class="rounded-lg border border-slate-200 overflow-hidden">
+                  <div class="px-3 py-2 bg-slate-50 text-xs font-semibold text-mute">{{ fr() ? 'Lignes ignorées' : 'Skipped rows' }}</div>
+                  <table class="w-full text-sm">
+                    <tbody>
+                      @for (e of res.errors; track e.row) {
+                        <tr class="border-t border-slate-100">
+                          <td class="px-3 py-1.5 text-mute font-mono w-14">#{{ e.row }}</td>
+                          <td class="px-3 py-1.5 font-medium text-ink">{{ e.name }}</td>
+                          <td class="px-3 py-1.5 text-rose-600">{{ e.message }}</td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              }
+              <div class="flex items-center justify-end gap-2 pt-2">
+                <button (click)="resetImport()" class="h-10 px-5 rounded-lg bg-slate-100 text-sm font-semibold text-ink hover:bg-slate-200">{{ fr() ? 'Importer d’autres' : 'Import more' }}</button>
+                <button (click)="closeImport()" class="h-10 px-6 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold">{{ fr() ? 'Terminer' : 'Done' }}</button>
+              </div>
+            </div>
+          } @else {
+            <div class="space-y-6 max-w-3xl">
+              <!-- Target class -->
+              <section>
+                <div class="text-[11px] uppercase tracking-wider text-mute font-bold mb-3">{{ fr() ? 'Classe cible' : 'Target class' }} *</div>
+                @if (classes().length) {
+                  <select [ngModel]="importClassId()" (ngModelChange)="importClassId.set($event)" name="importClass"
+                    class="w-full md:w-96 h-10 px-3 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400">
+                    <option [ngValue]="null">{{ fr() ? '— Choisir une classe —' : '— Choose a class —' }}</option>
+                    @for (c of classes(); track c.id) {
+                      <option [ngValue]="c.id">{{ c.name }} · {{ c.sectionLabel }}</option>
+                    }
+                  </select>
+                } @else {
+                  <div class="text-sm text-mute p-3 rounded-lg bg-amber-50 border border-amber-100">
+                    {{ fr() ? 'Aucune classe définie. Créez vos classes dans Paramètres → Scolarité.' : 'No classes defined. Create classes in Settings → Academics.' }}
+                  </div>
+                }
+              </section>
+
+              <!-- Data input -->
+              <section>
+                <div class="flex items-center justify-between mb-2">
+                  <div class="text-[11px] uppercase tracking-wider text-mute font-bold">{{ fr() ? 'Données' : 'Data' }}</div>
+                  <div class="flex items-center gap-2">
+                    <label class="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50 cursor-pointer">
+                      <bbc-icon name="download" [s]="14" /> {{ fr() ? 'Fichier CSV' : 'CSV file' }}
+                      <input type="file" accept=".csv,text/csv,text/plain" (change)="onFile($event)" class="hidden" />
+                    </label>
+                    <button type="button" (click)="loadSample()" class="h-8 px-3 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">{{ fr() ? 'Exemple' : 'Sample' }}</button>
+                  </div>
+                </div>
+                <textarea [ngModel]="importText()" (ngModelChange)="onText($event)" name="importText" rows="7"
+                  [placeholder]="fr() ? 'Collez vos lignes ici, une par élève — Nom, Prénom, Sexe, Naissance, Parent, Téléphone' : 'Paste rows here, one per student — Last name, First name, Sex, DOB, Parent, Phone'"
+                  class="w-full px-3 py-2 rounded-lg border border-slate-200 font-mono text-xs focus:outline-none focus:border-brand-400"></textarea>
+                <div class="text-[11px] text-mute mt-1">
+                  {{ fr() ? 'Colonnes attendues : Nom, Prénom, Sexe (M/F), Date de naissance (AAAA-MM-JJ ou JJ/MM/AAAA), Parent, Téléphone. Une ligne d’en-tête est détectée automatiquement.'
+                          : 'Expected columns: Last name, First name, Sex (M/F), DOB (YYYY-MM-DD or DD/MM/YYYY), Parent, Phone. A header row is auto-detected.' }}
+                </div>
+              </section>
+
+              <!-- Preview -->
+              @if (importRows().length) {
+                <section>
+                  <div class="text-[11px] uppercase tracking-wider text-mute font-bold mb-2">
+                    {{ fr() ? 'Aperçu' : 'Preview' }} — {{ validCount() }} / {{ importRows().length }} {{ fr() ? 'valides' : 'valid' }}
+                  </div>
+                  <div class="rounded-lg border border-slate-200 overflow-auto max-h-80">
+                    <table class="w-full text-sm">
+                      <thead class="bg-slate-50 sticky top-0">
+                        <tr class="text-[11px] uppercase text-mute text-left">
+                          <th class="px-3 py-2 font-semibold w-8"></th>
+                          <th class="px-3 py-2 font-semibold">{{ fr() ? 'Nom' : 'Last name' }}</th>
+                          <th class="px-3 py-2 font-semibold">{{ fr() ? 'Prénom' : 'First name' }}</th>
+                          <th class="px-3 py-2 font-semibold">{{ fr() ? 'Sexe' : 'Sex' }}</th>
+                          <th class="px-3 py-2 font-semibold">{{ fr() ? 'Naissance' : 'DOB' }}</th>
+                          <th class="px-3 py-2 font-semibold">Parent</th>
+                          <th class="px-3 py-2 font-semibold">{{ fr() ? 'Téléphone' : 'Phone' }}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        @for (r of importRows(); track $index) {
+                          <tr class="border-t border-slate-100" [class.bg-rose-50]="!rowValid(r)">
+                            <td class="px-3 py-1.5">
+                              @if (rowValid(r)) { <span class="text-emerald-600"><bbc-icon name="check" [s]="14" /></span> }
+                              @else { <span class="text-rose-500" title="{{ fr() ? 'Nom et prénom requis' : 'Name required' }}"><bbc-icon name="x" [s]="14" /></span> }
+                            </td>
+                            <td class="px-3 py-1.5 font-medium text-ink">{{ r.lastName || '—' }}</td>
+                            <td class="px-3 py-1.5">{{ r.firstName || '—' }}</td>
+                            <td class="px-3 py-1.5">{{ r.sex || '—' }}</td>
+                            <td class="px-3 py-1.5 font-mono text-xs">{{ r.dob || '—' }}</td>
+                            <td class="px-3 py-1.5">{{ r.parentName || '—' }}</td>
+                            <td class="px-3 py-1.5">{{ r.parentPhone || '—' }}</td>
+                          </tr>
+                        }
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              }
+
+              @if (importError(); as e) { <div class="text-xs rounded-lg px-3 py-2 bg-rose-50 text-rose-600">{{ e }}</div> }
+
+              <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button (click)="closeImport()" class="h-10 px-5 rounded-lg bg-slate-100 text-sm font-semibold text-ink hover:bg-slate-200">{{ i18n.t('cancel') }}</button>
+                <button (click)="doImport()" [disabled]="!importClassId() || !validCount() || importing()"
+                  class="inline-flex items-center gap-1.5 h-10 px-6 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-semibold">
+                  <bbc-icon name="plus" [s]="16" />
+                  {{ importing() ? (fr() ? 'Import…' : 'Importing…') : (fr() ? 'Importer ' + validCount() + ' élève(s)' : 'Import ' + validCount() + ' student(s)') }}
+                </button>
+              </div>
+            </div>
+          }
+        </bbc-card>
       }
 
       <!-- Confirm delete -->
@@ -392,9 +538,17 @@ export class StudentsComponent {
   protected levelFilter = signal<string | null>(null);
   protected selectedId = signal<string | null>(null);
 
-  protected mode = signal<'list' | 'edit'>('list');
+  protected mode = signal<'list' | 'edit' | 'import'>('list');
   protected editId = signal<string | null>(null);
   protected confirmDel = signal<Student | null>(null);
+
+  // Bulk import
+  protected importClassId = signal<string | null>(null);
+  protected importText = signal('');
+  protected importRows = signal<StudentImportRow[]>([]);
+  protected importResult = signal<StudentImportResult | null>(null);
+  protected importing = signal(false);
+  protected importError = signal<string | null>(null);
 
   protected canWrite = this.auth.can('students', 'write');
   protected draft: StudentUpsert = this.blank();
@@ -548,6 +702,137 @@ export class StudentsComponent {
 
   private blank(): StudentUpsert {
     return { firstName: '', lastName: '', sex: 'M', classId: null, parentName: '', parentPhone: '' };
+  }
+
+  // ---- Bulk import ---------------------------------------------------------
+  protected validCount = computed(() => this.importRows().filter((r) => this.rowValid(r)).length);
+
+  protected rowValid(r: StudentImportRow): boolean {
+    return !!r.firstName?.trim() && !!r.lastName?.trim();
+  }
+
+  protected openImport(): void {
+    this.resetImport();
+    // Pre-select the class currently filtered, if any, for convenience.
+    this.mode.set('import');
+  }
+
+  protected closeImport(): void {
+    this.mode.set('list');
+    this.resetImport();
+  }
+
+  protected resetImport(): void {
+    this.importClassId.set(null);
+    this.importText.set('');
+    this.importRows.set([]);
+    this.importResult.set(null);
+    this.importError.set(null);
+    this.importing.set(false);
+  }
+
+  protected onText(text: string): void {
+    this.importText.set(text);
+    this.importRows.set(this.parseRows(text));
+  }
+
+  protected onFile(ev: Event): void {
+    const input = ev.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => { this.onText(String(reader.result ?? '')); input.value = ''; };
+    reader.readAsText(file);
+  }
+
+  protected loadSample(): void {
+    const sample = this.fr()
+      ? 'Nom,Prénom,Sexe,Naissance,Parent,Téléphone\nMBALLA,Alice,F,2014-03-12,Paul MBALLA,+237690000001\nNGONO,Jean,M,13/07/2013,Marie NGONO,+237690000002'
+      : 'Last name,First name,Sex,DOB,Parent,Phone\nMBALLA,Alice,F,2014-03-12,Paul MBALLA,+237690000001\nNGONO,Jean,M,13/07/2013,Marie NGONO,+237690000002';
+    this.onText(sample);
+  }
+
+  protected doImport(): void {
+    const classId = this.importClassId();
+    const rows = this.importRows().filter((r) => this.rowValid(r));
+    if (!classId || !rows.length) return;
+    this.importing.set(true);
+    this.importError.set(null);
+    this.api.importStudents({ classId, rows }).subscribe({
+      next: (res) => { this.importing.set(false); this.importResult.set(res); this.reload(); },
+      error: (e) => { this.importing.set(false); this.importError.set(e?.error?.message ?? (this.fr() ? 'Import impossible.' : 'Import failed.')); },
+    });
+  }
+
+  private parseRows(text: string): StudentImportRow[] {
+    const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length);
+    if (!lines.length) return [];
+    const delim = this.detectDelim(lines[0]);
+    const cells = lines.map((l) => this.splitLine(l, delim));
+    const map = this.mapHeader(cells[0]);
+    const idx = map ?? { lastName: 0, firstName: 1, sex: 2, dob: 3, parentName: 4, parentPhone: 5 };
+    const dataRows = map ? cells.slice(1) : cells;
+    return dataRows.map((r) => ({
+      lastName: (r[idx.lastName] ?? '').trim(),
+      firstName: (r[idx.firstName] ?? '').trim(),
+      sex: this.normSex(r[idx.sex]),
+      dob: this.normDob(r[idx.dob]),
+      parentName: (r[idx.parentName] ?? '').trim(),
+      parentPhone: (r[idx.parentPhone] ?? '').trim(),
+    }));
+  }
+
+  private detectDelim(line: string): string {
+    const counts: Record<string, number> = { ';': 0, '\t': 0, ',': 0 };
+    for (const ch of line) if (ch in counts) counts[ch]++;
+    if (counts['\t'] >= counts[';'] && counts['\t'] >= counts[',']) return '\t';
+    if (counts[';'] >= counts[',']) return ';';
+    return ',';
+  }
+
+  private splitLine(line: string, delim: string): string[] {
+    return line.split(delim).map((c) => c.replace(/^"|"$/g, '').trim());
+  }
+
+  /** Map a header row to column indices; null when the first row is data, not a header. */
+  private mapHeader(cells: string[]): Record<'lastName' | 'firstName' | 'sex' | 'dob' | 'parentName' | 'parentPhone', number> | null {
+    const idx: any = {};
+    cells.forEach((raw, i) => {
+      const c = raw.toLowerCase();
+      if (idx.firstName === undefined && /(pr[ée]nom|first)/.test(c)) idx.firstName = i;
+      else if (idx.lastName === undefined && /(^nom|last|surname|famille)/.test(c)) idx.lastName = i;
+      else if (idx.sex === undefined && /(sexe|sex|genre|gender)/.test(c)) idx.sex = i;
+      else if (idx.dob === undefined && /(naiss|dob|birth|date)/.test(c)) idx.dob = i;
+      else if (idx.parentPhone === undefined && /(t[ée]l|phone|contact|num)/.test(c)) idx.parentPhone = i;
+      else if (idx.parentName === undefined && /(parent|tuteur|guardian|responsable)/.test(c)) idx.parentName = i;
+    });
+    if (idx.lastName === undefined || idx.firstName === undefined) return null;
+    return {
+      lastName: idx.lastName,
+      firstName: idx.firstName,
+      sex: idx.sex ?? 2,
+      dob: idx.dob ?? 3,
+      parentName: idx.parentName ?? 4,
+      parentPhone: idx.parentPhone ?? 5,
+    };
+  }
+
+  private normSex(v: string | undefined): string {
+    const c = (v ?? '').trim().toLowerCase();
+    if (!c) return '';
+    if (/^(m|masculin|male|g|gar)/.test(c)) return 'M';
+    if (/^(f|f[ée]minin|female|fille)/.test(c)) return 'F';
+    return '';
+  }
+
+  private normDob(v: string | undefined): string | null {
+    const c = (v ?? '').trim();
+    if (!c) return null;
+    let m = c.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);      // YYYY-MM-DD
+    if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+    m = c.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);          // DD/MM/YYYY
+    if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+    return null;
   }
 
   // ---- Parent accounts (review #2) -----------------------------------------

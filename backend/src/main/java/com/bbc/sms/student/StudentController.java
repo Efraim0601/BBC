@@ -53,6 +53,13 @@ public class StudentController {
         service.delete(id);
     }
 
+    /** Bulk-import students into one class; returns a per-row created/failed report. */
+    @PostMapping("/import")
+    @PreAuthorize("@perm.can('students','write')")
+    public StudentImportResult importStudents(@Valid @RequestBody StudentImportRequest in) {
+        return service.importForClass(in);
+    }
+
     // ---- Parent accounts (review issue #2) ---------------------------------
     @GetMapping("/{id}/parents")
     @PreAuthorize("@perm.can('students','read')")

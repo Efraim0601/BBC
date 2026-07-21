@@ -31,6 +31,32 @@ export interface ParentLinkRequest {
   password?: string;
 }
 
+export interface StudentImportRow {
+  firstName: string;
+  lastName: string;
+  sex?: string;
+  dob?: string | null;
+  parentName?: string;
+  parentPhone?: string;
+}
+
+export interface StudentImportRequest {
+  classId: string;
+  rows: StudentImportRow[];
+}
+
+export interface StudentImportError {
+  row: number;
+  name: string;
+  message: string;
+}
+
+export interface StudentImportResult {
+  created: number;
+  failed: number;
+  errors: StudentImportError[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class StudentApi {
   private http = inject(HttpClient);
@@ -42,6 +68,9 @@ export class StudentApi {
   }
   create(body: StudentUpsert): Observable<Student> {
     return this.http.post<Student>(this.base, body);
+  }
+  importStudents(body: StudentImportRequest): Observable<StudentImportResult> {
+    return this.http.post<StudentImportResult>(`${this.base}/import`, body);
   }
   update(id: string, body: StudentUpsert): Observable<Student> {
     return this.http.put<Student>(`${this.base}/${id}`, body);
