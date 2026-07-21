@@ -5,15 +5,20 @@ import { environment } from '../../../environments/environment';
 
 export interface ChildView {
   studentId: string;
+  matricule: string;
   name: string;
   className: string;
   balance: number;
-  feeStatus: string;
+  feeStatus: 'paid' | 'partial' | 'unpaid';
   attendanceRate: number;
 }
 
 export interface GradeView {
   subjectCode: string;
+  subjectLabelFr: string;
+  subjectLabelEn: string;
+  /** Subject weight — the portal average must match the bulletin's, which is weighted. */
+  coef: number;
   sequence: number;
   mark: number;
 }
