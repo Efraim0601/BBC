@@ -1,0 +1,1483 @@
+<!doctype html>
+<html lang="fr" data-lang="fr">
+<head>
+<meta charset="utf-8">
+<title>BBC SMS — Guide utilisateur / User Guide</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/png" href="/bbc-logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --brand-600:#1B3A5C; --brand-700:#152F4B; --brand-800:#0F2238; --brand-50:#F1F5FA; --brand-100:#DCE6F1;
+    --gold-400:#D4A843; --gold-500:#B98B25; --gold-50:#FBF6E8;
+    --ink:#0F2238; --mute:#5B6B82; --surface:#F5F6FA; --line:#E3E9F1;
+    --ok:#16A34A; --warn:#F59E0B; --bad:#DC2626;
+    --sidebar: 280px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    font-family:'Manrope',ui-sans-serif,system-ui,sans-serif;
+    color:var(--ink); background:var(--surface); line-height:1.65; font-size:16px;
+    -webkit-font-smoothing:antialiased;
+  }
+  html[data-lang="en"] .l-fr{display:none}
+  html[data-lang="fr"] .l-en{display:none}
+
+  /* ---------- top bar ---------- */
+  .topbar{
+    position:sticky; top:0; z-index:50; background:var(--brand-800); color:#fff;
+    display:flex; align-items:center; gap:16px; padding:0 20px; height:60px;
+    box-shadow:0 1px 0 rgba(255,255,255,.06);
+  }
+  .topbar .brand{display:flex;align-items:center;gap:12px;min-width:0}
+  .topbar img{width:34px;height:34px;background:#fff;border-radius:8px;padding:3px;object-fit:contain}
+  .topbar .bt{font-family:'Fraunces',Georgia,serif;font-weight:700;font-size:17px;line-height:1.1;white-space:nowrap}
+  .topbar .bs{font-size:11px;color:#B7CADC;white-space:nowrap}
+  .spacer{flex:1}
+  .langsw{display:flex;background:rgba(255,255,255,.12);border-radius:9px;padding:3px;gap:2px}
+  .langsw button{
+    font:inherit;font-size:12px;font-weight:800;letter-spacing:.03em;color:#B7CADC;background:none;border:0;
+    padding:6px 13px;border-radius:6px;cursor:pointer;transition:.15s;
+  }
+  .langsw button[aria-pressed="true"]{background:#fff;color:var(--brand-700)}
+  .menubtn{display:none;background:rgba(255,255,255,.12);border:0;color:#fff;border-radius:8px;padding:8px 10px;cursor:pointer;font:inherit}
+
+  /* ---------- layout ---------- */
+  .wrap{display:grid;grid-template-columns:var(--sidebar) minmax(0,1fr);gap:0;align-items:start}
+  nav.toc{
+    position:sticky; top:60px; height:calc(100vh - 60px); overflow-y:auto;
+    background:#fff; border-right:1px solid var(--line); padding:22px 14px 60px;
+  }
+  nav.toc h4{
+    margin:18px 8px 6px; font-size:10.5px; letter-spacing:.14em; text-transform:uppercase;
+    color:#93A3B8; font-weight:800;
+  }
+  nav.toc h4:first-child{margin-top:0}
+  nav.toc a{
+    display:block; padding:6px 10px; border-radius:7px; color:var(--mute);
+    text-decoration:none; font-size:13.5px; font-weight:600;
+  }
+  nav.toc a:hover{background:var(--brand-50);color:var(--brand-700)}
+  nav.toc a.on{background:var(--brand-50);color:var(--brand-700)}
+  main{padding:44px 48px 120px; max-width:1000px; margin:0 auto; min-width:0}
+
+  /* ---------- typography ---------- */
+  h1{font-family:'Fraunces',Georgia,serif;font-size:40px;line-height:1.12;margin:0 0 10px;font-weight:700;letter-spacing:-.01em}
+  h2{
+    font-family:'Fraunces',Georgia,serif;font-size:27px;margin:56px 0 4px;font-weight:700;
+    padding-top:14px; border-top:1px solid var(--line); letter-spacing:-.01em;
+  }
+  h3{font-size:19px;margin:34px 0 6px;font-weight:800;letter-spacing:-.01em}
+  h4{font-size:15px;margin:22px 0 4px;font-weight:800}
+  p{margin:10px 0}
+  a{color:var(--brand-600)}
+  .lead{font-size:18px;color:var(--mute);margin:0 0 8px;max-width:70ch}
+  .eyebrow{font-size:11px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:var(--gold-500);margin-bottom:8px}
+  .sub{color:var(--mute);font-size:14.5px;margin:2px 0 0}
+  ul,ol{margin:10px 0;padding-left:22px}
+  li{margin:5px 0}
+  code{
+    font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:.86em;
+    background:var(--brand-50);border:1px solid var(--line);border-radius:5px;padding:1px 5px;color:var(--brand-700)
+  }
+  strong{font-weight:800}
+
+  /* ---------- figure ---------- */
+  figure{margin:20px 0 6px}
+  figure img{
+    width:100%; height:auto; display:block; border-radius:12px; border:1px solid var(--line);
+    box-shadow:0 1px 2px rgba(15,34,56,.05),0 8px 28px rgba(15,34,56,.09); background:#fff;
+  }
+  figcaption{font-size:12.5px;color:var(--mute);margin-top:9px;text-align:center;font-weight:600}
+
+  /* ---------- callouts ---------- */
+  .note,.warn,.tip{
+    border-radius:10px;padding:13px 16px;margin:16px 0;font-size:14.5px;border:1px solid;
+  }
+  .note{background:var(--brand-50);border-color:var(--brand-100)}
+  .warn{background:#FEF2F2;border-color:#FECACA}
+  .tip{background:var(--gold-50);border-color:#F0E0AE}
+  .note p,.warn p,.tip p{margin:5px 0}
+  .note b,.warn b,.tip b{display:block;margin-bottom:2px;font-weight:800}
+
+  /* ---------- table ---------- */
+  table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14.5px;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 1px 2px rgba(15,34,56,.05)}
+  th,td{text-align:left;padding:10px 13px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--brand-50);font-weight:800;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--brand-700)}
+  tr:last-child td{border-bottom:0}
+
+  /* ---------- misc ---------- */
+  .badge{display:inline-block;font-size:11px;font-weight:800;padding:2px 8px;border-radius:99px;vertical-align:middle}
+  .b-ok{background:#DCFCE7;color:#15803D}
+  .b-warn{background:#FEF3C7;color:#92400E}
+  .b-bad{background:#FEE2E2;color:#B91C1C}
+  .hero{
+    background:linear-gradient(135deg,var(--brand-700),var(--brand-900,#0A1828));
+    color:#fff;border-radius:16px;padding:32px 34px;margin:0 0 26px;position:relative;overflow:hidden;
+  }
+  .hero h1{color:#fff;margin-bottom:12px}
+  .hero .lead{color:#C6D6E7}
+  .hero .meta{margin-top:18px;font-size:12.5px;color:#93A9C2;border-top:1px solid rgba(255,255,255,.14);padding-top:14px}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+  .card h4{margin-top:0}
+  .kbd{font-size:12px;background:#fff;border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:1px 6px;font-weight:700}
+
+  @media (max-width:1000px){
+    .wrap{grid-template-columns:1fr}
+    nav.toc{
+      position:fixed; top:60px; left:0; width:280px; z-index:40; transform:translateX(-100%);
+      transition:transform .2s; box-shadow:0 12px 32px rgba(15,34,56,.16);
+    }
+    nav.toc.open{transform:none}
+    .menubtn{display:block}
+    main{padding:26px 18px 90px}
+    h1{font-size:31px} h2{font-size:23px}
+    .cols{grid-template-columns:1fr}
+  }
+  @media print{
+    .topbar,nav.toc{display:none} main{padding:0;max-width:none}
+    figure img{box-shadow:none} h2{break-before:page}
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <button class="menubtn" id="menubtn" aria-label="Menu">☰</button>
+  <div class="brand">
+    <img src="/bbc-logo.png" alt="BBC">
+    <div>
+      <div class="bt">BBC SMS</div>
+      <div class="bs"><span class="l-fr">Guide utilisateur</span><span class="l-en">User guide</span> · v1.0</div>
+    </div>
+  </div>
+  <div class="spacer"></div>
+  <div class="langsw">
+    <button data-set="fr" aria-pressed="true">FR</button>
+    <button data-set="en" aria-pressed="false">EN</button>
+  </div>
+</header>
+
+<div class="wrap">
+<nav class="toc" id="toc">
+  <h4><span class="l-fr">Démarrer</span><span class="l-en">Getting started</span></h4>
+  <a href="#intro"><span class="l-fr">Présentation</span><span class="l-en">Overview</span></a>
+  <a href="#login"><span class="l-fr">Se connecter</span><span class="l-en">Signing in</span></a>
+  <a href="#nav"><span class="l-fr">Navigation</span><span class="l-en">Navigation</span></a>
+  <a href="#roles"><span class="l-fr">Rôles &amp; permissions</span><span class="l-en">Roles &amp; permissions</span></a>
+
+  <h4><span class="l-fr">Communauté</span><span class="l-en">Community</span></h4>
+  <a href="#students"><span class="l-fr">Élèves</span><span class="l-en">Students</span></a>
+  <a href="#journey"><span class="l-fr">Parcours</span><span class="l-en">Journey</span></a>
+  <a href="#health"><span class="l-fr">Santé</span><span class="l-en">Health</span></a>
+  <a href="#documents"><span class="l-fr">Documents</span><span class="l-en">Documents</span></a>
+  <a href="#staff"><span class="l-fr">Personnel</span><span class="l-en">Staff</span></a>
+
+  <h4><span class="l-fr">Pédagogie</span><span class="l-en">Education</span></h4>
+  <a href="#academic"><span class="l-fr">Académique</span><span class="l-en">Academic</span></a>
+  <a href="#presence"><span class="l-fr">Présence</span><span class="l-en">Attendance</span></a>
+  <a href="#discipline"><span class="l-fr">Discipline</span><span class="l-en">Discipline</span></a>
+  <a href="#coursebook"><span class="l-fr">Cahier de textes</span><span class="l-en">Coursebook</span></a>
+
+  <h4><span class="l-fr">Opérations</span><span class="l-en">Operations</span></h4>
+  <a href="#finance"><span class="l-fr">Finance</span><span class="l-en">Finance</span></a>
+  <a href="#timetable"><span class="l-fr">Emploi du temps</span><span class="l-en">Timetable</span></a>
+  <a href="#events"><span class="l-fr">Événements</span><span class="l-en">Events</span></a>
+  <a href="#messages"><span class="l-fr">Correspondance</span><span class="l-en">Correspondence</span></a>
+
+  <h4><span class="l-fr">Pilotage</span><span class="l-en">Steering</span></h4>
+  <a href="#dashboard"><span class="l-fr">Tableau de bord</span><span class="l-en">Dashboard</span></a>
+  <a href="#alerts"><span class="l-fr">Alertes</span><span class="l-en">Alerts</span></a>
+  <a href="#reports"><span class="l-fr">Rapports</span><span class="l-en">Reports</span></a>
+  <a href="#settings"><span class="l-fr">Paramètres</span><span class="l-en">Settings</span></a>
+
+  <h4><span class="l-fr">Parents</span><span class="l-en">Parents</span></h4>
+  <a href="#parent"><span class="l-fr">Portail parent</span><span class="l-en">Parent portal</span></a>
+
+  <h4><span class="l-fr">Annexes</span><span class="l-en">Appendix</span></h4>
+  <a href="#limits"><span class="l-fr">Limites connues</span><span class="l-en">Known limitations</span></a>
+  <a href="#faq">FAQ</a>
+</nav>
+
+<main>
+
+<div class="hero">
+  <div class="eyebrow">Bayo Bilingual Complex — Maroua, Cameroun</div>
+  <h1><span class="l-fr">Guide utilisateur BBC&nbsp;SMS</span><span class="l-en">BBC&nbsp;SMS User Guide</span></h1>
+  <p class="lead">
+    <span class="l-fr">Le manuel complet du système de gestion scolaire : chaque module, écran par écran, du Primaire au Secondaire, en Français comme en Anglais.</span>
+    <span class="l-en">The complete school management system manual: every module, screen by screen, from Primary to Secondary, in French and English.</span>
+  </p>
+  <div class="meta">
+    <span class="l-fr">Version 1.0 · Captures d'écran prises sur un jeu de données de démonstration · Utilisez le sélecteur <b style="display:inline">FR / EN</b> en haut à droite pour changer de langue.</span>
+    <span class="l-en">Version 1.0 · Screenshots taken from a demonstration dataset · Use the <b style="display:inline">FR / EN</b> switch at the top right to change language.</span>
+  </div>
+</div>
+
+<!-- ====================== INTRO ====================== -->
+<h2 id="intro"><span class="l-fr">Présentation</span><span class="l-en">Overview</span></h2>
+
+<div class="l-fr">
+<p><strong>BBC SMS</strong> est le système de gestion de Bayo Bilingual Complex. Il réunit dans une seule application la scolarité, les finances, la présence biométrique et la communication avec les parents — pour les deux sous-systèmes, francophone et anglophone.</p>
+<p>L'application s'organise en <strong>17 modules</strong> répartis en quatre familles :</p>
+<ul>
+  <li><strong>Communauté</strong> — Élèves, Parcours, Santé, Documents, Personnel</li>
+  <li><strong>Pédagogie</strong> — Académique, Présence, Discipline, Cahier de textes</li>
+  <li><strong>Opérations</strong> — Finance, Emploi du temps, Événements, Correspondance</li>
+  <li><strong>Pilotage</strong> — Tableau de bord, Alertes, Rapports, Paramètres</li>
+</ul>
+<p>S'y ajoute un <strong>portail parent</strong> distinct, réservé aux comptes de rôle <code>parent</code>.</p>
+<div class="note">
+  <b>Ce que vous voyez dépend de votre rôle</b>
+  <p>Les modules affichés dans le menu sont ceux que votre rôle est autorisé à consulter. Si un module décrit dans ce guide n'apparaît pas chez vous, c'est une question de permissions — voir <a href="#roles">Rôles &amp; permissions</a>.</p>
+</div>
+</div>
+
+<div class="l-en">
+<p><strong>BBC SMS</strong> is the management system of Bayo Bilingual Complex. It brings academics, finance, biometric attendance and parent communication together in a single application — across both the francophone and anglophone sub-systems.</p>
+<p>The application is organised into <strong>17 modules</strong> in four families:</p>
+<ul>
+  <li><strong>Community</strong> — Students, Journey, Health, Documents, Staff</li>
+  <li><strong>Education</strong> — Academic, Attendance, Discipline, Coursebook</li>
+  <li><strong>Operations</strong> — Finance, Timetable, Events, Correspondence</li>
+  <li><strong>Steering</strong> — Dashboard, Alerts, Reports, Settings</li>
+</ul>
+<p>A separate <strong>parent portal</strong> serves accounts with the <code>parent</code> role.</p>
+<div class="note">
+  <b>What you see depends on your role</b>
+  <p>The modules in your menu are the ones your role is allowed to open. If a module described in this guide is missing for you, that is a permissions matter — see <a href="#roles">Roles &amp; permissions</a>.</p>
+</div>
+</div>
+
+<!-- ====================== LOGIN ====================== -->
+<h2 id="login"><span class="l-fr">Se connecter</span><span class="l-en">Signing in</span></h2>
+
+<figure>
+  <img class="l-fr" src="img/fr-login.webp" alt="Écran de connexion BBC SMS" loading="lazy">
+  <img class="l-en" src="img/en-login.webp" alt="BBC SMS sign-in screen" loading="lazy">
+  <figcaption><span class="l-fr">L'écran de connexion. Le sélecteur FR / EN est en haut à droite.</span><span class="l-en">The sign-in screen. The FR / EN switch sits at the top right.</span></figcaption>
+</figure>
+
+<div class="l-fr">
+<ol>
+  <li>Saisissez votre <strong>nom d'utilisateur</strong> et votre <strong>mot de passe</strong>.</li>
+  <li>L'icône en forme d'œil, à droite du champ mot de passe, affiche ou masque ce que vous tapez.</li>
+  <li>Cliquez sur <strong>Se connecter</strong>.</li>
+</ol>
+<p>Selon votre rôle, vous arrivez ensuite sur le <a href="#dashboard">Tableau de bord</a> (personnel de l'établissement) ou sur le <a href="#parent">portail parent</a> (comptes parents).</p>
+<h4>Changer la langue</h4>
+<p>Le sélecteur <strong>FR / EN</strong> bascule toute l'interface, immédiatement et sans rechargement. Votre choix est mémorisé dans le navigateur : vous le retrouverez à la prochaine visite, sur ce poste. Ce réglage est propre au navigateur, pas au compte — un même utilisateur peut donc être en français sur un poste et en anglais sur un autre.</p>
+<div class="warn">
+  <b>Mot de passe oublié</b>
+  <p>Le lien <em>« Oublié ? »</em> de l'écran de connexion n'est pas encore actif dans la version 1.0. Pour réinitialiser un mot de passe, adressez-vous à l'administrateur de l'établissement (rôle <code>principal</code>).</p>
+</div>
+</div>
+
+<div class="l-en">
+<ol>
+  <li>Enter your <strong>username</strong> and <strong>password</strong>.</li>
+  <li>The eye icon to the right of the password field shows or hides what you type.</li>
+  <li>Click <strong>Sign in</strong>.</li>
+</ol>
+<p>Depending on your role you then land on the <a href="#dashboard">Dashboard</a> (school staff) or the <a href="#parent">parent portal</a> (parent accounts).</p>
+<h4>Changing the language</h4>
+<p>The <strong>FR / EN</strong> switch flips the whole interface instantly, with no reload. Your choice is remembered in the browser, so it survives to your next visit on that machine. The setting belongs to the browser, not to the account — the same user can be in French on one machine and English on another.</p>
+<div class="warn">
+  <b>Forgotten password</b>
+  <p>The <em>“Forgot?”</em> link on the sign-in screen is not active in version 1.0. To reset a password, ask your school administrator (the <code>principal</code> role).</p>
+</div>
+</div>
+
+<!-- ====================== NAV ====================== -->
+<h2 id="nav"><span class="l-fr">Navigation</span><span class="l-en">Navigation</span></h2>
+
+<figure>
+  <img class="l-fr" src="img/fr-apps.webp" alt="Grille des applications" loading="lazy">
+  <img class="l-en" src="img/en-apps.webp" alt="Apps grid" loading="lazy">
+  <figcaption><span class="l-fr">La page <strong>Applications</strong> : tous vos modules, groupés par famille.</span><span class="l-en">The <strong>Apps</strong> page: all your modules, grouped by family.</span></figcaption>
+</figure>
+
+<div class="l-fr">
+<p>Deux façons d'ouvrir un module :</p>
+<ul>
+  <li>la <strong>grille Applications</strong> ci-dessus — cliquez une carte ;</li>
+  <li>le <strong>menu latéral</strong>, présent sur toutes les pages.</li>
+</ul>
+<h4>La barre du haut</h4>
+<table>
+  <tr><th>Élément</th><th>Rôle</th></tr>
+  <tr><td><strong>☰</strong> (à gauche)</td><td>Replie le menu latéral en simple bande d'icônes, pour gagner de la largeur. Votre choix est mémorisé.</td></tr>
+  <tr><td><strong>Logo BBC SMS</strong></td><td>Ramène à la grille Applications.</td></tr>
+  <tr><td><strong>FR / EN</strong></td><td>Change la langue de l'interface.</td></tr>
+  <tr><td><strong>Votre nom</strong></td><td>Rappelle le compte connecté et son rôle.</td></tr>
+  <tr><td><strong>Se déconnecter</strong></td><td>Ferme la session et revient à l'écran de connexion. Sans confirmation — le clic est immédiat.</td></tr>
+</table>
+</div>
+
+<div class="l-en">
+<p>Two ways to open a module:</p>
+<ul>
+  <li>the <strong>Apps grid</strong> above — click a card;</li>
+  <li>the <strong>sidebar</strong>, available on every page.</li>
+</ul>
+<h4>The top bar</h4>
+<table>
+  <tr><th>Item</th><th>Purpose</th></tr>
+  <tr><td><strong>☰</strong> (left)</td><td>Collapses the sidebar to a strip of icons, freeing horizontal space. Your choice is remembered.</td></tr>
+  <tr><td><strong>BBC SMS logo</strong></td><td>Returns to the Apps grid.</td></tr>
+  <tr><td><strong>FR / EN</strong></td><td>Changes the interface language.</td></tr>
+  <tr><td><strong>Your name</strong></td><td>Shows the signed-in account and its role.</td></tr>
+  <tr><td><strong>Sign out</strong></td><td>Ends the session and returns to sign-in. There is no confirmation — the click acts at once.</td></tr>
+</table>
+</div>
+
+<!-- ====================== ROLES ====================== -->
+<h2 id="roles"><span class="l-fr">Rôles &amp; permissions</span><span class="l-en">Roles &amp; permissions</span></h2>
+
+<figure>
+  <img class="l-fr" src="img/fr-settings-permissions.webp" alt="Matrice des permissions" loading="lazy">
+  <img class="l-en" src="img/en-settings-permissions.webp" alt="Permission matrix" loading="lazy">
+  <figcaption><span class="l-fr">La matrice des permissions (Paramètres → Permissions) : chaque case croise un module et un rôle.</span><span class="l-en">The permission matrix (Settings → Permissions): each cell crosses a module with a role.</span></figcaption>
+</figure>
+
+<div class="l-fr">
+<p>L'accès est gouverné par une <strong>matrice rôle × module</strong>. Chaque croisement vaut l'un de trois niveaux :</p>
+<table>
+  <tr><th>Niveau</th><th>Ce que l'utilisateur peut faire</th></tr>
+  <tr><td><span class="badge b-bad">Aucun</span></td><td>Le module n'apparaît ni dans le menu, ni dans la grille Applications. L'URL directe renvoie vers Applications.</td></tr>
+  <tr><td><span class="badge b-warn">Lecture</span></td><td>Le module s'ouvre en consultation. Les boutons de création, modification et suppression sont masqués.</td></tr>
+  <tr><td><span class="badge b-ok">Complet</span></td><td>Consultation <em>et</em> modification.</td></tr>
+</table>
+<p>Les six rôles livrés avec le système sont : <strong>Principal</strong>, <strong>Préfet d'études</strong>, <strong>Économe</strong>, <strong>Prof. Principal</strong>, <strong>Enseignant</strong> et <strong>Parent</strong>.</p>
+<h4>Modifier une permission</h4>
+<p>Dans <strong>Paramètres → Permissions</strong>, <strong>cliquez une case</strong> : elle passe de <em>Aucun</em> à <em>Lecture</em>, puis à <em>Complet</em>, puis revient à <em>Aucun</em>. Il n'y a pas de bouton « Enregistrer » — <strong>le changement est appliqué immédiatement</strong>.</p>
+<div class="warn">
+  <b>Deux points importants</b>
+  <p>1. Un utilisateur déjà connecté ne verra pas ses menus changer tout de suite : ses permissions sont chargées à la connexion. Il doit <strong>se déconnecter puis se reconnecter</strong> pour que la nouvelle matrice s'applique à son interface.</p>
+  <p>2. La matrice ne couvre que 11 des 17 modules. <em>Parcours, Santé, Documents, Cahier de textes, Correspondance</em> et <em>Alertes</em> ne sont pas éditables ici dans la version 1.0.</p>
+</div>
+<div class="note">
+  <b>Le serveur a toujours le dernier mot</b>
+  <p>Masquer un bouton n'est qu'un confort d'affichage : chaque requête est revalidée côté serveur. Un utilisateur ne peut donc rien faire de plus en contournant l'interface.</p>
+</div>
+</div>
+
+<div class="l-en">
+<p>Access is governed by a <strong>role × module matrix</strong>. Each crossing holds one of three levels:</p>
+<table>
+  <tr><th>Level</th><th>What the user can do</th></tr>
+  <tr><td><span class="badge b-bad">None</span></td><td>The module appears in neither the sidebar nor the Apps grid. A direct URL redirects to Apps.</td></tr>
+  <tr><td><span class="badge b-warn">Read</span></td><td>The module opens read-only. Create, edit and delete controls are hidden.</td></tr>
+  <tr><td><span class="badge b-ok">Write</span></td><td>Viewing <em>and</em> editing.</td></tr>
+</table>
+<p>The six roles shipped with the system are: <strong>Principal</strong>, <strong>Dean of studies</strong>, <strong>Bursar</strong>, <strong>Form Teacher</strong>, <strong>Teacher</strong> and <strong>Parent</strong>.</p>
+<h4>Changing a permission</h4>
+<p>In <strong>Settings → Permissions</strong>, <strong>click a cell</strong>: it cycles from <em>None</em> to <em>Read</em> to <em>Write</em> and back to <em>None</em>. There is no Save button — <strong>the change applies immediately</strong>.</p>
+<div class="warn">
+  <b>Two important points</b>
+  <p>1. A user who is already signed in will not see their menus change straight away: permissions are loaded at sign-in. They must <strong>sign out and back in</strong> for the new matrix to reach their interface.</p>
+  <p>2. The matrix covers only 11 of the 17 modules. <em>Journey, Health, Documents, Coursebook, Correspondence</em> and <em>Alerts</em> cannot be edited here in version 1.0.</p>
+</div>
+<div class="note">
+  <b>The server always decides</b>
+  <p>Hiding a button is a display convenience only: every request is re-checked on the server. Bypassing the interface gains a user nothing.</p>
+</div>
+</div>
+
+<!-- ====================== STUDENTS ====================== -->
+<h2 id="students"><span class="l-fr">Élèves</span><span class="l-en">Students</span></h2>
+<p class="sub"><span class="l-fr">Élèves, parents, familles · permission <code>students</code></span><span class="l-en">Students, parents, families · <code>students</code> permission</span></p>
+
+<figure>
+  <img class="l-fr" src="img/fr-students.webp" alt="Liste des élèves" loading="lazy">
+  <img class="l-en" src="img/en-students.webp" alt="Student list" loading="lazy">
+  <figcaption><span class="l-fr">Le registre des élèves, avec la recherche et les filtres par sous-système et par niveau.</span><span class="l-en">The student registry, with search and sub-system / level filters.</span></figcaption>
+</figure>
+
+<div class="l-fr">
+<h4>Trouver un élève</h4>
+<ul>
+  <li>La <strong>recherche</strong> porte sur le nom, le matricule et le nom du parent. <em>Elle ne cherche pas dans la classe</em> — pour cela, utilisez les filtres ou triez la colonne Classe.</li>
+  <li>Les puces <strong>Tous systèmes / Francophone / Anglophone</strong> et <strong>Tous niveaux / Primaire / Secondaire</strong> restreignent la liste.</li>
+  <li>Toutes les colonnes se trient par un clic sur leur en-tête.</li>
+</ul>
+<h4>Consulter une fiche</h4>
+<p><strong>Cliquez une ligne</strong> : la fiche s'ouvre juste sous le tableau. Elle réunit l'identité, les informations du parent, les comptes parents liés, et l'état civil scolaire (matricule, date de naissance, classe, section).</p>
+<h4>Inscrire un élève</h4>
+<p><strong>Nouvel élève</strong> ouvre un formulaire pleine page en trois blocs :</p>
+<ul>
+  <li><strong>Identité</strong> — Nom et Prénom (obligatoires), Sexe, Date de naissance.</li>
+  <li><strong>Scolarité</strong> — la Classe, choisie dans une liste. Le sous-système et le niveau en sont <em>déduits automatiquement</em> : vous n'avez pas à les saisir.</li>
+  <li><strong>Parent / tuteur</strong> — nom et téléphone.</li>
+</ul>
+<div class="note">
+  <b>Créez vos classes d'abord</b>
+  <p>Si aucune classe n'existe encore, le formulaire vous le signale. Passez par <strong>Paramètres → Scolarité</strong> pour créer sections puis classes, avant d'inscrire vos élèves.</p>
+</div>
+<h4>Donner un accès au portail à un parent</h4>
+<p>Dans la fiche d'un élève, section <strong>Comptes parents</strong> → <strong>Ajouter</strong>. Renseignez le nom complet, un identifiant de connexion et un mot de passe.</p>
+<div class="tip">
+  <b>Un parent, plusieurs enfants</b>
+  <p>Pour rattacher un second enfant à un parent existant, saisissez <strong>le même identifiant</strong> dans la fiche de cet autre enfant : le compte est relié, pas dupliqué. Le parent verra alors ses deux enfants dans son portail.</p>
+</div>
+<h4>Supprimer</h4>
+<p><strong>Supprimer</strong> demande une confirmation. L'élève et toutes ses données associées sont retirés du registre.</p>
+</div>
+
+<div class="l-en">
+<h4>Finding a student</h4>
+<ul>
+  <li><strong>Search</strong> matches the name, the student ID and the parent's name. <em>It does not search the class</em> — use the filters or sort the Class column for that.</li>
+  <li>The <strong>All systems / Francophone / English</strong> and <strong>All levels / Primary / Secondary</strong> chips narrow the list.</li>
+  <li>Every column sorts on a click of its header.</li>
+</ul>
+<h4>Opening a profile</h4>
+<p><strong>Click a row</strong> and the profile opens just below the table. It gathers identity, parent details, linked parent accounts and school record (ID, date of birth, class, section).</p>
+<h4>Enrolling a student</h4>
+<p><strong>New student</strong> opens a full-page form in three blocks:</p>
+<ul>
+  <li><strong>Identity</strong> — Last name and First name (required), Sex, Date of birth.</li>
+  <li><strong>Schooling</strong> — the Class, picked from a list. Sub-system and level are <em>derived automatically</em>: you do not enter them.</li>
+  <li><strong>Parent / guardian</strong> — name and phone.</li>
+</ul>
+<div class="note">
+  <b>Create your classes first</b>
+  <p>If no class exists yet, the form says so. Go to <strong>Settings → Academics</strong> to create sections then classes before enrolling students.</p>
+</div>
+<h4>Giving a parent portal access</h4>
+<p>In a student's profile, section <strong>Parent accounts</strong> → <strong>Add</strong>. Enter the full name, a login username and a password.</p>
+<div class="tip">
+  <b>One parent, several children</b>
+  <p>To attach a second child to an existing parent, enter <strong>the same username</strong> on that other child's profile: the account is linked, not duplicated. The parent will then see both children in their portal.</p>
+</div>
+<h4>Deleting</h4>
+<p><strong>Delete</strong> asks for confirmation. The student and all related data are removed from the registry.</p>
+</div>
+
+<!-- ====================== JOURNEY ====================== -->
+<h2 id="journey"><span class="l-fr">Parcours</span><span class="l-en">Journey</span></h2>
+<p class="sub"><span class="l-fr">Parcours scolaire complet, année par année · permission <code>journey</code></span><span class="l-en">Full school journey, year by year · <code>journey</code> permission</span></p>
+
+<figure>
+  <img class="l-fr" src="img/fr-journey.webp" alt="Parcours scolaire" loading="lazy">
+  <img class="l-en" src="img/en-journey.webp" alt="School journey" loading="lazy">
+  <figcaption><span class="l-fr">Le parcours d'un élève : indicateurs, courbe de progression et chronologie.</span><span class="l-en">A student's journey: indicators, progression chart and timeline.</span></figcaption>
+</figure>
+
+<div class="l-fr">
+<p>Ce module retrace la scolarité pluriannuelle d'un élève : les années passées dans l'établissement, les moyennes obtenues, les redoublements et les décisions de conseil de classe.</p>
+<h4>Le principe : choisir un élève d'abord</h4>
+<p>À gauche, la liste des élèves (avec une recherche sur le nom, le matricule ou la classe). <strong>Cliquez un élève</strong> et son parcours apparaît à droite. Tant qu'aucun élève n'est choisi, la partie droite reste vide — c'est normal.</p>
+<p>Trois indicateurs résument le dossier : <strong>Années suivies</strong>, <strong>Meilleure moyenne</strong> et <strong>Redoublements</strong>. La <strong>courbe de progression</strong> n'apparaît qu'à partir de deux années renseignées.</p>
+<h4>Ajouter une année</h4>
+<p><strong>Ajouter une année</strong> ouvre un formulaire sous les indicateurs. L'<em>Année</em> (ex. <code>2024-2025</code>) et la <em>Classe</em> sont obligatoires ; viennent ensuite le résultat (En cours, Admis, Redoublé, Arrivée, Départ, Diplômé, Exclu), la moyenne sur 20, le rang, l'effectif de la classe et la décision du conseil.</p>
+<div class="note">
+  <b>La classe est saisie librement</b>
+  <p>Contrairement au module Élèves, ce champ n'est pas une liste déroulante. Écrivez la classe exactement comme dans votre nomenclature (ex. <code>4ème</code>) afin que le parcours reste lisible d'une année sur l'autre.</p>
+</div>
+<div class="warn">
+  <b>Attention aux boutons de la chronologie</b>
+  <p>Les icônes <em>Modifier</em> et <em>Supprimer</em> n'apparaissent qu'au <strong>survol</strong> d'une ligne (elles sont donc difficiles d'accès sur tablette). La suppression est <strong>immédiate et sans confirmation</strong>.</p>
+  <p>Si <em>Enregistrer</em> semble ne rien faire, c'est que l'Année ou la Classe est vide : aucun message d'erreur n'est affiché dans cette version.</p>
+</div>
+</div>
+
+<div class="l-en">
+<p>This module traces a student's multi-year schooling: years spent at the school, averages obtained, repeated years and class-council decisions.</p>
+<h4>The principle: pick a student first</h4>
+<p>On the left, the student list (searchable by name, ID or class). <strong>Click a student</strong> and their journey appears on the right. Until you pick one, the right-hand side stays empty — that is expected.</p>
+<p>Three indicators summarise the file: <strong>Years tracked</strong>, <strong>Best average</strong> and <strong>Repeats</strong>. The <strong>progression chart</strong> only appears once two years are recorded.</p>
+<h4>Adding a year</h4>
+<p><strong>Add a year</strong> opens a form under the indicators. The <em>Year</em> (e.g. <code>2024-2025</code>) and the <em>Class</em> are required; then come the result (In progress, Promoted, Repeated, Transferred in, Transferred out, Graduated, Excluded), the average out of 20, the rank, the class size and the council decision.</p>
+<div class="note">
+  <b>The class is free text</b>
+  <p>Unlike the Students module, this field is not a dropdown. Type the class exactly as in your own naming (e.g. <code>Form 3</code>) so the journey stays readable from year to year.</p>
+</div>
+<div class="warn">
+  <b>Mind the timeline buttons</b>
+  <p>The <em>Edit</em> and <em>Delete</em> icons only appear when you <strong>hover</strong> a row (making them hard to reach on a tablet). Deletion is <strong>immediate and unconfirmed</strong>.</p>
+  <p>If <em>Save</em> appears to do nothing, the Year or Class is empty: no error message is shown in this version.</p>
+</div>
+</div>
+
+<!-- ====================== HEALTH ====================== -->
+<h2 id="health"><span class="l-fr">Santé</span><span class="l-en">Health</span></h2>
+<p class="sub"><span class="l-fr">Dossier médical, infirmerie et activités · permission <code>health</code></span><span class="l-en">Medical record, infirmary and activities · <code>health</code> permission</span></p>
+
+<figure>
+  <img class="l-fr" src="img/fr-health.webp" alt="Santé et vie scolaire" loading="lazy">
+  <img class="l-en" src="img/en-health.webp" alt="Health and school life" loading="lazy">
+  <figcaption><span class="l-fr">Dossier médical, passages à l'infirmerie et activités extrascolaires.</span><span class="l-en">Medical record, infirmary visits and extracurricular activities.</span></figcaption>
+</figure>
+
+<div class="l-fr">
+<p>Comme pour Parcours, <strong>choisissez d'abord un élève</strong> dans la liste de gauche. La page se compose ensuite de trois cartes.</p>
+<h4>Dossier médical</h4>
+<p>Groupe sanguin, taille, poids, allergies, pathologies, vaccinations, médecin traitant et son téléphone. Cliquez <strong>Enregistrer le dossier</strong> pour valider vos modifications. En lecture seule, les champs restent visibles mais grisés.</p>
+<h4>Passages à l'infirmerie</h4>
+<p>La bande de saisie demande une <strong>date</strong> et un <strong>motif</strong> (tous deux obligatoires), plus le traitement prodigué. <strong>Ajouter</strong> enregistre le passage.</p>
+<h4>Activités extrascolaires</h4>
+<p>Un <strong>nom</strong> (obligatoire), une catégorie (Club, Sport, Art, Autre) et un rôle facultatif.</p>
+<div class="warn">
+  <b>Suppressions sans confirmation</b>
+  <p>Les corbeilles des passages et des activités n'apparaissent qu'au survol et suppriment <strong>immédiatement</strong>, sans demander confirmation. Les passages et activités ne sont pas modifiables : pour corriger, supprimez puis ressaisissez.</p>
+</div>
+</div>
+
+<div class="l-en">
+<p>As with Journey, <strong>pick a student first</strong> from the list on the left. The page then holds three cards.</p>
+<h4>Medical record</h4>
+<p>Blood group, height, weight, allergies, conditions, vaccinations, attending doctor and their phone. Click <strong>Save record</strong> to commit your changes. In read-only mode the fields stay visible but greyed out.</p>
+<h4>Infirmary visits</h4>
+<p>The entry strip asks for a <strong>date</strong> and a <strong>reason</strong> (both required), plus the treatment given. <strong>Add</strong> records the visit.</p>
+<h4>Extracurricular activities</h4>
+<p>A <strong>name</strong> (required), a category (Club, Sport, Art, Other) and an optional role.</p>
+<div class="warn">
+  <b>Deletions are unconfirmed</b>
+  <p>The bins on visits and activities only appear on hover and delete <strong>immediately</strong>, without asking. Visits and activities cannot be edited: to correct one, delete it and re-enter it.</p>
+</div>
+</div>
+
+<!-- ====================== DOCUMENTS ====================== -->
+<h2 id="documents"><span class="l-fr">Documents</span><span class="l-en">Documents</span></h2>
+<p class="sub"><span class="l-fr">Dossier documentaire &amp; décisions d'orientation · permission <code>documents</code></span><span class="l-en">Document register &amp; orientation decisions · <code>documents</code> permission</span></p>
+
+<figure>
+  <img class="l-fr" src="img/fr-documents.webp" alt="Dossier documentaire" loading="lazy">
+  <img class="l-en" src="img/en-documents.webp" alt="Document register" loading="lazy">
+  <figcaption><span class="l-fr">Registre des pièces du dossier et décisions d'orientation.</span><span class="l-en">Register of file items and orientation decisions.</span></figcaption>
+</figure>
+
+<div class="warn l-fr">
+  <b>Ce module est un registre, pas un coffre-fort</b>
+  <p>Il n'y a <strong>pas de téléversement de fichier</strong> dans la version 1.0. Vous n'y déposez pas un acte de naissance : vous <em>notez qu'il existe</em>, et où il se trouve. Le champ « Référence ou URL » accepte soit une référence physique (« classeur B, rangée 3 »), soit un lien <code>http(s)</code> vers un fichier hébergé ailleurs — auquel cas il devient cliquable.</p>
+</div>
+<div class="warn l-en">
+  <b>This module is a register, not a vault</b>
+  <p>There is <strong>no file upload</strong> in version 1.0. You do not deposit a birth certificate here: you <em>record that it exists</em>, and where it is. The “Reference or URL” field takes either a physical reference (“binder B, row 3”) or an <code>http(s)</code> link to a file hosted elsewhere — in which case it becomes clickable.</p>
+</div>
+
+<div class="l-fr">
+<p><strong>Choisissez un élève</strong> à gauche, puis travaillez sur deux cartes.</p>
+<h4>Registre des documents</h4>
+<p><strong>Ajouter un document</strong> : le type (Acte de naissance, Photo, Bulletin antérieur, Certificat, Médical, Autre), un <strong>titre</strong> (obligatoire), la référence ou l'URL, et une note.</p>
+<h4>Décisions d'orientation</h4>
+<p><strong>Ajouter une décision</strong> : l'<strong>année</strong> et l'<strong>étape</strong> (ex. « Orientation 3ème ») sont obligatoires ; puis la date du conseil, la recommandation et la décision finale.</p>
+<div class="note">
+  <b>Bon à savoir</b>
+  <p>Les deux listes se suppriment sans confirmation (icône visible au survol) et ne se modifient pas. Si <em>Enregistrer</em> ne réagit pas, un champ obligatoire est vide.</p>
+</div>
+</div>
+
+<div class="l-en">
+<p><strong>Pick a student</strong> on the left, then work across two cards.</p>
+<h4>Document register</h4>
+<p><strong>Add a document</strong>: the kind (Birth certificate, Photo, Prior report, Certificate, Medical, Other), a <strong>title</strong> (required), the reference or URL, and a note.</p>
+<h4>Orientation decisions</h4>
+<p><strong>Add a decision</strong>: the <strong>year</strong> and the <strong>stage</strong> (e.g. “Orientation Form 4”) are required; then the council date, the recommendation and the final decision.</p>
+<div class="note">
+  <b>Worth knowing</b>
+  <p>Both lists delete without confirmation (the icon appears on hover) and cannot be edited. If <em>Save</em> does not react, a required field is empty.</p>
+</div>
+</div>
+
+<!-- ====================== STAFF ====================== -->
+<h2 id="staff"><span class="l-fr">Personnel</span><span class="l-en">Staff</span></h2>
+<p class="sub"><span class="l-fr">Annuaire, rôles et masse salariale · permission <code>hr</code></span><span class="l-en">Directory, roles and payroll · <code>hr</code> permission</span></p>
+
+<figure>
+  <img class="l-fr" src="img/fr-staff.webp" alt="Personnel" loading="lazy">
+  <img class="l-en" src="img/en-staff.webp" alt="Staff" loading="lazy">
+  <figcaption><span class="l-fr">L'annuaire du personnel et ses quatre onglets.</span><span class="l-en">The staff directory and its four tabs.</span></figcaption>
+</figure>
+
+<div class="l-fr">
+<p>Quatre onglets : <strong>Annuaire</strong>, <strong>Départements</strong>, <strong>Congés</strong> et <strong>Masse salariale</strong>.</p>
+<h4>Annuaire</h4>
+<p>Recherche par <strong>nom ou code</strong>, filtre par rôle. <strong>Cliquez une ligne</strong> pour ouvrir la fiche : contacts, rôles, et rémunération.</p>
+<h4>Créer un employé</h4>
+<p><strong>Nouvel employé</strong> ouvre un formulaire pleine page :</p>
+<ul>
+  <li><strong>Identité &amp; contact</strong> — Nom (obligatoire), Sexe, Email, Téléphone.</li>
+  <li><strong>Rôles</strong> — plusieurs rôles cumulables (Proviseur, Prof. Principal, Enseignant, Surveillant, Caissier). Le champ <em>Classe</em> n'apparaît que si vous cochez <strong>Prof. Principal</strong>.</li>
+  <li><strong>Département</strong> — à créer au préalable dans l'onglet Départements.</li>
+  <li><strong>Contrat</strong> — <strong>Permanent</strong> (salaire mensuel) ou <strong>Vacataire</strong> (taux horaire). Le champ de rémunération s'adapte à votre choix.</li>
+</ul>
+<h4>Départements</h4>
+<p><strong>Nouveau département</strong> : un nom (obligatoire) et, facultativement, un responsable choisi parmi le personnel. La suppression demande confirmation.</p>
+<h4>Congés</h4>
+<p><strong>Nouvelle demande</strong> : l'employé, le type (annuel, maladie, maternité, sans solde, autre), les dates de début et de fin, et un motif. Le nombre de jours est calculé pour vous. Les demandes <em>en attente</em> se traitent par les icônes <strong>✓ Approuver</strong> et <strong>✗ Refuser</strong> — sans confirmation.</p>
+<div class="warn">
+  <b>Deux réserves sur cet onglet</b>
+  <p><strong>Supprimer un employé ne demande aucune confirmation</strong> et est définitif. Soyez attentif : ce comportement diffère de celui des départements et des élèves, qui eux confirment.</p>
+  <p>La <strong>Masse salariale</strong> n'est fiable que pour les Permanents. Pour les Vacataires, le système additionne un <em>taux horaire</em> à des <em>salaires mensuels</em>, sans multiplier par un nombre d'heures. Ne vous appuyez pas sur ce total pour une paie réelle.</p>
+</div>
+</div>
+
+<div class="l-en">
+<p>Four tabs: <strong>Directory</strong>, <strong>Departments</strong>, <strong>Leave</strong> and <strong>Payroll</strong>.</p>
+<h4>Directory</h4>
+<p>Search by <strong>name or code</strong>, filter by role. <strong>Click a row</strong> to open the profile: contacts, roles and compensation.</p>
+<h4>Creating an employee</h4>
+<p><strong>New employee</strong> opens a full-page form:</p>
+<ul>
+  <li><strong>Identity &amp; contact</strong> — Name (required), Sex, Email, Phone.</li>
+  <li><strong>Roles</strong> — several roles can be combined (Principal, Form teacher, Teacher, Supervisor, Cashier). The <em>Form class</em> field only appears if you tick <strong>Form teacher</strong>.</li>
+  <li><strong>Department</strong> — create it first in the Departments tab.</li>
+  <li><strong>Contract</strong> — <strong>Permanent</strong> (monthly salary) or <strong>Contractor</strong> (hourly rate). The compensation field adapts to your choice.</li>
+</ul>
+<h4>Departments</h4>
+<p><strong>New department</strong>: a name (required) and, optionally, a head picked from the staff. Deleting asks for confirmation.</p>
+<h4>Leave</h4>
+<p><strong>New request</strong>: the employee, the type (annual, sick, maternity, unpaid, other), the start and end dates, and a reason. The number of days is computed for you. <em>Pending</em> requests are handled with the <strong>✓ Approve</strong> and <strong>✗ Reject</strong> icons — without confirmation.</p>
+<div class="warn">
+  <b>Two caveats on this module</b>
+  <p><strong>Deleting an employee asks for no confirmation</strong> and is permanent. Take care: this differs from departments and students, which do confirm.</p>
+  <p><strong>Payroll</strong> is only reliable for Permanent staff. For Contractors the system adds an <em>hourly rate</em> to <em>monthly salaries</em> without multiplying by any number of hours. Do not rely on this total for real payroll.</p>
+</div>
+</div>
+
+<!-- ====================== ACADEMIC ====================== -->
+<h2 id="academic"><span class="l-fr">Académique</span><span class="l-en">Academic</span></h2>
+<p class="sub"><span class="l-fr">Bulletins et procès-verbaux · permission <code>academic</code></span><span class="l-en">Report cards and master sheets · <code>academic</code> permission</span></p>
+
+<figure>
+  <img class="l-fr" src="img/fr-academic.webp" alt="Bulletin d'un élève" loading="lazy">
+  <img class="l-en" src="img/en-academic.webp" alt="Student report card" loading="lazy">
+  <figcaption><span class="l-fr">Un bulletin de séquence : moyennes pondérées, rang et appréciations.</span><span class="l-en">A sequence report card: weighted averages, rank and appreciations.</span></figcaption>
+</figure>
+
+<div class="l-fr">
+<p>Deux onglets : <strong>Bulletin</strong> (un élève) et <strong>Procès-verbal</strong> (toute une classe).</p>
+<h4>Éditer un bulletin</h4>
+<ol>
+  <li>Choisissez un <strong>élève</strong> dans la liste déroulante.</li>
+  <li>Choisissez une <strong>séquence</strong> (Séq. 1 à 6) parmi les puces.</li>
+</ol>
+<p>Le bulletin s'affiche : une ligne par matière avec le coefficient, la note, le total pondéré et une appréciation automatique. La <strong>moyenne</strong>, le <strong>rang</strong> et la moyenne de la classe sont calculés par le serveur.</p>
+<p>Le barème des appréciations : ≥ 16 Excellent · ≥ 14 Très bien · ≥ 12 Bien · ≥ 10 Assez bien · ≥ 8 Passable · en deçà, Insuffisant.</p>
+<h4>Valider un bulletin</h4>
+<p>En permission <em>Complet</em>, saisissez l'<strong>appréciation générale</strong> puis cliquez <strong>Valider le bulletin</strong>. Le bandeau passe alors de <span class="badge b-warn">En attente</span> à <span class="badge b-ok">Validé</span>.</p>
+<div class="note">
+  <b>La validation est définitive</b>
+  <p>Aucune fonction ne permet de dévalider un bulletin dans la version 1.0. L'appréciation générale s'enregistre <em>au moment de la validation</em> : il n'y a pas d'enregistrement séparé.</p>
+</div>
+<h4>Blocage pour dette</h4>
+<p>Si l'élève a un solde de frais impayé, le bulletin est marqué <span class="badge b-bad">Bloqué</span> et un bandeau l'indique. La validation devient impossible et l'appréciation passe en lecture seule. Les notes, elles, restent consultables. Régularisez le solde dans <a href="#finance">Finance</a> pour débloquer.</p>
+<h4>Procès-verbal</h4>
+<p>Onglet <strong>Procès-verbal</strong> : saisissez une <strong>classe</strong>, choisissez une séquence, puis cliquez <strong>Charger le PV</strong>. Vous obtenez le classement de la classe et sa moyenne générale.</p>
+<div class="tip">
+  <b>Imprimer</b>
+  <p>Le bouton <strong>Imprimer</strong> ouvre la fenêtre d'impression du navigateur ; choisissez « Enregistrer au format PDF » pour obtenir un fichier. Notez que le bouton <em>Exporter</em> fait exactement la même chose : il n'y a pas encore de génération de PDF ni d'export de fichier dans cette version.</p>
+</div>
+</div>
+
+<div class="l-en">
+<p>Two tabs: <strong>Report card</strong> (one student) and <strong>Master sheet</strong> (a whole class).</p>
+<h4>Producing a report card</h4>
+<ol>
+  <li>Pick a <strong>student</strong> from the dropdown.</li>
+  <li>Pick a <strong>sequence</strong> (Seq 1 to 6) from the chips.</li>
+</ol>
+<p>The report card appears: one row per subject with the coefficient, the mark, the weighted total and an automatic appreciation. The <strong>average</strong>, the <strong>rank</strong> and the class average are computed by the server.</p>
+<p>The appreciation scale: ≥ 16 Excellent · ≥ 14 Very good · ≥ 12 Good · ≥ 10 Fair · ≥ 8 Pass · below that, Insufficient.</p>
+<h4>Validating a report card</h4>
+<p>With <em>Write</em> permission, enter the <strong>overall appreciation</strong> then click <strong>Validate report card</strong>. The banner moves from <span class="badge b-warn">Awaiting</span> to <span class="badge b-ok">Validated</span>.</p>
+<div class="note">
+  <b>Validation is final</b>
+  <p>There is no un-validate function in version 1.0. The overall appreciation is saved <em>at the moment of validation</em>: there is no separate save.</p>
+</div>
+<h4>Blocking on unpaid fees</h4>
+<p>If the student has an outstanding fee balance, the report card is marked <span class="badge b-bad">Blocked</span> and a banner says so. Validation becomes impossible and the appreciation turns read-only. The marks themselves stay visible. Settle the balance in <a href="#finance">Finance</a> to unblock.</p>
+<h4>Master sheet</h4>
+<p>On the <strong>Master sheet</strong> tab: type a <strong>class</strong>, pick a sequence, then click <strong>Load master sheet</strong>. You get the class ranking and its general average.</p>
+<div class="tip">
+  <b>Printing</b>
+  <p>The <strong>Print</strong> button opens the browser's print dialog; choose “Save as PDF” to get a file. Note that the <em>Export</em> button does exactly the same thing: there is no PDF generation or file export in this version yet.</p>
+</div>
+</div>
+
+<!-- ====================== PRESENCE ====================== -->
+<h2 id="presence"><span class="l-fr">Présence</span><span class="l-en">Attendance</span></h2>
+<p class="sub"><span class="l-fr">Lecteur d'empreintes digitales, temps réel · permission <code>presence</code></span><span class="l-en">Fingerprint reader, realtime · <code>presence</code> permission</span></p>
+
+<figure>
+  <img class="l-fr" src="img/fr-presence.webp" alt="Présence en temps réel" loading="lazy">
+  <img class="l-en" src="img/en-presence.webp" alt="Realtime attendance" loading="lazy">
+  <figcaption><span class="l-fr">Le tableau de présence du jour, alimenté en direct par le lecteur d'empreintes.</span><span class="l-en">Today's attendance board, fed live by the fingerprint reader.</span></figcaption>
+</figure>
+
+<div class="l-fr">
+<p>C'est le module « temps réel » du système. Lorsqu'un élève pose son doigt sur le lecteur à l'entrée, la ligne <strong>apparaît sur cette page en une seconde, sans rafraîchir</strong>.</p>
+<h4>Lire la page</h4>
+<ul>
+  <li>La grande carte sombre à gauche est le <strong>lecteur</strong> : elle affiche le dernier élève scanné, avec son heure de passage.</li>
+  <li>Les quatre indicateurs donnent le <strong>taux de présence</strong>, les <strong>retards</strong>, les <strong>absents</strong> et le total des scans.</li>
+  <li><strong>Scans en direct</strong> liste les 12 derniers passages, le plus récent en tête.</li>
+  <li><strong>Journal de présence du jour</strong> reprend tous les élèves, avec recherche (nom ou matricule) et filtres par classe et par statut.</li>
+</ul>
+<div class="note">
+  <b>Cette page est en consultation</b>
+  <p>La présence se saisit par le lecteur d'empreintes, pas ici : il n'y a ni bouton ni formulaire de pointage manuel dans la version 1.0.</p>
+</div>
+<div class="warn">
+  <b>Le voyant « En ligne » est décoratif</b>
+  <p>Le bandeau vert <em>En ligne</em> est affiché en permanence : il ne reflète pas l'état réel du lecteur, qui n'est pas interrogé. Un lecteur débranché continuera d'afficher « En ligne ». Pour vérifier qu'il fonctionne vraiment, faites un pointage de test et regardez si la ligne apparaît.</p>
+  <p>Le compteur <em>Total scans</em> compte tous les élèves du tableau, y compris les absents — ce n'est donc pas un nombre de scans. Et si vous laissez la page ouverte après minuit, elle continue d'afficher la veille : rechargez-la chaque matin.</p>
+</div>
+</div>
+
+<div class="l-en">
+<p>This is the system's “realtime” module. When a student puts their finger on the reader at the gate, the row <strong>appears on this page within a second, without refreshing</strong>.</p>
+<h4>Reading the page</h4>
+<ul>
+  <li>The large dark card on the left is the <strong>reader</strong>: it shows the last student scanned, with their check-in time.</li>
+  <li>The four indicators give the <strong>attendance rate</strong>, the <strong>lates</strong>, the <strong>absentees</strong> and the scan total.</li>
+  <li><strong>Live scans</strong> lists the last 12 check-ins, newest first.</li>
+  <li><strong>Today's presence journal</strong> lists every student, with search (name or ID) and filters by class and status.</li>
+</ul>
+<div class="note">
+  <b>This page is read-only</b>
+  <p>Attendance is captured by the fingerprint reader, not here: there is no manual check-in button or form in version 1.0.</p>
+</div>
+<div class="warn">
+  <b>The “Online” light is decorative</b>
+  <p>The green <em>Online</em> badge is always displayed: it does not reflect the reader's actual state, which is never polled. An unplugged reader will still read “Online”. To check it really works, do a test scan and see whether the row appears.</p>
+  <p>The <em>Total scans</em> counter counts every student on the board, absentees included — so it is not a number of scans. And if you leave the page open past midnight it keeps showing the previous day: reload it each morning.</p>
+</div>
+</div>
+
+<!-- ====================== DISCIPLINE ====================== -->
+<h2 id="discipline"><span class="l-fr">Discipline</span><span class="l-en">Discipline</span></h2>
+<p class="sub"><span class="l-fr">Incidents et sanctions · permission <code>discipline</code></span><span class="l-en">Incidents and sanctions · <code>discipline</code> permission</span></p>
+
+<figure>
+  <img class="l-fr" src="img/fr-discipline.webp" alt="Discipline" loading="lazy">
+  <img class="l-en" src="img/en-discipline.webp" alt="Discipline" loading="lazy">
+  <figcaption><span class="l-fr">Le registre des incidents et le compositeur de message.</span><span class="l-en">The incident register and the message composer.</span></figcaption>
+</figure>
+
+<div class="l-fr">
+<h4>Enregistrer un incident</h4>
+<p><strong>Nouvel incident</strong> ouvre un panneau de saisie. Le <strong>matricule</strong>, la <strong>date</strong> et le <strong>type</strong> sont obligatoires. Le type se choisit parmi <em>Retard, Absence, Conduite, Tenue</em>, et la sanction parmi <em>Avertissement verbal, Avertissement écrit, Convocation parent, Exclusion temporaire, Conseil de discipline</em>.</p>
+<div class="note">
+  <b>Si Enregistrer ne réagit pas</b>
+  <p>C'est qu'un des trois champs obligatoires est vide. Aucun message ne le signale dans cette version.</p>
+</div>
+<p>Un incident se crée et se supprime, mais <strong>ne se modifie pas</strong>. La corbeille supprime sans confirmation.</p>
+<h4>Le panneau « Notifier le parent »</h4>
+<div class="warn">
+  <b>Ce panneau ne fait qu'écrire le message — il ne l'envoie pas</b>
+  <p>Les boutons <strong>SMS</strong> et <strong>Envoyer</strong> ne sont pas raccordés dans la version 1.0 : cliquer dessus ne fait rien. Le panneau prépare un texte à partir de modèles (Absence, Retard, Convocation, Fermeture), mais aucune passerelle SMS ou e-mail n'est branchée.</p>
+  <p>Utilisez-le comme un <strong>aide-rédaction</strong> : cliquez la cloche d'un incident pour pré-remplir le message, puis copiez le texte et envoyez-le par votre propre moyen. La zone de texte est en lecture seule, mais son contenu reste sélectionnable.</p>
+</div>
+</div>
+
+<div class="l-en">
+<h4>Recording an incident</h4>
+<p><strong>New incident</strong> opens an entry panel. The <strong>student ID</strong>, the <strong>date</strong> and the <strong>type</strong> are required. The type is picked from <em>Retard, Absence, Conduite, Tenue</em>, and the sanction from <em>Avertissement verbal, Avertissement écrit, Convocation parent, Exclusion temporaire, Conseil de discipline</em>.</p>
+<div class="note">
+  <b>These two lists are French-only</b>
+  <p>The type and sanction options are not translated in version 1.0 — they read in French even in English mode. If <em>Save</em> does not react, one of the three required fields is empty; no message says so.</p>
+</div>
+<p>An incident can be created and deleted, but <strong>not edited</strong>. The bin deletes without confirmation.</p>
+<h4>The “Notify parent” panel</h4>
+<div class="warn">
+  <b>This panel only writes the message — it does not send it</b>
+  <p>The <strong>SMS</strong> and <strong>Send</strong> buttons are not wired in version 1.0: clicking them does nothing. The panel drafts text from templates (Absence, Late, Summon, Closure), but no SMS or e-mail gateway is connected.</p>
+  <p>Use it as a <strong>drafting aid</strong>: click an incident's bell to pre-fill the message, then copy the text and send it by your own means. The text area is read-only, but its content stays selectable.</p>
+</div>
+</div>
+
+<!-- ====================== COURSEBOOK ====================== -->
+<h2 id="coursebook"><span class="l-fr">Cahier de textes</span><span class="l-en">Coursebook</span></h2>
+<p class="sub"><span class="l-fr">Journal de classe &amp; devoirs, jour par jour · permission <code>coursebook</code></span><span class="l-en">Daily class log &amp; homework · <code>coursebook</code> permission</span></p>
+
+<figure>
+  <img class="l-fr" src="img/fr-coursebook.webp" alt="Cahier de textes" loading="lazy">
+  <img class="l-en" src="img/en-coursebook.webp" alt="Coursebook" loading="lazy">
+  <figcaption><span class="l-fr">Le cahier de textes d'une classe, regroupé par journée.</span><span class="l-en">A class coursebook, grouped by day.</span></figcaption>
+</figure>
+
+<div class="l-fr">
+<p><strong>Choisissez d'abord une classe</strong> dans la liste déroulante : c'est elle qui commande toute la page. Le bouton <strong>Nouvelle entrée</strong> n'apparaît qu'une fois une classe sélectionnée.</p>
+<h4>Ajouter une séance</h4>
+<p>Le formulaire demande la <strong>matière</strong>, la <strong>date du cours</strong> et le <strong>contenu</strong> (ces trois-là sont obligatoires), puis, facultativement, le <strong>devoir à faire</strong> et sa <strong>date de remise</strong>.</p>
+<p>Les entrées sont regroupées par journée, la plus récente en haut. Deux compteurs indiquent le nombre d'<strong>entrées</strong> et de <strong>devoirs</strong> de la classe.</p>
+<h4>Corriger une entrée</h4>
+<p>Survolez une entrée : les icônes <strong>Modifier</strong> et <strong>Supprimer</strong> apparaissent. Contrairement aux autres modules, le cahier de textes autorise la <em>modification</em> d'une entrée. La suppression, elle, reste immédiate et sans confirmation.</p>
+<div class="note">
+  <b>Liste des matières</b>
+  <p>Elle est figée à huit matières (Mathématiques, Français, Anglais, Histoire-Géographie, SVT, Physique-Chimie, EPS, Informatique) et n'est pas liée à celles que vous créez dans Paramètres → Scolarité → Matières.</p>
+</div>
+</div>
+
+<div class="l-en">
+<p><strong>Pick a class first</strong> from the dropdown: it drives the whole page. The <strong>New entry</strong> button only appears once a class is selected.</p>
+<h4>Adding a lesson</h4>
+<p>The form asks for the <strong>subject</strong>, the <strong>lesson date</strong> and the <strong>content</strong> (these three are required), then optionally the <strong>homework</strong> and its <strong>due date</strong>.</p>
+<p>Entries are grouped by day, most recent first. Two counters show the class's number of <strong>entries</strong> and <strong>homework</strong> items.</p>
+<h4>Correcting an entry</h4>
+<p>Hover an entry: the <strong>Edit</strong> and <strong>Delete</strong> icons appear. Unlike other modules, the coursebook does allow an entry to be <em>edited</em>. Deletion, however, stays immediate and unconfirmed.</p>
+<div class="note">
+  <b>Subject list</b>
+  <p>It is fixed at eight subjects (Mathematics, French, English, History-Geography, Biology, Physics-Chemistry, PE, Computing) and is not linked to the ones you create in Settings → Academics → Subjects.</p>
+</div>
+</div>
+
+<!-- ====================== FINANCE ====================== -->
+<h2 id="finance"><span class="l-fr">Finance</span><span class="l-en">Finance</span></h2>
+<p class="sub"><span class="l-fr">Encaissements, frais, dépenses · permission <code>finance</code></span><span class="l-en">Payments, fees, expenses · <code>finance</code> permission</span></p>
+
+<figure>
+  <img class="l-fr" src="img/fr-finance.webp" alt="Finance — encaissements" loading="lazy">
+  <img class="l-en" src="img/en-finance.webp" alt="Finance — payments" loading="lazy">
+  <figcaption><span class="l-fr">L'onglet Encaissements : indicateurs sur 30 jours, courbe des recettes et historique des reçus.</span><span class="l-en">The Payments tab: 30-day indicators, revenue curve and receipt history.</span></figcaption>
+</figure>
+
+<div class="l-fr">
+<h4>Encaissements</h4>
+<p>Trois indicateurs sur 30 jours (revenus, dépenses, solde), la courbe des encaissements quotidiens, puis l'<strong>historique des reçus</strong>. La puce <strong>Tout / Espèces / Mobile Money / Virement</strong> filtre par mode de paiement. L'icône en bout de ligne réaffiche le <strong>reçu</strong>.</p>
+<h4>Enregistrer un paiement</h4>
+<p><strong>Nouveau paiement</strong> ouvre une fenêtre :</p>
+<ol>
+  <li><strong>Élève</strong> — saisissez son matricule ou son identifiant. <em>Ce champ est libre : il n'y a pas de liste de choix</em>, vérifiez donc bien votre saisie.</li>
+  <li><strong>Tranche</strong> — T1, T2 ou T3.</li>
+  <li><strong>Montant</strong> — en FCFA.</li>
+  <li><strong>Méthode</strong> — Espèces, Mobile Money ou Virement.</li>
+</ol>
+<p>Cliquez <strong>Générer le reçu</strong> : le paiement est enregistré et le reçu s'affiche aussitôt. Le bouton <strong>Imprimer</strong> du reçu ouvre la fenêtre d'impression du navigateur.</p>
+<div class="note">
+  <b>Le paiement est daté du jour</b>
+  <p>Il n'y a pas de champ date dans le formulaire. Pour saisir un encaissement rétroactif, la version 1.0 ne le permet pas depuis cette fenêtre.</p>
+</div>
+<div class="warn">
+  <b>Les onglets Débiteurs et Dépenses sont vides dans la version 1.0</b>
+  <p>Ils affichent « Données débiteurs non disponibles » et « Détail des dépenses non disponible ». Ce n'est pas une erreur de votre part et ce n'est pas un problème de permissions : <strong>ces deux écrans ne sont pas encore raccordés</strong>, bien que les données existent côté serveur. Le total des dépenses sur 30 jours reste toutefois juste dans l'indicateur du haut.</p>
+  <p>En attendant, la liste des impayés se retrouve indirectement : un bulletin bloqué (voir <a href="#academic">Académique</a>) signale un élève débiteur, et le portail parent affiche le solde de chaque enfant.</p>
+</div>
+<div class="note">
+  <b>Autres points à connaître</b>
+  <p>La colonne « Élève » de l'historique affiche un <strong>identifiant technique abrégé</strong>, pas le nom de l'élève. Le bouton <strong>Exporter</strong> n'est pas actif. Enfin, la <strong>configuration des frais</strong> n'a pas d'écran dans cette version.</p>
+</div>
+</div>
+
+<div class="l-en">
+<h4>Payments</h4>
+<p>Three 30-day indicators (revenue, expenses, balance), the daily collections curve, then the <strong>receipt history</strong>. The <strong>All / Cash / Mobile Money / Transfer</strong> chip filters by payment method. The icon at the end of a row re-opens the <strong>receipt</strong>.</p>
+<h4>Recording a payment</h4>
+<p><strong>New payment</strong> opens a modal:</p>
+<ol>
+  <li><strong>Student</strong> — type their ID. <em>This field is free text: there is no picker</em>, so check your entry carefully.</li>
+  <li><strong>Installment</strong> — T1, T2 or T3.</li>
+  <li><strong>Amount</strong> — in FCFA.</li>
+  <li><strong>Method</strong> — Cash, Mobile Money or Transfer.</li>
+</ol>
+<p>Click <strong>Generate receipt</strong>: the payment is recorded and the receipt appears at once. The receipt's <strong>Print</strong> button opens the browser print dialog.</p>
+<div class="note">
+  <b>The payment is dated today</b>
+  <p>There is no date field in the form. Version 1.0 does not allow a back-dated payment from this modal.</p>
+</div>
+<div class="warn">
+  <b>The Debtors and Expenses tabs are empty in version 1.0</b>
+  <p>They show “Debtor data not available” and “Expense detail not available”. This is not your mistake and not a permissions problem: <strong>these two screens are not wired up yet</strong>, even though the data exists on the server. The 30-day expense total in the indicator above is nonetheless correct.</p>
+  <p>In the meantime, unpaid balances surface indirectly: a blocked report card (see <a href="#academic">Academic</a>) flags a student in debt, and the parent portal shows each child's balance.</p>
+</div>
+<div class="note">
+  <b>Other things to know</b>
+  <p>The history's “Student” column shows a <strong>shortened technical identifier</strong>, not the student's name. The <strong>Export</strong> button is not active. And there is no <strong>fee configuration</strong> screen in this version.</p>
+</div>
+</div>
+
+<!-- ====================== TIMETABLE ====================== -->
+<h2 id="timetable"><span class="l-fr">Emploi du temps</span><span class="l-en">Timetable</span></h2>
+<p class="sub"><span class="l-fr">Grilles, créneaux, conflits · permission <code>timetable</code></span><span class="l-en">Grids, slots, conflicts · <code>timetable</code> permission</span></p>
+
+<figure>
+  <img class="l-fr" src="img/fr-timetable.webp" alt="Emploi du temps" loading="lazy">
+  <img class="l-en" src="img/en-timetable.webp" alt="Timetable" loading="lazy">
+  <figcaption><span class="l-fr">La grille hebdomadaire d'une classe : 6 jours × 9 créneaux d'une heure, de 07:30 à 15:30.</span><span class="l-en">A class's weekly grid: 6 days × 9 one-hour slots, 07:30 to 15:30.</span></figcaption>
+</figure>
+
+<div class="l-fr">
+<p><strong>Choisissez une classe</strong> pour afficher sa grille. Les jours sont en lignes, les heures en colonnes (du lundi au samedi, de 07:30 à 15:30).</p>
+<h4>Placer ou modifier un cours</h4>
+<p>En permission <em>Complet</em>, <strong>cliquez une case</strong> — vide ou occupée. Un éditeur s'ouvre <em>sous la grille</em> et demande trois champs libres : <strong>Matière (code)</strong> (ex. <code>MATH</code>), <strong>Enseignant (id)</strong> et <strong>Salle</strong>. Cliquez <strong>Enregistrer</strong>. Pour vider une case, ouvrez-la et cliquez <strong>Supprimer</strong> — sans confirmation.</p>
+<h4>La détection de conflits</h4>
+<p>C'est la valeur ajoutée du module : si vous programmez un enseignant dans deux classes à la même heure, un <strong>bandeau rouge « Conflits d'enseignant détectés »</strong> apparaît après l'enregistrement, et la case concernée est cerclée de rouge.</p>
+<div class="warn">
+  <b>Trois choses à comprendre sur les conflits</b>
+  <p>1. Le conflit <strong>n'est pas bloquant</strong> : votre créneau est déjà enregistré quand l'alerte s'affiche. À vous de corriger.</p>
+  <p>2. Les conflits ne sont détectés <strong>qu'au moment où vous enregistrez</strong> un créneau. Ouvrir une grille ou changer de classe n'en cherche pas : un conflit déjà présent en base restera invisible tant que vous n'aurez pas ré-enregistré l'un des deux créneaux.</p>
+  <p>3. Le bandeau liste les conflits de <em>toutes</em> les classes, mais le cerclage rouge ne s'affiche que sur la classe affichée. Lisez le bandeau : il nomme la classe concernée.</p>
+</div>
+<div class="note">
+  <b>Bon à savoir</b>
+  <p>Les cases affichent l'<strong>identifiant</strong> de l'enseignant, pas son nom. Le bouton <strong>Imprimer</strong> de cette page n'est pas actif ; utilisez l'impression du navigateur (<span class="kbd">Ctrl</span>+<span class="kbd">P</span>).</p>
+</div>
+</div>
+
+<div class="l-en">
+<p><strong>Pick a class</strong> to show its grid. Days run down the rows, hours across the columns (Monday to Saturday, 07:30 to 15:30).</p>
+<h4>Placing or changing a lesson</h4>
+<p>With <em>Write</em> permission, <strong>click a cell</strong> — empty or filled. An editor opens <em>below the grid</em> and asks for three free-text fields: <strong>Subject (code)</strong> (e.g. <code>MATH</code>), <strong>Teacher (id)</strong> and <strong>Room</strong>. Click <strong>Save</strong>. To clear a cell, open it and click <strong>Delete</strong> — without confirmation.</p>
+<h4>Conflict detection</h4>
+<p>This is the module's real value: if you book a teacher into two classes at the same hour, a <strong>red “Teacher clashes detected” banner</strong> appears after saving, and the cell is ringed in red.</p>
+<div class="warn">
+  <b>Three things to understand about clashes</b>
+  <p>1. A clash is <strong>not blocking</strong>: your slot is already saved by the time the alert shows. Correcting it is up to you.</p>
+  <p>2. Clashes are only detected <strong>when you save</strong> a slot. Opening a grid or switching class does not look for them: a clash already in the database stays invisible until you re-save one of the two slots.</p>
+  <p>3. The banner lists clashes across <em>all</em> classes, but the red ring only shows on the class on screen. Read the banner: it names the class concerned.</p>
+</div>
+<div class="note">
+  <b>Worth knowing</b>
+  <p>Cells show the teacher's <strong>identifier</strong>, not their name. This page's <strong>Print</strong> button is not active; use the browser's print (<span class="kbd">Ctrl</span>+<span class="kbd">P</span>).</p>
+</div>
+</div>
+
+<!-- ====================== EVENTS ====================== -->
+<h2 id="events"><span class="l-fr">Événements</span><span class="l-en">Events</span></h2>
+<p class="sub"><span class="l-fr">Annonces de l'école &amp; notifications · permission <code>events</code></span><span class="l-en">School announcements &amp; notifications · <code>events</code> permission</span></p>
+
+<figure>
+  <img class="l-fr" src="img/fr-events.webp" alt="Événements" loading="lazy">
+  <img class="l-en" src="img/en-events.webp" alt="Events" loading="lazy">
+  <figcaption><span class="l-fr">Les événements à venir et passés, avec leur public ciblé.</span><span class="l-en">Upcoming and past events, with their target audience.</span></figcaption>
+</figure>
+
+<div class="l-fr">
+<h4>Créer un événement</h4>
+<p><strong>Nouvel événement</strong> ouvre une fenêtre : le <strong>titre</strong> et la <strong>date</strong> sont obligatoires ; puis le type (Réunion, Examen, Culturel, Annonce), une description, et le <strong>public ciblé</strong> — <em>Toute l'école</em> ou <em>Classes ciblées</em>.</p>
+<div class="note">
+  <b>Les classes ciblées se saisissent à la main</b>
+  <p>Si vous choisissez « Classes ciblées », un champ libre attend vos classes séparées par des virgules (ex. <code>6ème, 5ème</code>). Il n'y a pas de liste à cocher : orthographiez-les <strong>exactement</strong> comme dans votre registre, sinon le décompte des destinataires retombera à zéro.</p>
+</div>
+<h4>« Notifier les parents »</h4>
+<div class="warn">
+  <b>Ce bouton n'envoie aucun message dans la version 1.0</b>
+  <p>Il marque l'événement comme <em>Notifié</em> et affiche un nombre de destinataires — lequel est un <strong>décompte d'élèves concernés</strong>, pas un nombre de messages partis. Le panneau « Comment ça marche » annonce un envoi WhatsApp et SMS : <strong>cette passerelle n'existe pas encore</strong>. Aucun SMS, aucun WhatsApp, aucun e-mail ne quitte le système.</p>
+  <p>Servez-vous-en comme d'un <strong>suivi</strong> : « cet événement a été communiqué », la diffusion se faisant par vos canaux habituels. L'action est irréversible — on ne peut pas « dé-notifier ».</p>
+</div>
+<p>Un événement se crée et se supprime (sans confirmation), mais ne se modifie pas. Seuls les <strong>5 derniers événements passés</strong> sont affichés.</p>
+</div>
+
+<div class="l-en">
+<h4>Creating an event</h4>
+<p><strong>New event</strong> opens a modal: the <strong>title</strong> and <strong>date</strong> are required; then the type (Meeting, Exam, Cultural, Announcement), a description, and the <strong>target audience</strong> — <em>Whole school</em> or <em>Selected classes</em>.</p>
+<div class="note">
+  <b>Target classes are typed by hand</b>
+  <p>If you choose “Selected classes”, a free-text field expects your classes separated by commas (e.g. <code>Form 1, Form 2</code>). There is no checklist: spell them <strong>exactly</strong> as in your registry, or the recipient count will fall to zero.</p>
+</div>
+<h4>“Notify parents”</h4>
+<div class="warn">
+  <b>This button sends no message in version 1.0</b>
+  <p>It marks the event as <em>Notified</em> and displays a recipient number — which is a <strong>count of students concerned</strong>, not a number of messages sent. The “How it works” panel announces WhatsApp and SMS delivery: <strong>that gateway does not exist yet</strong>. No SMS, no WhatsApp and no e-mail leaves the system.</p>
+  <p>Treat it as a <strong>tracker</strong>: “this event has been communicated”, the actual sending being done through your usual channels. The action is irreversible — there is no “un-notify”.</p>
+</div>
+<p>An event can be created and deleted (without confirmation) but not edited. Only the <strong>5 most recent past events</strong> are shown.</p>
+</div>
+
+<!-- ====================== MESSAGES ====================== -->
+<h2 id="messages"><span class="l-fr">Correspondance</span><span class="l-en">Correspondence</span></h2>
+<p class="sub"><span class="l-fr">Carnet de correspondance avec accusé de lecture · permission <code>messages</code></span><span class="l-en">Correspondence book with read-acknowledgement · <code>messages</code> permission</span></p>
+
+<figure>
+  <img class="l-fr" src="img/fr-messages.webp" alt="Carnet de correspondance" loading="lazy">
+  <img class="l-en" src="img/en-messages.webp" alt="Correspondence book" loading="lazy">
+  <figcaption><span class="l-fr">Le carnet de correspondance : un élève à gauche, ses notes à droite.</span><span class="l-en">The correspondence book: a student on the left, their notices on the right.</span></figcaption>
+</figure>
+
+<div class="l-fr">
+<p>C'est le carnet de liaison école ↔ parents, avec accusé de lecture. <strong>Choisissez un élève</strong> à gauche (recherche par nom, matricule ou classe) pour voir sa correspondance.</p>
+<h4>Écrire une note</h4>
+<p><strong>Nouvelle note</strong> : choisissez une catégorie (Information, Convocation, Absence, Rappel, Félicitations), cochez ou non <strong>Accusé de lecture requis</strong> (coché par défaut), puis saisissez l'objet et le message.</p>
+<div class="note">
+  <b>« Envoyer » veut dire « consigner »</b>
+  <p>Le bouton enregistre la note dans le carnet ; il ne l'expédie pas au parent par SMS ou e-mail. Si l'objet ou le message est vide, le bouton ne réagit pas — sans message d'erreur.</p>
+</div>
+<h4>Accuser réception</h4>
+<p>Une note en attente affiche <strong>Marquer comme lu</strong>. Une fenêtre demande alors le <strong>nom du parent signataire</strong>, et la note passe en « Lu / signé par… ».</p>
+<div class="note">
+  <b>La signature est déclarative</b>
+  <p>C'est un membre du personnel qui saisit le nom du parent, au vu du carnet physique ou de sa parole. Ce n'est pas une signature électronique et le parent ne peut pas acquitter lui-même depuis son portail.</p>
+</div>
+<p>Trois compteurs suivent le dossier : <strong>Notes</strong>, <strong>Accusés en attente</strong> et <strong>Lues / signées</strong>. Une note se supprime au survol, sans confirmation, et ne se modifie pas.</p>
+</div>
+
+<div class="l-en">
+<p>This is the school ↔ parent liaison book, with read-acknowledgement. <strong>Pick a student</strong> on the left (search by name, ID or class) to see their correspondence.</p>
+<h4>Writing a notice</h4>
+<p><strong>New notice</strong>: choose a category (Information, Summons, Absence, Reminder, Congrats), tick or untick <strong>Read-acknowledgement required</strong> (ticked by default), then enter the subject and the message.</p>
+<div class="note">
+  <b>“Send” means “record”</b>
+  <p>The button files the notice in the book; it does not dispatch it to the parent by SMS or e-mail. If the subject or message is empty the button does not react — with no error message.</p>
+</div>
+<h4>Acknowledging</h4>
+<p>A pending notice shows <strong>Mark as read</strong>. A prompt then asks for the <strong>signing parent's name</strong>, and the notice moves to “Read / signed by…”.</p>
+<div class="note">
+  <b>The signature is declarative</b>
+  <p>A staff member types the parent's name, on the evidence of the physical book or their word. It is not an electronic signature, and the parent cannot acknowledge it themselves from their portal.</p>
+</div>
+<p>Three counters track the file: <strong>Notices</strong>, <strong>Pending acks</strong> and <strong>Read / signed</strong>. A notice deletes on hover, without confirmation, and cannot be edited.</p>
+</div>
+
+<!-- ====================== DASHBOARD ====================== -->
+<h2 id="dashboard"><span class="l-fr">Tableau de bord</span><span class="l-en">Dashboard</span></h2>
+<p class="sub"><span class="l-fr">Vue d'ensemble · KPIs · permission <code>dashboard</code></span><span class="l-en">Overview · KPIs · <code>dashboard</code> permission</span></p>
+
+<figure>
+  <img class="l-fr" src="img/fr-dashboard.webp" alt="Tableau de bord" loading="lazy">
+  <img class="l-en" src="img/en-dashboard.webp" alt="Dashboard" loading="lazy">
+  <figcaption><span class="l-fr">Le tableau de bord : effectif, finances et présence du jour, en un écran.</span><span class="l-en">The dashboard: enrolment, finances and today's attendance, on one screen.</span></figcaption>
+</figure>
+
+<div class="l-fr">
+<p>C'est la page d'accueil du personnel. Elle réunit :</p>
+<ul>
+  <li><strong>Quatre indicateurs</strong> — effectif (réparti FR / EN), revenus et dépenses sur 30 jours, taux de présence du jour.</li>
+  <li><strong>Revenus (30 jours)</strong> — la courbe des encaissements quotidiens.</li>
+  <li><strong>Répartition des effectifs</strong> — primaire contre secondaire.</li>
+  <li><strong>Présence en direct</strong> — présents, retards, absents du jour.</li>
+  <li><strong>Retardataires du jour</strong> — les cinq retards les plus longs.</li>
+  <li><strong>Encaissements récents</strong> — les six derniers reçus.</li>
+</ul>
+<div class="note">
+  <b>Le tableau de bord s'adapte à vos droits</b>
+  <p>Chaque indicateur n'apparaît que si vous avez accès au module correspondant. Un économe sans droit sur la présence, par exemple, ne verra pas le taux de présence. C'est le comportement attendu.</p>
+</div>
+<div class="warn">
+  <b>Deux réserves</b>
+  <p>La carte <strong>« Alertes &amp; rappels »</strong> n'est pas connectée au module <a href="#alerts">Alertes</a>. Ses trois lignes — dont « Lecteur d'empreintes — opérationnel » et « Sauvegarde quotidienne — Effectuée à 02:00 » — sont des <strong>textes fixes</strong> : il n'y a ni contrôle du lecteur, ni tâche de sauvegarde derrière. Seul le taux de présence de la ligne du milieu est réel. Pour les vraies alertes, ouvrez le module Alertes.</p>
+  <p>Le bouton <strong>Exporter</strong> de cette page n'est pas actif.</p>
+</div>
+</div>
+
+<div class="l-en">
+<p>This is the staff home page. It gathers:</p>
+<ul>
+  <li><strong>Four indicators</strong> — enrolment (split FR / EN), 30-day revenue and expenses, today's attendance rate.</li>
+  <li><strong>Revenue (30 days)</strong> — the daily collections curve.</li>
+  <li><strong>Enrollment split</strong> — primary against secondary.</li>
+  <li><strong>Live attendance</strong> — present, late and absent today.</li>
+  <li><strong>Lates today</strong> — the five longest delays.</li>
+  <li><strong>Recent payments</strong> — the last six receipts.</li>
+</ul>
+<div class="note">
+  <b>The dashboard adapts to your rights</b>
+  <p>Each indicator only appears if you have access to the matching module. A bursar without attendance rights, for instance, will not see the attendance rate. That is expected behaviour.</p>
+</div>
+<div class="warn">
+  <b>Two caveats</b>
+  <p>The <strong>“Alerts &amp; reminders”</strong> card is not connected to the <a href="#alerts">Alerts</a> module. Its three lines — including “Fingerprint reader — operational” and “Daily backup — Completed at 02:00” — are <strong>fixed text</strong>: there is no reader health check and no backup job behind them. Only the middle line's attendance rate is real. For genuine alerts, open the Alerts module.</p>
+  <p>This page's <strong>Export</strong> button is not active.</p>
+</div>
+</div>
+
+<!-- ====================== ALERTS ====================== -->
+<h2 id="alerts"><span class="l-fr">Alertes</span><span class="l-en">Alerts</span></h2>
+<p class="sub"><span class="l-fr">Élèves à risque, détection précoce · permission <code>alerts</code></span><span class="l-en">At-risk students, early detection · <code>alerts</code> permission</span></p>
+
+<figure>
+  <img class="l-fr" src="img/fr-alerts.webp" alt="Alertes proactives" loading="lazy">
+  <img class="l-en" src="img/en-alerts.webp" alt="Proactive alerts" loading="lazy">
+  <figcaption><span class="l-fr">Les alertes ouvertes, filtrables par nature.</span><span class="l-en">Open alerts, filterable by kind.</span></figcaption>
+</figure>
+
+<div class="l-fr">
+<p>Le module repère les élèves à risque et les classe en trois niveaux : <strong>Critiques</strong>, <strong>À surveiller</strong> et <strong>Informations</strong>.</p>
+<h4>Le cycle de traitement</h4>
+<ol>
+  <li><strong>Relancer le scan</strong> lance une nouvelle analyse et rafraîchit la liste.</li>
+  <li><strong>Vu</strong> marque l'alerte comme prise en compte — vous l'avez lue, vous vous en occupez.</li>
+  <li><strong>Résoudre</strong> la clôture une fois le problème traité.</li>
+</ol>
+<p>Les puces filtrent par nature : <strong>Toutes, Résultats, Absences, Discipline, Impayés</strong>. Le nombre entre parenthèses indique le volume de chaque catégorie.</p>
+<div class="tip">
+  <b>Un réflexe utile</b>
+  <p>Lancez « Relancer le scan » après une séance de saisie de notes ou en fin de semaine : les alertes sont recalculées à partir des données du moment.</p>
+</div>
+</div>
+
+<div class="l-en">
+<p>The module spots at-risk students and sorts them into three levels: <strong>Critical</strong>, <strong>Warnings</strong> and <strong>Info</strong>.</p>
+<h4>The handling cycle</h4>
+<ol>
+  <li><strong>Rescan</strong> runs a fresh analysis and refreshes the list.</li>
+  <li><strong>Ack</strong> marks the alert as acknowledged — you have read it and you are on it.</li>
+  <li><strong>Resolve</strong> closes it once the problem is handled.</li>
+</ol>
+<p>The chips filter by kind: <strong>All, Grades, Absences, Discipline, Unpaid</strong>. The number in brackets shows each category's volume.</p>
+<div class="tip">
+  <b>A useful habit</b>
+  <p>Run “Rescan” after a grade-entry session or at the end of the week: alerts are recomputed from the data as it stands.</p>
+</div>
+</div>
+
+<!-- ====================== REPORTS ====================== -->
+<h2 id="reports"><span class="l-fr">Rapports</span><span class="l-en">Reports</span></h2>
+<p class="sub"><span class="l-fr">Analytique école entière · permission <code>reports</code></span><span class="l-en">School-wide analytics · <code>reports</code> permission</span></p>
+
+<figure>
+  <img class="l-fr" src="img/fr-reports.webp" alt="Rapports" loading="lazy">
+  <img class="l-en" src="img/en-reports.webp" alt="Reports" loading="lazy">
+  <figcaption><span class="l-fr">Bilan financier, taux de recouvrement et démographie de l'établissement.</span><span class="l-en">Financial report, recovery rate and school demographics.</span></figcaption>
+</figure>
+
+<div class="l-fr">
+<p>La vue analytique de l'établissement : <strong>recettes</strong>, <strong>dépenses</strong>, <strong>solde net</strong> et <strong>taux de recouvrement</strong>, puis la démographie par sexe, par niveau et par sous-système.</p>
+<h4>Présence mensuelle</h4>
+<p>Choisissez un <strong>mois</strong> puis cliquez <strong>Charger</strong>. Le tableau ne se met pas à jour tout seul : le bouton est nécessaire.</p>
+<div class="tip">
+  <b>Le seul véritable export de l'application</b>
+  <p>Ici, <strong>Exporter</strong> produit un vrai fichier CSV. Attention à deux détails : il n'exporte <strong>que le tableau de présence mensuelle</strong> (ni les finances, ni la démographie), et il ne produit rien si vous n'avez pas d'abord cliqué <strong>Charger</strong>. Le bouton <strong>Imprimer</strong>, lui, imprime la page entière.</p>
+</div>
+</div>
+
+<div class="l-en">
+<p>The school's analytics view: <strong>revenue</strong>, <strong>expenses</strong>, <strong>net balance</strong> and <strong>recovery rate</strong>, then demographics by gender, level and sub-system.</p>
+<h4>Monthly attendance</h4>
+<p>Pick a <strong>month</strong> then click <strong>Load</strong>. The table does not refresh on its own: the button is required.</p>
+<div class="tip">
+  <b>The application's only real export</b>
+  <p>Here, <strong>Export</strong> produces a genuine CSV file. Mind two details: it exports <strong>only the monthly attendance table</strong> (neither finance nor demographics), and it produces nothing unless you clicked <strong>Load</strong> first. The <strong>Print</strong> button prints the whole page.</p>
+</div>
+</div>
+
+<!-- ====================== SETTINGS ====================== -->
+<h2 id="settings"><span class="l-fr">Paramètres</span><span class="l-en">Settings</span></h2>
+<p class="sub"><span class="l-fr">Configuration, rôles, messagerie · permission <code>settings</code></span><span class="l-en">Configuration, roles, e-mail · <code>settings</code> permission</span></p>
+
+<figure>
+  <img class="l-fr" src="img/fr-settings.webp" alt="Paramètres — Scolarité" loading="lazy">
+  <img class="l-en" src="img/en-settings.webp" alt="Settings — Academics" loading="lazy">
+  <figcaption><span class="l-fr">Paramètres → Scolarité : sections, classes et matières.</span><span class="l-en">Settings → Academics: sections, classes and subjects.</span></figcaption>
+</figure>
+
+<div class="l-fr">
+<p>Cinq onglets : <strong>Scolarité</strong>, <strong>Général</strong>, <strong>Permissions</strong>, <strong>Rôles</strong> et <strong>Messagerie</strong>.</p>
+<h4>Scolarité — la fondation de l'application</h4>
+<p>C'est ici que tout commence, dans cet ordre :</p>
+<ol>
+  <li><strong>Sections</strong> — regroupent les classes par sous-système et niveau (ex. « Secondaire FR »). Un libellé, un sous-système (Francophone / Anglophone) et un niveau (Primaire / Secondaire).</li>
+  <li><strong>Classes</strong> — un nom (ex. <code>6ème A</code>) et la section de rattachement. <em>Le bouton reste désactivé tant qu'aucune section n'existe.</em></li>
+  <li><strong>Matières</strong> — un code, un nom en français, un nom en anglais et un <strong>coefficient</strong> (celui qui pondère les bulletins).</li>
+</ol>
+<p>Les suppressions demandent confirmation.</p>
+<h4>Permissions</h4>
+<p>La matrice rôle × module, décrite en détail dans <a href="#roles">Rôles &amp; permissions</a>.</p>
+<h4>Messagerie</h4>
+<p>La configuration du <strong>serveur SMTP</strong> : activation, hôte, port, utilisateur, mot de passe, adresse et nom d'expéditeur, STARTTLS. Laissez le mot de passe vide pour conserver celui déjà en place.</p>
+<p>La carte <strong>Notifications</strong> propose un seul déclencheur — <em>Création d'un utilisateur</em> — et un outil de <strong>test d'envoi</strong>. Enregistrez la configuration <em>avant</em> de tester.</p>
+<div class="warn">
+  <b>Deux onglets à ne pas surestimer</b>
+  <p><strong>Général</strong> n'est pas configurable : nom, ville, année scolaire, devise, langues et fiche du lecteur d'empreintes y sont <strong>en dur</strong> dans l'application. Ce que vous y lisez (« En ligne », « Dernière synchro : il y a 3 min », le modèle du lecteur) est décoratif et ne reflète aucun équipement réel.</p>
+  <p><strong>Rôles</strong> est en lecture seule : la version 1.0 ne permet pas de créer ou de modifier un rôle. Les six rôles livrés sont ceux dont vous disposez ; ce que vous pouvez ajuster, ce sont leurs <em>permissions</em>.</p>
+</div>
+</div>
+
+<div class="l-en">
+<p>Five tabs: <strong>Academics</strong>, <strong>General</strong>, <strong>Permissions</strong>, <strong>Roles</strong> and <strong>E-mail</strong>.</p>
+<h4>Academics — the application's foundation</h4>
+<p>Everything starts here, in this order:</p>
+<ol>
+  <li><strong>Sections</strong> — group classes by sub-system and level (e.g. “Secondaire FR”). A label, a sub-system (Francophone / English) and a level (Primary / Secondary).</li>
+  <li><strong>Classes</strong> — a name (e.g. <code>Form 1 A</code>) and the section it belongs to. <em>The button stays disabled until a section exists.</em></li>
+  <li><strong>Subjects</strong> — a code, a French name, an English name and a <strong>coefficient</strong> (the one that weights report cards).</li>
+</ol>
+<p>Deletions ask for confirmation.</p>
+<h4>Permissions</h4>
+<p>The role × module matrix, described in detail under <a href="#roles">Roles &amp; permissions</a>.</p>
+<h4>E-mail</h4>
+<p>The <strong>SMTP server</strong> configuration: enable, host, port, username, password, from address and from name, STARTTLS. Leave the password blank to keep the existing one.</p>
+<p>The <strong>Notifications</strong> card offers a single trigger — <em>User created</em> — and a <strong>test sending</strong> tool. Save the configuration <em>before</em> testing.</p>
+<div class="warn">
+  <b>Two tabs not to overrate</b>
+  <p><strong>General</strong> is not configurable: name, city, academic year, currency, languages and the fingerprint-reader card are <strong>hardcoded</strong> in the application. What you read there (“Online”, “Last sync: 3 min ago”, the reader model) is decorative and reflects no real equipment.</p>
+  <p><strong>Roles</strong> is read-only: version 1.0 does not allow creating or editing a role. The six shipped roles are what you have; what you can adjust are their <em>permissions</em>.</p>
+</div>
+</div>
+
+<!-- ====================== PARENT ====================== -->
+<h2 id="parent"><span class="l-fr">Portail parent</span><span class="l-en">Parent portal</span></h2>
+
+<figure>
+  <img class="l-fr" src="img/fr-parent.webp" alt="Portail parent" loading="lazy">
+  <img class="l-en" src="img/en-parent.webp" alt="Parent portal" loading="lazy">
+  <figcaption><span class="l-fr">L'espace parent : un onglet par enfant, présence, frais et notes.</span><span class="l-en">The parent space: one tab per child, attendance, fees and grades.</span></figcaption>
+</figure>
+
+<div class="l-fr">
+<p>Les comptes de rôle <code>parent</code> arrivent directement ici après connexion. Le portail ne comporte pas les modules du personnel.</p>
+<h4>Choisir un enfant</h4>
+<p>La barre <strong>Mes enfants</strong> présente une pastille par enfant rattaché au compte. Cliquez pour basculer. Le premier enfant est sélectionné automatiquement.</p>
+<h4>Les trois onglets</h4>
+<ul>
+  <li><strong>Vue d'ensemble</strong> — taux de présence, solde de frais, statut des frais et nombre d'évaluations.</li>
+  <li><strong>Notes</strong> — le détail par matière et par séquence, avec la moyenne en bas de tableau.</li>
+  <li><strong>Boîte à suggestions</strong> — pour écrire à l'établissement : choisissez une catégorie (Suggestion, Question, Réclamation, Remerciement), rédigez, puis <strong>Envoyer le message</strong>. La carte <em>Mes messages</em> conserve l'historique.</li>
+</ul>
+<div class="note">
+  <b>Comment ouvrir un accès parent</b>
+  <p>Un compte parent se crée depuis la fiche de l'élève : <a href="#students">Élèves</a> → sélectionner l'élève → <strong>Comptes parents</strong> → <strong>Ajouter</strong>. Réutilisez le même identifiant pour rattacher plusieurs enfants à un même parent.</p>
+</div>
+<div class="warn">
+  <b>Points connus de la version 1.0</b>
+  <p>Sous le nom de l'enfant s'affiche un <strong>identifiant technique</strong> (une longue suite de caractères) à la place du matricule : c'est une anomalie connue, sans conséquence sur les données.</p>
+  <p>La <strong>moyenne</strong> de l'onglet Notes est une moyenne <em>simple</em> : elle ne tient pas compte des coefficients des matières. Elle peut donc différer de la moyenne du bulletin officiel, qui, elle, est pondérée. Le bulletin fait foi.</p>
+  <p>Les <strong>coordonnées de l'école</strong> affichées en bas de la vue d'ensemble sont des exemples figés dans l'application, pas les coordonnées configurées de l'établissement.</p>
+</div>
+</div>
+
+<div class="l-en">
+<p>Accounts with the <code>parent</code> role land here directly after signing in. The portal does not carry the staff modules.</p>
+<h4>Picking a child</h4>
+<p>The <strong>My children</strong> bar shows one pill per child attached to the account. Click to switch. The first child is selected automatically.</p>
+<h4>The three tabs</h4>
+<ul>
+  <li><strong>Overview</strong> — attendance rate, fee balance, fee status and number of assessments.</li>
+  <li><strong>Grades</strong> — the detail by subject and sequence, with the average at the foot of the table.</li>
+  <li><strong>Suggestion box</strong> — to write to the school: choose a category (Suggestion, Question, Complaint, Thanks), write, then <strong>Send message</strong>. The <em>My messages</em> card keeps the history.</li>
+</ul>
+<div class="note">
+  <b>How to open a parent access</b>
+  <p>A parent account is created from the student's profile: <a href="#students">Students</a> → select the student → <strong>Parent accounts</strong> → <strong>Add</strong>. Reuse the same username to attach several children to one parent.</p>
+</div>
+<div class="warn">
+  <b>Known points in version 1.0</b>
+  <p>Under the child's name a <strong>technical identifier</strong> (a long string) is shown instead of the student ID: this is a known glitch, with no consequence for the data.</p>
+  <p>The <strong>average</strong> on the Grades tab is a <em>plain</em> mean: it ignores subject coefficients. It may therefore differ from the official report card's average, which is weighted. The report card prevails.</p>
+  <p>The <strong>school contacts</strong> shown at the foot of the overview are examples fixed in the application, not the school's configured details.</p>
+</div>
+</div>
+
+<!-- ====================== LIMITS ====================== -->
+<h2 id="limits"><span class="l-fr">Limites connues de la version 1.0</span><span class="l-en">Known limitations of version 1.0</span></h2>
+
+<div class="l-fr">
+<p>Cette section récapitule ce qui, dans l'interface, <strong>a l'air de fonctionner mais ne fonctionne pas encore</strong>. Elle vous évitera de croire une action effectuée alors qu'elle ne l'est pas.</p>
+
+<h3>Rien n'est envoyé aux parents, automatiquement</h3>
+<p>C'est le point le plus important. Malgré les libellés « SMS », « Envoyer », « Notifier les parents » et les mentions WhatsApp, <strong>aucun message ne quitte le système</strong> dans cette version. Concrètement :</p>
+<table>
+  <tr><th>Écran</th><th>Ce que le bouton fait réellement</th></tr>
+  <tr><td>Discipline → <em>SMS</em> / <em>Envoyer</em></td><td>Rien. Le message est rédigé mais jamais expédié.</td></tr>
+  <tr><td>Événements → <em>Notifier les parents</em></td><td>Marque l'événement « notifié » et compte les élèves concernés. N'envoie rien.</td></tr>
+  <tr><td>Correspondance → <em>Envoyer</em></td><td>Consigne la note dans le carnet. Ne l'expédie pas.</td></tr>
+  <tr><td>Élèves → <em>SMS</em> (fiche élève)</td><td>Rien.</td></tr>
+  <tr><td>Présence → « SMS auto envoyés »</td><td>Libellé fixe, sans compteur ni envoi.</td></tr>
+</table>
+<p>La seule brique de messagerie réellement opérationnelle est le <strong>serveur SMTP</strong> de Paramètres → Messagerie, utilisé à ce jour pour un seul événement : la création d'un utilisateur.</p>
+
+<h3>Boutons présents mais inactifs</h3>
+<ul>
+  <li><strong>Exporter</strong> — sur le Tableau de bord, Élèves (« Exporter liste »), Personnel et Finance. Le seul export réel de l'application est celui de <a href="#reports">Rapports</a> (CSV de la présence mensuelle).</li>
+  <li><strong>Exporter</strong> d'Académique — n'exporte pas : il ouvre l'impression du navigateur, comme <em>Imprimer</em>.</li>
+  <li><strong>Imprimer</strong> d'Emploi du temps — inactif ; passez par <span class="kbd">Ctrl</span>+<span class="kbd">P</span>.</li>
+  <li><strong>Oublié ?</strong> sur l'écran de connexion.</li>
+</ul>
+
+<h3>Écrans non raccordés</h3>
+<ul>
+  <li><strong>Finance → Débiteurs et Dépenses</strong> : les deux onglets sont vides.</li>
+  <li><strong>Configuration des frais</strong> : aucun écran (les montants sont posés en base).</li>
+  <li><strong>Paramètres → Général</strong> : entièrement en dur, rien n'y est modifiable.</li>
+  <li><strong>Paramètres → Rôles</strong> : lecture seule, pas de création de rôle.</li>
+  <li><strong>Documents</strong> : pas de téléversement de fichier — c'est un registre de références.</li>
+  <li><strong>Présence</strong> : pas de pointage manuel ; seul le lecteur alimente le tableau.</li>
+</ul>
+
+<h3>Affichages trompeurs</h3>
+<ul>
+  <li>Le voyant <strong>« En ligne »</strong> du lecteur d'empreintes (Présence et Paramètres → Général) est toujours vert : l'équipement n'est jamais interrogé.</li>
+  <li>La carte <strong>« Alertes &amp; rappels »</strong> du Tableau de bord affiche des textes fixes, dont une « sauvegarde quotidienne » qui n'existe pas.</li>
+  <li>La <strong>Masse salariale</strong> additionne des taux horaires à des salaires mensuels : le total n'est pas exploitable pour les vacataires.</li>
+  <li><strong>Finance</strong> et <strong>Emploi du temps</strong> affichent des identifiants techniques là où on attendrait un nom d'élève ou d'enseignant.</li>
+  <li>Le <strong>portail parent</strong> affiche un identifiant technique à la place du matricule, et une moyenne non pondérée.</li>
+</ul>
+
+<h3>Suppressions sans confirmation</h3>
+<div class="warn">
+  <p>La confirmation avant suppression n'est pas uniforme. <strong>Demandent confirmation</strong> : un élève, un compte parent, un département, une section, une classe, une matière. <strong>Ne demandent rien et suppriment immédiatement</strong> : un employé, une année de parcours, un passage à l'infirmerie, une activité, un document, une décision d'orientation, un incident, une entrée de cahier de textes, un créneau d'emploi du temps, un événement, une note de correspondance.</p>
+</div>
+
+<h3>Ergonomie</h3>
+<ul>
+  <li>Dans plusieurs listes (Parcours, Santé, Documents, Cahier de textes, Correspondance), les icônes <strong>Modifier</strong> et <strong>Supprimer</strong> ne se révèlent qu'<strong>au survol</strong> de la ligne : elles sont difficiles à atteindre sur écran tactile.</li>
+  <li>Quand un champ obligatoire manque, le bouton <strong>Enregistrer</strong> reste souvent muet plutôt que d'afficher une erreur. Si rien ne se passe, vérifiez les champs marqués obligatoires dans ce guide.</li>
+  <li>Les listes déroulantes de <strong>type</strong> et de <strong>sanction</strong> du module Discipline restent en français en mode anglais.</li>
+</ul>
+</div>
+
+<div class="l-en">
+<p>This section lists what <strong>looks like it works but does not yet</strong>. It will save you from believing an action was carried out when it was not.</p>
+
+<h3>Nothing is sent to parents, automatically</h3>
+<p>This is the most important point. Despite the “SMS”, “Send” and “Notify parents” labels and the WhatsApp mentions, <strong>no message leaves the system</strong> in this version. Concretely:</p>
+<table>
+  <tr><th>Screen</th><th>What the button actually does</th></tr>
+  <tr><td>Discipline → <em>SMS</em> / <em>Send</em></td><td>Nothing. The message is drafted but never dispatched.</td></tr>
+  <tr><td>Events → <em>Notify parents</em></td><td>Marks the event “notified” and counts the students concerned. Sends nothing.</td></tr>
+  <tr><td>Correspondence → <em>Send</em></td><td>Files the notice in the book. Does not dispatch it.</td></tr>
+  <tr><td>Students → <em>SMS</em> (student profile)</td><td>Nothing.</td></tr>
+  <tr><td>Attendance → “Auto SMS sent”</td><td>A fixed label, with no counter and no sending.</td></tr>
+</table>
+<p>The only genuinely operational messaging piece is the <strong>SMTP server</strong> under Settings → E-mail, used today for a single event: user creation.</p>
+
+<h3>Buttons that are present but inert</h3>
+<ul>
+  <li><strong>Export</strong> — on the Dashboard, Students (“Export list”), Staff and Finance. The application's only real export is on <a href="#reports">Reports</a> (monthly attendance CSV).</li>
+  <li>Academic's <strong>Export</strong> — does not export: it opens the browser print dialog, exactly like <em>Print</em>.</li>
+  <li>Timetable's <strong>Print</strong> — inert; use <span class="kbd">Ctrl</span>+<span class="kbd">P</span>.</li>
+  <li><strong>Forgot?</strong> on the sign-in screen.</li>
+</ul>
+
+<h3>Screens not wired up</h3>
+<ul>
+  <li><strong>Finance → Debtors and Expenses</strong>: both tabs are empty.</li>
+  <li><strong>Fee configuration</strong>: no screen (amounts are set in the database).</li>
+  <li><strong>Settings → General</strong>: entirely hardcoded, nothing is editable.</li>
+  <li><strong>Settings → Roles</strong>: read-only, no role creation.</li>
+  <li><strong>Documents</strong>: no file upload — it is a register of references.</li>
+  <li><strong>Attendance</strong>: no manual check-in; only the reader feeds the board.</li>
+</ul>
+
+<h3>Misleading displays</h3>
+<ul>
+  <li>The fingerprint reader's <strong>“Online”</strong> light (Attendance and Settings → General) is always green: the device is never polled.</li>
+  <li>The Dashboard's <strong>“Alerts &amp; reminders”</strong> card shows fixed text, including a “daily backup” that does not exist.</li>
+  <li><strong>Payroll</strong> adds hourly rates to monthly salaries: the total is unusable for contractors.</li>
+  <li><strong>Finance</strong> and <strong>Timetable</strong> show technical identifiers where a student or teacher name would be expected.</li>
+  <li>The <strong>parent portal</strong> shows a technical identifier instead of the student ID, and an unweighted average.</li>
+</ul>
+
+<h3>Deletions without confirmation</h3>
+<div class="warn">
+  <p>Delete confirmation is not uniform. <strong>Do confirm</strong>: a student, a parent account, a department, a section, a class, a subject. <strong>Ask nothing and delete at once</strong>: an employee, a journey year, an infirmary visit, an activity, a document, an orientation decision, an incident, a coursebook entry, a timetable slot, an event, a correspondence notice.</p>
+</div>
+
+<h3>Usability</h3>
+<ul>
+  <li>In several lists (Journey, Health, Documents, Coursebook, Correspondence), the <strong>Edit</strong> and <strong>Delete</strong> icons only reveal themselves <strong>on hover</strong>: they are hard to reach on a touch screen.</li>
+  <li>When a required field is missing, the <strong>Save</strong> button often stays silent rather than showing an error. If nothing happens, check the fields marked required in this guide.</li>
+  <li>The Discipline module's <strong>type</strong> and <strong>sanction</strong> dropdowns stay in French in English mode.</li>
+</ul>
+</div>
+
+<!-- ====================== FAQ ====================== -->
+<h2 id="faq">FAQ</h2>
+
+<div class="l-fr">
+<h4>Un module a disparu de mon menu.</h4>
+<p>Votre rôle n'a plus l'accès. Demandez au <em>principal</em> de vérifier <strong>Paramètres → Permissions</strong>, puis <strong>déconnectez-vous et reconnectez-vous</strong> : les permissions ne sont relues qu'à la connexion.</p>
+
+<h4>Je viens de changer une permission, l'utilisateur ne voit rien.</h4>
+<p>C'est normal. Il doit se reconnecter. Le changement est bien enregistré côté serveur, mais son interface travaille avec la photo de ses droits prise à la connexion.</p>
+
+<h4>« Enregistrer » ne fait rien.</h4>
+<p>Un champ obligatoire est vide. La version 1.0 n'affiche pas toujours d'erreur. Reportez-vous à la section du module dans ce guide : les champs obligatoires y sont indiqués.</p>
+
+<h4>Le bulletin d'un élève est bloqué.</h4>
+<p>Il a un solde de frais impayé. Enregistrez le règlement dans <a href="#finance">Finance</a> ; le bulletin se débloque une fois le solde à zéro.</p>
+
+<h4>Comment obtenir un PDF d'un bulletin ou d'un reçu ?</h4>
+<p>Cliquez <strong>Imprimer</strong> et choisissez « Enregistrer au format PDF » dans la fenêtre du navigateur. La génération de PDF n'est pas encore intégrée à l'application.</p>
+
+<h4>Le parent ne voit pas son enfant.</h4>
+<p>Le compte n'est pas rattaché. Ouvrez la fiche de l'élève → <strong>Comptes parents</strong> → <strong>Ajouter</strong>, en réutilisant l'identifiant existant du parent.</p>
+
+<h4>Je ne trouve pas la liste des débiteurs.</h4>
+<p>L'onglet existe mais n'est pas raccordé dans la version 1.0 (voir <a href="#limits">Limites connues</a>). Les bulletins bloqués et le portail parent restent des indicateurs fiables de dette.</p>
+
+<h4>La page Présence n'affiche plus rien de récent.</h4>
+<p>Si elle est restée ouverte depuis la veille, elle affiche encore la journée précédente. Rechargez-la (<span class="kbd">F5</span>).</p>
+</div>
+
+<div class="l-en">
+<h4>A module has vanished from my menu.</h4>
+<p>Your role lost access. Ask the <em>principal</em> to check <strong>Settings → Permissions</strong>, then <strong>sign out and back in</strong>: permissions are only re-read at sign-in.</p>
+
+<h4>I just changed a permission and the user sees nothing.</h4>
+<p>That is expected. They must sign in again. The change is saved on the server, but their interface works from the snapshot of their rights taken at sign-in.</p>
+
+<h4>“Save” does nothing.</h4>
+<p>A required field is empty. Version 1.0 does not always show an error. Check this guide's section for the module: required fields are marked there.</p>
+
+<h4>A student's report card is blocked.</h4>
+<p>They have an outstanding fee balance. Record the payment in <a href="#finance">Finance</a>; the report card unblocks once the balance reaches zero.</p>
+
+<h4>How do I get a PDF of a report card or a receipt?</h4>
+<p>Click <strong>Print</strong> and choose “Save as PDF” in the browser dialog. PDF generation is not built into the application yet.</p>
+
+<h4>A parent cannot see their child.</h4>
+<p>The account is not linked. Open the student's profile → <strong>Parent accounts</strong> → <strong>Add</strong>, reusing the parent's existing username.</p>
+
+<h4>I cannot find the debtor list.</h4>
+<p>The tab exists but is not wired up in version 1.0 (see <a href="#limits">Known limitations</a>). Blocked report cards and the parent portal remain reliable indicators of debt.</p>
+
+<h4>The Attendance page shows nothing recent.</h4>
+<p>If it has been open since yesterday, it still shows the previous day. Reload it (<span class="kbd">F5</span>).</p>
+</div>
+
+<p style="margin-top:56px;padding-top:18px;border-top:1px solid var(--line);font-size:13px;color:var(--mute);text-align:center">
+  <span class="l-fr">BBC SMS v1.0 — Bayo Bilingual Complex, Maroua, Cameroun. Guide utilisateur. Les captures illustrent un jeu de données de démonstration.</span>
+  <span class="l-en">BBC SMS v1.0 — Bayo Bilingual Complex, Maroua, Cameroon. User guide. Screenshots illustrate a demonstration dataset.</span>
+</p>
+
+</main>
+</div>
+
+<script>
+(function () {
+  var KEY = 'bbc-guide-lang';
+  var root = document.documentElement;
+
+  function setLang(l) {
+    root.setAttribute('data-lang', l);
+    root.setAttribute('lang', l);
+    try { localStorage.setItem(KEY, l); } catch (e) {}
+    document.querySelectorAll('.langsw button').forEach(function (b) {
+      b.setAttribute('aria-pressed', String(b.dataset.set === l));
+    });
+  }
+
+  // Follow the app's own language choice when the user has one, else FR.
+  var saved;
+  try { saved = localStorage.getItem(KEY) || localStorage.getItem('bbc-lang'); } catch (e) {}
+  setLang(saved === 'en' ? 'en' : 'fr');
+
+  document.querySelectorAll('.langsw button').forEach(function (b) {
+    b.addEventListener('click', function () { setLang(b.dataset.set); });
+  });
+
+  // Mobile TOC
+  var toc = document.getElementById('toc');
+  var mb = document.getElementById('menubtn');
+  mb.addEventListener('click', function () { toc.classList.toggle('open'); });
+  toc.addEventListener('click', function (e) {
+    if (e.target.tagName === 'A') toc.classList.remove('open');
+  });
+
+  // Highlight the section currently on screen.
+  var links = Array.prototype.slice.call(toc.querySelectorAll('a'));
+  var byId = {};
+  links.forEach(function (a) { byId[a.getAttribute('href').slice(1)] = a; });
+  var seen = new Set();
+  var obs = new IntersectionObserver(function (entries) {
+    entries.forEach(function (en) {
+      if (en.isIntersecting) seen.add(en.target.id); else seen.delete(en.target.id);
+    });
+    var first = links.find(function (a) { return seen.has(a.getAttribute('href').slice(1)); });
+    links.forEach(function (a) { a.classList.toggle('on', a === first); });
+  }, { rootMargin: '-70px 0px -75% 0px' });
+  Object.keys(byId).forEach(function (id) {
+    var el = document.getElementById(id);
+    if (el) obs.observe(el);
+  });
+})();
+</script>
+</body>
+</html>
