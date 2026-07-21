@@ -7,6 +7,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/finance")
@@ -40,6 +41,13 @@ public class FinanceController {
     @PreAuthorize("@perm.can('finance','write')")
     public ExpenseView addExpense(@Valid @RequestBody ExpenseRequest in) {
         return service.addExpense(in);
+    }
+
+    @DeleteMapping("/expenses/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("@perm.can('finance','write')")
+    public void deleteExpense(@PathVariable UUID id) {
+        service.deleteExpense(id);
     }
 
     @GetMapping("/summary")

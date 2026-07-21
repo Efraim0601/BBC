@@ -1,0 +1,95 @@
+# ============================================================================
+#  DOMAIN deployment stack — PRODUCTION + trusted Let's Encrypt TLS.
+#  Standalone compose file (not an override): deploy with ./deploy-domain.sh
+#  (or: make deploy-domain). Publishes standard ports 80/443; backend & db
+#  bind to localhost only.
+#
+#    Frontend  : https://<DOMAIN>         (HTTP :80 -> 301 HTTPS, except ACME)
+#    Backend   : 127.0.0.1:28081          (internal — SPA uses the nginx proxy)
+#    Postgres  : 127.0.0.1:25433          (internal — admin/psql only)
+#
+#  Certs live in the certbot-etc volume; certbot renews them in the
+#  background. See deploy-domain.sh for first-issuance bootstrap.
+# ============================================================================
+name: bbc-prod
+
+services:
+  db:
+    image: postgres:16-alpine
+    security_opt:
+      - apparmor=unconfined
+    environment:
+      POSTGRES_DB: bbc_sms
+      POSTGRES_USER: bbc
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-bbc}
+    ports:
+      - "127.0.0.1:25433:5432"
+    volumes:
+      - bbc_prod_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bbc -d bbc_sms"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    security_opt:
+      - apparmor=unconfined
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:postgresql://db:5432/bbc_sms
+      DB_USER: bbc
+      DB_PASSWORD: ${DB_PASSWORD:-bbc}
+      # Same-origin behind the nginx TLS proxy; override for extra origins.
+      BBC_CORS_ORIGINS: ${PUBLIC_ORIGIN:-https://bbcomplex.com}
+      # STRONGLY override in production (see .env.example):
+      BBC_JWT_SECRET: ${BBC_JWT_SECRET:-Y2hhbmdlLW1lLXRoaXMtaXMtYS1kZXYtb25seS1zZWNyZXQtMzJieXRlcyE=}
+      # First-run admin bootstrap (empty DB only):
+      BBC_ADMIN_USERNAME: ${BBC_ADMIN_USERNAME:-admin}
+      BBC_ADMIN_PASSWORD: ${BBC_ADMIN_PASSWORD:-}
+      BBC_ADMIN_NAME: ${BBC_ADMIN_NAME:-Administrateur}
+      BBC_SCHOOL_NAME: ${BBC_SCHOOL_NAME:-Mon établissement}
+      BBC_SCHOOL_CODE: ${BBC_SCHOOL_CODE:-SCHOOL}
+    ports:
+      - "127.0.0.1:28081:8080"
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    security_opt:
+      - apparmor=unconfined
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx-domain.generated.conf:/etc/nginx/conf.d/default.conf:ro
+      - certbot-etc:/etc/letsencrypt:ro
+      - certbot-webroot:/var/www/certbot:ro
+    restart: unless-stopped
+
+  # Renews the certificate every 12h (certbot itself no-ops until ~30 days
+  # before expiry). nginx picks up renewed files on its next reload — a host
+  # cron entry restarts the frontend container weekly (see deploy-domain.sh).
+  certbot:
+    image: certbot/certbot:latest
+    volumes:
+      - certbot-etc:/etc/letsencrypt
+      - certbot-webroot:/var/www/certbot
+    entrypoint: >-
+      /bin/sh -c 'trap exit TERM;
+      while :; do
+        certbot renew --webroot -w /var/www/certbot --quiet;
+        sleep 12h & wait $${!};
+      done'
+    restart: unless-stopped
+
+volumes:
+  bbc_prod_pgdata:
+  certbot-etc:
+  certbot-webroot:

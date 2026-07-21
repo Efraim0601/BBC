@@ -2,6 +2,8 @@ import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@a
 import { DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { I18nService } from '../../core/i18n.service';
+import { SchoolService } from '../../core/school.service';
+import { AuthService } from '../../core/auth.service';
 import {
   IconComponent, CardComponent, KpiComponent, EmptyComponent,
   AvatarComponent, TabsComponent, StatusPillComponent,
@@ -47,7 +49,7 @@ const fmtMoney = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} FCFA`;
               {{ fr() ? 'Espace parent' : 'Parent space' }}
             </div>
             <div class="font-display text-2xl font-bold leading-tight">
-              {{ fr() ? 'Bonjour' : 'Hello' }}
+              {{ (fr() ? 'Bonjour' : 'Hello') + (parentName() ? ' ' + parentName() : '') }}
             </div>
             <div class="text-sm text-white/80">
               {{ fr() ? 'Suivez la scolarité de vos enfants en un coup d’œil.' : 'Follow your children’s school life at a glance.' }}
@@ -89,9 +91,9 @@ const fmtMoney = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} FCFA`;
             <bbc-avatar [name]="sel.name" [hue]="hueFor(sel.studentId)" [size]="56" />
             <div class="flex-1 min-w-0">
               <div class="text-lg font-bold text-ink">{{ sel.name }}</div>
-              <div class="text-sm text-mute">{{ sel.studentId }} · {{ sel.className }}</div>
+              <div class="text-sm text-mute">{{ sel.matricule }} · {{ sel.className }}</div>
             </div>
-            <bbc-status-pill [status]="pillStatus(sel.feeStatus)" [label]="sel.feeStatus" />
+            <bbc-status-pill [status]="pillStatus(sel.feeStatus)" [label]="feeStatusLabel(sel.feeStatus)" />
           </div>
         </bbc-card>
 
@@ -116,30 +118,24 @@ const fmtMoney = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} FCFA`;
                 [sub]="fr() ? 'évaluation(s)' : 'assessment(s)'" />
             </div>
 
-            <bbc-card [title]="fr() ? 'Coordonnées école' : 'School contacts'">
-              <div class="space-y-2.5">
-                <div class="flex items-center gap-3 p-2.5 rounded-lg bg-slate-50">
-                  <div class="w-8 h-8 rounded-md bg-white flex items-center justify-center text-brand-600">
-                    <bbc-icon name="mail" [s]="15" />
-                  </div>
-                  <div>
-                    <div class="text-[10px] uppercase text-mute font-semibold">Email</div>
-                    <div class="text-sm font-semibold text-ink">contact&#64;bbc.cm</div>
-                  </div>
-                </div>
-                <div class="flex items-center gap-3 p-2.5 rounded-lg bg-slate-50">
-                  <div class="w-8 h-8 rounded-md bg-white flex items-center justify-center text-brand-600">
-                    <bbc-icon name="calendar" [s]="15" />
-                  </div>
-                  <div>
-                    <div class="text-[10px] uppercase text-mute font-semibold">
-                      {{ fr() ? 'Secrétariat' : 'Front office' }}
+            @if (contacts().length) {
+              <bbc-card [title]="fr() ? 'Coordonnées école' : 'School contacts'"
+                [subtitle]="school.profile()?.name ?? ''">
+                <div class="space-y-2.5">
+                  @for (c of contacts(); track c.label) {
+                    <div class="flex items-center gap-3 p-2.5 rounded-lg bg-slate-50">
+                      <div class="w-8 h-8 rounded-md bg-white flex items-center justify-center text-brand-600">
+                        <bbc-icon [name]="c.icon" [s]="15" />
+                      </div>
+                      <div class="min-w-0">
+                        <div class="text-[10px] uppercase text-mute font-semibold">{{ c.label }}</div>
+                        <div class="text-sm font-semibold text-ink truncate">{{ c.value }}</div>
+                      </div>
                     </div>
-                    <div class="text-sm font-semibold text-ink">+237 6 99 00 00 00</div>
-                  </div>
+                  }
                 </div>
-              </div>
-            </bbc-card>
+              </bbc-card>
+            }
           }
 
           @case ('grades') {
@@ -153,6 +149,7 @@ const fmtMoney = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} FCFA`;
                   <thead class="border-b border-slate-100">
                     <tr class="text-[11px] uppercase text-mute">
                       <th class="text-left font-semibold py-2">{{ fr() ? 'Matière' : 'Subject' }}</th>
+                      <th class="text-center font-semibold py-2">{{ fr() ? 'Coef' : 'Coef' }}</th>
                       <th class="text-center font-semibold py-2">{{ fr() ? 'Séquence' : 'Sequence' }}</th>
                       <th class="text-right font-semibold py-2">{{ fr() ? 'Note/20' : 'Mark/20' }}</th>
                     </tr>
@@ -160,7 +157,8 @@ const fmtMoney = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} FCFA`;
                   <tbody>
                     @for (g of grades(); track $index) {
                       <tr class="border-b border-slate-50 last:border-0 hover:bg-slate-50/50">
-                        <td class="py-2.5 font-semibold text-ink">{{ g.subjectCode }}</td>
+                        <td class="py-2.5 font-semibold text-ink">{{ subjectLabel(g) }}</td>
+                        <td class="py-2.5 text-center text-mute">{{ g.coef }}</td>
                         <td class="py-2.5 text-center text-mute">{{ g.sequence }}</td>
                         <td class="py-2.5 text-right font-bold"
                           [class]="g.mark < 10 ? 'text-rose-700' : g.mark < 14 ? 'text-ink' : 'text-emerald-700'">
@@ -169,7 +167,9 @@ const fmtMoney = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} FCFA`;
                       </tr>
                     }
                     <tr class="bg-brand-50 font-bold border-t-2 border-brand-600">
-                      <td class="py-2.5 text-brand-700" colspan="2">{{ fr() ? 'Moyenne' : 'Average' }}</td>
+                      <td class="py-2.5 text-brand-700" colspan="3">
+                        {{ fr() ? 'Moyenne pondérée' : 'Weighted average' }}
+                      </td>
                       <td class="py-2.5 text-right"
                         [class]="gradeAvg() < 10 ? 'text-rose-700' : 'text-brand-700'">
                         {{ gradeAvg().toFixed(2) }}/20
@@ -292,11 +292,13 @@ const fmtMoney = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} FCFA`;
                             [class]="categoryPill(s.category)">
                             {{ categoryLabel(s.category) }}
                           </span>
-                          <span class="text-[11px] text-mute">{{ s.createdAt }}</span>
+                          <span class="text-[11px] text-mute">{{ fmtDate(s.createdAt) }}</span>
                         </div>
                         <div class="text-sm text-ink">{{ s.message }}</div>
-                        <div class="flex items-center gap-1.5 mt-2 text-[11px] text-emerald-600 font-semibold">
-                          <bbc-icon name="check" [s]="12" [sw]="2.5" /> {{ s.status }}
+                        <div class="flex items-center gap-1.5 mt-2 text-[11px] font-semibold"
+                          [class]="s.status === 'new' ? 'text-mute' : 'text-emerald-600'">
+                          <bbc-icon [name]="s.status === 'new' ? 'clock' : 'check'" [s]="12" [sw]="2.5" />
+                          {{ suggestionStatusLabel(s.status) }}
                         </div>
                       </div>
                     }
@@ -317,6 +319,8 @@ const fmtMoney = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} FCFA`;
 })
 export class ParentComponent {
   protected i18n = inject(I18nService);
+  protected school = inject(SchoolService);
+  private auth = inject(AuthService);
   private api = inject(ParentApi);
 
   protected children = signal<ChildView[]>([]);
@@ -340,11 +344,71 @@ export class ParentComponent {
   protected booksTotal = computed(() =>
     (this.books()?.items ?? []).reduce((sum, it) => sum + (it.price ?? 0), 0));
 
+  /** Greet the parent by name, as the apps grid already does for staff. */
+  protected parentName = computed(() => this.auth.user()?.displayName ?? '');
+
+  /** Only the contacts the school actually filled in — no invented placeholders. */
+  protected contacts = computed(() => {
+    const p = this.school.profile();
+    if (!p) return [];
+    const out: { icon: string; label: string; value: string }[] = [];
+    if (p.email) out.push({ icon: 'mail', label: 'Email', value: p.email });
+    if (p.phone) out.push({ icon: 'phone', label: this.fr() ? 'Secrétariat' : 'Front office', value: p.phone });
+    if (p.address || p.city) {
+      out.push({
+        icon: 'building',
+        label: this.fr() ? 'Adresse' : 'Address',
+        value: [p.address, this.school.location()].filter(Boolean).join(' — '),
+      });
+    }
+    if (p.website) out.push({ icon: 'chart', label: this.fr() ? 'Site web' : 'Website', value: p.website });
+    return out;
+  });
+
+  /**
+   * Weighted by subject coefficient — Σ(mark×coef)/Σ(coef) — the same formula the server
+   * uses for the bulletin. A plain mean here quietly disagreed with the official report card.
+   */
   protected gradeAvg = computed(() => {
     const gs = this.grades();
-    if (!gs.length) return 0;
-    return gs.reduce((a, g) => a + g.mark, 0) / gs.length;
+    const coefSum = gs.reduce((a, g) => a + (g.coef || 0), 0);
+    if (!coefSum) return 0;
+    return gs.reduce((a, g) => a + g.mark * (g.coef || 0), 0) / coefSum;
   });
+
+  protected subjectLabel(g: GradeView): string {
+    return (this.fr() ? g.subjectLabelFr : g.subjectLabelEn) || g.subjectCode;
+  }
+
+  protected feeStatusLabel(s: string): string {
+    const map: Record<string, [string, string]> = {
+      paid: ['À jour', 'Up to date'],
+      partial: ['Partiel', 'Partial'],
+      unpaid: ['Impayé', 'Unpaid'],
+    };
+    const m = map[s];
+    return m ? (this.fr() ? m[0] : m[1]) : s;
+  }
+
+  protected suggestionStatusLabel(s: string): string {
+    const map: Record<string, [string, string]> = {
+      new: ['En attente de lecture', 'Awaiting review'],
+      read: ['Lu par l’école', 'Read by the school'],
+      answered: ['Traité', 'Answered'],
+      closed: ['Clôturé', 'Closed'],
+    };
+    const m = map[s];
+    return m ? (this.fr() ? m[0] : m[1]) : s;
+  }
+
+  /** The API sends an ISO OffsetDateTime; showing it raw leaked "2026-07-16T09:12:33.14Z". */
+  protected fmtDate(iso: string): string {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    return d.toLocaleDateString(this.fr() ? 'fr-FR' : 'en-GB', {
+      day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+    });
+  }
 
   protected readonly categories: readonly CategoryOption[] = [
     { value: 'suggestion', labelFr: 'Suggestion', labelEn: 'Suggestion', icon: 'spark', pill: 'bg-brand-100 text-brand-700' },
@@ -356,6 +420,7 @@ export class ParentComponent {
   protected draft: SuggestionRequest = this.blank();
 
   constructor() {
+    this.school.ensureLoaded();
     this.api.children().subscribe((cs) => {
       this.children.set(cs);
       const first = cs[0];

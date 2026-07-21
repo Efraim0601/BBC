@@ -209,3 +209,53 @@ export class AvatarComponent {
   protected initials = () => this.name().split(' ').slice(0, 2).map((s) => s[0]).join('').toUpperCase();
   protected bg = () => `linear-gradient(135deg, hsl(${this.hue()} 50% 45%), hsl(${(this.hue() + 30) % 360} 55% 35%))`;
 }
+
+/**
+ * Destructive-action confirmation.
+ *
+ * Deletes used to be inconsistent across modules — some showed a modal, some called
+ * window.confirm(), most deleted on the first click with no warning at all. This is
+ * the single affordance they all now use.
+ */
+@Component({
+  selector: 'bbc-confirm',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [IconComponent],
+  template: `
+    <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 fade-in" (click)="cancel.emit()">
+      <div class="bg-white rounded-xl2 shadow-pop w-full max-w-md p-6" (click)="$event.stopPropagation()">
+        <div class="flex items-start gap-3">
+          <div class="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
+            [class]="danger() ? 'bg-rose-100 text-rose-600' : 'bg-brand-50 text-brand-600'">
+            <bbc-icon [name]="danger() ? 'trash' : 'alert'" [s]="18" />
+          </div>
+          <div class="flex-1">
+            <div class="text-[15px] font-semibold text-ink">{{ title() }}</div>
+            @if (body()) { <div class="text-sm text-mute mt-1">{{ body() }}</div> }
+          </div>
+        </div>
+        <div class="flex items-center justify-end gap-2 mt-5">
+          <button (click)="cancel.emit()"
+            class="h-9 px-4 rounded-lg bg-slate-100 text-sm font-semibold text-ink hover:bg-slate-200">
+            {{ cancelLabel() }}
+          </button>
+          <button (click)="confirm.emit()"
+            class="h-9 px-4 rounded-lg text-white text-sm font-semibold"
+            [class]="danger() ? 'bg-rose-600 hover:bg-rose-700' : 'bg-brand-600 hover:bg-brand-700'">
+            {{ confirmLabel() }}
+          </button>
+        </div>
+      </div>
+    </div>
+  `,
+})
+export class ConfirmComponent {
+  title = input('');
+  body = input('');
+  confirmLabel = input('OK');
+  cancelLabel = input('Annuler');
+  danger = input(true);
+  confirm = output<void>();
+  cancel = output<void>();
+}

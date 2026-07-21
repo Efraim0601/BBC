@@ -7,6 +7,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/attendance")
@@ -27,5 +28,12 @@ public class AttendanceController {
     @PreAuthorize("@perm.can('presence','write')")
     public AttendanceView mark(@Valid @RequestBody MarkRequest req) {
         return service.mark(req);
+    }
+
+    /** Reader health. Also read by Settings → Général, hence the settings fallback. */
+    @GetMapping("/devices")
+    @PreAuthorize("@perm.can('presence','read') or @perm.can('settings','read')")
+    public List<DeviceView> devices() {
+        return service.devices();
     }
 }

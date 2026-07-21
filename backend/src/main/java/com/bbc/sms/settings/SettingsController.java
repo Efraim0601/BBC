@@ -14,12 +14,31 @@ public class SettingsController {
     private final PermissionAdminService service;
     private final MailAdminService mailAdmin;
     private final MailService mailService;
+    private final SchoolProfileService schoolProfile;
 
     public SettingsController(PermissionAdminService service, MailAdminService mailAdmin,
-                              MailService mailService) {
+                              MailService mailService, SchoolProfileService schoolProfile) {
         this.service = service;
         this.mailAdmin = mailAdmin;
         this.mailService = mailService;
+        this.schoolProfile = schoolProfile;
+    }
+
+    // ---- School profile ------------------------------------------------------
+
+    /**
+     * Readable by any authenticated user: bulletins, receipts and the parent portal
+     * print the school's identity, and those users have no settings permission.
+     */
+    @GetMapping("/school")
+    public SchoolProfileView getSchool() {
+        return schoolProfile.get();
+    }
+
+    @PutMapping("/school")
+    @PreAuthorize("@perm.can('settings','write')")
+    public SchoolProfileView updateSchool(@Valid @RequestBody SchoolProfileUpdate in) {
+        return schoolProfile.update(in);
     }
 
     @GetMapping("/permissions")

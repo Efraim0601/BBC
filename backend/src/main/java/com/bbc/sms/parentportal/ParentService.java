@@ -2,6 +2,8 @@ package com.bbc.sms.parentportal;
 
 import com.bbc.sms.academic.Grade;
 import com.bbc.sms.academic.GradeRepository;
+import com.bbc.sms.academic.Subject;
+import com.bbc.sms.academic.SubjectRepository;
 import com.bbc.sms.classkit.ClassKitService;
 import com.bbc.sms.classkit.dto.ClassKitDtos.ClassResourceView;
 import com.bbc.sms.parentportal.dto.ParentDtos.*;
@@ -15,7 +17,9 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Parent portal read/write logic. Owns JPA only for {@code parent_suggestion};
@@ -28,17 +32,20 @@ public class ParentService {
     private final JdbcTemplate jdbc;
     private final StudentRepository students;
     private final GradeRepository grades;
+    private final SubjectRepository subjects;
     private final SuggestionRepository suggestions;
     private final ClassKitService classKit;
 
     public ParentService(JdbcTemplate jdbc,
                          StudentRepository students,
                          GradeRepository grades,
+                         SubjectRepository subjects,
                          SuggestionRepository suggestions,
                          ClassKitService classKit) {
         this.jdbc = jdbc;
         this.students = students;
         this.grades = grades;
+        this.subjects = subjects;
         this.suggestions = suggestions;
         this.classKit = classKit;
     }
@@ -79,7 +86,8 @@ public class ParentService {
 
             int attendanceRate = attendanceRate(schoolId, studentId);
 
-            out.add(new ChildView(studentId, name, s.getClassName(), balance[0], status[0], attendanceRate));
+            out.add(new ChildView(studentId, s.getMatricule(), name, s.getClassName(),
+                    balance[0], status[0], attendanceRate));
         }
         return out;
     }
@@ -96,9 +104,20 @@ public class ParentService {
 
     public List<GradeView> grades(AppUserPrincipal p, UUID studentId) {
         assertOwnership(p.schoolId(), p.userId(), studentId);
+        Map<String, Subject> byCode = subjects.findBySchoolIdOrderByCode(p.schoolId()).stream()
+                .collect(Collectors.toMap(Subject::getCode, s -> s, (a, b) -> a));
         List<GradeView> out = new ArrayList<>();
         for (Grade g : grades.findBySchoolIdAndStudentId(p.schoolId(), studentId)) {
-            out.add(new GradeView(g.getSubjectCode(), g.getSequence(), g.getMark()));
+            Subject s = byCode.get(g.getSubjectCode());
+            Map<String, String> label = s == null ? null : s.getLabel();
+            out.add(new GradeView(
+                    g.getSubjectCode(),
+                    labelOr(label, "fr", g.getSubjectCode()),
+                    labelOr(label, "en", g.getSubjectCode()),
+                    // A grade in a subject that was since deleted still counts, at weight 1.
+                    s == null ? 1 : s.getCoef(),
+                    g.getSequence(),
+                    g.getMark()));
         }
         return out;
     }
@@ -112,6 +131,12 @@ public class ParentService {
             return new ClassResourceView(null, s.getClassName(), kind, false, null, List.of());
         }
         return classKit.publishedForClass(s.getClassId(), kind);
+    }
+
+    private static String labelOr(Map<String, String> label, String lang, String fallback) {
+        if (label == null) return fallback;
+        String v = label.get(lang);
+        return v == null || v.isBlank() ? fallback : v;
     }
 
     public SuggestionView createSuggestion(AppUserPrincipal p, SuggestionRequest req) {

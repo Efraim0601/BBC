@@ -114,7 +114,7 @@ export const routes: Routes = [
         path: 'parent',
         loadComponent: () => import('./features/parent/parent').then((m) => m.ParentComponent),
       },
-      { path: '', redirectTo: 'apps', pathMatch: 'full' },
+      { path: '', redirectTo: 'dashboard', pathMatch: 'full' },
     ],
   },
   { path: '**', redirectTo: '' },

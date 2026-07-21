@@ -14,6 +14,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 public class FinanceService {
@@ -39,7 +40,11 @@ public class FinanceService {
     @Transactional(readOnly = true)
     public List<PaymentView> listPayments() {
         UUID schoolId = TenantContext.get();
-        return payments.findBySchoolIdOrderByPaidOnDesc(schoolId).stream().map(this::toView).toList();
+        List<Payment> rows = payments.findBySchoolIdOrderByPaidOnDesc(schoolId);
+        // Resolve student identities in one pass — a per-row lookup would be N+1.
+        Map<UUID, Student> byId = students.findBySchoolIdAndActiveTrueOrderByLastNameAsc(schoolId).stream()
+                .collect(Collectors.toMap(Student::getId, s -> s, (a, b) -> a));
+        return rows.stream().map(p -> toView(p, byId.get(p.getStudentId()))).toList();
     }
 
     @Transactional(readOnly = true)
@@ -138,6 +143,15 @@ public class FinanceService {
         return toView(expenses.save(e));
     }
 
+    @Transactional
+    public void deleteExpense(UUID id) {
+        UUID schoolId = TenantContext.get();
+        Expense e = expenses.findById(id)
+                .filter(x -> x.getSchoolId().equals(schoolId))   // never cross the tenant boundary
+                .orElseThrow(() -> new IllegalArgumentException("Dépense introuvable"));
+        expenses.delete(e);
+    }
+
     @Transactional(readOnly = true)
     public FinanceSummary summary() {
         UUID schoolId = TenantContext.get();
@@ -171,8 +185,15 @@ public class FinanceService {
     }
 
     private PaymentView toView(Payment p) {
-        return new PaymentView(p.getId(), p.getReceiptNo(), p.getStudentId(), p.getAmount(),
-                p.getMethod(), p.getTranche(), p.getPaidOn());
+        return toView(p, students.findByIdAndSchoolId(p.getStudentId(), p.getSchoolId()).orElse(null));
+    }
+
+    /** {@code student} may be null — a payment can outlive the student record it points at. */
+    private PaymentView toView(Payment p, Student s) {
+        String name = s == null ? null : (s.getLastName() + " " + s.getFirstName()).trim();
+        return new PaymentView(p.getId(), p.getReceiptNo(), p.getStudentId(),
+                name, s == null ? null : s.getMatricule(), s == null ? null : s.getClassName(),
+                p.getAmount(), p.getMethod(), p.getTranche(), p.getPaidOn());
     }
 
     private ExpenseView toView(Expense e) {

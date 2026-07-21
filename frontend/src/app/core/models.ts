@@ -69,6 +69,10 @@ export interface PaymentView {
   id: string;
   receiptNo: string;
   studentId: string;
+  /** Null when the payment outlives the student record it points at. */
+  studentName: string | null;
+  matricule: string | null;
+  className: string | null;
   amount: number;
   method: string;
   tranche: number | null;

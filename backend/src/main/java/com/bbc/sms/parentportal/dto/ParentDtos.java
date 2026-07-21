@@ -13,6 +13,7 @@ public final class ParentDtos {
 
     public record ChildView(
             UUID studentId,
+            String matricule,
             String name,
             String className,
             long balance,
@@ -20,8 +21,16 @@ public final class ParentDtos {
             int attendanceRate
     ) {}
 
+    /**
+     * Labels and {@code coef} come from the subject registry so the portal can name a subject
+     * and weight its average exactly like the official bulletin. Both languages travel because
+     * the portal switches locale client-side, with no round-trip.
+     */
     public record GradeView(
             String subjectCode,
+            String subjectLabelFr,
+            String subjectLabelEn,
+            int coef,
             int sequence,
             BigDecimal mark
     ) {}
