@@ -1,6 +1,6 @@
 import { Component, ChangeDetectionStrategy, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { AuthService } from '../../core/auth.service';
 import { I18nService, Lang } from '../../core/i18n.service';
@@ -133,6 +133,7 @@ export class LoginComponent {
   protected i18n = inject(I18nService);
   private auth = inject(AuthService);
   private router = inject(Router);
+  private route = inject(ActivatedRoute);
   private sanitizer = inject(DomSanitizer);
 
   protected readonly langs: Lang[] = ['fr', 'en'];
@@ -143,6 +144,15 @@ export class LoginComponent {
   protected error = signal<string | null>(null);
 
   protected fr = () => this.i18n.lang() === 'fr';
+
+  constructor() {
+    // Surfaced when the interceptor logs the user out after a failed token refresh.
+    if (this.route.snapshot.queryParamMap.get('reason') === 'expired') {
+      this.error.set(this.fr()
+        ? 'Votre session a expiré. Veuillez vous reconnecter.'
+        : 'Your session has expired. Please sign in again.');
+    }
+  }
 
   private icon(svg: string): SafeHtml { return this.sanitizer.bypassSecurityTrustHtml(svg); }
 

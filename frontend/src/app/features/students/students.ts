@@ -1,4 +1,5 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed, effect } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
 import { StudentApi, StudentUpsert, ParentAccountView, ParentLinkRequest, StudentImportRow, StudentImportRequest, StudentImportResult } from './students.api';
 import { SetupApi, ClassView } from '../../core/setup.api';
@@ -875,8 +876,29 @@ export class StudentsComponent {
     this.importError.set(null);
     this.api.importStudents(req).subscribe({
       next: (res) => { this.importing.set(false); this.importResult.set(res); this.reload(); this.setupApi.listClasses().subscribe((c) => this.classes.set(c)); },
-      error: (e) => { this.importing.set(false); this.importError.set(e?.error?.message ?? (this.fr() ? 'Import impossible.' : 'Import failed.')); },
+      error: (e) => { this.importing.set(false); this.importError.set(this.importErrorMessage(e)); },
     });
+  }
+
+  /** Turn any import failure into a message the user can act on, not a bare "Import impossible.". */
+  private importErrorMessage(e: unknown): string {
+    const fr = this.fr();
+    if (e instanceof HttpErrorResponse) {
+      // Network down, request blocked, or CORS — no HTTP response reached us.
+      if (e.status === 0) return fr ? 'Connexion interrompue (réseau ou délai dépassé) — réessayez.' : 'Connection lost (network or timeout) — please retry.';
+      if (e.status === 401) return fr ? 'Session expirée — reconnectez-vous puis relancez l\'import.' : 'Session expired — sign in again then retry the import.';
+      if (e.status === 403) return fr ? 'Vous n\'avez pas la permission d\'importer des élèves.' : 'You do not have permission to import students.';
+      if (e.status === 413) return fr ? 'Fichier trop volumineux — importez par lots plus petits.' : 'File too large — import in smaller batches.';
+      const msg = e.error?.message;
+      // Bean-validation errors arrive as a { field: reason } object — flatten them.
+      if (msg && typeof msg === 'object') {
+        const parts = Object.entries(msg as Record<string, string>).map(([k, v]) => `${k}: ${v}`);
+        if (parts.length) return parts.join(' · ');
+      }
+      if (typeof msg === 'string' && msg) return msg;
+      return (fr ? 'Import impossible' : 'Import failed') + ` (HTTP ${e.status}).`;
+    }
+    return fr ? 'Import impossible.' : 'Import failed.';
   }
 
   private parseRows(text: string): StudentImportRow[] {

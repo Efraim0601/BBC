@@ -42,13 +42,14 @@ export class AuthService {
       .pipe(tap((res) => this.persist(res)));
   }
 
-  logout(): void {
+  /** @param reason optional cause (e.g. 'expired') surfaced on the login screen. */
+  logout(reason?: string): void {
     localStorage.removeItem(ACCESS_KEY);
     localStorage.removeItem(REFRESH_KEY);
     localStorage.removeItem(USER_KEY);
     this.scope.clear();
     this.user.set(null);
-    this.router.navigate(['/login']);
+    this.router.navigate(['/login'], reason ? { queryParams: { reason } } : undefined);
   }
 
   /** RBAC check mirrored from the backend matrix — used to show/hide UI only. */

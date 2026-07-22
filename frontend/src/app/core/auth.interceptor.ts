@@ -29,7 +29,7 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
           switchMap((res) =>
             next(req.clone({ setHeaders: { ...headers, Authorization: `Bearer ${res.accessToken}` } }))),
           catchError((refreshErr) => {
-            auth.logout();
+            auth.logout('expired');
             return throwError(() => refreshErr);
           }),
         );

@@ -1,5 +1,6 @@
 package com.bbc.sms.platform.security;
 
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -41,6 +42,15 @@ public class SecurityConfig {
                 .requestMatchers("/actuator/health", "/swagger-ui/**", "/v3/api-docs/**").permitAll()
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .anyRequest().authenticated())
+            // Unauthenticated requests to a protected endpoint must return 401 (not the
+            // Spring default 403), so the front-end interceptor knows to refresh the token.
+            // A valid token with insufficient permission still yields 403 via method security.
+            .exceptionHandling(e -> e.authenticationEntryPoint((req, res, ex) -> {
+                res.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                res.setContentType("application/json;charset=UTF-8");
+                res.getWriter().write("{\"status\":401,\"error\":\"Unauthorized\","
+                        + "\"message\":\"Session expirée ou authentification requise.\"}");
+            }))
             .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
