@@ -60,3 +60,11 @@ export const NAV_GROUPS: Group[] = [
     { id: 'settings', route: '/settings', iconBg: 'bg-slate-100 text-slate-700', color: 'from-slate-500 to-slate-700', svg: NAV_ICONS.settings, subFr: 'Configuration, rôles, lecteur', subEn: 'Config, roles, reader' },
   ]},
 ];
+
+/** Flat lookup of every module, keyed by id. */
+export const MOD_BY_ID: Record<string, Mod> = Object.fromEntries(
+  NAV_GROUPS.flatMap((g) => g.mods).map((m) => [m.id, m]),
+);
+
+/** localStorage key holding the most-recently opened module ids (most recent first). */
+export const RECENT_MODS_KEY = 'bbc.recent.mods';

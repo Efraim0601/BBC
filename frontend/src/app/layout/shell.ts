@@ -4,7 +4,7 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { AuthService } from '../core/auth.service';
 import { ScopeService } from '../core/scope.service';
 import { I18nService, Lang } from '../core/i18n.service';
-import { NAV_GROUPS } from '../core/nav-items';
+import { NAV_GROUPS, RECENT_MODS_KEY } from '../core/nav-items';
 
 const NAV_COLLAPSE_KEY = 'bbc.nav.collapsed';
 
@@ -161,10 +161,24 @@ export class ShellComponent {
     if (typeof window !== 'undefined') {
       window.addEventListener('resize', () => this.isMobile.set(window.innerWidth < 1024));
     }
-    // Close the mobile drawer whenever navigation completes.
+    // Close the mobile drawer + record the visited module on every navigation.
     this.router.events.subscribe((e) => {
-      if (e instanceof NavigationEnd) this.mobileOpen.set(false);
+      if (e instanceof NavigationEnd) {
+        this.mobileOpen.set(false);
+        this.recordRecent(e.urlAfterRedirects);
+      }
     });
+  }
+
+  /** Persist the most-recently opened modules (most recent first, max 4) for the home screen. */
+  private recordRecent(url: string): void {
+    const mod = NAV_GROUPS.flatMap((g) => g.mods).find((m) => url.startsWith(m.route));
+    if (!mod) return;
+    try {
+      const prev: string[] = JSON.parse(localStorage.getItem(RECENT_MODS_KEY) || '[]');
+      const next = [mod.id, ...prev.filter((id) => id !== mod.id)].slice(0, 4);
+      localStorage.setItem(RECENT_MODS_KEY, JSON.stringify(next));
+    } catch { /* ignore malformed storage */ }
   }
 
   protected visibleGroups = computed(() => {
