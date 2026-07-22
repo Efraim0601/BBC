@@ -4,6 +4,7 @@ import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
 import {
   SetupApi, SectionView, SectionUpsert, ClassView, ClassUpsert, SubjectView, SubjectUpsert, TeacherOption,
+  ClassCoefView, CoefImportRow, CoefImportResult,
 } from '../../core/setup.api';
 import { defaultSubjects } from './subject-defaults';
 import { forkJoin } from 'rxjs';
@@ -204,7 +205,17 @@ import { IconComponent, CardComponent, TabsComponent, EmptyComponent } from '../
       @case ('subjects') {
         <bbc-card [title]="fr() ? 'Matières & coefficients' : 'Subjects & coefficients'"
           [subtitle]="fr() ? 'Listes distinctes par sous-système, avec coefficient pour les moyennes pondérées' : 'Distinct lists per subsystem, with coefficient for weighted averages'">
-          <div action>
+          <div action class="flex items-center gap-2">
+            @if (canWrite && (subjFilter() === 'FR' || subjFilter() === 'EN')) {
+              <button (click)="importDefaults()" [disabled]="!missingDefaultsCount()"
+                class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50 disabled:opacity-50"
+                [title]="fr() ? 'Depuis la liste officielle MATIÈRE EXCEL' : 'From the official MATIERE EXCEL master list'">
+                <bbc-icon name="download" [s]="16" />
+                {{ missingDefaultsCount()
+                    ? (fr() ? 'Importer ' + missingDefaultsCount() + ' matières standard' : 'Import ' + missingDefaultsCount() + ' standard subjects')
+                    : (fr() ? 'Matières standard importées' : 'Standard subjects imported') }}
+              </button>
+            }
             @if (canWrite) {
               <button (click)="newSubject()" class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-brand-600 hover:bg-brand-700 text-white">
                 <bbc-icon name="plus" [s]="16" /> {{ fr() ? 'Nouvelle matière' : 'New subject' }}
@@ -304,6 +315,74 @@ import { IconComponent, CardComponent, TabsComponent, EmptyComponent } from '../
             </div>
           }
         </bbc-card>
+
+        <!-- Per-class coefficients -->
+        <bbc-card className="mt-5"
+          [title]="fr() ? 'Coefficients par classe' : 'Per-class coefficients'"
+          [subtitle]="fr() ? 'Chaque matière peut peser différemment selon la classe (6e…Tle / Form 1…U6)' : 'A subject can weigh differently per class (6e…Tle / Form 1…U6)'">
+          <div action class="flex items-center gap-2">
+            @if (canWrite) {
+              <label class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-brand-600 hover:bg-brand-700 text-white cursor-pointer">
+                <bbc-icon name="download" [s]="16" /> {{ fr() ? 'Importer (Excel/CSV)' : 'Import (Excel/CSV)' }}
+                <input type="file" accept=".csv,.xls,.xlsx,.xlsm,text/csv,text/plain" (change)="onCoefFile($event)" class="hidden" />
+              </label>
+            }
+          </div>
+
+          @if (coefResult(); as r) {
+            <div class="mb-4 flex items-center gap-3 p-3 rounded-lg" [class]="r.skipped ? 'bg-amber-50' : 'bg-emerald-50'">
+              <div class="text-sm">
+                <span class="font-semibold text-ink">{{ r.applied }}</span> {{ fr() ? 'coefficient(s) enregistré(s)' : 'coefficient(s) saved' }}
+                @if (r.subjectsCreated) { · {{ r.subjectsCreated }} {{ fr() ? 'matière(s) créée(s)' : 'subject(s) created' }} }
+                @if (r.skipped) { · <span class="text-amber-700">{{ r.skipped }} {{ fr() ? 'ligne(s) ignorée(s)' : 'row(s) skipped' }}</span> }
+              </div>
+            </div>
+            @if (r.errors.length) {
+              <div class="mb-4 rounded-lg border border-slate-200 overflow-auto max-h-40 text-xs">
+                @for (e of r.errors; track e.row) {
+                  <div class="flex gap-2 px-3 py-1 border-t border-slate-100 first:border-0">
+                    <span class="font-mono text-mute w-10">#{{ e.row }}</span>
+                    <span class="font-medium text-ink w-40 shrink-0">{{ e.label }}</span>
+                    <span class="text-rose-600">{{ e.message }}</span>
+                  </div>
+                }
+              </div>
+            }
+          }
+
+          @if (coefRows().length) {
+            <div class="rounded-lg border border-slate-200 overflow-auto max-h-96">
+              <table class="w-full text-sm">
+                <thead class="bg-slate-50 sticky top-0 text-[11px] uppercase text-mute text-left">
+                  <tr>
+                    <th class="px-3 py-2 font-semibold">{{ fr() ? 'Classe' : 'Class' }}</th>
+                    <th class="px-3 py-2 font-semibold">{{ fr() ? 'Système' : 'System' }}</th>
+                    <th class="px-3 py-2 font-semibold">{{ fr() ? 'Matière' : 'Subject' }}</th>
+                    <th class="px-3 py-2 font-semibold text-center">{{ fr() ? 'Coef' : 'Coef' }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (c of coefRows(); track c.classId + c.subjectId) {
+                    <tr class="border-t border-slate-100">
+                      <td class="px-3 py-1.5 font-medium text-ink">{{ c.className }}</td>
+                      <td class="px-3 py-1.5">{{ c.subsystem }}</td>
+                      <td class="px-3 py-1.5 font-mono text-xs">{{ c.subjectCode }}</td>
+                      <td class="px-3 py-1.5 text-center font-semibold">{{ c.coef }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          } @else {
+            <div class="text-sm text-mute p-4 rounded-lg bg-slate-50">
+              {{ fr()
+                ? 'Aucun coefficient par classe. Importez le fichier « Coefficients_BBC_2026-2027.xlsx » (dossier bulletins templates). Les classes citées doivent déjà exister.'
+                : 'No per-class coefficient yet. Import “Coefficients_BBC_2026-2027.xlsx” (bulletins templates folder). The named classes must already exist.' }}
+            </div>
+          }
+
+          @if (coefError(); as e) { <div class="mt-3 text-xs rounded-lg px-3 py-2 bg-rose-50 text-rose-600">{{ e }}</div> }
+        </bbc-card>
       }
     }
 
@@ -378,10 +457,93 @@ export class AcademicSetupComponent {
     return all.filter((s) => s.subsystem === f || !s.subsystem).length;
   }
 
+  /** How many standard subjects of the active list are not yet created (0 = all present). */
+  protected missingDefaultsCount = computed(() => {
+    const sub = this.subjFilter();
+    if (sub !== 'FR' && sub !== 'EN') return 0;
+    const existing = new Set(
+      this.subjects().filter((s) => s.subsystem === sub).map((s) => s.code.toUpperCase()),
+    );
+    return defaultSubjects(sub).filter((d) => !existing.has(d.code.toUpperCase())).length;
+  });
+
+  // Per-class coefficients
+  protected coefRows = signal<ClassCoefView[]>([]);
+  protected coefResult = signal<CoefImportResult | null>(null);
+  protected coefError = signal<string | null>(null);
+
   constructor() {
     this.loadSections();
     this.loadClasses();
     this.loadSubjects();
+    this.loadCoefficients();
+  }
+
+  private loadCoefficients(): void {
+    this.api.listCoefficients().subscribe((r) => this.coefRows.set(
+      r.sort((a, b) => a.className.localeCompare(b.className) || a.subjectCode.localeCompare(b.subjectCode)),
+    ));
+  }
+
+  /** Read an Excel/CSV coefficient file (long format) and import it. */
+  protected onCoefFile(ev: Event): void {
+    const input = ev.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    this.coefError.set(null);
+    this.coefResult.set(null);
+    const isExcel = /\.(xlsx?|xlsm)$/i.test(file.name);
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        let csv: string;
+        if (isExcel) {
+          const XLSX = await import('xlsx');
+          const wb = XLSX.read(reader.result, { type: 'array' });
+          // Prefer the importable long sheet, else the first one.
+          const name = wb.SheetNames.find((n) => /coef/i.test(n)) ?? wb.SheetNames[0];
+          csv = XLSX.utils.sheet_to_csv(wb.Sheets[name]);
+        } else {
+          csv = String(reader.result ?? '');
+        }
+        const rows = this.parseCoefRows(csv);
+        if (!rows.length) { this.coefError.set(this.fr() ? 'Aucune ligne exploitable.' : 'No usable row.'); input.value = ''; return; }
+        this.api.importCoefficients(rows).subscribe({
+          next: (res) => { this.coefResult.set(res); this.loadCoefficients(); this.loadSubjects(); },
+          error: (e) => this.coefError.set(e?.error?.message ?? (this.fr() ? 'Import impossible.' : 'Import failed.')),
+        });
+      } catch {
+        this.coefError.set(this.fr() ? 'Fichier illisible — vérifiez le format.' : 'Unreadable file — check the format.');
+      }
+      input.value = '';
+    };
+    if (isExcel) reader.readAsArrayBuffer(file); else reader.readAsText(file);
+  }
+
+  /** Parse the long coefficient layout: Sous-système, Code, Matière, Classe, Coefficient. */
+  private parseCoefRows(text: string): CoefImportRow[] {
+    const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length);
+    if (!lines.length) return [];
+    const delim = (lines[0].match(/;/g)?.length ?? 0) > (lines[0].match(/,/g)?.length ?? 0) ? ';' : ',';
+    const split = (l: string) => l.split(delim).map((c) => c.replace(/^"|"$/g, '').trim());
+    const header = split(lines[0]).map((c) => c.toLowerCase());
+    const find = (re: RegExp, dflt: number) => { const i = header.findIndex((h) => re.test(h)); return i < 0 ? dflt : i; };
+    const hasHeader = header.some((h) => /sous|coef|classe|mati|code|subsystem|class/.test(h));
+    const iSub = find(/sous|subsystem|syst/, 0), iCode = find(/code/, 1), iLabel = find(/mati|subject|nom|label/, 2),
+      iClass = find(/classe|class/, 3), iCoef = find(/coef/, 4);
+    const body = hasHeader ? lines.slice(1) : lines;
+    const out: CoefImportRow[] = [];
+    for (const l of body) {
+      const c = split(l);
+      const coefRaw = (c[iCoef] ?? '').trim();
+      const coef = /^\d+$/.test(coefRaw) ? parseInt(coefRaw, 10) : null;
+      const sub = (c[iSub] ?? '').trim().toUpperCase();
+      const code = (c[iCode] ?? '').trim();
+      const klass = (c[iClass] ?? '').trim();
+      if (!code && !klass) continue;
+      out.push({ subsystem: sub, code, label: (c[iLabel] ?? '').trim(), klass, coef });
+    }
+    return out;
   }
 
   protected switchTo(t: 'sections' | 'classes' | 'subjects'): void {

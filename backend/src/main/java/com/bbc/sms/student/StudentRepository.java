@@ -12,6 +12,7 @@ public interface StudentRepository extends JpaRepository<Student, UUID> {
     Optional<Student> findByIdAndSchoolId(UUID id, UUID schoolId);
     Optional<Student> findBySchoolIdAndMatriculeAndActiveTrue(UUID schoolId, String matricule);
     boolean existsBySchoolIdAndMatricule(UUID schoolId, String matricule);
+    boolean existsBySchoolIdAndNiuAndActiveTrue(UUID schoolId, String niu);
     long countBySchoolIdAndActiveTrue(UUID schoolId);
     long countBySchoolIdAndClassIdAndActiveTrue(UUID schoolId, UUID classId);
 }

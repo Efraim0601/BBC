@@ -105,4 +105,15 @@ public class SetupController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @PreAuthorize(WRITE)
     public void deleteSubject(@PathVariable UUID id) { service.deleteSubject(id); }
+
+    // ---- Per-class coefficients ---------------------------------------------
+    @GetMapping("/subjects/coefficients")
+    @PreAuthorize(READ)
+    public List<ClassCoefView> coefficients() { return service.listCoefficients(); }
+
+    @PostMapping("/subjects/coefficients/import")
+    @PreAuthorize(WRITE)
+    public CoefImportResult importCoefficients(@Valid @RequestBody CoefImportRequest in) {
+        return service.importCoefficients(in);
+    }
 }

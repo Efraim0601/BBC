@@ -7,8 +7,11 @@ import { Student } from '../../core/models';
 export interface StudentUpsert {
   firstName: string;
   lastName: string;
+  niu?: string | null;
   sex?: string;
   dob?: string | null;
+  birthplace?: string | null;
+  repeats?: boolean;
   classId?: string | null;
   className?: string;
   subsystem?: string;
@@ -32,16 +35,28 @@ export interface ParentLinkRequest {
 }
 
 export interface StudentImportRow {
+  name?: string;
   firstName: string;
   lastName: string;
+  niu?: string | null;
   sex?: string;
   dob?: string | null;
+  birthplace?: string | null;
+  repeats?: boolean;
   parentName?: string;
   parentPhone?: string;
 }
 
+/** A class to find-or-create on the fly during import (the "5e A" format). */
+export interface NewClassSpec {
+  name: string;
+  subsystem: string;   // FR | EN
+  level: string;       // maternelle | primary | secondary
+}
+
 export interface StudentImportRequest {
-  classId: string;
+  classId?: string | null;
+  newClass?: NewClassSpec | null;
   rows: StudentImportRow[];
 }
 

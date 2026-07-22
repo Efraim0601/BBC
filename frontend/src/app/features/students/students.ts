@@ -1,6 +1,6 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed, effect } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { StudentApi, StudentUpsert, ParentAccountView, ParentLinkRequest, StudentImportRow, StudentImportResult } from './students.api';
+import { StudentApi, StudentUpsert, ParentAccountView, ParentLinkRequest, StudentImportRow, StudentImportRequest, StudentImportResult } from './students.api';
 import { SetupApi, ClassView } from '../../core/setup.api';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
@@ -225,8 +225,16 @@ import {
                     <div class="font-semibold text-ink text-sm font-mono">{{ sel.matricule }}</div>
                   </div>
                   <div>
+                    <div class="text-[11px] text-mute">NIU</div>
+                    <div class="font-semibold text-ink text-sm font-mono">{{ sel.niu || '—' }}</div>
+                  </div>
+                  <div>
                     <div class="text-[11px] text-mute">{{ fr() ? 'Date de naissance' : 'Date of birth' }}</div>
                     <div class="font-semibold text-ink text-sm">{{ dobLabel(sel.dob) }}</div>
+                  </div>
+                  <div>
+                    <div class="text-[11px] text-mute">{{ fr() ? 'Lieu de naissance' : 'Birthplace' }}</div>
+                    <div class="font-semibold text-ink text-sm">{{ sel.birthplace || '—' }}</div>
                   </div>
                   <div>
                     <div class="text-[11px] text-mute">{{ fr() ? 'Classe' : 'Class' }}</div>
@@ -235,6 +243,10 @@ import {
                   <div>
                     <div class="text-[11px] text-mute">{{ fr() ? 'Section' : 'Section' }}</div>
                     <div class="font-semibold text-ink text-sm">{{ sectionLabel(sel) }}</div>
+                  </div>
+                  <div>
+                    <div class="text-[11px] text-mute">{{ fr() ? 'Redouble' : 'Repeats year' }}</div>
+                    <div class="font-semibold text-ink text-sm">{{ sel.repeats ? (fr() ? 'Oui' : 'Yes') : (fr() ? 'Non' : 'No') }}</div>
                   </div>
                 </div>
               </div>
@@ -286,6 +298,21 @@ import {
                     <span class="text-xs font-semibold text-ink">{{ fr() ? 'Date de naissance' : 'Date of birth' }}</span>
                     <input type="date" [(ngModel)]="draft.dob" name="dob"
                       class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
+                  </label>
+                  <label class="block">
+                    <span class="text-xs font-semibold text-ink">{{ fr() ? 'Lieu de naissance' : 'Birthplace' }}</span>
+                    <input [(ngModel)]="draft.birthplace" name="birthplace"
+                      class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
+                  </label>
+                  <label class="block">
+                    <span class="text-xs font-semibold text-ink">NIU</span>
+                    <input [(ngModel)]="draft.niu" name="niu" placeholder="{{ fr() ? 'Identifiant unique (facultatif)' : 'Unique ID (optional)' }}"
+                      class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 font-mono focus:outline-none focus:border-brand-400" />
+                  </label>
+                  <label class="flex items-center gap-2 mt-6">
+                    <input type="checkbox" [(ngModel)]="draft.repeats" name="repeats"
+                      class="w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-400" />
+                    <span class="text-xs font-semibold text-ink">{{ fr() ? 'Redouble cette année' : 'Repeating this year' }}</span>
                   </label>
                 </div>
               </section>
@@ -396,20 +423,61 @@ import {
             </div>
           } @else {
             <div class="space-y-6 max-w-3xl">
-              <!-- Target class -->
+              <!-- Target class — pick an existing one, or create it on the fly ("5e A") -->
               <section>
                 <div class="text-[11px] uppercase tracking-wider text-mute font-bold mb-3">{{ fr() ? 'Classe cible' : 'Target class' }} *</div>
-                @if (classes().length) {
-                  <select [ngModel]="importClassId()" (ngModelChange)="importClassId.set($event)" name="importClass"
-                    class="w-full md:w-96 h-10 px-3 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400">
-                    <option [ngValue]="null">{{ fr() ? '— Choisir une classe —' : '— Choose a class —' }}</option>
-                    @for (c of classes(); track c.id) {
-                      <option [ngValue]="c.id">{{ c.name }} · {{ c.sectionLabel }}</option>
-                    }
-                  </select>
+                <div class="inline-flex rounded-lg border border-slate-200 p-0.5 mb-3">
+                  <button type="button" (click)="importTarget.set('existing')"
+                    class="h-8 px-3 text-xs font-semibold rounded-md" [class]="importTarget() === 'existing' ? 'bg-brand-600 text-white' : 'text-ink hover:bg-slate-50'">
+                    {{ fr() ? 'Classe existante' : 'Existing class' }}
+                  </button>
+                  <button type="button" (click)="importTarget.set('new')"
+                    class="h-8 px-3 text-xs font-semibold rounded-md" [class]="importTarget() === 'new' ? 'bg-brand-600 text-white' : 'text-ink hover:bg-slate-50'">
+                    {{ fr() ? 'Nouvelle classe' : 'New class' }}
+                  </button>
+                </div>
+
+                @if (importTarget() === 'existing') {
+                  @if (classes().length) {
+                    <select [ngModel]="importClassId()" (ngModelChange)="importClassId.set($event)" name="importClass"
+                      class="w-full md:w-96 h-10 px-3 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400">
+                      <option [ngValue]="null">{{ fr() ? '— Choisir une classe —' : '— Choose a class —' }}</option>
+                      @for (c of classes(); track c.id) {
+                        <option [ngValue]="c.id">{{ c.name }} · {{ c.sectionLabel }}</option>
+                      }
+                    </select>
+                  } @else {
+                    <div class="text-sm text-mute p-3 rounded-lg bg-amber-50 border border-amber-100">
+                      {{ fr() ? 'Aucune classe définie — utilisez « Nouvelle classe » pour la créer à l’import.' : 'No classes defined — use “New class” to create one on import.' }}
+                    </div>
+                  }
                 } @else {
-                  <div class="text-sm text-mute p-3 rounded-lg bg-amber-50 border border-amber-100">
-                    {{ fr() ? 'Aucune classe définie. Créez vos classes dans Paramètres → Scolarité.' : 'No classes defined. Create classes in Settings → Academics.' }}
+                  <div class="grid grid-cols-1 md:grid-cols-3 gap-3 max-w-2xl">
+                    <label class="block">
+                      <span class="text-[11px] font-semibold text-ink">{{ fr() ? 'Nom de la classe' : 'Class name' }}</span>
+                      <input [ngModel]="newClassName()" (ngModelChange)="newClassName.set($event)" name="ncName" placeholder="5e A"
+                        class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
+                    </label>
+                    <label class="block">
+                      <span class="text-[11px] font-semibold text-ink">{{ fr() ? 'Sous-système' : 'Subsystem' }}</span>
+                      <select [ngModel]="newClassSubsystem()" (ngModelChange)="newClassSubsystem.set($event)" name="ncSub"
+                        class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400">
+                        <option value="FR">{{ fr() ? 'Francophone' : 'Francophone' }}</option>
+                        <option value="EN">{{ fr() ? 'Anglophone' : 'English' }}</option>
+                      </select>
+                    </label>
+                    <label class="block">
+                      <span class="text-[11px] font-semibold text-ink">{{ fr() ? 'Niveau' : 'Level' }}</span>
+                      <select [ngModel]="newClassLevel()" (ngModelChange)="newClassLevel.set($event)" name="ncLvl"
+                        class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400">
+                        <option value="maternelle">{{ fr() ? 'Maternelle' : 'Kindergarten' }}</option>
+                        <option value="primary">{{ fr() ? 'Primaire' : 'Primary' }}</option>
+                        <option value="secondary">{{ fr() ? 'Secondaire' : 'Secondary' }}</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div class="text-[11px] text-mute mt-1.5">
+                    {{ fr() ? 'Si aucune classe portant ce nom n’existe, elle est créée automatiquement (avec sa section).' : 'If no class with this name exists, it is created automatically (with its section).' }}
                   </div>
                 }
               </section>
@@ -420,18 +488,18 @@ import {
                   <div class="text-[11px] uppercase tracking-wider text-mute font-bold">{{ fr() ? 'Données' : 'Data' }}</div>
                   <div class="flex items-center gap-2">
                     <label class="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50 cursor-pointer">
-                      <bbc-icon name="download" [s]="14" /> {{ fr() ? 'Fichier CSV' : 'CSV file' }}
-                      <input type="file" accept=".csv,text/csv,text/plain" (change)="onFile($event)" class="hidden" />
+                      <bbc-icon name="download" [s]="14" /> {{ fr() ? 'Fichier Excel / CSV' : 'Excel / CSV file' }}
+                      <input type="file" accept=".csv,.xls,.xlsx,.xlsm,text/csv,text/plain,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" (change)="onFile($event)" class="hidden" />
                     </label>
                     <button type="button" (click)="loadSample()" class="h-8 px-3 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">{{ fr() ? 'Exemple' : 'Sample' }}</button>
                   </div>
                 </div>
                 <textarea [ngModel]="importText()" (ngModelChange)="onText($event)" name="importText" rows="7"
-                  [placeholder]="fr() ? 'Collez vos lignes ici, une par élève — Nom, Prénom, Sexe, Naissance, Parent, Téléphone' : 'Paste rows here, one per student — Last name, First name, Sex, DOB, Parent, Phone'"
+                  [placeholder]="fr() ? 'Collez le registre ici — NIU, Nom et Prénom, Sexe, Date de naissance, Lieu de naissance, Redouble' : 'Paste the register here — NIU, Full name, Sex, DOB, Birthplace, Repeats'"
                   class="w-full px-3 py-2 rounded-lg border border-slate-200 font-mono text-xs focus:outline-none focus:border-brand-400"></textarea>
                 <div class="text-[11px] text-mute mt-1">
-                  {{ fr() ? 'Colonnes attendues : Nom, Prénom, Sexe (M/F), Date de naissance (AAAA-MM-JJ ou JJ/MM/AAAA), Parent, Téléphone. Une ligne d’en-tête est détectée automatiquement.'
-                          : 'Expected columns: Last name, First name, Sex (M/F), DOB (YYYY-MM-DD or DD/MM/YYYY), Parent, Phone. A header row is auto-detected.' }}
+                  {{ fr() ? 'Colonnes reconnues : NIU, Nom et Prénom (ou Nom + Prénom séparés), Sexe (M/F), Date de naissance (JJ mois AAAA, AAAA-MM-JJ ou JJ/MM/AAAA), Lieu de naissance, Redouble (OUI/NON). L’en-tête est détecté automatiquement.'
+                          : 'Recognised columns: NIU, Full name (or separate Last + First), Sex (M/F), DOB (DD month YYYY, YYYY-MM-DD or DD/MM/YYYY), Birthplace, Repeats (YES/NO). The header row is auto-detected.' }}
                 </div>
               </section>
 
@@ -446,12 +514,12 @@ import {
                       <thead class="bg-slate-50 sticky top-0">
                         <tr class="text-[11px] uppercase text-mute text-left">
                           <th class="px-3 py-2 font-semibold w-8"></th>
-                          <th class="px-3 py-2 font-semibold">{{ fr() ? 'Nom' : 'Last name' }}</th>
-                          <th class="px-3 py-2 font-semibold">{{ fr() ? 'Prénom' : 'First name' }}</th>
+                          <th class="px-3 py-2 font-semibold">NIU</th>
+                          <th class="px-3 py-2 font-semibold">{{ fr() ? 'Nom et prénom' : 'Full name' }}</th>
                           <th class="px-3 py-2 font-semibold">{{ fr() ? 'Sexe' : 'Sex' }}</th>
                           <th class="px-3 py-2 font-semibold">{{ fr() ? 'Naissance' : 'DOB' }}</th>
-                          <th class="px-3 py-2 font-semibold">Parent</th>
-                          <th class="px-3 py-2 font-semibold">{{ fr() ? 'Téléphone' : 'Phone' }}</th>
+                          <th class="px-3 py-2 font-semibold">{{ fr() ? 'Lieu' : 'Birthplace' }}</th>
+                          <th class="px-3 py-2 font-semibold">{{ fr() ? 'Redouble' : 'Repeats' }}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -459,14 +527,14 @@ import {
                           <tr class="border-t border-slate-100" [class.bg-rose-50]="!rowValid(r)">
                             <td class="px-3 py-1.5">
                               @if (rowValid(r)) { <span class="text-emerald-600"><bbc-icon name="check" [s]="14" /></span> }
-                              @else { <span class="text-rose-500" title="{{ fr() ? 'Nom et prénom requis' : 'Name required' }}"><bbc-icon name="x" [s]="14" /></span> }
+                              @else { <span class="text-rose-500" title="{{ fr() ? 'Nom requis' : 'Name required' }}"><bbc-icon name="x" [s]="14" /></span> }
                             </td>
-                            <td class="px-3 py-1.5 font-medium text-ink">{{ r.lastName || '—' }}</td>
-                            <td class="px-3 py-1.5">{{ r.firstName || '—' }}</td>
+                            <td class="px-3 py-1.5 font-mono text-xs text-mute">{{ r.niu || '—' }}</td>
+                            <td class="px-3 py-1.5 font-medium text-ink">{{ rowName(r) || '—' }}</td>
                             <td class="px-3 py-1.5">{{ r.sex || '—' }}</td>
                             <td class="px-3 py-1.5 font-mono text-xs">{{ r.dob || '—' }}</td>
-                            <td class="px-3 py-1.5">{{ r.parentName || '—' }}</td>
-                            <td class="px-3 py-1.5">{{ r.parentPhone || '—' }}</td>
+                            <td class="px-3 py-1.5">{{ r.birthplace || '—' }}</td>
+                            <td class="px-3 py-1.5">{{ r.repeats ? (fr() ? 'Oui' : 'Yes') : '—' }}</td>
                           </tr>
                         }
                       </tbody>
@@ -479,7 +547,7 @@ import {
 
               <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
                 <button (click)="closeImport()" class="h-10 px-5 rounded-lg bg-slate-100 text-sm font-semibold text-ink hover:bg-slate-200">{{ i18n.t('cancel') }}</button>
-                <button (click)="doImport()" [disabled]="!importClassId() || !validCount() || importing()"
+                <button (click)="doImport()" [disabled]="!importReady() || !validCount() || importing()"
                   class="inline-flex items-center gap-1.5 h-10 px-6 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-semibold">
                   <bbc-icon name="plus" [s]="16" />
                   {{ importing() ? (fr() ? 'Import…' : 'Importing…') : (fr() ? 'Importer ' + validCount() + ' élève(s)' : 'Import ' + validCount() + ' student(s)') }}
@@ -543,7 +611,11 @@ export class StudentsComponent {
   protected confirmDel = signal<Student | null>(null);
 
   // Bulk import
+  protected importTarget = signal<'existing' | 'new'>('existing');
   protected importClassId = signal<string | null>(null);
+  protected newClassName = signal('');
+  protected newClassSubsystem = signal<'FR' | 'EN'>('FR');
+  protected newClassLevel = signal<'maternelle' | 'primary' | 'secondary'>('secondary');
   protected importText = signal('');
   protected importRows = signal<StudentImportRow[]>([]);
   protected importResult = signal<StudentImportResult | null>(null);
@@ -666,8 +738,11 @@ export class StudentsComponent {
     this.draft = {
       firstName: s.firstName,
       lastName: s.lastName,
+      niu: s.niu,
       sex: s.sex || 'M',
       dob: s.dob,
+      birthplace: s.birthplace,
+      repeats: s.repeats,
       classId: s.classId ?? null,
       parentName: s.parentName,
       parentPhone: s.parentPhone,
@@ -701,15 +776,26 @@ export class StudentsComponent {
   }
 
   private blank(): StudentUpsert {
-    return { firstName: '', lastName: '', sex: 'M', classId: null, parentName: '', parentPhone: '' };
+    return { firstName: '', lastName: '', niu: '', sex: 'M', birthplace: '', repeats: false, classId: null, parentName: '', parentPhone: '' };
   }
 
   // ---- Bulk import ---------------------------------------------------------
   protected validCount = computed(() => this.importRows().filter((r) => this.rowValid(r)).length);
 
+  /** A row is importable when it carries a name — either combined or split. */
   protected rowValid(r: StudentImportRow): boolean {
-    return !!r.firstName?.trim() && !!r.lastName?.trim();
+    return !!(r.name?.trim() || (r.firstName?.trim() && r.lastName?.trim()) || r.lastName?.trim());
   }
+
+  /** Best-effort display name for the preview, from combined or split fields. */
+  protected rowName(r: StudentImportRow): string {
+    if (r.name?.trim()) return r.name.trim().replace(/(\s+-)+\s*$/, '').trim();
+    return `${r.lastName ?? ''} ${r.firstName ?? ''}`.trim();
+  }
+
+  /** True once a target class is chosen (existing id or a new class name). */
+  protected importReady = computed(() =>
+    this.importTarget() === 'existing' ? !!this.importClassId() : !!this.newClassName().trim());
 
   protected openImport(): void {
     this.resetImport();
@@ -723,7 +809,11 @@ export class StudentsComponent {
   }
 
   protected resetImport(): void {
+    this.importTarget.set('existing');
     this.importClassId.set(null);
+    this.newClassName.set('');
+    this.newClassSubsystem.set('FR');
+    this.newClassLevel.set('secondary');
     this.importText.set('');
     this.importRows.set([]);
     this.importResult.set(null);
@@ -740,26 +830,51 @@ export class StudentsComponent {
     const input = ev.target as HTMLInputElement;
     const file = input.files?.[0];
     if (!file) return;
+    this.importError.set(null);
+    const isExcel = /\.(xlsx?|xlsm)$/i.test(file.name);
     const reader = new FileReader();
-    reader.onload = () => { this.onText(String(reader.result ?? '')); input.value = ''; };
-    reader.readAsText(file);
+    reader.onload = async () => {
+      try {
+        if (isExcel) {
+          // Parse the raw .xls/.xlsx register: take the first sheet, emit CSV.
+          // xlsx is heavy (~700 kB) so it is loaded on demand, only when needed.
+          const XLSX = await import('xlsx');
+          const wb = XLSX.read(reader.result, { type: 'array' });
+          const sheet = wb.Sheets[wb.SheetNames[0]];
+          this.onText(XLSX.utils.sheet_to_csv(sheet));
+        } else {
+          this.onText(String(reader.result ?? ''));
+        }
+      } catch {
+        this.importError.set(this.fr() ? 'Fichier illisible — vérifiez le format.' : 'Unreadable file — check the format.');
+      }
+      input.value = '';
+    };
+    if (isExcel) reader.readAsArrayBuffer(file); else reader.readAsText(file);
   }
 
   protected loadSample(): void {
-    const sample = this.fr()
-      ? 'Nom,Prénom,Sexe,Naissance,Parent,Téléphone\nMBALLA,Alice,F,2014-03-12,Paul MBALLA,+237690000001\nNGONO,Jean,M,13/07/2013,Marie NGONO,+237690000002'
-      : 'Last name,First name,Sex,DOB,Parent,Phone\nMBALLA,Alice,F,2014-03-12,Paul MBALLA,+237690000001\nNGONO,Jean,M,13/07/2013,Marie NGONO,+237690000002';
+    // Matches the official BBC register layout: NIU, combined "Nom et Prénom",
+    // Sexe, French-worded date, Lieu de naissance, Redouble.
+    const sample =
+      'NIU,Nom et Prénom,Sexe,Date de naissance,Lieu de naissance,Redouble\n' +
+      '250193630,ABBASSI HAMADOU - -,M,06 janvier 2011,MAROUA,NON\n' +
+      '250193640,ABDEL RACHID ABDOURAMAN - -,M,19 novembre 2014,MAROUA,NON\n' +
+      '250418390,KOUDADAÏ RACHEL MIRYAM,F,31 décembre 2015,MAROUA,OUI';
     this.onText(sample);
   }
 
   protected doImport(): void {
-    const classId = this.importClassId();
     const rows = this.importRows().filter((r) => this.rowValid(r));
-    if (!classId || !rows.length) return;
+    if (!this.importReady() || !rows.length) return;
+    const req: StudentImportRequest =
+      this.importTarget() === 'existing'
+        ? { classId: this.importClassId(), rows }
+        : { newClass: { name: this.newClassName().trim(), subsystem: this.newClassSubsystem(), level: this.newClassLevel() }, rows };
     this.importing.set(true);
     this.importError.set(null);
-    this.api.importStudents({ classId, rows }).subscribe({
-      next: (res) => { this.importing.set(false); this.importResult.set(res); this.reload(); },
+    this.api.importStudents(req).subscribe({
+      next: (res) => { this.importing.set(false); this.importResult.set(res); this.reload(); this.setupApi.listClasses().subscribe((c) => this.classes.set(c)); },
       error: (e) => { this.importing.set(false); this.importError.set(e?.error?.message ?? (this.fr() ? 'Import impossible.' : 'Import failed.')); },
     });
   }
@@ -770,16 +885,27 @@ export class StudentsComponent {
     const delim = this.detectDelim(lines[0]);
     const cells = lines.map((l) => this.splitLine(l, delim));
     const map = this.mapHeader(cells[0]);
-    const idx = map ?? { lastName: 0, firstName: 1, sex: 2, dob: 3, parentName: 4, parentPhone: 5 };
     const dataRows = map ? cells.slice(1) : cells;
+    // Default layout when no header is recognised: assume the official register
+    // order (NIU, Nom et Prénom, Sexe, Naissance, Lieu, Redouble).
+    const idx = map ?? { niu: 0, name: 1, lastName: -1, firstName: -1, sex: 2, dob: 3, birthplace: 4, repeats: 5, parentName: -1, parentPhone: -1 };
+    const at = (r: string[], i: number) => (i >= 0 ? (r[i] ?? '').trim() : '');
     return dataRows.map((r) => ({
-      lastName: (r[idx.lastName] ?? '').trim(),
-      firstName: (r[idx.firstName] ?? '').trim(),
+      name: at(r, idx.name),
+      lastName: at(r, idx.lastName),
+      firstName: at(r, idx.firstName),
+      niu: at(r, idx.niu) || null,
       sex: this.normSex(r[idx.sex]),
       dob: this.normDob(r[idx.dob]),
-      parentName: (r[idx.parentName] ?? '').trim(),
-      parentPhone: (r[idx.parentPhone] ?? '').trim(),
+      birthplace: at(r, idx.birthplace) || null,
+      repeats: this.normYesNo(r[idx.repeats]),
+      parentName: at(r, idx.parentName),
+      parentPhone: at(r, idx.parentPhone),
     }));
+  }
+
+  private normYesNo(v: string | undefined): boolean {
+    return /^(o|oui|y|yes|1|true|vrai)/i.test((v ?? '').trim());
   }
 
   private detectDelim(line: string): string {
@@ -794,26 +920,42 @@ export class StudentsComponent {
     return line.split(delim).map((c) => c.replace(/^"|"$/g, '').trim());
   }
 
-  /** Map a header row to column indices; null when the first row is data, not a header. */
-  private mapHeader(cells: string[]): Record<'lastName' | 'firstName' | 'sex' | 'dob' | 'parentName' | 'parentPhone', number> | null {
+  /**
+   * Map a header row to column indices; null when the first row is data, not a header.
+   * Understands both the official register ("NIU, Nom et Prénom, Sexe, Date de
+   * naissance, Lieu de naissance, Redouble") and a split Nom/Prénom layout.
+   */
+  private mapHeader(cells: string[]): {
+    niu: number; name: number; lastName: number; firstName: number; sex: number;
+    dob: number; birthplace: number; repeats: number; parentName: number; parentPhone: number;
+  } | null {
     const idx: any = {};
     cells.forEach((raw, i) => {
       const c = raw.toLowerCase();
-      if (idx.firstName === undefined && /(pr[ée]nom|first)/.test(c)) idx.firstName = i;
+      if (idx.niu === undefined && /\bniu\b|identifiant/.test(c)) idx.niu = i;
+      else if (idx.firstName === undefined && /(pr[ée]nom|first)/.test(c) && !/nom et/.test(c)) idx.firstName = i;
+      else if (idx.name === undefined && /(nom et pr[ée]nom|nom.*pr[ée]nom|full name|nom complet)/.test(c)) idx.name = i;
       else if (idx.lastName === undefined && /(^nom|last|surname|famille)/.test(c)) idx.lastName = i;
       else if (idx.sex === undefined && /(sexe|sex|genre|gender)/.test(c)) idx.sex = i;
-      else if (idx.dob === undefined && /(naiss|dob|birth|date)/.test(c)) idx.dob = i;
-      else if (idx.parentPhone === undefined && /(t[ée]l|phone|contact|num)/.test(c)) idx.parentPhone = i;
+      else if (idx.dob === undefined && /(naiss|dob|birth|date)/.test(c) && !/lieu/.test(c)) idx.dob = i;
+      else if (idx.birthplace === undefined && /(lieu|birthplace|place)/.test(c)) idx.birthplace = i;
+      else if (idx.repeats === undefined && /(redouble|repeat|redoublant)/.test(c)) idx.repeats = i;
+      else if (idx.parentPhone === undefined && /(t[ée]l|phone|contact|num[ée]ro)/.test(c)) idx.parentPhone = i;
       else if (idx.parentName === undefined && /(parent|tuteur|guardian|responsable)/.test(c)) idx.parentName = i;
     });
-    if (idx.lastName === undefined || idx.firstName === undefined) return null;
+    // A header must carry at least one recognisable name column.
+    if (idx.name === undefined && (idx.lastName === undefined || idx.firstName === undefined)) return null;
     return {
-      lastName: idx.lastName,
-      firstName: idx.firstName,
-      sex: idx.sex ?? 2,
-      dob: idx.dob ?? 3,
-      parentName: idx.parentName ?? 4,
-      parentPhone: idx.parentPhone ?? 5,
+      niu: idx.niu ?? -1,
+      name: idx.name ?? -1,
+      lastName: idx.lastName ?? -1,
+      firstName: idx.firstName ?? -1,
+      sex: idx.sex ?? -1,
+      dob: idx.dob ?? -1,
+      birthplace: idx.birthplace ?? -1,
+      repeats: idx.repeats ?? -1,
+      parentName: idx.parentName ?? -1,
+      parentPhone: idx.parentPhone ?? -1,
     };
   }
 
@@ -825,6 +967,11 @@ export class StudentsComponent {
     return '';
   }
 
+  private static readonly FR_MONTHS: Record<string, string> = {
+    janvier: '01', fevrier: '02', mars: '03', avril: '04', mai: '05', juin: '06',
+    juillet: '07', aout: '08', septembre: '09', octobre: '10', novembre: '11', decembre: '12',
+  };
+
   private normDob(v: string | undefined): string | null {
     const c = (v ?? '').trim();
     if (!c) return null;
@@ -832,6 +979,13 @@ export class StudentsComponent {
     if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
     m = c.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);          // DD/MM/YYYY
     if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+    // French-worded date, as printed on the registers: "06 janvier 2011".
+    m = c.match(/^(\d{1,2})\s+([a-zà-ÿ]+)\.?\s+(\d{4})$/i);
+    if (m) {
+      const key = m[2].toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+      const mo = StudentsComponent.FR_MONTHS[key];
+      if (mo) return `${m[3]}-${mo}-${m[1].padStart(2, '0')}`;
+    }
     return null;
   }
 
