@@ -488,8 +488,8 @@ import {
                   <div class="text-[11px] uppercase tracking-wider text-mute font-bold">{{ fr() ? 'Données' : 'Data' }}</div>
                   <div class="flex items-center gap-2">
                     <label class="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50 cursor-pointer">
-                      <bbc-icon name="download" [s]="14" /> {{ fr() ? 'Fichier CSV' : 'CSV file' }}
-                      <input type="file" accept=".csv,text/csv,text/plain" (change)="onFile($event)" class="hidden" />
+                      <bbc-icon name="download" [s]="14" /> {{ fr() ? 'Fichier Excel / CSV' : 'Excel / CSV file' }}
+                      <input type="file" accept=".csv,.xls,.xlsx,.xlsm,text/csv,text/plain,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" (change)="onFile($event)" class="hidden" />
                     </label>
                     <button type="button" (click)="loadSample()" class="h-8 px-3 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">{{ fr() ? 'Exemple' : 'Sample' }}</button>
                   </div>
@@ -830,9 +830,27 @@ export class StudentsComponent {
     const input = ev.target as HTMLInputElement;
     const file = input.files?.[0];
     if (!file) return;
+    this.importError.set(null);
+    const isExcel = /\.(xlsx?|xlsm)$/i.test(file.name);
     const reader = new FileReader();
-    reader.onload = () => { this.onText(String(reader.result ?? '')); input.value = ''; };
-    reader.readAsText(file);
+    reader.onload = async () => {
+      try {
+        if (isExcel) {
+          // Parse the raw .xls/.xlsx register: take the first sheet, emit CSV.
+          // xlsx is heavy (~700 kB) so it is loaded on demand, only when needed.
+          const XLSX = await import('xlsx');
+          const wb = XLSX.read(reader.result, { type: 'array' });
+          const sheet = wb.Sheets[wb.SheetNames[0]];
+          this.onText(XLSX.utils.sheet_to_csv(sheet));
+        } else {
+          this.onText(String(reader.result ?? ''));
+        }
+      } catch {
+        this.importError.set(this.fr() ? 'Fichier illisible — vérifiez le format.' : 'Unreadable file — check the format.');
+      }
+      input.value = '';
+    };
+    if (isExcel) reader.readAsArrayBuffer(file); else reader.readAsText(file);
   }
 
   protected loadSample(): void {

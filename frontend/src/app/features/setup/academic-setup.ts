@@ -204,7 +204,17 @@ import { IconComponent, CardComponent, TabsComponent, EmptyComponent } from '../
       @case ('subjects') {
         <bbc-card [title]="fr() ? 'Matières & coefficients' : 'Subjects & coefficients'"
           [subtitle]="fr() ? 'Listes distinctes par sous-système, avec coefficient pour les moyennes pondérées' : 'Distinct lists per subsystem, with coefficient for weighted averages'">
-          <div action>
+          <div action class="flex items-center gap-2">
+            @if (canWrite && (subjFilter() === 'FR' || subjFilter() === 'EN')) {
+              <button (click)="importDefaults()" [disabled]="!missingDefaultsCount()"
+                class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50 disabled:opacity-50"
+                [title]="fr() ? 'Depuis la liste officielle MATIÈRE EXCEL' : 'From the official MATIERE EXCEL master list'">
+                <bbc-icon name="download" [s]="16" />
+                {{ missingDefaultsCount()
+                    ? (fr() ? 'Importer ' + missingDefaultsCount() + ' matières standard' : 'Import ' + missingDefaultsCount() + ' standard subjects')
+                    : (fr() ? 'Matières standard importées' : 'Standard subjects imported') }}
+              </button>
+            }
             @if (canWrite) {
               <button (click)="newSubject()" class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-brand-600 hover:bg-brand-700 text-white">
                 <bbc-icon name="plus" [s]="16" /> {{ fr() ? 'Nouvelle matière' : 'New subject' }}
@@ -377,6 +387,16 @@ export class AcademicSetupComponent {
     if (f === 'ALL') return all.length;
     return all.filter((s) => s.subsystem === f || !s.subsystem).length;
   }
+
+  /** How many standard subjects of the active list are not yet created (0 = all present). */
+  protected missingDefaultsCount = computed(() => {
+    const sub = this.subjFilter();
+    if (sub !== 'FR' && sub !== 'EN') return 0;
+    const existing = new Set(
+      this.subjects().filter((s) => s.subsystem === sub).map((s) => s.code.toUpperCase()),
+    );
+    return defaultSubjects(sub).filter((d) => !existing.has(d.code.toUpperCase())).length;
+  });
 
   constructor() {
     this.loadSections();
