@@ -34,3 +34,8 @@ backend/certs/*.crt
 # Large Claude Design export (design source-of-truth kept outside git;
 # the decoded reference lives in tools/prototype_design.html)
 BBC_SMS_standalone*.html
+
+# Reference source material (official bulletin/coefficient/book templates,
+# ~9 MB of xlsx/pdf/docx) — kept outside git; GUIDE_UTILISATEUR.md is tracked.
+bulletins templates/
+Guide_Utilisateur_BBC_SMS.docx
