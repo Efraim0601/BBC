@@ -31,11 +31,14 @@ export interface TokenResponse {
 export interface Student {
   id: string;
   matricule: string;
+  niu: string | null;
   firstName: string;
   lastName: string;
   name: string;
   sex: string;
   dob: string | null;
+  birthplace: string | null;
+  repeats: boolean;
   classId: string | null;
   className: string;
   subsystem: string;

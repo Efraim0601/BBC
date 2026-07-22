@@ -4,6 +4,7 @@ import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.tenant.ParcoursContext;
 import com.bbc.sms.platform.tenant.ParcoursContext.Scope;
 import com.bbc.sms.platform.tenant.TenantContext;
+import com.bbc.sms.setup.SetupService;
 import com.bbc.sms.student.dto.StudentDtos.*;
 import com.bbc.sms.timetable.SchoolClass;
 import com.bbc.sms.timetable.SchoolClassRepository;
@@ -22,10 +23,12 @@ public class StudentService {
 
     private final StudentRepository repo;
     private final SchoolClassRepository classes;
+    private final SetupService setup;
 
-    public StudentService(StudentRepository repo, SchoolClassRepository classes) {
+    public StudentService(StudentRepository repo, SchoolClassRepository classes, SetupService setup) {
         this.repo = repo;
         this.classes = classes;
+        this.setup = setup;
     }
 
     @Transactional(readOnly = true)
@@ -86,22 +89,22 @@ public class StudentService {
     @Transactional
     public StudentImportResult importForClass(StudentImportRequest in) {
         UUID schoolId = TenantContext.get();
-        SchoolClass cls = classes.findByIdAndSchoolId(in.classId(), schoolId)
-                .orElseThrow(() -> ApiException.badRequest("Classe inconnue"));
+        SchoolClass cls = resolveImportClass(in, schoolId);
 
         long seq = repo.countBySchoolIdAndActiveTrue(schoolId) + 1001;
         Set<String> usedMatricules = new HashSet<>();
+        Set<String> usedNiu = new HashSet<>();
         List<StudentImportError> errors = new ArrayList<>();
         int created = 0;
         int lineNo = 0;
 
         for (StudentImportRow row : in.rows()) {
             lineNo++;
-            String label = ((row.lastName() == null ? "" : row.lastName().trim()) + " "
-                          + (row.firstName() == null ? "" : row.firstName().trim())).trim();
+            String[] fl = resolveName(row);   // [lastName, firstName]
+            String lastName = fl[0], firstName = fl[1];
+            String label = (lastName + " " + firstName).trim();
             try {
-                if (row.firstName() == null || row.firstName().isBlank()
-                        || row.lastName() == null || row.lastName().isBlank()) {
+                if (firstName.isBlank() || lastName.isBlank()) {
                     throw new IllegalArgumentException("Nom et prénom obligatoires");
                 }
                 String sex = blankToNull(row.sex());
@@ -111,6 +114,16 @@ public class StudentService {
                         throw new IllegalArgumentException("Sexe invalide (attendu M ou F)");
                     }
                 }
+                // Skip pupils already on file for this NIU so re-importing a register
+                // is idempotent (the source NIU can even repeat within one batch).
+                String niu = blankToNull(row.niu());
+                if (niu != null) {
+                    if (usedNiu.contains(niu) || repo.existsBySchoolIdAndNiuAndActiveTrue(schoolId, niu)) {
+                        throw new IllegalArgumentException("NIU déjà présent (" + niu + ") — ignoré");
+                    }
+                    usedNiu.add(niu);
+                }
+
                 String matricule;
                 do { matricule = "BBC-" + seq++; }
                 while (usedMatricules.contains(matricule) || repo.existsBySchoolIdAndMatricule(schoolId, matricule));
@@ -119,11 +132,14 @@ public class StudentService {
                 Student s = new Student();
                 s.setSchoolId(schoolId);
                 s.setMatricule(matricule);
+                s.setNiu(niu);
                 s.setPhotoHue(ThreadLocalRandom.current().nextInt(0, 360));
-                s.setFirstName(row.firstName().trim());
-                s.setLastName(row.lastName().trim());
+                s.setFirstName(firstName);
+                s.setLastName(lastName);
                 s.setSex(sex);
                 s.setDob(row.dob());
+                s.setBirthplace(blankToNull(row.birthplace()));
+                s.setRepeats(row.repeats());
                 s.setClassId(cls.getId());
                 s.setClassName(cls.getName());
                 s.setSubsystem(cls.getSubsystem());
@@ -139,6 +155,38 @@ public class StudentService {
         return new StudentImportResult(created, errors.size(), errors);
     }
 
+    /** Bind the batch to an existing class, or find-or-create one from the newClass spec. */
+    private SchoolClass resolveImportClass(StudentImportRequest in, UUID schoolId) {
+        if (in.classId() != null) {
+            return classes.findByIdAndSchoolId(in.classId(), schoolId)
+                    .orElseThrow(() -> ApiException.badRequest("Classe inconnue"));
+        }
+        if (in.newClass() != null) {
+            return setup.findOrCreateClass(in.newClass().name(), in.newClass().subsystem(), in.newClass().level());
+        }
+        throw ApiException.badRequest("Classe cible obligatoire");
+    }
+
+    /**
+     * Resolve a row's last/first name. Prefer the split fields; otherwise split the
+     * combined "Nom et Prénom" column — official registers write the FAMILY name (in
+     * caps) first, then the given names, sometimes padded with " - -" separators.
+     * First whitespace token → last name, the rest → first name.
+     */
+    private static String[] resolveName(StudentImportRow row) {
+        String last = row.lastName() == null ? "" : row.lastName().trim();
+        String first = row.firstName() == null ? "" : row.firstName().trim();
+        if (!last.isEmpty() || !first.isEmpty()) return new String[]{last, first};
+
+        String combined = row.name() == null ? "" : row.name().trim();
+        combined = combined.replaceAll("(\\s+-)+\\s*$", "").trim();   // drop trailing " - -" padding
+        combined = combined.replaceAll("\\s+", " ");
+        if (combined.isEmpty()) return new String[]{"", ""};
+        int sp = combined.indexOf(' ');
+        if (sp < 0) return new String[]{combined, "-"};              // single token — keep name non-null
+        return new String[]{combined.substring(0, sp).trim(), combined.substring(sp + 1).trim()};
+    }
+
     private Student find(UUID id) {
         return repo.findByIdAndSchoolId(id, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Élève"));
@@ -148,8 +196,11 @@ public class StudentService {
         UUID schoolId = TenantContext.get();
         s.setFirstName(in.firstName());
         s.setLastName(in.lastName());
+        s.setNiu(blankToNull(in.niu()));
         s.setSex(blankToNull(in.sex()));   // "" would violate CHECK (sex IN ('M','F'))
         s.setDob(in.dob());
+        s.setBirthplace(blankToNull(in.birthplace()));
+        s.setRepeats(in.repeats());
 
         if (in.classId() != null) {
             // Authoritative path: bind a real class and copy its name/subsystem/level so
@@ -188,8 +239,9 @@ public class StudentService {
 
     private StudentView toView(Student s) {
         String name = s.getLastName().toUpperCase() + " " + s.getFirstName();
-        return new StudentView(s.getId(), s.getMatricule(), s.getFirstName(), s.getLastName(),
-                name, s.getSex(), s.getDob(), s.getClassId(), s.getClassName(), s.getSubsystem(), s.getLevel(),
+        return new StudentView(s.getId(), s.getMatricule(), s.getNiu(), s.getFirstName(), s.getLastName(),
+                name, s.getSex(), s.getDob(), s.getBirthplace(), s.isRepeats(),
+                s.getClassId(), s.getClassName(), s.getSubsystem(), s.getLevel(),
                 s.getParentName(), s.getParentPhone(), s.getPhotoHue());
     }
 }

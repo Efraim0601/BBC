@@ -23,6 +23,9 @@ public class Student {
     @Column(nullable = false)
     private String matricule;
 
+    /** State "Numéro d'Identifiant Unique" from the official register (not unique). */
+    private String niu;
+
     @Column(name = "first_name", nullable = false)
     private String firstName;
 
@@ -32,6 +35,13 @@ public class Student {
     private String sex;
 
     private LocalDate dob;
+
+    /** "Lieu de naissance" — place of birth, printed on report cards. */
+    private String birthplace;
+
+    /** "Redouble" — is the pupil repeating the year. */
+    @Column(nullable = false)
+    private boolean repeats = false;
 
     @Column(name = "class_id")
     private UUID classId;

@@ -124,6 +124,66 @@ public class SetupService {
         return toView(classes.save(c), section);
     }
 
+    /**
+     * Find a class by name, or create it (and its owning section) on the fly.
+     * Used by the student bulk-import so a register for "5e A" lands in a real
+     * relational class even when the admin has not pre-created it. The section is
+     * matched (or created) by (subsystem, level) so every FR/EN + level pairing
+     * gets exactly one auto-section.
+     */
+    @Transactional
+    public SchoolClass findOrCreateClass(String rawName, String subsystem, String level) {
+        UUID schoolId = TenantContext.get();
+        String name = rawName == null ? "" : rawName.trim();
+        if (name.isEmpty()) throw ApiException.badRequest("Nom de classe obligatoire");
+        String sub = normSubsystem(subsystem);
+        if (sub == null) throw ApiException.badRequest("Sous-système invalide (attendu FR ou EN)");
+        String lvl = normLevel(level);
+
+        return classes.findBySchoolIdAndName(schoolId, name).orElseGet(() -> {
+            Section section = findOrCreateSection(schoolId, sub, lvl);
+            SchoolClass c = new SchoolClass();
+            c.setSchoolId(schoolId);
+            c.setSectionId(section.getId());
+            c.setName(name);
+            c.setSubsystem(section.getSubsystem());
+            c.setLevel(section.getLevel());
+            return classes.save(c);
+        });
+    }
+
+    /** Reuse a section with the same (subsystem, level), else create a labelled one. */
+    private Section findOrCreateSection(UUID schoolId, String subsystem, String level) {
+        return sections.findBySchoolIdOrderByLabel(schoolId).stream()
+                .filter(s -> subsystem.equalsIgnoreCase(s.getSubsystem()) && level.equalsIgnoreCase(s.getLevel()))
+                .findFirst()
+                .orElseGet(() -> {
+                    Section s = new Section();
+                    s.setId(uniqueSectionId(schoolId, subsystem, level));
+                    s.setSchoolId(schoolId);
+                    s.setLabel(sectionLabel(subsystem, level));
+                    s.setSubsystem(subsystem);
+                    s.setLevel(level);
+                    return sections.save(s);
+                });
+    }
+
+    private static String normLevel(String raw) {
+        String v = raw == null ? "" : raw.trim().toLowerCase();
+        if (v.startsWith("mat")) return "maternelle";
+        if (v.startsWith("sec")) return "secondary";
+        return "primary";
+    }
+
+    private static String sectionLabel(String subsystem, String level) {
+        String lvl = switch (level) {
+            case "maternelle" -> "Maternelle";
+            case "secondary" -> "Secondaire";
+            default -> "Primaire";
+        };
+        return lvl + ("FR".equalsIgnoreCase(subsystem) ? " francophone" : " anglophone");
+    }
+
     @Transactional
     public ClassView updateClass(UUID id, ClassUpsert in) {
         UUID schoolId = TenantContext.get();
