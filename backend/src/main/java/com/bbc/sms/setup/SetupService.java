@@ -2,6 +2,8 @@ package com.bbc.sms.setup;
 
 import com.bbc.sms.academic.Subject;
 import com.bbc.sms.academic.SubjectRepository;
+import com.bbc.sms.academic.SubjectClassCoef;
+import com.bbc.sms.academic.SubjectClassCoefRepository;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.tenant.ParcoursContext;
 import com.bbc.sms.platform.tenant.ParcoursContext.Scope;
@@ -17,8 +19,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.text.Normalizer;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -32,16 +37,18 @@ public class SetupService {
     private final SectionRepository sections;
     private final SchoolClassRepository classes;
     private final SubjectRepository subjects;
+    private final SubjectClassCoefRepository coefs;
     private final StudentRepository students;
     private final EmployeeRepository employees;
     private final JdbcTemplate jdbc;
 
     public SetupService(SectionRepository sections, SchoolClassRepository classes,
-                        SubjectRepository subjects, StudentRepository students,
-                        EmployeeRepository employees, JdbcTemplate jdbc) {
+                        SubjectRepository subjects, SubjectClassCoefRepository coefs,
+                        StudentRepository students, EmployeeRepository employees, JdbcTemplate jdbc) {
         this.sections = sections;
         this.classes = classes;
         this.subjects = subjects;
+        this.coefs = coefs;
         this.students = students;
         this.employees = employees;
         this.jdbc = jdbc;
@@ -310,6 +317,118 @@ public class SetupService {
         Subject s = subjects.findByIdAndSchoolId(id, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Matière"));
         subjects.delete(s);
+    }
+
+    // ---- Per-class coefficients --------------------------------------------
+
+    @Transactional(readOnly = true)
+    public List<ClassCoefView> listCoefficients() {
+        UUID schoolId = TenantContext.get();
+        Map<UUID, SchoolClass> classById = classes.findBySchoolIdOrderByName(schoolId).stream()
+                .collect(java.util.stream.Collectors.toMap(SchoolClass::getId, c -> c));
+        Map<UUID, Subject> subjById = subjects.findBySchoolIdOrderByCode(schoolId).stream()
+                .collect(java.util.stream.Collectors.toMap(Subject::getId, s -> s));
+        return coefs.findBySchoolId(schoolId).stream()
+                .map(cc -> {
+                    SchoolClass c = classById.get(cc.getClassId());
+                    Subject s = subjById.get(cc.getSubjectId());
+                    if (c == null || s == null) return null;
+                    return new ClassCoefView(c.getId(), c.getName(), c.getSubsystem(),
+                            s.getId(), s.getCode(), cc.getCoef());
+                })
+                .filter(java.util.Objects::nonNull)
+                .toList();
+    }
+
+    /**
+     * Import per-class coefficients from the official tables. Each row targets a
+     * (subject, class) pair: the subject is matched by code (created if missing),
+     * and the class token is matched by name or grade prefix so "5e" reaches every
+     * 5e-class. Existing pairs are overwritten. Rows with no matching class or a
+     * blank coefficient are skipped and reported.
+     */
+    @Transactional
+    public CoefImportResult importCoefficients(CoefImportRequest in) {
+        UUID schoolId = TenantContext.get();
+        List<SchoolClass> allClasses = classes.findBySchoolIdOrderByName(schoolId);
+        List<CoefImportError> errors = new ArrayList<>();
+        Set<String> createdSubjects = new HashSet<>();
+        int applied = 0, skipped = 0, lineNo = 0;
+
+        for (CoefImportRow row : in.rows()) {
+            lineNo++;
+            String label = (blankToNull(row.code()) == null ? "?" : row.code().trim())
+                    + " / " + (blankToNull(row.klass()) == null ? "?" : row.klass().trim());
+            try {
+                String sub = normSubsystem(row.subsystem());
+                if (sub == null) { skipped++; errors.add(new CoefImportError(lineNo, label, "Sous-système invalide (FR/EN)")); continue; }
+                if (blankToNull(row.code()) == null) { skipped++; errors.add(new CoefImportError(lineNo, label, "Code matière manquant")); continue; }
+                if (row.coef() == null || row.coef() <= 0) { skipped++; continue; }   // "-" in the table = not taught
+
+                List<SchoolClass> targets = allClasses.stream()
+                        .filter(c -> sub.equalsIgnoreCase(c.getSubsystem()))
+                        .filter(c -> classMatches(c.getName(), row.klass()))
+                        .toList();
+                if (targets.isEmpty()) { skipped++; errors.add(new CoefImportError(lineNo, label, "Aucune classe « " + row.klass() + " » (" + sub + ")")); continue; }
+
+                Subject subject = findOrCreateSubject(schoolId, row.code(), sub, row.label(), createdSubjects);
+                for (SchoolClass c : targets) {
+                    SubjectClassCoef cc = coefs.findBySchoolIdAndSubjectIdAndClassId(schoolId, subject.getId(), c.getId())
+                            .orElseGet(() -> {
+                                SubjectClassCoef fresh = new SubjectClassCoef();
+                                fresh.setSchoolId(schoolId);
+                                fresh.setSubjectId(subject.getId());
+                                fresh.setClassId(c.getId());
+                                return fresh;
+                            });
+                    cc.setCoef(row.coef());
+                    coefs.save(cc);
+                    applied++;
+                }
+            } catch (RuntimeException ex) {
+                skipped++;
+                errors.add(new CoefImportError(lineNo, label, ex.getMessage()));
+            }
+        }
+        return new CoefImportResult(applied, createdSubjects.size(), skipped, errors);
+    }
+
+    private Subject findOrCreateSubject(UUID schoolId, String rawCode, String subsystem, String rawLabel, Set<String> created) {
+        String code = (rawCode.trim().length() > 8 ? rawCode.trim().substring(0, 8) : rawCode.trim()).toUpperCase();
+        return subjects.findBySchoolIdOrderByCode(schoolId).stream()
+                .filter(s -> code.equals(s.getCode()) && java.util.Objects.equals(subsystem, normSubsystem(s.getSubsystem())))
+                .findFirst()
+                .orElseGet(() -> {
+                    Subject s = new Subject();
+                    s.setSchoolId(schoolId);
+                    s.setCode(code);
+                    s.setSubsystem(subsystem);
+                    String name = blankToNull(rawLabel) == null ? code : rawLabel.trim();
+                    s.setLabel("FR".equals(subsystem) ? Map.of("fr", name) : Map.of("en", name));
+                    s.setCoef(1);
+                    Subject saved = subjects.save(s);
+                    created.add(code + "/" + subsystem);
+                    return saved;
+                });
+    }
+
+    /** A stored class name matches a token if equal, or the name starts with the grade token. */
+    static boolean classMatches(String className, String token) {
+        String c = normKey(className), t = normKey(token);
+        if (t.isEmpty()) return false;
+        if (c.equals(t)) return true;
+        // Grade prefix: "5e" matches "5ea", but "form1" must not match "form10".
+        return c.startsWith(t) && (c.length() == t.length() || !Character.isDigit(c.charAt(t.length())));
+    }
+
+    private static String normKey(String s) {
+        if (s == null) return "";
+        String n = Normalizer.normalize(s, Normalizer.Form.NFD).replaceAll("[^\\p{ASCII}]", "");
+        return n.toLowerCase().replaceAll("[^a-z0-9]", "");
+    }
+
+    private static String blankToNull(String s) {
+        return (s == null || s.isBlank()) ? null : s.trim();
     }
 
     // ---- mapping ------------------------------------------------------------

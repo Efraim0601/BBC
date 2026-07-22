@@ -17,6 +17,12 @@ export interface TeacherOption { id: string; name: string; code: string; }
 export interface SubjectView { id: string; code: string; subsystem: string | null; label: Record<string, string>; coef: number; }
 export interface SubjectUpsert { code: string; subsystem: string | null; label: Record<string, string>; coef: number; }
 
+// Per-class coefficients
+export interface ClassCoefView { classId: string; className: string; subsystem: string; subjectId: string; subjectCode: string; coef: number; }
+export interface CoefImportRow { subsystem: string; code: string; label?: string; klass: string; coef: number | null; }
+export interface CoefImportError { row: number; label: string; message: string; }
+export interface CoefImportResult { applied: number; subjectsCreated: number; skipped: number; errors: CoefImportError[]; }
+
 /** Academic Setup — the relational backbone (sections, classes, subjects). */
 @Injectable({ providedIn: 'root' })
 export class SetupApi {
@@ -47,4 +53,10 @@ export class SetupApi {
   createSubject(b: SubjectUpsert): Observable<SubjectView> { return this.http.post<SubjectView>(`${this.base}/subjects`, b); }
   updateSubject(id: string, b: SubjectUpsert): Observable<SubjectView> { return this.http.put<SubjectView>(`${this.base}/subjects/${id}`, b); }
   deleteSubject(id: string): Observable<void> { return this.http.delete<void>(`${this.base}/subjects/${id}`); }
+
+  // Per-class coefficients
+  listCoefficients(): Observable<ClassCoefView[]> { return this.http.get<ClassCoefView[]>(`${this.base}/subjects/coefficients`); }
+  importCoefficients(rows: CoefImportRow[]): Observable<CoefImportResult> {
+    return this.http.post<CoefImportResult>(`${this.base}/subjects/coefficients/import`, { rows });
+  }
 }

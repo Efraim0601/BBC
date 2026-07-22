@@ -40,4 +40,29 @@ public class SetupDtos {
             @Pattern(regexp = "FR|EN") String subsystem,
             Map<String, String> label,
             @PositiveOrZero int coef) {}
+
+    // ---- Per-class subject coefficients -------------------------------------
+
+    /**
+     * One coefficient line from the official tables. {@code klass} is a class name
+     * or a grade label ("5e", "Form 2") — a grade applies to every class whose name
+     * starts with it (so "5e" covers 5e A and 5e B). A missing subject is created.
+     */
+    public record CoefImportRow(
+            String subsystem,      // FR | EN
+            String code,           // subject code (matched case-insensitively)
+            String label,          // subject name, used when the subject must be created
+            String klass,          // class name or grade label
+            Integer coef) {}
+
+    public record CoefImportRequest(List<CoefImportRow> rows) {}
+
+    public record CoefImportError(int row, String label, String message) {}
+
+    /** Outcome of a coefficient import: cells written, subjects auto-created, skipped. */
+    public record CoefImportResult(int applied, int subjectsCreated, int skipped, List<CoefImportError> errors) {}
+
+    /** A single stored override, for the read-back matrix (Academic Setup display). */
+    public record ClassCoefView(UUID classId, String className, String subsystem,
+                                UUID subjectId, String subjectCode, int coef) {}
 }
