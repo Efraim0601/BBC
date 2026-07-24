@@ -13,10 +13,13 @@ public class AuthController {
 
     private final AuthService auth;
     private final AppUserRepository users;
+    private final PasswordResetService passwordReset;
 
-    public AuthController(AuthService auth, AppUserRepository users) {
+    public AuthController(AuthService auth, AppUserRepository users,
+                          PasswordResetService passwordReset) {
         this.auth = auth;
         this.users = users;
+        this.passwordReset = passwordReset;
     }
 
     @PostMapping("/login")
@@ -27,6 +30,11 @@ public class AuthController {
     @PostMapping("/refresh")
     public TokenResponse refresh(@Valid @RequestBody RefreshRequest req) {
         return auth.refresh(req);
+    }
+
+    @PostMapping("/forgot-password")
+    public ForgotPasswordResponse forgotPassword(@Valid @RequestBody ForgotPasswordRequest req) {
+        return passwordReset.requestReset(req);
     }
 
     @GetMapping("/me")

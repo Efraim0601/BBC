@@ -82,48 +82,96 @@ import { I18nService, Lang } from '../../core/i18n.service';
             </div>
           </div>
 
-          <div class="mb-7">
-            <h2 class="text-[26px] font-bold text-ink leading-tight">{{ fr() ? 'Bon retour 👋' : 'Welcome back 👋' }}</h2>
-            <p class="text-mute text-sm mt-1.5">{{ fr() ? 'Connectez-vous à votre espace BBC.' : 'Sign in to your BBC workspace.' }}</p>
-          </div>
-
-          <form (ngSubmit)="submit()" class="space-y-4">
-            <div>
-              <label class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ i18n.t('username') }}</label>
-              <div class="relative">
-                <svg class="absolute left-3 top-1/2 -translate-y-1/2 text-mute" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"/><path d="m22 6-10 7L2 6"/></svg>
-                <input name="username" [(ngModel)]="username" autocomplete="username"
-                  class="w-full h-11 pl-10 pr-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400" />
-              </div>
+          @if (mode() === 'login') {
+            <div class="mb-7">
+              <h2 class="text-[26px] font-bold text-ink leading-tight">{{ fr() ? 'Bon retour 👋' : 'Welcome back 👋' }}</h2>
+              <p class="text-mute text-sm mt-1.5">{{ fr() ? 'Connectez-vous à votre espace BBC.' : 'Sign in to your BBC workspace.' }}</p>
             </div>
 
-            <div>
-              <div class="flex items-center justify-between mb-1.5">
-                <label class="text-xs font-semibold text-mute uppercase tracking-wide">{{ i18n.t('password') }}</label>
-                <button type="button" class="text-xs font-semibold text-brand-600 hover:underline">{{ fr() ? 'Oublié ?' : 'Forgot?' }}</button>
+            <form (ngSubmit)="submit()" class="space-y-4">
+              <div>
+                <label class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ i18n.t('username') }}</label>
+                <div class="relative">
+                  <svg class="absolute left-3 top-1/2 -translate-y-1/2 text-mute" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"/><path d="m22 6-10 7L2 6"/></svg>
+                  <input name="username" [(ngModel)]="username" autocomplete="username"
+                    class="w-full h-11 pl-10 pr-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400" />
+                </div>
               </div>
-              <div class="relative">
-                <svg class="absolute left-3 top-1/2 -translate-y-1/2 text-mute" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-                <input name="password" [type]="showPwd() ? 'text' : 'password'" [(ngModel)]="password" autocomplete="current-password"
-                  class="w-full h-11 pl-10 pr-10 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400 font-mono" />
-                <button type="button" (click)="showPwd.set(!showPwd())" class="absolute right-3 top-1/2 -translate-y-1/2 text-mute hover:text-ink">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>
-                </button>
+
+              <div>
+                <div class="flex items-center justify-between mb-1.5">
+                  <label class="text-xs font-semibold text-mute uppercase tracking-wide">{{ i18n.t('password') }}</label>
+                  <button type="button" (click)="openForgot()"
+                    class="text-xs font-semibold text-brand-600 hover:underline">{{ fr() ? 'Oublié ?' : 'Forgot?' }}</button>
+                </div>
+                <div class="relative">
+                  <svg class="absolute left-3 top-1/2 -translate-y-1/2 text-mute" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                  <input name="password" [type]="showPwd() ? 'text' : 'password'" [(ngModel)]="password" autocomplete="current-password"
+                    class="w-full h-11 pl-10 pr-10 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400 font-mono" />
+                  <button type="button" (click)="showPwd.set(!showPwd())" class="absolute right-3 top-1/2 -translate-y-1/2 text-mute hover:text-ink">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>
+                  </button>
+                </div>
               </div>
-            </div>
 
-            @if (error()) {
-              <div class="text-xs text-rose-600 bg-rose-50 rounded-lg px-3 py-2">{{ error() }}</div>
-            }
-
-            <button type="submit" [disabled]="loading()"
-              class="w-full h-12 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-lg transition disabled:opacity-60 flex items-center justify-center gap-2 mt-2">
-              {{ loading() ? (fr() ? 'Connexion…' : 'Signing in…') : (fr() ? 'Se connecter' : 'Sign in') }}
-              @if (!loading()) {
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m9 18 6-6-6-6"/></svg>
+              @if (error()) {
+                <div class="text-xs text-rose-600 bg-rose-50 rounded-lg px-3 py-2">{{ error() }}</div>
               }
-            </button>
-          </form>
+
+              <button type="submit" [disabled]="loading()"
+                class="w-full h-12 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-lg transition disabled:opacity-60 flex items-center justify-center gap-2 mt-2">
+                {{ loading() ? (fr() ? 'Connexion…' : 'Signing in…') : (fr() ? 'Se connecter' : 'Sign in') }}
+                @if (!loading()) {
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m9 18 6-6-6-6"/></svg>
+                }
+              </button>
+            </form>
+          } @else {
+            <div class="mb-7">
+              <button type="button" (click)="backToLogin()"
+                class="text-xs font-semibold text-brand-600 hover:underline mb-3 inline-flex items-center gap-1">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m15 18-6-6 6-6"/></svg>
+                {{ fr() ? 'Retour à la connexion' : 'Back to sign in' }}
+              </button>
+              <h2 class="text-[26px] font-bold text-ink leading-tight">{{ fr() ? 'Mot de passe oublié' : 'Forgot password' }}</h2>
+              <p class="text-mute text-sm mt-1.5">
+                {{ fr()
+                  ? 'Indiquez votre identifiant. Si un e-mail est associé à votre compte personnel, un mot de passe temporaire vous sera envoyé.'
+                  : 'Enter your username. If an e-mail is linked to your staff account, a temporary password will be sent.' }}
+              </p>
+            </div>
+
+            <form (ngSubmit)="submitForgot()" class="space-y-4">
+              <div>
+                <label class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ i18n.t('username') }}</label>
+                <div class="relative">
+                  <svg class="absolute left-3 top-1/2 -translate-y-1/2 text-mute" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"/><path d="m22 6-10 7L2 6"/></svg>
+                  <input name="forgotUsername" [(ngModel)]="username" autocomplete="username" required
+                    class="w-full h-11 pl-10 pr-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400" />
+                </div>
+              </div>
+
+              @if (forgotInfo()) {
+                <div class="text-xs text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2 leading-relaxed">{{ forgotInfo() }}</div>
+              }
+              @if (error()) {
+                <div class="text-xs text-rose-600 bg-rose-50 rounded-lg px-3 py-2">{{ error() }}</div>
+              }
+
+              <button type="submit" [disabled]="loading() || !username.trim()"
+                class="w-full h-12 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-lg transition disabled:opacity-60 flex items-center justify-center gap-2 mt-2">
+                {{ loading()
+                  ? (fr() ? 'Envoi…' : 'Sending…')
+                  : (fr() ? 'Envoyer un nouveau mot de passe' : 'Send a new password') }}
+              </button>
+
+              <p class="text-[11px] text-mute leading-relaxed">
+                {{ fr()
+                  ? 'Les comptes sans e-mail (ex. parents) doivent s’adresser à l’administrateur, qui peut réinitialiser le mot de passe depuis le module Personnel.'
+                  : 'Accounts without an e-mail (e.g. parents) must ask the administrator, who can reset the password from the Staff module.' }}
+              </p>
+            </form>
+          }
         </div>
       </div>
     </div>
@@ -142,6 +190,8 @@ export class LoginComponent {
   protected showPwd = signal(false);
   protected loading = signal(false);
   protected error = signal<string | null>(null);
+  protected mode = signal<'login' | 'forgot'>('login');
+  protected forgotInfo = signal<string | null>(null);
 
   protected fr = () => this.i18n.lang() === 'fr';
 
@@ -163,6 +213,20 @@ export class LoginComponent {
     { label: this.fr() ? 'SMS aux parents' : 'Parent SMS', icon: this.icon('<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m22 2-7 20-4-9-9-4 20-7z"/></svg>') },
   ];
 
+  openForgot(): void {
+    this.mode.set('forgot');
+    this.error.set(null);
+    this.forgotInfo.set(null);
+    this.loading.set(false);
+  }
+
+  backToLogin(): void {
+    this.mode.set('login');
+    this.error.set(null);
+    this.forgotInfo.set(null);
+    this.loading.set(false);
+  }
+
   submit(): void {
     this.loading.set(true);
     this.error.set(null);
@@ -170,6 +234,28 @@ export class LoginComponent {
       next: (res) => this.router.navigate([res.user.role === 'parent' ? '/parent' : '/parcours']),
       error: (e) => {
         this.error.set(e?.error?.message ?? 'Connexion impossible');
+        this.loading.set(false);
+      },
+    });
+  }
+
+  submitForgot(): void {
+    const u = this.username.trim();
+    if (!u) return;
+    this.loading.set(true);
+    this.error.set(null);
+    this.forgotInfo.set(null);
+    this.auth.forgotPassword(u).subscribe({
+      next: (res) => {
+        this.forgotInfo.set(res.message || (this.fr()
+          ? 'Si un compte correspondant existe et dispose d’une adresse e-mail, un nouveau mot de passe y a été envoyé.'
+          : 'If a matching account with an e-mail exists, a new password has been sent.'));
+        this.loading.set(false);
+      },
+      error: (e) => {
+        this.error.set(e?.error?.message
+          ?? (this.fr() ? 'Demande impossible pour le moment. Réessayez ou contactez l’administrateur.'
+            : 'Request failed. Please try again or contact the administrator.'));
         this.loading.set(false);
       },
     });

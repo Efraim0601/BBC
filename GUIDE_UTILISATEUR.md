@@ -175,7 +175,7 @@ Enregistrement et clé du **lecteur biométrique** utilisé par le module Prése
 
 **Comment changer la langue ?** Bouton **FR / EN** en haut de l'écran (§1.2).
 
-**J'ai oublié mon mot de passe.** Contactez l'administrateur de l'établissement, qui peut réinitialiser votre compte depuis Paramètres.
+**J'ai oublié mon mot de passe.** Utilisez **Oublié ?** sur l'écran de connexion : un mot de passe temporaire est envoyé par e-mail si votre fiche personnel en a un et si le SMTP est configuré. Sinon, contactez l'administrateur, qui peut réinitialiser votre compte depuis Personnel.
 
 ---
 

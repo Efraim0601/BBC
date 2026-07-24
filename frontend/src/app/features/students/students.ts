@@ -53,10 +53,23 @@ import {
                 [placeholder]="fr() ? 'Rechercher un élève, matricule, parent…' : 'Search student, ID, parent…'"
                 class="h-9 w-72 pl-9 pr-3 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-brand-400" />
             </div>
-            <bbc-chip-filter [options]="subOptions()" [value]="subFilter()" (change)="subFilter.set($event)"
+            <bbc-chip-filter [options]="subOptions()" [value]="subFilter()" (change)="onSubFilter($event)"
               [allLabel]="fr() ? 'Tous systèmes' : 'All systems'" />
-            <bbc-chip-filter [options]="levelOptions()" [value]="levelFilter()" (change)="levelFilter.set($event)"
+            <bbc-chip-filter [options]="levelOptions()" [value]="levelFilter()" (change)="onLevelFilter($event)"
               [allLabel]="fr() ? 'Tous niveaux' : 'All levels'" />
+            @if (listClassOptions().length) {
+              <select [ngModel]="classFilter()" (ngModelChange)="classFilter.set($event)"
+                class="h-9 min-w-[11rem] px-3 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:border-brand-400">
+                <option [ngValue]="null">{{ fr() ? 'Toutes classes' : 'All classes' }}</option>
+                @for (g of listClassGroups(); track g.key) {
+                  <optgroup [label]="g.label">
+                    @for (c of g.classes; track c.id) {
+                      <option [ngValue]="c.id">{{ c.name }}{{ c.studentCount ? ' · ' + c.studentCount : '' }}</option>
+                    }
+                  </optgroup>
+                }
+              </select>
+            }
           </div>
         </bbc-card>
 
@@ -440,13 +453,56 @@ import {
 
                 @if (importTarget() === 'existing') {
                   @if (classes().length) {
-                    <select [ngModel]="importClassId()" (ngModelChange)="importClassId.set($event)" name="importClass"
-                      class="w-full md:w-96 h-10 px-3 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400">
-                      <option [ngValue]="null">{{ fr() ? '— Choisir une classe —' : '— Choose a class —' }}</option>
-                      @for (c of classes(); track c.id) {
-                        <option [ngValue]="c.id">{{ c.name }} · {{ c.sectionLabel }}</option>
+                    <div class="space-y-3">
+                      <div class="flex items-center gap-2 flex-wrap">
+                        <bbc-chip-filter [options]="subOptions()" [value]="importSubFilter()" (change)="onImportSubFilter($event)"
+                          [allLabel]="fr() ? 'Tous systèmes' : 'All systems'" />
+                        <bbc-chip-filter [options]="levelOptions()" [value]="importLevelFilter()" (change)="onImportLevelFilter($event)"
+                          [allLabel]="fr() ? 'Tous niveaux' : 'All levels'" />
+                      </div>
+                      @if (importGradeOptions().length > 1) {
+                        <div class="flex items-center gap-2 flex-wrap">
+                          <span class="text-[11px] font-semibold text-mute uppercase tracking-wide">{{ fr() ? 'Série / classe' : 'Grade / class' }}</span>
+                          <div class="inline-flex flex-wrap gap-1">
+                            <button type="button" (click)="setImportGrade(null)"
+                              class="h-8 px-2.5 text-xs font-semibold rounded-md border"
+                              [class]="!importGradeFilter() ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-ink border-slate-200 hover:bg-slate-50'">
+                              {{ fr() ? 'Toutes' : 'All' }}
+                            </button>
+                            @for (g of importGradeOptions(); track g) {
+                              <button type="button" (click)="setImportGrade(g)"
+                                class="h-8 px-2.5 text-xs font-semibold rounded-md border"
+                                [class]="importGradeFilter() === g ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-ink border-slate-200 hover:bg-slate-50'">
+                                {{ g }}
+                                <span class="opacity-70 font-normal">({{ importSubclassCount(g) }})</span>
+                              </button>
+                            }
+                          </div>
+                        </div>
                       }
-                    </select>
+                      <select [ngModel]="importClassId()" (ngModelChange)="importClassId.set($event)" name="importClass"
+                        class="w-full md:w-[28rem] h-10 px-3 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400">
+                        <option [ngValue]="null">{{ fr() ? '— Choisir une classe / sous-classe —' : '— Choose a class / section —' }}</option>
+                        @for (g of importClassGroups(); track g.key) {
+                          <optgroup [label]="g.label">
+                            @for (c of g.classes; track c.id) {
+                              <option [ngValue]="c.id">
+                                {{ c.name }} · {{ c.sectionLabel }}{{ c.studentCount ? ' · ' + c.studentCount + (fr() ? ' él.' : ' st.') : '' }}
+                              </option>
+                            }
+                          </optgroup>
+                        }
+                      </select>
+                      @if (!importClassGroups().length) {
+                        <div class="text-sm text-mute p-3 rounded-lg bg-slate-50 border border-slate-100">
+                          {{ fr() ? 'Aucune classe ne correspond à ces filtres.' : 'No class matches these filters.' }}
+                        </div>
+                      } @else if (importGradeFilter(); as grade) {
+                        <div class="text-[11px] text-mute">
+                          {{ importSubclassHint(grade) }}
+                        </div>
+                      }
+                    </div>
                   } @else {
                     <div class="text-sm text-mute p-3 rounded-lg bg-amber-50 border border-amber-100">
                       {{ fr() ? 'Aucune classe définie — utilisez « Nouvelle classe » pour la créer à l’import.' : 'No classes defined — use “New class” to create one on import.' }}
@@ -605,6 +661,7 @@ export class StudentsComponent {
   protected search = signal('');
   protected subFilter = signal<string | null>(null);
   protected levelFilter = signal<string | null>(null);
+  protected classFilter = signal<string | null>(null);
   protected selectedId = signal<string | null>(null);
 
   protected mode = signal<'list' | 'edit' | 'import'>('list');
@@ -614,6 +671,9 @@ export class StudentsComponent {
   // Bulk import
   protected importTarget = signal<'existing' | 'new'>('existing');
   protected importClassId = signal<string | null>(null);
+  protected importSubFilter = signal<string | null>(null);
+  protected importLevelFilter = signal<string | null>(null);
+  protected importGradeFilter = signal<string | null>(null);
   protected newClassName = signal('');
   protected newClassSubsystem = signal<'FR' | 'EN'>('FR');
   protected newClassLevel = signal<'maternelle' | 'primary' | 'secondary'>('secondary');
@@ -651,9 +711,11 @@ export class StudentsComponent {
     const q = this.search().trim().toLowerCase();
     const sub = this.subFilter();
     const lvl = this.levelFilter();
+    const classId = this.classFilter();
     return this.rows().filter((s) => {
       if (sub && (s.subsystem || '').toUpperCase() !== sub) return false;
       if (lvl && (s.level || '').toLowerCase() !== lvl) return false;
+      if (classId && s.classId !== classId) return false;
       if (q) {
         const hay = `${s.name} ${s.matricule} ${s.parentName}`.toLowerCase();
         if (!hay.includes(q)) return false;
@@ -662,6 +724,35 @@ export class StudentsComponent {
     });
   });
 
+  /** Classes visible in the list filter, respecting système / niveau chips. */
+  protected listClassOptions = computed(() => this.filterClasses(this.classes(), this.subFilter(), this.levelFilter(), null));
+
+  protected listClassGroups = computed(() => this.groupClasses(this.listClassOptions()));
+
+  /** Import picker: classes after système / niveau / série filters. */
+  protected importFilteredClasses = computed(() =>
+    this.filterClasses(this.classes(), this.importSubFilter(), this.importLevelFilter(), this.importGradeFilter()));
+
+  protected importClassGroups = computed(() => this.groupClasses(this.importFilteredClasses()));
+
+  /** Distinct grade bases (4e, 5e, CM1…) among classes matching système/niveau. */
+  protected importGradeOptions = computed(() => {
+    const scoped = this.filterClasses(this.classes(), this.importSubFilter(), this.importLevelFilter(), null);
+    const keys = new Set<string>();
+    for (const c of scoped) keys.add(this.gradeBase(c.name));
+    return [...keys].sort((a, b) => a.localeCompare(b, 'fr', { numeric: true, sensitivity: 'base' }));
+  });
+
+  protected importSubclassCount(grade: string): number {
+    return this.filterClasses(this.classes(), this.importSubFilter(), this.importLevelFilter(), grade).length;
+  }
+
+  protected importSubclassHint(grade: string): string {
+    const names = this.importFilteredClasses().map((c) => c.name).join(', ');
+    return this.fr()
+      ? `Sous-classes de « ${grade} » : ${names}`
+      : `Sections of “${grade}”: ${names}`;
+  }
   protected selected = computed(() => {
     const id = this.selectedId();
     if (!id) return null;
@@ -800,7 +891,10 @@ export class StudentsComponent {
 
   protected openImport(): void {
     this.resetImport();
-    // Pre-select the class currently filtered, if any, for convenience.
+    // Carry list filters into the import picker and pre-select the filtered class.
+    this.importSubFilter.set(this.subFilter());
+    this.importLevelFilter.set(this.levelFilter());
+    if (this.classFilter()) this.importClassId.set(this.classFilter());
     this.mode.set('import');
   }
 
@@ -812,6 +906,9 @@ export class StudentsComponent {
   protected resetImport(): void {
     this.importTarget.set('existing');
     this.importClassId.set(null);
+    this.importSubFilter.set(null);
+    this.importLevelFilter.set(null);
+    this.importGradeFilter.set(null);
     this.newClassName.set('');
     this.newClassSubsystem.set('FR');
     this.newClassLevel.set('secondary');
@@ -820,6 +917,90 @@ export class StudentsComponent {
     this.importResult.set(null);
     this.importError.set(null);
     this.importing.set(false);
+  }
+
+  protected onSubFilter(v: string | null): void {
+    this.subFilter.set(v);
+    this.clearClassFilterIfOutOfScope();
+  }
+
+  protected onLevelFilter(v: string | null): void {
+    this.levelFilter.set(v);
+    this.clearClassFilterIfOutOfScope();
+  }
+
+  protected onImportSubFilter(v: string | null): void {
+    this.importSubFilter.set(v);
+    this.importGradeFilter.set(null);
+    this.clearImportClassIfOutOfScope();
+  }
+
+  protected onImportLevelFilter(v: string | null): void {
+    this.importLevelFilter.set(v);
+    this.importGradeFilter.set(null);
+    this.clearImportClassIfOutOfScope();
+  }
+
+  protected setImportGrade(g: string | null): void {
+    this.importGradeFilter.set(g);
+    this.clearImportClassIfOutOfScope();
+  }
+
+  private clearClassFilterIfOutOfScope(): void {
+    const id = this.classFilter();
+    if (!id) return;
+    if (!this.listClassOptions().some((c) => c.id === id)) this.classFilter.set(null);
+  }
+
+  private clearImportClassIfOutOfScope(): void {
+    const id = this.importClassId();
+    if (!id) return;
+    if (!this.importFilteredClasses().some((c) => c.id === id)) this.importClassId.set(null);
+  }
+
+  /** Strip trailing section letter: "4e A" / "4e-B" → "4e"; leave "Form 2" as-is. */
+  private gradeBase(name: string): string {
+    const n = (name || '').trim();
+    const m = n.match(/^(.*?)(?:[\s\-]+([A-Za-z]))$/);
+    if (m && m[1]!.trim()) return m[1]!.trim();
+    return n;
+  }
+
+  private filterClasses(
+    all: ClassView[],
+    sub: string | null,
+    lvl: string | null,
+    grade: string | null,
+  ): ClassView[] {
+    return all
+      .filter((c) => {
+        if (sub && (c.subsystem || '').toUpperCase() !== sub) return false;
+        if (lvl && (c.level || '').toLowerCase() !== lvl) return false;
+        if (grade && this.gradeBase(c.name) !== grade) return false;
+        return true;
+      })
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name, 'fr', { numeric: true, sensitivity: 'base' }));
+  }
+
+  private groupClasses(list: ClassView[]): { key: string; label: string; classes: ClassView[] }[] {
+    const map = new Map<string, ClassView[]>();
+    for (const c of list) {
+      const key = this.gradeBase(c.name);
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(c);
+    }
+    return [...map.entries()]
+      .sort(([a], [b]) => a.localeCompare(b, 'fr', { numeric: true, sensitivity: 'base' }))
+      .map(([key, classes]) => {
+        const sample = classes[0]!;
+        const level = this.levelLabel(sample.level);
+        const sub = this.subsystemLabel(sample.subsystem);
+        const label = classes.length > 1
+          ? `${key} — ${level} · ${sub} (${classes.length})`
+          : `${key} — ${level} · ${sub}`;
+        return { key, label, classes };
+      });
   }
 
   protected onText(text: string): void {

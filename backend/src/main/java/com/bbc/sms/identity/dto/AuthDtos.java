@@ -15,6 +15,13 @@ public class AuthDtos {
 
     public record RefreshRequest(@NotBlank String refreshToken) {}
 
+    public record ForgotPasswordRequest(
+            @NotBlank String username,
+            String schoolCode) {}
+
+    /** Always-safe response (does not reveal whether the username exists). */
+    public record ForgotPasswordResponse(boolean ok, String message) {}
+
     /** A parcours the user may access (level × subsystem). */
     public record Parcours(String level, String subsystem) {}
 

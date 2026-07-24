@@ -79,6 +79,35 @@ public class MailService {
         }
     }
 
+    /**
+     * Sends a temporary password after a self-service "forgot password" request.
+     * Same SMTP rules as {@link #sendCredentials}; returns {@code false} when mail
+     * cannot be delivered so the caller can log without leaking details to the client.
+     */
+    public boolean sendPasswordReset(UUID schoolId, String displayName, String toEmail,
+                                     String username, String tempPassword, String schoolCode) {
+        if (toEmail == null || toEmail.isBlank()) return false;
+        MailConfig c = repo.findById(schoolId).orElse(null);
+        if (c == null || !c.isEnabled() || c.getHost() == null || c.getHost().isBlank()) return false;
+        String subject = "BBC SMS — réinitialisation de mot de passe";
+        String body = "Bonjour " + (displayName == null ? "" : displayName) + ",\n\n"
+                + "Une réinitialisation de mot de passe a été demandée pour votre compte BBC SMS.\n\n"
+                + "  • Identifiant       : " + username + "\n"
+                + "  • Nouveau mot de passe : " + tempPassword + "\n"
+                + (schoolCode == null || schoolCode.isBlank() ? "" : "  • Code établissement : " + schoolCode + "\n")
+                + "\nConnectez-vous avec ce mot de passe temporaire, puis changez-le si possible.\n"
+                + "Si vous n'êtes pas à l'origine de cette demande, contactez l'administration.\n\n"
+                + "— BBC SMS";
+        try {
+            send(c, toEmail, subject, body);
+            log.info("Mot de passe réinitialisé envoyé à {}", toEmail);
+            return true;
+        } catch (Exception e) {
+            log.error("Échec d'envoi de la réinitialisation à {} : {}", toEmail, e.getMessage());
+            return false;
+        }
+    }
+
     /** Synchronous test send — surfaces SMTP errors to the caller (admin UI). */
     public void sendTest(UUID schoolId, String to) {
         MailConfig c = repo.findById(schoolId)

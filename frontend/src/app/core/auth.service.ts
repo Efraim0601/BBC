@@ -50,6 +50,14 @@ export class AuthService {
       .pipe(tap((res) => this.persist(res)));
   }
 
+  /** Self-service reset — always resolves with a generic message (anti-enumeration). */
+  forgotPassword(username: string, schoolCode?: string): Observable<{ ok: boolean; message: string }> {
+    return this.http.post<{ ok: boolean; message: string }>(
+      `${environment.apiUrl}/auth/forgot-password`,
+      { username, schoolCode },
+    );
+  }
+
   /**
    * Silent token renewal. Concurrent callers share one HTTP round-trip
    * (single-flight) so a burst of 401s cannot log the user out spuriously.
