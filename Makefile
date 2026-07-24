@@ -1,5 +1,5 @@
 # BBC SMS — one-command launch helpers.
-.PHONY: prod demo down reset logs ps deploy redeploy server-down server-logs deploy-domain domain-down domain-logs
+.PHONY: prod demo down reset logs ps deploy redeploy server-down server-logs deploy-domain domain-down domain-logs seed-test-roles
 
 ## prod  — PRODUCTION: clean schema, NO demo data (create your first admin yourself).
 prod:
@@ -50,3 +50,7 @@ domain-down:
 ## domain-logs — follow the domain backend logs.
 domain-logs:
 	docker compose -f docker-compose.letsencrypt.yml logs -f backend
+
+## seed-test-roles — create demo.* login accounts for every role (DB direct).
+seed-test-roles:
+	./tools/seed-test-roles.sh
