@@ -1,4 +1,4 @@
-import { Injectable, inject } from '@angular/core';
+import { Injectable, effect, inject } from '@angular/core';
 import { Observable, Subject } from 'rxjs';
 import { Client, IMessage, StompSubscription } from '@stomp/stompjs';
 import SockJS from 'sockjs-client';
@@ -16,6 +16,11 @@ export class RealtimeService {
   private subjects = new Map<string, Subject<any>>();
   private subs = new Map<string, StompSubscription>();
 
+  constructor() {
+    effect(() => {
+      if (!this.auth.user()) this.disconnect();
+    });
+  }
   /** Subscribe to a tenant channel (e.g. "attendance", "payments"). */
   watch<T = any>(channel: string): Observable<T> {
     this.ensureConnected();
@@ -30,10 +35,15 @@ export class RealtimeService {
 
   private ensureConnected(): void {
     if (this.client) return;
-    const token = this.auth.accessToken;
     this.client = new Client({
       webSocketFactory: () => new SockJS(environment.wsUrl) as any,
-      connectHeaders: token ? { Authorization: `Bearer ${token}` } : {},
+      // Re-read the access token on every (re)connect so WS survives JWT rotation.
+      beforeConnect: () => {
+        const token = this.auth.accessToken;
+        if (this.client) {
+          this.client.connectHeaders = token ? { Authorization: `Bearer ${token}` } : {};
+        }
+      },
       reconnectDelay: 4000,
       onConnect: () => {
         // (re)bind every requested channel after a (re)connection

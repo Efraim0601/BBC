@@ -28,7 +28,8 @@ bbc:
   security:
     # 256-bit base64 secret. OVERRIDE in production via env BBC_JWT_SECRET.
     jwt-secret: ${BBC_JWT_SECRET:Y2hhbmdlLW1lLXRoaXMtaXMtYS1kZXYtb25seS1zZWNyZXQtMzJieXRlcyE=}
-    access-token-minutes: ${BBC_ACCESS_TOKEN_MINUTES:60}
+    # School workday default (8h). Silent refresh keeps the session beyond this.
+    access-token-minutes: ${BBC_ACCESS_TOKEN_MINUTES:480}
     refresh-token-days: ${BBC_REFRESH_TOKEN_DAYS:7}
   cors:
     allowed-origins: ${BBC_CORS_ORIGINS:http://localhost:4200}

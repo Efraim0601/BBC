@@ -6,8 +6,9 @@ import { ScopeService } from './scope.service';
 
 /**
  * Attaches the Bearer access token (and the active parcours scope as `X-Parcours`);
- * on a 401 tries one silent refresh, then retries the original request. If refresh
- * fails, logs out.
+ * on a 401 tries one silent refresh (single-flight via AuthService), then retries
+ * the original request. Only a rejected refresh (401/403) forces logout — network
+ * blips keep the session so the user is not kicked out spuriously.
  */
 export const authInterceptor: HttpInterceptorFn = (req, next) => {
   const auth = inject(AuthService);
@@ -27,9 +28,16 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
       if (err.status === 401 && !isAuthCall) {
         return auth.refresh().pipe(
           switchMap((res) =>
-            next(req.clone({ setHeaders: { ...headers, Authorization: `Bearer ${res.accessToken}` } }))),
-          catchError((refreshErr) => {
-            auth.logout('expired');
+            next(
+              req.clone({
+                setHeaders: { ...headers, Authorization: `Bearer ${res.accessToken}` },
+              }),
+            ),
+          ),
+          catchError((refreshErr: unknown) => {
+            if (auth.isSessionInvalid(refreshErr)) {
+              auth.logout('expired');
+            }
             return throwError(() => refreshErr);
           }),
         );
