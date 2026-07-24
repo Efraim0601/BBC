@@ -165,8 +165,12 @@ done
 
 # 6) Renouvellement : cron hôte idempotent qui recharge nginx chaque semaine
 #    (le conteneur certbot renouvelle le fichier ; nginx doit relire le cert).
+#    Robustesse set -e/pipefail : pas de crontab existant → crontab -l exit 1.
 CRON_LINE="0 3 * * 1 cd $(pwd) && ${COMPOSE} exec frontend nginx -s reload >/dev/null 2>&1"
-( crontab -l 2>/dev/null | grep -vF "docker-compose.letsencrypt.yml exec frontend nginx -s reload" ; echo "${CRON_LINE}" ) | crontab -
+{
+  crontab -l 2>/dev/null | grep -vF "docker-compose.letsencrypt.yml exec frontend nginx -s reload" || true
+  echo "${CRON_LINE}"
+} | crontab -
 echo "→ Cron de rechargement nginx hebdomadaire installé (lundi 03h00)."
 
 echo "──────────────────────────────────────────────────────────────"
