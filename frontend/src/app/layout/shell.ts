@@ -40,6 +40,12 @@ const NAV_COLLAPSE_KEY = 'bbc.nav.collapsed';
             <span>{{ sl }}</span>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m6 9 6 6 6-6"/></svg>
           </a>
+        } @else {
+          <a routerLink="/parcours" title="{{ fr() ? 'Choisir un parcours' : 'Choose a parcours' }}"
+            class="hidden sm:flex items-center gap-2 h-8 px-3 rounded-lg bg-white/10 hover:bg-white/20 transition text-[11px] font-bold">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h18M3 12h18M3 17h18"/></svg>
+            <span>{{ fr() ? 'Tous les parcours' : 'All parcours' }}</span>
+          </a>
         }
 
         <div class="flex items-center bg-white/10 rounded-lg p-0.5">

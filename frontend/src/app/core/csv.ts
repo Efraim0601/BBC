@@ -13,10 +13,9 @@ export function toCsv(headers: string[], rows: CsvCell[][]): string {
   return [headers.map(quote).join(','), ...rows.map((r) => r.map(quote).join(','))].join('\r\n');
 }
 
-/** Trigger a browser download of `rows` as CSV. Returns false when there is nothing to export. */
+/** Trigger a browser download of `rows` as CSV. Header-only files (empty rows) are allowed for import templates. */
 export function downloadCsv(filename: string, headers: string[], rows: CsvCell[][]): boolean {
-  if (!rows.length) return false;
-  const blob = new Blob(['﻿' + toCsv(headers, rows)], { type: 'text/csv;charset=utf-8;' });
+  const blob = new Blob(['\uFEFF' + toCsv(headers, rows)], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

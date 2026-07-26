@@ -43,11 +43,16 @@ public class StudentService {
                 .map(this::toView).toList();
     }
 
-    /** Keep a row when no parcours scope is active, or when its level+subsystem match it. */
+    /**
+     * Keep a row when no parcours scope is active, or when its level+subsystem match it.
+     * Unassigned rows (null level and/or subsystem) stay visible in every parcours so
+     * they do not become "ghost" students after create-without-class.
+     */
     public static boolean inScope(Scope scope, String level, String subsystem) {
         if (scope == null) return true;
-        return scope.level().equalsIgnoreCase(level == null ? "" : level)
-                && scope.subsystem().equalsIgnoreCase(subsystem == null ? "" : subsystem);
+        if (level == null || level.isBlank() || subsystem == null || subsystem.isBlank()) return true;
+        return scope.level().equalsIgnoreCase(level)
+                && scope.subsystem().equalsIgnoreCase(subsystem);
     }
 
     @Transactional(readOnly = true)
@@ -212,11 +217,17 @@ public class StudentService {
             s.setSubsystem(cls.getSubsystem());
             s.setLevel(cls.getLevel());
         } else {
-            // Unassigned student (no class yet) — keep any legacy/manual hints.
+            // Unassigned student (no class yet) — stamp the active parcours when the
+            // client did not send level/subsystem, so the pupil stays findable.
             s.setClassId(null);
             s.setClassName(blankToNull(in.className()));
-            s.setSubsystem(blankToNull(in.subsystem()));
-            s.setLevel(blankToNull(in.level()));
+            String sub = blankToNull(in.subsystem());
+            String lvl = blankToNull(in.level());
+            Scope scope = ParcoursContext.get();
+            if (sub == null && scope != null) sub = scope.subsystem();
+            if (lvl == null && scope != null) lvl = scope.level();
+            s.setSubsystem(sub);
+            s.setLevel(lvl);
         }
 
         s.setParentName(in.parentName());

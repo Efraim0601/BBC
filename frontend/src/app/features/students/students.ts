@@ -5,7 +5,9 @@ import { StudentApi, StudentUpsert, ParentAccountView, ParentLinkRequest, Studen
 import { SetupApi, ClassView } from '../../core/setup.api';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
+import { ScopeService } from '../../core/scope.service';
 import { Student } from '../../core/models';
+import { downloadCsv, stampedName } from '../../core/csv';
 import {
   IconComponent, CardComponent, PageHeaderComponent,
   AvatarComponent, ChipFilterComponent, StatusPillComponent,
@@ -26,10 +28,15 @@ import {
       <bbc-page-header [title]="i18n.t('students')" [subtitle]="headerSub()">
         <div right class="flex items-center gap-2">
           @if (mode() === 'list') {
-            <button class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
+            <button (click)="exportList()"
+              class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
               <bbc-icon name="download" [s]="16" /> {{ fr() ? 'Exporter liste' : 'Export list' }}
             </button>
             @if (canWrite) {
+              <button (click)="downloadStudentTemplate()"
+                class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
+                <bbc-icon name="download" [s]="16" /> {{ fr() ? 'Modèle import' : 'Import template' }}
+              </button>
               <button (click)="openImport()"
                 class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
                 <bbc-icon name="download" [s]="16" /> {{ fr() ? 'Importer' : 'Import' }}
@@ -53,10 +60,16 @@ import {
                 [placeholder]="fr() ? 'Rechercher un élève, matricule, parent…' : 'Search student, ID, parent…'"
                 class="h-9 w-72 pl-9 pr-3 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-brand-400" />
             </div>
-            <bbc-chip-filter [options]="subOptions()" [value]="subFilter()" (change)="onSubFilter($event)"
-              [allLabel]="fr() ? 'Tous systèmes' : 'All systems'" />
-            <bbc-chip-filter [options]="levelOptions()" [value]="levelFilter()" (change)="onLevelFilter($event)"
-              [allLabel]="fr() ? 'Tous niveaux' : 'All levels'" />
+            @if (!activeScope()) {
+              <bbc-chip-filter [options]="subOptions()" [value]="subFilter()" (change)="onSubFilter($event)"
+                [allLabel]="fr() ? 'Tous systèmes' : 'All systems'" />
+              <bbc-chip-filter [options]="levelOptions()" [value]="levelFilter()" (change)="onLevelFilter($event)"
+                [allLabel]="fr() ? 'Tous niveaux' : 'All levels'" />
+            } @else {
+              <span class="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-brand-50 text-brand-700 border border-brand-100">
+                {{ scopeChip() }}
+              </span>
+            }
             @if (listClassOptions().length) {
               <select [ngModel]="classFilter()" (ngModelChange)="classFilter.set($event)"
                 class="h-9 min-w-[11rem] px-3 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:border-brand-400">
@@ -370,10 +383,15 @@ import {
                   </label>
                   <label class="block">
                     <span class="text-xs font-semibold text-ink">{{ fr() ? 'Téléphone parent' : 'Parent phone' }}</span>
-                    <input [(ngModel)]="draft.parentPhone" name="parentPhone"
+                    <input [(ngModel)]="draft.parentPhone" name="parentPhone" placeholder="+237 6XX XX XX XX"
                       class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
                   </label>
                 </div>
+                <p class="text-[11px] text-mute mt-2">
+                  {{ fr()
+                    ? 'Pour créer un compte de connexion parent (identifiant / mot de passe), enregistrez d’abord l’élève puis utilisez « Comptes parents » sur sa fiche.'
+                    : 'To create a parent login (username / password), save the student first, then use “Parent accounts” on their profile.' }}
+                </p>
               </section>
             </div>
 
@@ -544,6 +562,10 @@ import {
                 <div class="flex items-center justify-between mb-2">
                   <div class="text-[11px] uppercase tracking-wider text-mute font-bold">{{ fr() ? 'Données' : 'Data' }}</div>
                   <div class="flex items-center gap-2">
+                    <button type="button" (click)="downloadStudentTemplate()"
+                      class="h-8 px-3 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
+                      {{ fr() ? 'Modèle CSV' : 'CSV template' }}
+                    </button>
                     <label class="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50 cursor-pointer">
                       <bbc-icon name="download" [s]="14" /> {{ fr() ? 'Fichier Excel / CSV' : 'Excel / CSV file' }}
                       <input type="file" accept=".csv,.xls,.xlsx,.xlsm,text/csv,text/plain,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" (change)="onFile($event)" class="hidden" />
@@ -647,8 +669,15 @@ export class StudentsComponent {
   private api = inject(StudentApi);
   private setupApi = inject(SetupApi);
   private auth = inject(AuthService);
+  private scopeSvc = inject(ScopeService);
 
   protected fr = () => this.i18n.lang() === 'fr';
+  protected activeScope = computed(() => this.scopeSvc.scope());
+  protected scopeChip = computed(() => {
+    const s = this.activeScope();
+    if (!s) return '';
+    return `${this.levelLabel(s.level)} · ${s.subsystem === 'FR' ? (this.fr() ? 'Francophone' : 'Francophone') : (this.fr() ? 'Anglophone' : 'English')}`;
+  });
 
   protected rows = signal<Student[]>([]);
   protected classes = signal<ClassView[]>([]);
@@ -721,6 +750,10 @@ export class StudentsComponent {
         if (!hay.includes(q)) return false;
       }
       return true;
+    }).sort((a, b) => {
+      const ca = (a.className || '').localeCompare(b.className || '', 'fr', { sensitivity: 'base' });
+      if (ca !== 0) return ca;
+      return a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' });
     });
   });
 
@@ -868,7 +901,28 @@ export class StudentsComponent {
   }
 
   private blank(): StudentUpsert {
-    return { firstName: '', lastName: '', niu: '', sex: 'M', birthplace: '', repeats: false, classId: null, parentName: '', parentPhone: '' };
+    const s = this.activeScope();
+    return {
+      firstName: '', lastName: '', niu: '', sex: 'M', birthplace: '', repeats: false,
+      classId: null, parentName: '', parentPhone: '',
+      subsystem: s?.subsystem,
+      level: s?.level,
+    };
+  }
+
+  protected exportList(): void {
+    const rows = this.filtered().map((s) => [
+      s.matricule, s.lastName, s.firstName, s.sex, s.className, s.subsystem, s.level, s.parentName, s.parentPhone,
+    ]);
+    downloadCsv(stampedName('eleves'),
+      ['matricule', 'nom', 'prenom', 'sexe', 'classe', 'sous_systeme', 'niveau', 'parent', 'telephone'],
+      rows);
+  }
+
+  protected downloadStudentTemplate(): void {
+    downloadCsv('modele-eleves.csv',
+      ['niu', 'nom_prenom', 'sexe', 'date_naissance', 'lieu_naissance', 'redouble', 'parent', 'telephone'],
+      [['', 'DUPONT Jean', 'M', '2015-03-12', 'Douala', 'non', 'DUPONT Marie', '+237 6XX XX XX XX']]);
   }
 
   // ---- Bulk import ---------------------------------------------------------

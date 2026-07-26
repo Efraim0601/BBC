@@ -2,6 +2,7 @@ import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@a
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
+import { ScopeService } from '../../core/scope.service';
 import {
   SetupApi, SectionView, SectionUpsert, ClassView, ClassUpsert, SubjectView, SubjectUpsert, TeacherOption,
   ClassCoefView, CoefImportRow, CoefImportResult,
@@ -9,6 +10,7 @@ import {
 import { defaultSubjects } from './subject-defaults';
 import { forkJoin } from 'rxjs';
 import { IconComponent, CardComponent, TabsComponent, EmptyComponent } from '../../core/ui';
+import { downloadCsv } from '../../core/csv';
 
 /**
  * Academic Setup — admins build the relational backbone here (sections → classes,
@@ -36,23 +38,33 @@ import { IconComponent, CardComponent, TabsComponent, EmptyComponent } from '../
             }
           </div>
 
+          @if (scopeBanner(); as banner) {
+            <div class="mb-3 text-xs rounded-lg px-3 py-2 bg-sky-50 text-sky-800 border border-sky-100">{{ banner }}</div>
+          }
+          @if (err(); as e) {
+            <div class="mb-3 text-xs rounded-lg px-3 py-2 bg-rose-50 text-rose-700 border border-rose-100">{{ e }}</div>
+          }
+
           @if (canWrite && secForm()) {
             <form (ngSubmit)="saveSection()" class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4 p-3 rounded-lg bg-slate-50">
               <label class="block md:col-span-2">
                 <span class="text-xs font-semibold text-ink">{{ fr() ? 'Libellé' : 'Label' }} *</span>
-                <input [(ngModel)]="secDraft.label" name="label" required [placeholder]="fr() ? 'Primaire francophone' : 'Francophone primary'"
+                <input [(ngModel)]="secDraft.label" name="label" required maxlength="120"
+                  [placeholder]="fr() ? 'Primaire francophone' : 'Francophone primary'"
                   class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
               </label>
               <label class="block">
                 <span class="text-xs font-semibold text-ink">{{ fr() ? 'Sous-système' : 'Subsystem' }}</span>
-                <select [(ngModel)]="secDraft.subsystem" name="subsystem" class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 bg-white">
+                <select [(ngModel)]="secDraft.subsystem" name="subsystem" [disabled]="!!activeScope()"
+                  class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 bg-white disabled:bg-slate-100">
                   <option value="FR">{{ fr() ? 'Francophone' : 'Francophone' }}</option>
                   <option value="EN">{{ fr() ? 'Anglophone' : 'English' }}</option>
                 </select>
               </label>
               <label class="block">
                 <span class="text-xs font-semibold text-ink">{{ fr() ? 'Niveau' : 'Level' }}</span>
-                <select [(ngModel)]="secDraft.level" name="level" class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 bg-white">
+                <select [(ngModel)]="secDraft.level" name="level" [disabled]="!!activeScope()"
+                  class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 bg-white disabled:bg-slate-100">
                   <option value="maternelle">{{ fr() ? 'Maternelle' : 'Kindergarten' }}</option>
                   <option value="primary">{{ fr() ? 'Primaire' : 'Primary' }}</option>
                   <option value="secondary">{{ fr() ? 'Secondaire' : 'Secondary' }}</option>
@@ -101,20 +113,38 @@ import { IconComponent, CardComponent, TabsComponent, EmptyComponent } from '../
       @case ('classes') {
         <bbc-card [title]="fr() ? 'Classes' : 'Classes'"
           [subtitle]="fr() ? 'Les élèves sont rattachés à une classe réelle (plus de texte libre)' : 'Students attach to a real class (no more free text)'">
-          <div action>
+          <div action class="flex items-center gap-2">
             @if (canWrite) {
-              <button (click)="newClass()" [disabled]="!sections().length" title="{{ !sections().length ? (fr() ? 'Créez d’abord une section' : 'Create a section first') : '' }}"
+              <button type="button" (click)="downloadClassTemplate()"
+                class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
+                <bbc-icon name="download" [s]="16" /> {{ fr() ? 'Modèle CSV' : 'CSV template' }}
+              </button>
+              <button (click)="newClass()" [disabled]="!sections().length"
                 class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white">
                 <bbc-icon name="plus" [s]="16" /> {{ fr() ? 'Nouvelle classe' : 'New class' }}
               </button>
             }
           </div>
 
+          @if (scopeBanner(); as banner) {
+            <div class="mb-3 text-xs rounded-lg px-3 py-2 bg-sky-50 text-sky-800 border border-sky-100">{{ banner }}</div>
+          }
+          @if (!sections().length) {
+            <div class="mb-3 text-sm rounded-lg px-3 py-2.5 bg-amber-50 text-amber-900 border border-amber-100">
+              {{ fr()
+                ? 'Veuillez créer une section dans ce parcours avant d’ajouter une classe (Paramètres → Scolarité → Sections), ou changez de parcours.'
+                : 'Please create a section in this parcours before adding a class (Settings → Academics → Sections), or switch parcours.' }}
+            </div>
+          }
+          @if (err(); as e) {
+            <div class="mb-3 text-xs rounded-lg px-3 py-2 bg-rose-50 text-rose-700 border border-rose-100">{{ e }}</div>
+          }
+
           @if (canWrite && clsForm()) {
             <form (ngSubmit)="saveClass()" class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4 p-3 rounded-lg bg-slate-50">
               <label class="block">
                 <span class="text-xs font-semibold text-ink">{{ fr() ? 'Nom de la classe' : 'Class name' }} *</span>
-                <input [(ngModel)]="clsDraft.name" name="cname" required placeholder="6ème A"
+                <input [(ngModel)]="clsDraft.name" name="cname" required maxlength="80" placeholder="6ème A"
                   class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
               </label>
               <label class="block md:col-span-2">
@@ -395,9 +425,27 @@ export class AcademicSetupComponent {
   protected i18n = inject(I18nService);
   private auth = inject(AuthService);
   private api = inject(SetupApi);
+  private scopeSvc = inject(ScopeService);
 
   protected fr = () => this.i18n.lang() === 'fr';
   protected canWrite = this.auth.can('settings', 'write');
+  protected activeScope = computed(() => this.scopeSvc.scope());
+
+  protected scopeBanner = computed(() => {
+    const s = this.activeScope();
+    if (!s) {
+      return this.fr()
+        ? 'Aucun parcours sélectionné — toutes les sections/classes sont listées. Choisissez un parcours pour filtrer.'
+        : 'No parcours selected — all sections/classes are listed. Pick a parcours to filter.';
+    }
+    const lvl = this.levelLabel(s.level);
+    const sub = s.subsystem === 'FR'
+      ? (this.fr() ? 'Francophone' : 'Francophone')
+      : (this.fr() ? 'Anglophone' : 'English');
+    return this.fr()
+      ? `Parcours actif : ${lvl} · ${sub}. Les données des autres parcours sont masquées — changez via le bandeau.`
+      : `Active parcours: ${lvl} · ${sub}. Other parcours data is hidden — switch from the top bar.`;
+  });
 
   protected sub = signal<'sections' | 'classes' | 'subjects'>('sections');
   protected sections = signal<SectionView[]>([]);
@@ -563,13 +611,29 @@ export class AcademicSetupComponent {
     return (this.fr() ? l['fr'] : l['en']) || l['fr'] || l['en'] || s.code;
   }
 
-  private fail = (e: any) => this.err.set(e?.error?.message ?? (this.fr() ? 'Opération impossible.' : 'Operation failed.'));
+  private fail = (e: any) => {
+    const msg = e?.error?.message;
+    if (msg && typeof msg === 'object') {
+      this.err.set(Object.values(msg).join(' · '));
+    } else {
+      this.err.set(msg ?? (this.fr() ? 'Opération impossible.' : 'Operation failed.'));
+    }
+  };
   private loadSections(): void { this.api.listSections().subscribe((r) => this.sections.set(r)); }
   private loadClasses(): void { this.api.listClasses().subscribe((r) => this.classes.set(r)); }
   private loadSubjects(): void { this.api.listSubjects().subscribe((r) => this.subjects.set(r)); }
 
   // ---- Sections ----
-  protected newSection(): void { this.secEditId.set(null); this.secDraft = { label: '', subsystem: 'FR', level: 'primary' }; this.secForm.set(true); }
+  protected newSection(): void {
+    this.secEditId.set(null);
+    const s = this.activeScope();
+    this.secDraft = {
+      label: '',
+      subsystem: s?.subsystem ?? 'FR',
+      level: s?.level ?? 'primary',
+    };
+    this.secForm.set(true);
+  }
   protected editSection(s: SectionView): void { this.secEditId.set(s.id); this.secDraft = { label: s.label, subsystem: s.subsystem, level: s.level }; this.secForm.set(true); }
   protected saveSection(): void {
     this.err.set(null);
@@ -596,6 +660,13 @@ export class AcademicSetupComponent {
     if (!confirm(this.fr() ? `Supprimer la classe « ${c.name} » ?` : `Delete class "${c.name}"?`)) return;
     this.err.set(null);
     this.api.deleteClass(c.id).subscribe({ next: () => { this.loadClasses(); this.loadSections(); }, error: this.fail });
+  }
+
+  /** Sample CSV so admins know the expected columns when preparing a class list offline. */
+  protected downloadClassTemplate(): void {
+    downloadCsv('modele-classes.csv',
+      ['nom', 'section'],
+      [['6ème A', 'Primaire francophone'], ['Form 1', 'Primary English']]);
   }
 
   // ---- Teacher assignment ----

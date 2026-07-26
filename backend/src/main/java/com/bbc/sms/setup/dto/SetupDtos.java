@@ -3,6 +3,7 @@ package com.bbc.sms.setup.dto;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.PositiveOrZero;
+import jakarta.validation.constraints.Size;
 
 import java.util.List;
 import java.util.Map;
@@ -15,7 +16,7 @@ public class SetupDtos {
     public record SectionView(String id, String label, String subsystem, String level, long classCount) {}
 
     public record SectionUpsert(
-            @NotBlank String label,
+            @NotBlank @Size(max = 120, message = "Le libellé ne peut pas dépasser 120 caractères") String label,
             @NotBlank @Pattern(regexp = "FR|EN") String subsystem,
             @NotBlank @Pattern(regexp = "maternelle|primary|secondary") String level) {}
 
@@ -24,7 +25,7 @@ public class SetupDtos {
                             String subsystem, String level, long studentCount, long teacherCount) {}
 
     public record ClassUpsert(
-            @NotBlank String name,
+            @NotBlank @Size(max = 80, message = "Le nom de classe ne peut pas dépasser 80 caractères") String name,
             @NotBlank String sectionId) {}
 
     // ---- Class ↔ teachers (N:N, 0..N teachers per class) --------------------

@@ -64,7 +64,9 @@ public class AttendanceService {
                 .forEach(s -> byId.put(s.getId(), s));
         List<AttendanceView> views = repo.findBySchoolIdAndDate(schoolId, date).stream()
                 .map(r -> toView(r, byId.get(r.getStudentId())))
-                .sorted(Comparator.comparing(AttendanceView::studentName))
+                .sorted(Comparator
+                        .comparing(AttendanceView::className, Comparator.nullsLast(String::compareToIgnoreCase))
+                        .thenComparing(AttendanceView::studentName, Comparator.nullsLast(String::compareToIgnoreCase)))
                 .toList();
         int present = (int) views.stream().filter(v -> "present".equals(v.status())).count();
         int late = (int) views.stream().filter(v -> "late".equals(v.status())).count();

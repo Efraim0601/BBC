@@ -1,6 +1,6 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { DisciplineApi, IncidentView, IncidentUpsert } from './discipline.api';
+import { DisciplineApi, IncidentView, IncidentUpsert, StudentLookup, NotifyResult } from './discipline.api';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
 import {
@@ -29,7 +29,6 @@ import {
       </bbc-page-header>
 
       <div class="grid grid-cols-12 gap-4">
-        <!-- Recent incidents -->
         <bbc-card className="col-span-12 lg:col-span-7"
           [title]="fr() ? 'Incidents récents' : 'Recent incidents'"
           [subtitle]="rows().length + (fr() ? ' incidents enregistrés' : ' incidents recorded')">
@@ -39,8 +38,22 @@ import {
 
           @if (canWrite && showForm()) {
             <div class="rounded-xl border border-slate-100 bg-slate-50/50 p-4 mb-3 grid grid-cols-1 md:grid-cols-2 gap-2.5">
-              <input [(ngModel)]="draft.studentId" [placeholder]="fr() ? 'Matricule / ID élève' : 'Matricule / Student ID'"
-                class="h-10 px-3 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-brand-400" />
+              <div>
+                <input [(ngModel)]="draft.studentRef" (ngModelChange)="onStudentRef($event)"
+                  [placeholder]="fr() ? 'Matricule / ID élève' : 'Matricule / Student ID'"
+                  class="w-full h-10 px-3 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-brand-400" />
+                @if (lookup(); as lu) {
+                  <div class="mt-2 flex items-center gap-2.5 p-2 rounded-lg bg-white border border-emerald-100">
+                    <bbc-avatar [name]="lu.name" [hue]="200" [size]="36" />
+                    <div class="min-w-0">
+                      <div class="text-sm font-semibold text-ink truncate">{{ lu.name }}</div>
+                      <div class="text-[11px] text-mute">{{ lu.matricule }} · {{ lu.className || (fr() ? 'Sans classe' : 'No class') }}</div>
+                    </div>
+                  </div>
+                } @else if (lookupErr(); as le) {
+                  <div class="mt-1.5 text-[11px] text-rose-600">{{ le }}</div>
+                }
+              </div>
               <input [(ngModel)]="draft.incidentDate" type="date"
                 class="h-10 px-3 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-brand-400" />
               <select [(ngModel)]="draft.type"
@@ -115,10 +128,9 @@ import {
           }
         </bbc-card>
 
-        <!-- Parent notification -->
         <bbc-card className="col-span-12 lg:col-span-5"
           [title]="fr() ? 'Notifier le parent' : 'Notify parent'"
-          [subtitle]="fr() ? 'SMS / Email automatique au parent' : 'Automatic SMS / Email to parent'">
+          [subtitle]="fr() ? 'SMS / Email au parent' : 'SMS / Email to parent'">
 
           <div class="mb-3">
             <div class="text-xs font-semibold text-mute mb-1.5">{{ fr() ? 'Modèles' : 'Templates' }}</div>
@@ -138,6 +150,9 @@ import {
             <input [ngModel]="notifyName()" (ngModelChange)="notifyName.set($event)"
               [placeholder]="fr() ? 'Nom de l’élève' : 'Student name'"
               class="w-full h-9 px-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400" />
+            <input [ngModel]="notifyRef()" (ngModelChange)="notifyRef.set($event)"
+              [placeholder]="fr() ? 'Matricule (pour l’envoi)' : 'Matricule (for sending)'"
+              class="mt-1.5 w-full h-9 px-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400 font-mono" />
           </div>
 
           <div class="mb-3">
@@ -147,11 +162,20 @@ import {
             <div class="text-[11px] text-mute mt-1">{{ message().length }} {{ fr() ? 'caractères' : 'chars' }}</div>
           </div>
 
+          @if (notifyMsg(); as nm) {
+            <div class="mb-2 text-xs rounded-lg px-3 py-2 border"
+              [class]="nm.ok ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-amber-50 text-amber-800 border-amber-100'">
+              {{ nm.text }}
+            </div>
+          }
+
           <div class="grid grid-cols-2 gap-2 mt-3">
-            <button class="inline-flex items-center justify-center gap-1.5 h-9 px-3 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
+            <button (click)="sendNotify('sms')" [disabled]="!canWrite || notifying() || !notifyRef().trim()"
+              class="inline-flex items-center justify-center gap-1.5 h-9 px-3 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50 disabled:opacity-50">
               <bbc-icon name="phone" [s]="14" /> SMS
             </button>
-            <button class="inline-flex items-center justify-center gap-1.5 h-9 px-3 text-sm font-semibold rounded-lg bg-brand-600 text-white hover:bg-brand-700">
+            <button (click)="sendNotify('email')" [disabled]="!canWrite || notifying() || !notifyRef().trim()"
+              class="inline-flex items-center justify-center gap-1.5 h-9 px-3 text-sm font-semibold rounded-lg bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50">
               <bbc-icon name="send" [s]="14" /> {{ fr() ? 'Envoyer' : 'Send' }}
             </button>
           </div>
@@ -172,10 +196,16 @@ export class DisciplineComponent {
   protected rows = signal<IncidentView[]>([]);
   protected canWrite = this.auth.can('discipline', 'write');
   protected draft: IncidentUpsert = this.blank();
+  protected lookup = signal<StudentLookup | null>(null);
+  protected lookupErr = signal<string | null>(null);
+  private lookupTimer: ReturnType<typeof setTimeout> | null = null;
 
   protected showForm = signal(false);
   protected tpl = signal<'absence' | 'late' | 'summon' | 'closure'>('absence');
   protected notifyName = signal('');
+  protected notifyRef = signal('');
+  protected notifyMsg = signal<{ text: string; ok: boolean } | null>(null);
+  protected notifying = signal(false);
 
   protected fr = () => this.i18n.lang() === 'fr';
 
@@ -195,8 +225,8 @@ export class DisciplineComponent {
         en: `Hello, your child ${name} was marked ABSENT from school today. Please justify within 48h. — Bayo Bilingual Complex`,
       },
       late: {
-        fr: `Bonjour, votre enfant ${name} est arrivé en retard ce matin (scan: lecteur principal). Merci de veiller à la ponctualité. — BBC`,
-        en: `Hello, your child ${name} arrived late this morning (main reader scan). Please ensure punctuality. — BBC`,
+        fr: `Bonjour, votre enfant ${name} est arrivé en retard ce matin. Merci de veiller à la ponctualité. — BBC`,
+        en: `Hello, your child ${name} arrived late this morning. Please ensure punctuality. — BBC`,
       },
       summon: {
         fr: `Bonjour, vous êtes prié(e) de bien vouloir vous présenter à l'établissement pour échanger au sujet de votre enfant ${name}. — Le Principal`,
@@ -221,14 +251,37 @@ export class DisciplineComponent {
 
   protected toggleForm(): void {
     this.showForm.update((v) => !v);
+    this.lookup.set(null);
+    this.lookupErr.set(null);
+  }
+
+  protected onStudentRef(ref: string): void {
+    this.draft.studentRef = ref;
+    this.lookup.set(null);
+    this.lookupErr.set(null);
+    if (this.lookupTimer) clearTimeout(this.lookupTimer);
+    const q = (ref || '').trim();
+    if (q.length < 3) return;
+    this.lookupTimer = setTimeout(() => {
+      this.api.lookup(q).subscribe({
+        next: (lu) => { this.lookup.set(lu); this.lookupErr.set(null); },
+        error: () => {
+          this.lookup.set(null);
+          this.lookupErr.set(this.fr() ? 'Élève introuvable' : 'Student not found');
+        },
+      });
+    }, 350);
   }
 
   protected save(): void {
-    if (!this.draft.studentId || !this.draft.incidentDate || !this.draft.type) return;
-    this.api.create(this.draft).subscribe(() => {
-      this.draft = this.blank();
-      this.showForm.set(false);
-      this.reload();
+    if (!this.draft.studentRef?.trim() || !this.draft.incidentDate || !this.draft.type) return;
+    this.api.create(this.draft).subscribe({
+      next: () => {
+        this.draft = this.blank();
+        this.lookup.set(null);
+        this.showForm.set(false);
+        this.reload();
+      },
     });
   }
 
@@ -238,7 +291,29 @@ export class DisciplineComponent {
 
   protected prefillNotify(i: IncidentView): void {
     this.notifyName.set(i.studentName);
+    this.notifyRef.set(i.studentId);
+    this.notifyMsg.set(null);
     this.tpl.set(i.type === 'Absence' ? 'absence' : i.type === 'Retard' ? 'late' : 'summon');
+  }
+
+  protected sendNotify(channel: 'sms' | 'email'): void {
+    const ref = this.notifyRef().trim();
+    if (!ref) return;
+    this.notifying.set(true);
+    this.notifyMsg.set(null);
+    this.api.notify({ studentRef: ref, channel, message: this.message() }).subscribe({
+      next: (r: NotifyResult) => {
+        this.notifying.set(false);
+        this.notifyMsg.set({ text: r.message, ok: r.delivered });
+      },
+      error: (e) => {
+        this.notifying.set(false);
+        this.notifyMsg.set({
+          text: e?.error?.message ?? (this.fr() ? 'Envoi impossible.' : 'Send failed.'),
+          ok: false,
+        });
+      },
+    });
   }
 
   protected typeBadge(type: string): string {
@@ -252,6 +327,12 @@ export class DisciplineComponent {
   }
 
   private blank(): IncidentUpsert {
-    return { studentId: '', incidentDate: '', type: 'Retard', description: '', sanction: '' };
+    return {
+      studentRef: '',
+      incidentDate: new Date().toISOString().slice(0, 10),
+      type: 'Retard',
+      description: '',
+      sanction: '',
+    };
   }
 }

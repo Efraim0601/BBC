@@ -835,24 +835,48 @@ export class StaffComponent {
 
   save(): void {
     if (!this.draft.name?.trim()) return;
+    const email = this.draft.email?.trim() || '';
+    const phone = this.draft.phone?.trim() || '';
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      alert(this.fr() ? 'Adresse e-mail invalide.' : 'Invalid e-mail address.');
+      return;
+    }
+    if (phone && !/^[+0-9][0-9\s().-]{5,24}$/.test(phone)) {
+      alert(this.fr() ? 'Numéro de téléphone invalide.' : 'Invalid phone number.');
+      return;
+    }
     const isNew = !this.editId();
-    const wantsLogin = isNew && !!this.draft.email?.trim() && this.createLogin();
-    const body: EmployeeUpsert = { ...this.draft, roles: this.draftRoles(), createLogin: wantsLogin };
+    const wantsLogin = isNew && !!email && this.createLogin();
+    const body: EmployeeUpsert = {
+      ...this.draft,
+      email: email || null as any,
+      phone: phone || null as any,
+      roles: this.draftRoles(),
+      createLogin: wantsLogin,
+    };
     const id = this.editId();
     const req = id ? this.api.update(id, body) : this.api.create(body);
-    req.subscribe((res) => {
-      this.editing.set(false);
-      this.selectedId.set(res?.id ?? id);
-      this.accountMsg.set(null);
-      if (wantsLogin && res?.id) {
-        // Provision the login + e-mail the credentials, then show the real outcome.
-        this.api.resetCredentials(res.id).subscribe({
-          next: (r: AccountResult) => { this.accountMsg.set({ text: r.message, ok: r.emailSent }); this.reload(); },
-          error: (err) => { this.accountMsg.set({ text: err?.error?.message ?? (this.fr() ? 'Compte non créé.' : 'Account not created.'), ok: false }); this.reload(); },
-        });
-      } else {
-        this.reload();
-      }
+    req.subscribe({
+      next: (res) => {
+        this.editing.set(false);
+        this.selectedId.set(res?.id ?? id);
+        this.accountMsg.set(null);
+        if (wantsLogin && res?.id) {
+          this.api.resetCredentials(res.id).subscribe({
+            next: (r: AccountResult) => { this.accountMsg.set({ text: r.message, ok: r.emailSent }); this.reload(); },
+            error: (err) => { this.accountMsg.set({ text: err?.error?.message ?? (this.fr() ? 'Compte non créé.' : 'Account not created.'), ok: false }); this.reload(); },
+          });
+        } else {
+          this.reload();
+        }
+      },
+      error: (err) => {
+        const msg = err?.error?.message;
+        const text = msg && typeof msg === 'object'
+          ? Object.values(msg).join(' · ')
+          : (msg ?? (this.fr() ? 'Enregistrement impossible.' : 'Save failed.'));
+        alert(text);
+      },
     });
   }
 

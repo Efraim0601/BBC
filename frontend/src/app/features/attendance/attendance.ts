@@ -23,8 +23,10 @@ import {
   ],
   template: `
     <div class="fade-in max-w-6xl mx-auto">
-      <bbc-page-header [title]="i18n.t('presence')" [subtitle]="fr() ? 'Lecteur d’empreintes digitales' : 'Fingerprint reader'">
+      <bbc-page-header [title]="i18n.t('presence')" [subtitle]="fr() ? 'Présences (lecteur + historique)' : 'Attendance (reader + history)'">
         <div right class="flex items-center gap-2">
+          <input type="date" [value]="boardDate()" (change)="onDate($any($event.target).value)"
+            class="h-9 px-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400" />
           <span class="inline-flex items-center gap-1.5 h-9 px-3 text-[11px] font-semibold uppercase tracking-wider rounded-lg bg-emerald-50 text-emerald-700">
             <span class="dot beat" style="background:#10b981"></span> {{ fr() ? 'En ligne' : 'Online' }}
           </span>
@@ -134,8 +136,8 @@ import {
       </div>
 
       <!-- Today's presence journal -->
-      <bbc-card [title]="fr() ? 'Journal de présence du jour' : 'Today’s presence journal'"
-        [subtitle]="fr() ? 'Tous les élèves, filtres par classe et statut' : 'All students, filter by class & status'">
+      <bbc-card [title]="fr() ? 'Journal de présence' : 'Presence journal'"
+        [subtitle]="(fr() ? 'Date : ' : 'Date: ') + boardDate() + (fr() ? ' · trié par classe' : ' · sorted by class')">
         <div action class="relative">
           <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-mute"><bbc-icon name="search" [s]="14" /></span>
           <input [value]="search()" (input)="search.set($any($event.target).value)"
@@ -202,6 +204,7 @@ export class AttendanceComponent implements OnDestroy {
 
   protected fr = () => this.i18n.lang() === 'fr';
   protected today = new Date().toISOString().slice(0, 10);
+  protected boardDate = signal(this.today);
   protected records = signal<Map<string, AttendanceView>>(new Map());
   protected newId = signal<string | null>(null);
   protected lastScan = signal<AttendanceView | null>(null);
@@ -210,12 +213,16 @@ export class AttendanceComponent implements OnDestroy {
   protected statusFilter = signal<string | null>(null);
 
   protected todayLabel = computed(() =>
-    new Date().toLocaleDateString(this.fr() ? 'fr-FR' : 'en-GB',
+    new Date(this.boardDate() + 'T12:00:00').toLocaleDateString(this.fr() ? 'fr-FR' : 'en-GB',
       { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }));
 
-  /** All records sorted by name (used for stats & the journal). */
+  /** All records sorted by class then name (used for stats & the journal). */
   protected sorted = computed(() =>
-    [...this.records().values()].sort((a, b) => a.studentName.localeCompare(b.studentName)));
+    [...this.records().values()].sort((a, b) => {
+      const c = (a.className || '').localeCompare(b.className || '', 'fr', { sensitivity: 'base' });
+      if (c !== 0) return c;
+      return a.studentName.localeCompare(b.studentName, 'fr', { sensitivity: 'base' });
+    }));
 
   protected present = computed(() => this.count('present'));
   protected late = computed(() => this.count('late'));
@@ -255,13 +262,10 @@ export class AttendanceComponent implements OnDestroy {
   });
 
   constructor() {
-    this.api.board().subscribe((b) => {
-      const map = new Map<string, AttendanceView>();
-      b.records.forEach((r) => map.set(r.studentId, r));
-      this.records.set(map);
-    });
-    // Live push: every badge scan / manual mark arrives here.
+    this.loadBoard(this.boardDate());
+    // Live push: every badge scan / manual mark arrives here (only for "today").
     this.sub = this.realtime.watch<AttendanceView>('attendance').subscribe((ev) => {
+      if (this.boardDate() !== this.today) return;
       this.records.update((m) => {
         const next = new Map(m);
         next.set(ev.studentId, ev);
@@ -269,6 +273,22 @@ export class AttendanceComponent implements OnDestroy {
       });
       if (ev.checkInTime) this.lastScan.set(ev);
       this.newId.set(ev.studentId);
+    });
+  }
+
+  protected onDate(date: string): void {
+    if (!date) return;
+    this.boardDate.set(date);
+    this.loadBoard(date);
+  }
+
+  private loadBoard(date: string): void {
+    this.api.board(date).subscribe((b) => {
+      const map = new Map<string, AttendanceView>();
+      b.records.forEach((r) => map.set(r.studentId, r));
+      this.records.set(map);
+      this.lastScan.set(null);
+      this.newId.set(null);
     });
   }
 

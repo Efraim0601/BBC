@@ -1,6 +1,7 @@
 package com.bbc.sms.staff.dto;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 
 import java.util.Set;
 import java.util.UUID;
@@ -30,8 +31,8 @@ public class StaffDtos {
             @NotBlank String name,
             String sex,
             String type,
-            String email,
-            String phone,
+            @Pattern(regexp = "^$|^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$", message = "Adresse e-mail invalide") String email,
+            @Pattern(regexp = "^$|^[+0-9][0-9\\s().-]{5,24}$", message = "Numéro de téléphone invalide") String phone,
             String formClass,
             UUID departmentId,
             long monthlySalary,

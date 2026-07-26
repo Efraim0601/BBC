@@ -23,11 +23,24 @@ public class DisciplineController {
         return service.list();
     }
 
+    /** Auto-fill student card from matricule or UUID while typing an incident. */
+    @GetMapping("/lookup")
+    @PreAuthorize("@perm.can('discipline','read')")
+    public StudentLookup lookup(@RequestParam("q") String q) {
+        return service.lookup(q);
+    }
+
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("@perm.can('discipline','write')")
     public IncidentView create(@Valid @RequestBody IncidentUpsert in) {
         return service.create(in);
+    }
+
+    @PostMapping("/notify")
+    @PreAuthorize("@perm.can('discipline','write')")
+    public NotifyResult notify(@Valid @RequestBody NotifyRequest in) {
+        return service.notifyParent(in);
     }
 
     @DeleteMapping("/{id}")

@@ -73,6 +73,17 @@ type Lvl = Parcours['level'];
               </button>
             }
           </div>
+          @if (canSeeAll()) {
+            <button (click)="commitAll()"
+              class="mt-6 w-full text-left rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-5 hover:border-brand-400 hover:bg-white transition">
+              <div class="font-display font-bold text-ink">{{ fr() ? 'Tous les parcours' : 'All parcours' }}</div>
+              <div class="text-xs text-mute mt-1">
+                {{ fr()
+                  ? 'Afficher les données de tous les niveaux et sous-systèmes (recommandé pour l’administration).'
+                  : 'Show data from every level and subsystem (recommended for administration).' }}
+              </div>
+            </button>
+          }
         } @else {
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             @for (sec of sections(); track sec.value) {
@@ -153,6 +164,14 @@ export class ParcoursPickerComponent {
 
   private commit(level: Lvl, subsystem: 'FR' | 'EN'): void {
     this.scope.set({ level, subsystem });
+    this.router.navigate(['/apps']);
+  }
+
+  /** Admins (empty allow-list) may browse without a parcours filter. */
+  protected canSeeAll = computed(() => (this.auth.user()?.allowedParcours ?? []).length === 0);
+
+  protected commitAll(): void {
+    this.scope.setAll();
     this.router.navigate(['/apps']);
   }
 

@@ -57,9 +57,15 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<ApiError> handleIntegrity(DataIntegrityViolationException ex) {
-        log.warn("Data integrity violation: {}", ex.getMostSpecificCause().getMessage());
-        return body(HttpStatus.BAD_REQUEST,
-            "Données invalides ou en conflit (une contrainte n'est pas respectée).");
+        String detail = ex.getMostSpecificCause().getMessage();
+        log.warn("Data integrity violation: {}", detail);
+        String msg = "Données invalides ou en conflit (une contrainte n'est pas respectée).";
+        if (detail != null && detail.toLowerCase().contains("value too long")) {
+            msg = "Texte trop long pour un des champs (vérifiez le nom / libellé).";
+        } else if (detail != null && detail.toLowerCase().contains("unique")) {
+            msg = "Une entrée avec ces valeurs existe déjà.";
+        }
+        return body(HttpStatus.BAD_REQUEST, msg);
     }
 
     @ExceptionHandler(Exception.class)
