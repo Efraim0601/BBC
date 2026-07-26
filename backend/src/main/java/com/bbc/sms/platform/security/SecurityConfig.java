@@ -37,6 +37,7 @@ public class SecurityConfig {
             .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/auth/**").permitAll()
+                .requestMatchers("/api/public/staff-portal/**").permitAll()
                 .requestMatchers("/api/devices/*/attendance").permitAll()  // device API-key checked in service
                 .requestMatchers("/ws/**").permitAll()                      // STOMP handshake authenticates via token
                 .requestMatchers("/actuator/health", "/swagger-ui/**", "/v3/api-docs/**").permitAll()

@@ -25,7 +25,8 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
   return next(authed).pipe(
     catchError((err: HttpErrorResponse) => {
       const isAuthCall = req.url.includes('/auth/');
-      if (err.status === 401 && !isAuthCall) {
+      const isPublicApi = req.url.includes('/public/');
+      if (err.status === 401 && !isAuthCall && !isPublicApi) {
         return auth.refresh().pipe(
           switchMap((res) =>
             next(

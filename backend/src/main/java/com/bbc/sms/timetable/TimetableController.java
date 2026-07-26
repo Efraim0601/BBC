@@ -22,6 +22,13 @@ public class TimetableController {
         return service.classes();
     }
 
+    /** Distinct room labels already used in this school (suggestions for the slot editor). */
+    @GetMapping("/rooms")
+    @PreAuthorize("@perm.can('timetable','read')")
+    public List<String> rooms() {
+        return service.rooms();
+    }
+
     @GetMapping
     @PreAuthorize("@perm.can('timetable','read')")
     public List<SlotView> grid(@RequestParam String className) {

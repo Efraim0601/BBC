@@ -75,10 +75,66 @@ export interface StaffImportResult {
   errors: StaffImportError[];
 }
 
+export interface StaffPortalMeta {
+  schoolName: string;
+  schoolCode: string;
+  open: boolean;
+}
+
+export interface StaffApplicationSubmit {
+  name: string;
+  sex?: string;
+  type?: string;
+  email?: string;
+  phone?: string;
+  formClass?: string;
+  departmentHint?: string;
+  desiredRoles?: string;
+  notes?: string;
+}
+
+export interface StaffApplicationView {
+  id: string;
+  status: string;
+  name: string;
+  sex: string | null;
+  type: string;
+  email: string | null;
+  phone: string | null;
+  formClass: string | null;
+  departmentHint: string | null;
+  desiredRoles: string | null;
+  notes: string | null;
+  rejectReason: string | null;
+  employeeId: string | null;
+  employeeCode: string | null;
+  submittedAt: string;
+  decidedAt: string | null;
+  finalizedAt: string | null;
+}
+
+export interface StaffApplicationFinalize {
+  type?: string;
+  departmentId?: string | null;
+  monthlySalary?: number;
+  hourlyRate?: number;
+  roles?: string[];
+  formClass?: string;
+  createLogin?: boolean;
+}
+
+export interface StaffPortalSettingsView {
+  enabled: boolean;
+  slug: string | null;
+  token: string | null;
+  publicPath: string | null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class StaffApi {
   private http = inject(HttpClient);
   private base = `${environment.apiUrl}/staff`;
+  private publicBase = `${environment.apiUrl}/public/staff-portal`;
 
   list(): Observable<EmployeeView[]> {
     return this.http.get<EmployeeView[]>(this.base);
@@ -100,5 +156,42 @@ export class StaffApi {
   }
   importStaff(body: StaffImportRequest): Observable<StaffImportResult> {
     return this.http.post<StaffImportResult>(`${this.base}/import`, body);
+  }
+
+  portalMeta(slug: string, token: string): Observable<StaffPortalMeta> {
+    return this.http.get<StaffPortalMeta>(`${this.publicBase}/${encodeURIComponent(slug)}/meta`, {
+      params: { t: token },
+    });
+  }
+  portalApply(slug: string, token: string, body: StaffApplicationSubmit): Observable<StaffApplicationView> {
+    return this.http.post<StaffApplicationView>(
+      `${this.publicBase}/${encodeURIComponent(slug)}/apply`,
+      body,
+      { params: { t: token } },
+    );
+  }
+
+  getPortalSettings(): Observable<StaffPortalSettingsView> {
+    return this.http.get<StaffPortalSettingsView>(`${this.base}/portal`);
+  }
+  updatePortalSettings(enabled: boolean): Observable<StaffPortalSettingsView> {
+    return this.http.put<StaffPortalSettingsView>(`${this.base}/portal`, { enabled });
+  }
+  regeneratePortalToken(): Observable<StaffPortalSettingsView> {
+    return this.http.post<StaffPortalSettingsView>(`${this.base}/portal/regenerate-token`, {});
+  }
+
+  listApplications(status?: string | null): Observable<StaffApplicationView[]> {
+    const opts = status ? { params: { status } } : {};
+    return this.http.get<StaffApplicationView[]>(`${this.base}/applications`, opts);
+  }
+  acceptApplication(id: string): Observable<StaffApplicationView> {
+    return this.http.post<StaffApplicationView>(`${this.base}/applications/${id}/accept`, {});
+  }
+  rejectApplication(id: string, reason: string): Observable<StaffApplicationView> {
+    return this.http.post<StaffApplicationView>(`${this.base}/applications/${id}/reject`, { reason });
+  }
+  finalizeApplication(id: string, body: StaffApplicationFinalize): Observable<StaffApplicationView> {
+    return this.http.post<StaffApplicationView>(`${this.base}/applications/${id}/finalize`, body);
   }
 }

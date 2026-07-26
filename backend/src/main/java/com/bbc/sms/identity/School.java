@@ -44,4 +44,14 @@ public class School {
     /** Closing time (HH:mm) — informational / future timetable checks. */
     @Column(name = "school_end_time", nullable = false)
     private String schoolEndTime = "17:00";
+
+    /** Temporary public portal where candidates self-register as staff. */
+    @Column(name = "staff_portal_enabled", nullable = false)
+    private boolean staffPortalEnabled = false;
+
+    @Column(name = "staff_portal_slug")
+    private String staffPortalSlug;
+
+    @Column(name = "staff_portal_token")
+    private String staffPortalToken;
 }

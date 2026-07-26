@@ -91,6 +91,46 @@ public class StaffService {
     }
 
     /**
+     * Create an inactive employee from an accepted self-registration application.
+     * Salary/roles are filled later at finalize.
+     */
+    @Transactional
+    public Employee createInactiveDraft(UUID schoolId, String name, String sex, String type,
+                                        String email, String phone, String formClass) {
+        Employee e = new Employee();
+        e.setSchoolId(schoolId);
+        e.setCode(nextCode(schoolId));
+        e.setName(name.trim());
+        e.setSex(blankToNull(sex));
+        e.setType(type == null || type.isBlank() ? "Permanent" : type);
+        e.setEmail(blankToNull(email));
+        e.setPhone(blankToNull(phone));
+        e.setFormClass(blankToNull(formClass));
+        e.setMonthlySalary(0);
+        e.setHourlyRate(0);
+        e.setRoles(new HashSet<>(Set.of("teacher")));
+        e.setActive(false);
+        e.setInitials(initials(name));
+        return repo.save(e);
+    }
+
+    /** Activate a draft employee and apply HR fields (salary, roles, department). */
+    @Transactional
+    public EmployeeView finalizeDraft(UUID employeeId, EmployeeUpsert in, boolean createLogin) {
+        Employee e = find(employeeId);
+        apply(e, in);
+        e.setInitials(initials(in.name() != null && !in.name().isBlank() ? in.name() : e.getName()));
+        e.setActive(true);
+        Employee saved = repo.save(e);
+        if (createLogin) {
+            accounts.provisionOrReset(saved);
+        } else {
+            mail.notifyUserCreated(saved.getSchoolId(), saved.getName(), saved.getEmail());
+        }
+        return toView(saved);
+    }
+
+    /**
      * Bulk create employees from client-parsed CSV/Excel rows. Bad rows are skipped and
      * reported; the rest still import. Codes are handed out from a local counter so a
      * whole batch stays unique within itself.

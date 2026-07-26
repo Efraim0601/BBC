@@ -7,6 +7,10 @@ export const routes: Routes = [
     loadComponent: () => import('./features/login/login').then((m) => m.LoginComponent),
   },
   {
+    path: 'join-staff/:slug',
+    loadComponent: () => import('./features/staff-portal/staff-portal').then((m) => m.StaffPortalComponent),
+  },
+  {
     path: 'parcours',
     canActivate: [authGuard],
     loadComponent: () => import('./features/parcours/parcours-picker').then((m) => m.ParcoursPickerComponent),

@@ -38,6 +38,11 @@ public class TimetableService {
                 .toList();
     }
 
+    @Transactional(readOnly = true)
+    public List<String> rooms() {
+        return slotRepo.findDistinctRooms(TenantContext.get());
+    }
+
     @Transactional
     public SlotSaveResult upsertSlot(SlotUpsert in) {
         UUID schoolId = TenantContext.get();

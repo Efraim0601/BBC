@@ -1,6 +1,7 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { TimetableApi, ClassRef, SlotView, Conflict } from './timetable.api';
+import { SetupApi, SubjectView, TeacherOption } from '../../core/setup.api';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
 import {
@@ -115,7 +116,7 @@ const KNOWN_COLORS: Record<string, string> = {
                 <bbc-icon name="alertTri" [s]="14" />
                 <span>
                   {{ cf.className }} — {{ dayName(cf.dayIdx) }} · {{ slotTime(cf.slotIdx) }}
-                  ({{ fr() ? 'enseignant' : 'teacher' }} {{ cf.teacherId }})
+                  ({{ fr() ? 'enseignant' : 'teacher' }} {{ teacherLabel(cf.teacherId) }})
                 </span>
               </div>
             }
@@ -155,13 +156,13 @@ const KNOWN_COLORS: Record<string, string> = {
                         [class.ring-2]="isConflict(d, s)"
                         [class.ring-rose-500]="isConflict(d, s)">
                         <div class="text-xs font-bold leading-tight flex items-center justify-between gap-1">
-                          <span>{{ slot.subjectCode || '—' }}</span>
+                          <span>{{ subjectDisplay(slot.subjectCode) }}</span>
                           @if (isConflict(d, s)) {
                             <span class="text-rose-600 shrink-0"><bbc-icon name="alertTri" [s]="11" /></span>
                           }
                         </div>
                         @if (slot.teacherId) {
-                          <div class="text-[10px] opacity-80 mt-0.5 truncate">{{ slot.teacherId }}</div>
+                          <div class="text-[10px] opacity-80 mt-0.5 truncate">{{ teacherLabel(slot.teacherId) }}</div>
                         }
                         @if (slot.room) {
                           <div class="text-[9px] opacity-60 mt-0.5">{{ slot.room }}</div>
@@ -199,7 +200,7 @@ const KNOWN_COLORS: Record<string, string> = {
                     {{ selectedClass() }} — {{ dayName(d.dayIdx) }} · {{ slotTime(d.slotIdx) }}
                   </div>
                   <div class="text-xs text-mute">
-                    {{ fr() ? 'Renseignez la matière, l’enseignant et la salle' : 'Enter subject, teacher and room' }}
+                    {{ fr() ? 'Sélectionnez la matière, l’enseignant et la salle' : 'Select subject, teacher and room' }}
                   </div>
                 </div>
               </div>
@@ -207,24 +208,45 @@ const KNOWN_COLORS: Record<string, string> = {
               <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
                   <label class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">
-                    {{ fr() ? 'Matière (code)' : 'Subject (code)' }}
+                    {{ fr() ? 'Matière' : 'Subject' }}
                   </label>
-                  <input [(ngModel)]="d.subjectCode" placeholder="MATH, FR, EN…"
-                    class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400" />
+                  <select [(ngModel)]="d.subjectCode"
+                    class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400">
+                    <option value="">{{ fr() ? '— Choisir —' : '— Pick —' }}</option>
+                    @if (d.subjectCode && !subjectsForClass().some(s => s.code === d.subjectCode)) {
+                      <option [value]="d.subjectCode">{{ d.subjectCode }}</option>
+                    }
+                    @for (s of subjectsForClass(); track s.id) {
+                      <option [value]="s.code">{{ subjectLabel(s) }} ({{ s.code }})</option>
+                    }
+                  </select>
                 </div>
                 <div>
                   <label class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">
-                    {{ fr() ? 'Enseignant (id)' : 'Teacher (id)' }}
+                    {{ fr() ? 'Enseignant' : 'Teacher' }}
                   </label>
-                  <input [(ngModel)]="d.teacherId" placeholder="ID"
-                    class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400" />
+                  <select [(ngModel)]="d.teacherId"
+                    class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400">
+                    <option value="">{{ fr() ? '— Aucun —' : '— None —' }}</option>
+                    @if (d.teacherId && !teachers().some(t => t.id === d.teacherId)) {
+                      <option [value]="d.teacherId">{{ d.teacherId }}</option>
+                    }
+                    @for (t of teachers(); track t.id) {
+                      <option [value]="t.id">{{ t.name }}{{ t.code ? ' (' + t.code + ')' : '' }}</option>
+                    }
+                  </select>
                 </div>
                 <div>
                   <label class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">
                     {{ fr() ? 'Salle' : 'Room' }}
                   </label>
-                  <input [(ngModel)]="d.room" placeholder="S1, Lab…"
+                  <input [(ngModel)]="d.room" list="tt-rooms" placeholder="S1, Lab…"
                     class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400" />
+                  <datalist id="tt-rooms">
+                    @for (r of knownRooms(); track r) {
+                      <option [value]="r"></option>
+                    }
+                  </datalist>
                 </div>
               </div>
 
@@ -260,6 +282,7 @@ const KNOWN_COLORS: Record<string, string> = {
 export class TimetableComponent {
   protected i18n = inject(I18nService);
   private api = inject(TimetableApi);
+  private setupApi = inject(SetupApi);
   private auth = inject(AuthService);
 
   protected readonly dayIdxs = DAYS_FR.map((_, i) => i);
@@ -267,6 +290,9 @@ export class TimetableComponent {
   protected readonly gridCols = `80px repeat(${SLOTS.length}, minmax(120px, 1fr))`;
 
   protected classes = signal<ClassRef[]>([]);
+  protected subjects = signal<SubjectView[]>([]);
+  protected teachers = signal<TeacherOption[]>([]);
+  protected knownRooms = signal<string[]>([]);
   protected slots = signal<SlotView[]>([]);
   protected selectedClass = signal<string>('');
   protected draft = signal<SlotDraft | null>(null);
@@ -278,6 +304,14 @@ export class TimetableComponent {
   protected selectedClassModel = '';
 
   protected fr = () => this.i18n.lang() === 'fr';
+
+  protected subjectsForClass = computed(() => {
+    const name = this.selectedClass();
+    const cls = this.classes().find((c) => c.name === name);
+    const all = this.subjects();
+    if (!cls?.subsystem) return all;
+    return all.filter((s) => !s.subsystem || s.subsystem === cls.subsystem);
+  });
 
   protected headerSub = computed(() => {
     const cls = this.selectedClass();
@@ -292,6 +326,9 @@ export class TimetableComponent {
 
   constructor() {
     this.api.classes().subscribe((c) => this.classes.set(c));
+    this.api.rooms().subscribe((r) => this.knownRooms.set(r));
+    this.setupApi.listSubjects().subscribe((s) => this.subjects.set(s));
+    this.setupApi.assignableTeachers().subscribe((t) => this.teachers.set(t));
   }
 
   protected dayName(idx: number): string {
@@ -300,6 +337,23 @@ export class TimetableComponent {
 
   protected slotTime(idx: number): string {
     return SLOT_TIMES[idx] ?? `${idx + 1}`;
+  }
+
+  protected subjectLabel(s: SubjectView): string {
+    const l = s.label || {};
+    return (this.fr() ? l['fr'] : l['en']) || l['fr'] || l['en'] || s.code;
+  }
+
+  protected subjectDisplay(code: string | null): string {
+    if (!code) return '—';
+    const s = this.subjects().find((x) => x.code === code);
+    return s ? this.subjectLabel(s) : code;
+  }
+
+  protected teacherLabel(id: string | null): string {
+    if (!id) return '—';
+    const t = this.teachers().find((x) => x.id === id);
+    return t ? t.name : id;
   }
 
   protected subjectColor(code: string | null): string {
@@ -329,7 +383,14 @@ export class TimetableComponent {
   private reload(): void {
     const name = this.selectedClass();
     if (!name) return;
-    this.api.grid(name).subscribe((s) => this.slots.set(s));
+    this.api.grid(name).subscribe((s) => {
+      this.slots.set(s);
+      const next = new Set(this.knownRooms());
+      for (const slot of s) {
+        if (slot.room) next.add(slot.room);
+      }
+      this.knownRooms.set([...next].sort((a, b) => a.localeCompare(b)));
+    });
   }
 
   protected slotAt(dayIdx: number, slotIdx: number): SlotView | undefined {

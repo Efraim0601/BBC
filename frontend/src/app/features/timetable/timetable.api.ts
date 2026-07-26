@@ -50,6 +50,10 @@ export class TimetableApi {
     return this.http.get<ClassRef[]>(`${this.base}/classes`);
   }
 
+  rooms(): Observable<string[]> {
+    return this.http.get<string[]>(`${this.base}/rooms`);
+  }
+
   grid(className: string): Observable<SlotView[]> {
     return this.http.get<SlotView[]>(`${this.base}?className=${encodeURIComponent(className)}`);
   }

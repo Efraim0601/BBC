@@ -7,4 +7,5 @@ import java.util.UUID;
 
 public interface SchoolRepository extends JpaRepository<School, UUID> {
     Optional<School> findByCode(String code);
+    Optional<School> findByStaffPortalSlug(String staffPortalSlug);
 }

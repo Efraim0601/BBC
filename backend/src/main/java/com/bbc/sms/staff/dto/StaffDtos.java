@@ -75,4 +75,60 @@ public class StaffDtos {
     public record StaffImportError(int row, String name, String message) {}
 
     public record StaffImportResult(int created, int failed, List<StaffImportError> errors) {}
+
+    // ---- Staff self-registration portal ------------------------------------
+
+    public record StaffPortalMeta(
+            String schoolName,
+            String schoolCode,
+            boolean open) {}
+
+    public record StaffApplicationSubmit(
+            @NotBlank String name,
+            String sex,
+            String type,
+            @Pattern(regexp = "^$|^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$", message = "Adresse e-mail invalide") String email,
+            @Pattern(regexp = "^$|^[+0-9][0-9\\s().-]{5,24}$", message = "Numéro de téléphone invalide") String phone,
+            String formClass,
+            String departmentHint,
+            String desiredRoles,
+            String notes) {}
+
+    public record StaffApplicationView(
+            UUID id,
+            String status,
+            String name,
+            String sex,
+            String type,
+            String email,
+            String phone,
+            String formClass,
+            String departmentHint,
+            String desiredRoles,
+            String notes,
+            String rejectReason,
+            UUID employeeId,
+            String employeeCode,
+            java.time.Instant submittedAt,
+            java.time.Instant decidedAt,
+            java.time.Instant finalizedAt) {}
+
+    public record StaffApplicationReject(@NotBlank String reason) {}
+
+    public record StaffApplicationFinalize(
+            String type,
+            UUID departmentId,
+            long monthlySalary,
+            int hourlyRate,
+            Set<String> roles,
+            String formClass,
+            Boolean createLogin) {}
+
+    public record StaffPortalSettingsView(
+            boolean enabled,
+            String slug,
+            String token,
+            String publicPath) {}
+
+    public record StaffPortalSettingsUpdate(boolean enabled) {}
 }

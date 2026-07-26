@@ -1,7 +1,11 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@angular/core';
+import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
-import { StaffApi, EmployeeUpsert, EmployeeView, AccountResult, StaffImportRow, StaffImportResult } from './staff.api';
+import {
+  StaffApi, EmployeeUpsert, EmployeeView, AccountResult, StaffImportRow, StaffImportResult,
+  StaffApplicationView, StaffPortalSettingsView, StaffApplicationFinalize,
+} from './staff.api';
 import { HrApi, DepartmentView, DepartmentUpsert, LeaveView, LeaveCreate } from './hr.api';
 import { SettingsApi, RoleView } from '../settings/settings.api';
 import { AuthService } from '../../core/auth.service';
@@ -21,7 +25,7 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
-    FormsModule, IconComponent, CardComponent, KpiComponent, PageHeaderComponent,
+    FormsModule, DatePipe, IconComponent, CardComponent, KpiComponent, PageHeaderComponent,
     EmptyComponent, AvatarComponent, TabsComponent, ChipFilterComponent,
     DataTableComponent, CellTemplateDirective,
   ],
@@ -460,6 +464,180 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
               @if (hrErr(); as e) { <div class="mt-3 text-xs rounded-lg px-3 py-2 bg-rose-50 text-rose-600">{{ e }}</div> }
             </bbc-card>
           }
+
+          @case ('applications') {
+            <bbc-card className="mb-5" [title]="fr() ? 'Portail d’inscription' : 'Registration portal'"
+              [subtitle]="fr() ? 'Lien temporaire pour que le personnel remplisse sa fiche' : 'Temporary link for staff to fill their profile'">
+              <div class="space-y-4">
+                <div class="flex flex-wrap items-center gap-3">
+                  <label class="inline-flex items-center gap-2 cursor-pointer select-none">
+                    <input type="checkbox" [ngModel]="portal()?.enabled" (ngModelChange)="setPortalEnabled($event)"
+                      [disabled]="!canWrite || portalBusy()"
+                      class="w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-400" />
+                    <span class="text-sm font-semibold text-ink">
+                      {{ portal()?.enabled
+                          ? (fr() ? 'Portail activé' : 'Portal enabled')
+                          : (fr() ? 'Portail désactivé' : 'Portal disabled') }}
+                    </span>
+                  </label>
+                  @if (canWrite) {
+                    <button type="button" (click)="regeneratePortalLink()" [disabled]="portalBusy()"
+                      class="h-8 px-3 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50 disabled:opacity-50">
+                      {{ fr() ? 'Régénérer le lien' : 'Regenerate link' }}
+                    </button>
+                  }
+                </div>
+                @if (portal()?.publicPath; as path) {
+                  <div class="flex flex-col sm:flex-row gap-2">
+                    <input readonly [value]="portalAbsoluteUrl()"
+                      class="flex-1 h-10 px-3 text-xs font-mono rounded-lg border border-slate-200 bg-slate-50" />
+                    <button type="button" (click)="copyPortalLink()"
+                      class="h-10 px-4 text-xs font-semibold rounded-lg bg-brand-600 text-white hover:bg-brand-700 shrink-0">
+                      {{ fr() ? 'Copier le lien' : 'Copy link' }}
+                    </button>
+                  </div>
+                  <p class="text-[11px] text-mute">
+                    {{ fr()
+                      ? 'Partagez ce lien avec le personnel. Désactivez le portail quand le recrutement est terminé.'
+                      : 'Share this link with staff. Disable the portal when onboarding is done.' }}
+                  </p>
+                }
+                @if (portalMsg(); as m) {
+                  <div class="text-xs rounded-lg px-3 py-2" [class]="m.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-600'">{{ m.text }}</div>
+                }
+              </div>
+            </bbc-card>
+
+            <bbc-card [title]="fr() ? 'Candidatures' : 'Applications'"
+              [subtitle]="fr() ? 'Validation en 2 étapes : accepter → configurer salaire/rôles → finaliser' : 'Two-step validation: accept → set salary/roles → finalize'">
+              <div action class="flex items-center gap-2">
+                <bbc-chip-filter [allLabel]="fr() ? 'Tous' : 'All'" [value]="appStatusFilter()"
+                  [options]="appStatusOptions()" (change)="onAppStatusFilter($event)" />
+              </div>
+
+              @if (applications().length) {
+                <div class="space-y-3">
+                  @for (a of applications(); track a.id) {
+                    <div class="p-4 rounded-lg border border-slate-100 bg-slate-50/40">
+                      <div class="flex flex-wrap items-start justify-between gap-3">
+                        <div class="min-w-0">
+                          <div class="flex items-center gap-2 flex-wrap">
+                            <div class="font-semibold text-ink">{{ a.name }}</div>
+                            <span class="text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded"
+                              [class]="appStatusClass(a.status)">{{ appStatusLabel(a.status) }}</span>
+                            @if (a.employeeCode) {
+                              <span class="text-[11px] font-mono text-mute">{{ a.employeeCode }}</span>
+                            }
+                          </div>
+                          <div class="text-xs text-mute mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+                            @if (a.email) { <span>{{ a.email }}</span> }
+                            @if (a.phone) { <span>{{ a.phone }}</span> }
+                            <span>{{ a.type }}</span>
+                            @if (a.desiredRoles) { <span>{{ fr() ? 'Souhait' : 'Wish' }}: {{ a.desiredRoles }}</span> }
+                            @if (a.departmentHint) { <span>{{ a.departmentHint }}</span> }
+                          </div>
+                          @if (a.notes) { <div class="text-xs text-ink mt-2">{{ a.notes }}</div> }
+                          @if (a.rejectReason) { <div class="text-xs text-rose-600 mt-1">{{ a.rejectReason }}</div> }
+                          <div class="text-[11px] text-mute mt-1">{{ a.submittedAt | date:'short' }}</div>
+                        </div>
+                        @if (canWrite) {
+                          <div class="flex flex-wrap items-center gap-1.5 shrink-0">
+                            @if (a.status === 'pending') {
+                              <button type="button" (click)="acceptApp(a)"
+                                class="h-8 px-3 text-xs font-semibold rounded-lg bg-emerald-600 text-white hover:bg-emerald-700">
+                                {{ fr() ? 'Accepter' : 'Accept' }}
+                              </button>
+                              <button type="button" (click)="rejectApp(a)"
+                                class="h-8 px-3 text-xs font-semibold rounded-lg bg-white border border-rose-200 text-rose-600 hover:bg-rose-50">
+                                {{ fr() ? 'Refuser' : 'Reject' }}
+                              </button>
+                            }
+                            @if (a.status === 'accepted') {
+                              <button type="button" (click)="openFinalize(a)"
+                                class="h-8 px-3 text-xs font-semibold rounded-lg bg-brand-600 text-white hover:bg-brand-700">
+                                {{ fr() ? 'Finaliser' : 'Finalize' }}
+                              </button>
+                              <button type="button" (click)="rejectApp(a)"
+                                class="h-8 px-3 text-xs font-semibold rounded-lg bg-white border border-rose-200 text-rose-600 hover:bg-rose-50">
+                                {{ fr() ? 'Annuler' : 'Cancel' }}
+                              </button>
+                            }
+                          </div>
+                        }
+                      </div>
+                    </div>
+                  }
+                </div>
+              } @else {
+                <bbc-empty icon="users" [label]="fr() ? 'Aucune candidature.' : 'No applications.'" />
+              }
+              @if (appErr(); as e) { <div class="mt-3 text-xs rounded-lg px-3 py-2 bg-rose-50 text-rose-600">{{ e }}</div> }
+            </bbc-card>
+
+            @if (finalizeApp(); as fa) {
+              <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 fade-in" (click)="finalizeApp.set(null)">
+                <div class="bg-white rounded-xl shadow-pop w-full max-w-lg p-5 space-y-4" (click)="$event.stopPropagation()">
+                  <div class="text-lg font-bold font-display text-ink">{{ fr() ? 'Finaliser' : 'Finalize' }} — {{ fa.name }}</div>
+                  <p class="text-xs text-mute">{{ fr() ? 'Configurez le salaire et les rôles, puis activez la fiche.' : 'Set salary and roles, then activate the record.' }}</p>
+                  <div class="grid grid-cols-2 gap-3">
+                    <label class="block">
+                      <span class="text-xs font-semibold">Type</span>
+                      <select [(ngModel)]="finalizeDraft.type" class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 bg-white">
+                        <option value="Permanent">Permanent</option>
+                        <option value="Vacataire">Vacataire</option>
+                      </select>
+                    </label>
+                    <label class="block">
+                      <span class="text-xs font-semibold">{{ fr() ? 'Département' : 'Department' }}</span>
+                      <select [(ngModel)]="finalizeDraft.departmentId" class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 bg-white">
+                        <option [ngValue]="null">—</option>
+                        @for (d of departments(); track d.id) { <option [ngValue]="d.id">{{ d.name }}</option> }
+                      </select>
+                    </label>
+                    @if (finalizeDraft.type === 'Permanent') {
+                      <label class="block col-span-2">
+                        <span class="text-xs font-semibold">{{ fr() ? 'Salaire mensuel' : 'Monthly salary' }}</span>
+                        <input type="number" [(ngModel)]="finalizeDraft.monthlySalary" class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 font-mono" />
+                      </label>
+                    } @else {
+                      <label class="block col-span-2">
+                        <span class="text-xs font-semibold">{{ fr() ? 'Taux horaire' : 'Hourly rate' }}</span>
+                        <input type="number" [(ngModel)]="finalizeDraft.hourlyRate" class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 font-mono" />
+                      </label>
+                    }
+                    <label class="block col-span-2">
+                      <span class="text-xs font-semibold">{{ fr() ? 'Classe (PP)' : 'Form class' }}</span>
+                      <input [(ngModel)]="finalizeDraft.formClass" class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200" />
+                    </label>
+                  </div>
+                  <div>
+                    <div class="text-xs font-semibold mb-2">{{ fr() ? 'Rôles' : 'Roles' }}</div>
+                    <div class="flex flex-wrap gap-1.5">
+                      @for (r of roleCatalog(); track r.value) {
+                        <button type="button" (click)="toggleFinalizeRole(r.value)"
+                          class="px-2.5 py-1.5 text-xs font-semibold rounded-lg border"
+                          [class]="finalizeRoles().includes(r.value) ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-slate-200 text-mute'">
+                          {{ r.label }}
+                        </button>
+                      }
+                    </div>
+                  </div>
+                  <label class="flex items-start gap-2 cursor-pointer" [class.opacity-50]="!fa.email">
+                    <input type="checkbox" [ngModel]="finalizeCreateLogin()" (ngModelChange)="finalizeCreateLogin.set($event)"
+                      [disabled]="!fa.email" class="mt-0.5 w-4 h-4 rounded border-slate-300 text-brand-600" />
+                    <span class="text-sm">{{ fr() ? 'Créer le compte de connexion (e-mail requis)' : 'Create login account (e-mail required)' }}</span>
+                  </label>
+                  <div class="flex justify-end gap-2 pt-2">
+                    <button type="button" (click)="finalizeApp.set(null)" class="h-9 px-4 rounded-lg bg-slate-100 text-sm font-semibold">{{ i18n.t('cancel') }}</button>
+                    <button type="button" (click)="doFinalize()" [disabled]="finalizing()"
+                      class="h-9 px-5 rounded-lg bg-brand-600 text-white text-sm font-semibold disabled:opacity-50">
+                      {{ finalizing() ? '…' : (fr() ? 'Valider définitivement' : 'Final validation') }}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            }
+          }
         }
       } @else if (mode() === 'import') {
         <bbc-card>
@@ -770,7 +948,20 @@ export class StaffComponent {
 
   protected rows = signal<EmployeeView[]>([]);
   protected roleDefs = signal<RoleView[]>([]);
-  protected tab = signal<'directory' | 'payroll' | 'departments' | 'leave'>('directory');
+  protected tab = signal<'directory' | 'payroll' | 'departments' | 'leave' | 'applications'>('directory');
+
+  // Applications / portal
+  protected applications = signal<StaffApplicationView[]>([]);
+  protected appStatusFilter = signal<string | null>('pending');
+  protected appErr = signal<string | null>(null);
+  protected portal = signal<StaffPortalSettingsView | null>(null);
+  protected portalBusy = signal(false);
+  protected portalMsg = signal<{ ok: boolean; text: string } | null>(null);
+  protected finalizeApp = signal<StaffApplicationView | null>(null);
+  protected finalizeDraft: StaffApplicationFinalize = { type: 'Permanent', departmentId: null, monthlySalary: 350000, hourlyRate: 0, formClass: '', createLogin: false };
+  protected finalizeRoles = signal<string[]>(['teacher']);
+  protected finalizeCreateLogin = signal(false);
+  protected finalizing = signal(false);
 
   // HR — departments & leave
   protected departments = signal<DepartmentView[]>([]);
@@ -808,9 +999,17 @@ export class StaffComponent {
 
   protected tabs = computed(() => [
     { id: 'directory', label: this.fr() ? 'Annuaire' : 'Directory' },
+    { id: 'applications', label: this.fr() ? 'Candidatures' : 'Applications' },
     { id: 'departments', label: this.fr() ? 'Départements' : 'Departments' },
     { id: 'leave', label: this.fr() ? 'Congés' : 'Leave' },
     { id: 'payroll', label: this.fr() ? 'Masse salariale' : 'Payroll' },
+  ]);
+
+  protected appStatusOptions = computed(() => [
+    { value: 'pending', label: this.fr() ? 'En attente' : 'Pending' },
+    { value: 'accepted', label: this.fr() ? 'Acceptées' : 'Accepted' },
+    { value: 'finalized', label: this.fr() ? 'Finalisées' : 'Finalized' },
+    { value: 'rejected', label: this.fr() ? 'Refusées' : 'Rejected' },
   ]);
 
   protected leaveTypes = computed(() => [
@@ -870,6 +1069,8 @@ export class StaffComponent {
     this.loadRoles();
     this.loadDepartments();
     this.loadLeaves();
+    this.loadPortal();
+    this.loadApplications();
   }
 
   private reload(): void {
@@ -886,14 +1087,175 @@ export class StaffComponent {
     });
   }
 
+  private loadPortal(): void {
+    this.api.getPortalSettings().subscribe({
+      next: (p) => this.portal.set(p),
+      error: () => this.portal.set(null),
+    });
+  }
+
+  private loadApplications(): void {
+    this.appErr.set(null);
+    this.api.listApplications(this.appStatusFilter()).subscribe({
+      next: (rows) => this.applications.set(rows),
+      error: (e) => this.appErr.set(e?.error?.message ?? (this.fr() ? 'Chargement impossible.' : 'Could not load.')),
+    });
+  }
+
   private loadDepartments(): void { this.hrApi.listDepartments().subscribe((d) => this.departments.set(d)); }
   private loadLeaves(): void { this.hrApi.listLeaves().subscribe((l) => this.leaves.set(l)); }
 
   protected setTab(id: string): void {
-    this.tab.set(id === 'payroll' || id === 'departments' || id === 'leave' ? (id as any) : 'directory');
+    const allowed = ['directory', 'payroll', 'departments', 'leave', 'applications'] as const;
+    this.tab.set((allowed as readonly string[]).includes(id) ? (id as typeof allowed[number]) : 'directory');
     this.deptForm.set(false);
     this.leaveForm.set(false);
     this.hrErr.set(null);
+    if (id === 'applications') {
+      this.loadPortal();
+      this.loadApplications();
+    }
+  }
+
+  protected onAppStatusFilter(v: string | null): void {
+    this.appStatusFilter.set(v);
+    this.loadApplications();
+  }
+
+  protected portalAbsoluteUrl(): string {
+    const path = this.portal()?.publicPath;
+    if (!path) return '';
+    return `${window.location.origin}${path}`;
+  }
+
+  protected setPortalEnabled(enabled: boolean): void {
+    if (!this.canWrite) return;
+    this.portalBusy.set(true);
+    this.portalMsg.set(null);
+    this.api.updatePortalSettings(enabled).subscribe({
+      next: (p) => {
+        this.portal.set(p);
+        this.portalBusy.set(false);
+        this.portalMsg.set({
+          ok: true,
+          text: enabled
+            ? (this.fr() ? 'Portail activé.' : 'Portal enabled.')
+            : (this.fr() ? 'Portail désactivé.' : 'Portal disabled.'),
+        });
+      },
+      error: (e) => {
+        this.portalBusy.set(false);
+        this.portalMsg.set({ ok: false, text: e?.error?.message ?? (this.fr() ? 'Échec.' : 'Failed.') });
+      },
+    });
+  }
+
+  protected regeneratePortalLink(): void {
+    if (!this.canWrite) return;
+    if (!confirm(this.fr()
+      ? 'Régénérer le lien ? L’ancien lien ne fonctionnera plus.'
+      : 'Regenerate the link? The old link will stop working.')) return;
+    this.portalBusy.set(true);
+    this.api.regeneratePortalToken().subscribe({
+      next: (p) => {
+        this.portal.set(p);
+        this.portalBusy.set(false);
+        this.portalMsg.set({ ok: true, text: this.fr() ? 'Nouveau lien généré.' : 'New link generated.' });
+      },
+      error: (e) => {
+        this.portalBusy.set(false);
+        this.portalMsg.set({ ok: false, text: e?.error?.message ?? (this.fr() ? 'Échec.' : 'Failed.') });
+      },
+    });
+  }
+
+  protected copyPortalLink(): void {
+    const url = this.portalAbsoluteUrl();
+    if (!url) return;
+    navigator.clipboard.writeText(url).then(() => {
+      this.portalMsg.set({ ok: true, text: this.fr() ? 'Lien copié.' : 'Link copied.' });
+    }).catch(() => {
+      this.portalMsg.set({ ok: false, text: this.fr() ? 'Copie impossible.' : 'Could not copy.' });
+    });
+  }
+
+  protected appStatusLabel(s: string): string {
+    return this.appStatusOptions().find((o) => o.value === s)?.label ?? s;
+  }
+
+  protected appStatusClass(s: string): string {
+    if (s === 'pending') return 'bg-amber-100 text-amber-800';
+    if (s === 'accepted') return 'bg-sky-100 text-sky-800';
+    if (s === 'finalized') return 'bg-emerald-100 text-emerald-800';
+    if (s === 'rejected') return 'bg-rose-100 text-rose-700';
+    return 'bg-slate-100 text-slate-600';
+  }
+
+  protected acceptApp(a: StaffApplicationView): void {
+    if (!confirm(this.fr()
+      ? `Accepter « ${a.name} » et créer la fiche (brouillon) ?`
+      : `Accept “${a.name}” and create a draft employee record?`)) return;
+    this.appErr.set(null);
+    this.api.acceptApplication(a.id).subscribe({
+      next: () => { this.loadApplications(); this.reload(); },
+      error: (e) => this.appErr.set(e?.error?.message ?? (this.fr() ? 'Acceptation impossible.' : 'Accept failed.')),
+    });
+  }
+
+  protected rejectApp(a: StaffApplicationView): void {
+    const reason = prompt(this.fr() ? 'Motif du refus :' : 'Rejection reason:');
+    if (reason == null) return;
+    if (!reason.trim()) {
+      alert(this.fr() ? 'Motif obligatoire.' : 'Reason required.');
+      return;
+    }
+    this.appErr.set(null);
+    this.api.rejectApplication(a.id, reason.trim()).subscribe({
+      next: () => this.loadApplications(),
+      error: (e) => this.appErr.set(e?.error?.message ?? (this.fr() ? 'Refus impossible.' : 'Reject failed.')),
+    });
+  }
+
+  protected openFinalize(a: StaffApplicationView): void {
+    this.finalizeApp.set(a);
+    this.finalizeDraft = {
+      type: a.type || 'Permanent',
+      departmentId: null,
+      monthlySalary: 350000,
+      hourlyRate: 0,
+      formClass: a.formClass || '',
+      createLogin: false,
+    };
+    this.finalizeRoles.set(['teacher']);
+    this.finalizeCreateLogin.set(!!a.email);
+  }
+
+  protected toggleFinalizeRole(role: string): void {
+    this.finalizeRoles.update((rs) => (rs.includes(role) ? rs.filter((r) => r !== role) : [...rs, role]));
+  }
+
+  protected doFinalize(): void {
+    const a = this.finalizeApp();
+    if (!a) return;
+    this.finalizing.set(true);
+    this.appErr.set(null);
+    const body: StaffApplicationFinalize = {
+      ...this.finalizeDraft,
+      roles: this.finalizeRoles(),
+      createLogin: !!a.email && this.finalizeCreateLogin(),
+    };
+    this.api.finalizeApplication(a.id, body).subscribe({
+      next: () => {
+        this.finalizing.set(false);
+        this.finalizeApp.set(null);
+        this.loadApplications();
+        this.reload();
+      },
+      error: (e) => {
+        this.finalizing.set(false);
+        this.appErr.set(e?.error?.message ?? (this.fr() ? 'Finalisation impossible.' : 'Finalize failed.'));
+      },
+    });
   }
 
   // ---- Departments ----
