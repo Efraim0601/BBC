@@ -44,6 +44,37 @@ export interface AccountResult {
   message: string;
 }
 
+export interface StaffImportRow {
+  name: string;
+  sex?: string;
+  type?: string;
+  email?: string;
+  phone?: string;
+  formClass?: string;
+  department?: string;
+  departmentId?: string | null;
+  monthlySalary?: number | null;
+  hourlyRate?: number | null;
+  roles?: string[];
+}
+
+export interface StaffImportRequest {
+  createLogin?: boolean;
+  rows: StaffImportRow[];
+}
+
+export interface StaffImportError {
+  row: number;
+  name: string;
+  message: string;
+}
+
+export interface StaffImportResult {
+  created: number;
+  failed: number;
+  errors: StaffImportError[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class StaffApi {
   private http = inject(HttpClient);
@@ -66,5 +97,8 @@ export class StaffApi {
   }
   resetCredentials(id: string): Observable<AccountResult> {
     return this.http.post<AccountResult>(`${this.base}/${id}/reset-credentials`, {});
+  }
+  importStaff(body: StaffImportRequest): Observable<StaffImportResult> {
+    return this.http.post<StaffImportResult>(`${this.base}/import`, body);
   }
 }

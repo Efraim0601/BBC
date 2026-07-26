@@ -102,16 +102,24 @@ public class PermissionAdminService {
         return new RoleView(code, fr, en, false);
     }
 
+    /** Labels only — role codes stay immutable (including built-in roles). */
     @Transactional
     public RoleView updateRole(String code, RoleUpsert in) {
         Map<String, Object> row = roleRow(code);
-        if (Boolean.TRUE.equals(row.get("builtin"))) {
-            throw ApiException.badRequest("Les rôles intégrés ne peuvent pas être renommés");
-        }
+        boolean builtin = Boolean.TRUE.equals(row.get("builtin"));
         String fr = in.labelFr().trim();
+        if (fr.isBlank()) throw ApiException.badRequest("Libellé obligatoire");
         String en = (in.labelEn() == null || in.labelEn().isBlank()) ? fr : in.labelEn().trim();
         jdbc.update("UPDATE role SET label_fr = ?, label_en = ? WHERE code = ?", fr, en, code);
-        return new RoleView(code, fr, en, false);
+        return new RoleView(code, fr, en, builtin);
+    }
+
+    @Transactional(readOnly = true)
+    public List<RoleView> listRoles() {
+        return jdbc.query(
+                "SELECT code, label_fr, label_en, builtin FROM role ORDER BY builtin DESC, code",
+                (rs, i) -> new RoleView(rs.getString("code"), rs.getString("label_fr"),
+                        rs.getString("label_en"), rs.getBoolean("builtin")));
     }
 
     @Transactional

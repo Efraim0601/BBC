@@ -36,6 +36,12 @@ public class StaffController {
         return service.create(in);
     }
 
+    @PostMapping("/import")
+    @PreAuthorize("@perm.can('hr','write')")
+    public StaffImportResult importStaff(@Valid @RequestBody StaffImportRequest in) {
+        return service.importStaff(in);
+    }
+
     @PutMapping("/{id}")
     @PreAuthorize("@perm.can('hr','write')")
     public EmployeeView update(@PathVariable UUID id, @Valid @RequestBody EmployeeUpsert in) {

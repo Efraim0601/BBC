@@ -232,7 +232,7 @@ type SettingsTab = 'academic' | 'general' | 'perms' | 'roles' | 'mail' | 'calend
         @case ('roles') {
           <div class="grid grid-cols-12 gap-4">
             <bbc-card className="col-span-12 lg:col-span-7" [title]="fr() ? 'Rôles utilisateurs' : 'User roles'"
-              [subtitle]="fr() ? 'Rôles définis dans le système' : 'Roles defined in the system'">
+              [subtitle]="fr() ? 'Libellés modifiables ; seuls les rôles personnalisés peuvent être supprimés' : 'Labels are editable; only custom roles can be deleted'">
               <div action class="w-8 h-8 rounded-lg bg-violet-50 text-violet-600 flex items-center justify-center">
                 <bbc-icon name="users" [s]="18" />
               </div>
@@ -257,16 +257,18 @@ type SettingsTab = 'academic' | 'general' | 'perms' | 'roles' | 'mail' | 'calend
                             <div class="text-sm font-bold text-ink">{{ fr() ? role.labelFr : role.labelEn }}</div>
                             <div class="text-[11px] text-mute font-mono">{{ role.code }} · {{ role.builtin ? (fr() ? 'Intégré' : 'Built-in') : (fr() ? 'Personnalisé' : 'Custom') }}</div>
                           </div>
-                          @if (!role.builtin && canWrite) {
+                          @if (canWrite) {
                             <div class="flex items-center gap-1">
                               <button (click)="startRoleEdit(role)"
                                 class="h-8 px-2.5 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-mute hover:bg-slate-50">
-                                {{ fr() ? 'Modifier' : 'Edit' }}
+                                {{ fr() ? 'Libellé' : 'Label' }}
                               </button>
-                              <button (click)="deleteRole(role)"
-                                class="h-8 px-2.5 text-xs font-semibold rounded-lg bg-white border border-rose-200 text-rose-600 hover:bg-rose-50">
-                                {{ fr() ? 'Supprimer' : 'Delete' }}
-                              </button>
+                              @if (!role.builtin) {
+                                <button (click)="deleteRole(role)"
+                                  class="h-8 px-2.5 text-xs font-semibold rounded-lg bg-white border border-rose-200 text-rose-600 hover:bg-rose-50">
+                                  {{ fr() ? 'Supprimer' : 'Delete' }}
+                                </button>
+                              }
                             </div>
                           }
                         </div>
@@ -274,6 +276,9 @@ type SettingsTab = 'academic' | 'general' | 'perms' | 'roles' | 'mail' | 'calend
                     </div>
                   }
                 </div>
+                @if (roleMsg(); as m) {
+                  <div class="mt-3 text-xs rounded-lg px-3 py-2" [class]="m.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-600'">{{ m.text }}</div>
+                }
               } @else {
                 <bbc-empty icon="users" [label]="fr() ? 'Aucun rôle' : 'No roles'" />
               }
@@ -811,14 +816,20 @@ export class SettingsComponent {
   protected saveRoleEdit(): void {
     const role = this.editingRole();
     if (!role || !this.editRoleDraft.labelFr.trim()) return;
+    this.roleMsg.set(null);
     this.api.updateRole(role.code, {
       labelFr: this.editRoleDraft.labelFr.trim(),
       labelEn: this.editRoleDraft.labelEn?.trim() || undefined,
     }).subscribe({
       next: () => {
         this.editingRole.set(null);
+        this.roleMsg.set({ ok: true, text: this.fr() ? 'Libellé mis à jour.' : 'Label updated.' });
         this.reload();
       },
+      error: (e) => this.roleMsg.set({
+        ok: false,
+        text: e?.error?.message ?? (this.fr() ? 'Modification impossible.' : 'Update failed.'),
+      }),
     });
   }
 

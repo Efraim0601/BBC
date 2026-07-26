@@ -66,6 +66,13 @@ public class SettingsController {
 
     // ---- Roles & permissions -------------------------------------------------
 
+    /** Role catalogue for staff assignment and settings — labels only, no matrix. */
+    @GetMapping("/roles")
+    @PreAuthorize("@perm.can('settings','read') or @perm.can('hr','read')")
+    public List<RoleView> listRoles() {
+        return service.listRoles();
+    }
+
     @GetMapping("/permissions")
     @PreAuthorize("@perm.can('settings','read')")
     public PermissionMatrix getMatrix() {

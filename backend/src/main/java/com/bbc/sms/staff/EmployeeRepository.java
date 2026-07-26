@@ -13,4 +13,5 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID> {
     long countBySchoolId(UUID schoolId);
     long countBySchoolIdAndDepartmentIdAndActiveTrue(UUID schoolId, UUID departmentId);
     boolean existsBySchoolIdAndCode(UUID schoolId, String code);
+    boolean existsBySchoolIdAndEmailIgnoreCaseAndActiveTrue(UUID schoolId, String email);
 }

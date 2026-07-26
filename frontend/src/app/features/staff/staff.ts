@@ -1,9 +1,12 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { StaffApi, EmployeeUpsert, EmployeeView, AccountResult } from './staff.api';
+import { HttpErrorResponse } from '@angular/common/http';
+import { StaffApi, EmployeeUpsert, EmployeeView, AccountResult, StaffImportRow, StaffImportResult } from './staff.api';
 import { HrApi, DepartmentView, DepartmentUpsert, LeaveView, LeaveCreate } from './hr.api';
+import { SettingsApi, RoleView } from '../settings/settings.api';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
+import { downloadCsv, stampedName } from '../../core/csv';
 import {
   IconComponent, CardComponent, KpiComponent, PageHeaderComponent, EmptyComponent,
   AvatarComponent, TabsComponent, ChipFilterComponent,
@@ -27,11 +30,20 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
       <bbc-page-header [title]="i18n.t('hr')"
         [subtitle]="fr() ? 'Annuaire du personnel, rôles et masse salariale' : 'Staff directory, roles and payroll'">
         <div right class="flex items-center gap-2">
-          @if (!editing()) {
-            <button class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
+          @if (mode() === 'list') {
+            <button (click)="exportList()"
+              class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
               <bbc-icon name="download" [s]="16" /> {{ fr() ? 'Exporter' : 'Export' }}
             </button>
             @if (canWrite) {
+              <button (click)="downloadStaffTemplate()"
+                class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
+                {{ fr() ? 'Modèle CSV' : 'CSV template' }}
+              </button>
+              <button (click)="openImport()"
+                class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
+                <bbc-icon name="plus" [s]="16" /> {{ fr() ? 'Importer' : 'Import' }}
+              </button>
               <button (click)="openCreate()"
                 class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-brand-600 hover:bg-brand-700 text-white">
                 <bbc-icon name="plus" [s]="16" /> {{ fr() ? 'Nouvel employé' : 'New employee' }}
@@ -41,7 +53,7 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
         </div>
       </bbc-page-header>
 
-      @if (!editing()) {
+      @if (mode() === 'list') {
         <bbc-tabs [tabs]="tabs()" [value]="tab()" (change)="setTab($event)" />
 
         <!-- KPIs -->
@@ -449,6 +461,145 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
             </bbc-card>
           }
         }
+      } @else if (mode() === 'import') {
+        <bbc-card>
+          <div class="flex items-center gap-3 pb-4 mb-4 border-b border-slate-100">
+            <button type="button" (click)="closeImport()"
+              class="w-9 h-9 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-ink">
+              <bbc-icon name="chevronLeft" [s]="18" />
+            </button>
+            <div class="flex-1">
+              <div class="text-[17px] font-bold text-ink font-display">{{ fr() ? 'Importer du personnel' : 'Import staff' }}</div>
+              <div class="text-xs text-mute">{{ fr() ? 'Ajoutez plusieurs employés d’un coup via CSV ou Excel.' : 'Add many employees at once via CSV or Excel.' }}</div>
+            </div>
+          </div>
+
+          @if (importResult(); as res) {
+            <div class="max-w-2xl space-y-4">
+              <div class="flex items-center gap-3 p-4 rounded-lg" [class]="res.failed ? 'bg-amber-50' : 'bg-emerald-50'">
+                <div class="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
+                  [class]="res.failed ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'">
+                  <bbc-icon name="check" [s]="20" />
+                </div>
+                <div>
+                  <div class="font-semibold text-ink">{{ res.created }} {{ fr() ? 'employé(s) importé(s)' : 'employee(s) imported' }}</div>
+                  @if (res.failed) { <div class="text-sm text-amber-700">{{ res.failed }} {{ fr() ? 'ligne(s) ignorée(s)' : 'row(s) skipped' }}</div> }
+                </div>
+              </div>
+              @if (res.errors.length) {
+                <div class="rounded-lg border border-slate-200 overflow-hidden">
+                  <div class="px-3 py-2 bg-slate-50 text-xs font-semibold text-mute">{{ fr() ? 'Lignes ignorées' : 'Skipped rows' }}</div>
+                  <table class="w-full text-sm">
+                    <tbody>
+                      @for (e of res.errors; track e.row) {
+                        <tr class="border-t border-slate-100">
+                          <td class="px-3 py-1.5 text-mute font-mono w-14">#{{ e.row }}</td>
+                          <td class="px-3 py-1.5 font-medium text-ink">{{ e.name }}</td>
+                          <td class="px-3 py-1.5 text-rose-600">{{ e.message }}</td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              }
+              <div class="flex items-center justify-end gap-2 pt-2">
+                <button (click)="resetImport()" class="h-10 px-5 rounded-lg bg-slate-100 text-sm font-semibold text-ink hover:bg-slate-200">{{ fr() ? 'Importer d’autres' : 'Import more' }}</button>
+                <button (click)="closeImport()" class="h-10 px-6 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold">{{ fr() ? 'Terminer' : 'Done' }}</button>
+              </div>
+            </div>
+          } @else {
+            <div class="space-y-6 max-w-3xl">
+              <section>
+                <div class="flex items-center justify-between mb-2">
+                  <div class="text-[11px] uppercase tracking-wider text-mute font-bold">{{ fr() ? 'Données' : 'Data' }}</div>
+                  <div class="flex items-center gap-2">
+                    <button type="button" (click)="downloadStaffTemplate()"
+                      class="h-8 px-3 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
+                      {{ fr() ? 'Modèle CSV' : 'CSV template' }}
+                    </button>
+                    <label class="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50 cursor-pointer">
+                      <bbc-icon name="download" [s]="14" /> {{ fr() ? 'Fichier Excel / CSV' : 'Excel / CSV file' }}
+                      <input type="file" accept=".csv,.xls,.xlsx,.xlsm,text/csv,text/plain,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" (change)="onImportFile($event)" class="hidden" />
+                    </label>
+                    <button type="button" (click)="loadImportSample()" class="h-8 px-3 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">{{ fr() ? 'Exemple' : 'Sample' }}</button>
+                  </div>
+                </div>
+                <textarea [ngModel]="importText()" (ngModelChange)="onImportText($event)" name="staffImportText" rows="7"
+                  [placeholder]="fr() ? 'Collez le tableau ici — nom, sexe, type, email, téléphone, rôles, classe, département, salaire…'
+                                      : 'Paste the table here — name, sex, type, email, phone, roles, class, department, salary…'"
+                  class="w-full px-3 py-2 rounded-lg border border-slate-200 font-mono text-xs focus:outline-none focus:border-brand-400"></textarea>
+                <div class="text-[11px] text-mute mt-1">
+                  {{ fr() ? 'Colonnes : nom, sexe (M/F), type (Permanent/Vacataire), email, telephone, roles (teacher|form_teacher…), classe, departement, salaire_mensuel, taux_horaire. Alias acceptés : surveillant→prefect, caissier→econome.'
+                          : 'Columns: name, sex (M/F), type (Permanent/Vacataire), email, phone, roles (teacher|form_teacher…), class, department, monthly_salary, hourly_rate. Aliases: surveillant→prefect, cashier→econome.' }}
+                </div>
+              </section>
+
+              <section>
+                <label class="flex items-start gap-2.5 cursor-pointer select-none p-3 rounded-lg border border-slate-200 bg-slate-50/60">
+                  <input type="checkbox" [ngModel]="importCreateLogin()" (ngModelChange)="importCreateLogin.set($event)"
+                    class="mt-0.5 w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-400" />
+                  <span>
+                    <span class="text-sm font-semibold text-ink">{{ fr() ? 'Créer les comptes de connexion' : 'Create login accounts' }}</span>
+                    <span class="text-[11px] text-mute block mt-0.5">
+                      {{ fr() ? 'Pour chaque ligne avec e-mail : identifiants générés et envoyés (SMTP requis). Désactivé par défaut pour un import massif.'
+                              : 'For each row with an e-mail: credentials are generated and sent (SMTP required). Off by default for bulk import.' }}
+                    </span>
+                  </span>
+                </label>
+              </section>
+
+              @if (importRows().length) {
+                <section>
+                  <div class="text-[11px] uppercase tracking-wider text-mute font-bold mb-2">
+                    {{ fr() ? 'Aperçu' : 'Preview' }} — {{ importValidCount() }} / {{ importRows().length }} {{ fr() ? 'valides' : 'valid' }}
+                  </div>
+                  <div class="rounded-lg border border-slate-200 overflow-auto max-h-80">
+                    <table class="w-full text-sm">
+                      <thead class="bg-slate-50 sticky top-0">
+                        <tr class="text-[11px] uppercase text-mute text-left">
+                          <th class="px-3 py-2 font-semibold w-8"></th>
+                          <th class="px-3 py-2 font-semibold">{{ fr() ? 'Nom' : 'Name' }}</th>
+                          <th class="px-3 py-2 font-semibold">{{ fr() ? 'Sexe' : 'Sex' }}</th>
+                          <th class="px-3 py-2 font-semibold">Type</th>
+                          <th class="px-3 py-2 font-semibold">Email</th>
+                          <th class="px-3 py-2 font-semibold">{{ fr() ? 'Rôles' : 'Roles' }}</th>
+                          <th class="px-3 py-2 font-semibold">{{ fr() ? 'Dépt.' : 'Dept' }}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        @for (r of importRows(); track $index) {
+                          <tr class="border-t border-slate-100" [class.bg-rose-50]="!importRowValid(r)">
+                            <td class="px-3 py-1.5">
+                              @if (importRowValid(r)) { <span class="text-emerald-600"><bbc-icon name="check" [s]="14" /></span> }
+                              @else { <span class="text-rose-500"><bbc-icon name="x" [s]="14" /></span> }
+                            </td>
+                            <td class="px-3 py-1.5 font-medium text-ink">{{ r.name || '—' }}</td>
+                            <td class="px-3 py-1.5">{{ r.sex || '—' }}</td>
+                            <td class="px-3 py-1.5">{{ r.type || '—' }}</td>
+                            <td class="px-3 py-1.5 text-xs truncate max-w-[10rem]">{{ r.email || '—' }}</td>
+                            <td class="px-3 py-1.5 text-xs">{{ (r.roles || []).join(', ') || 'teacher' }}</td>
+                            <td class="px-3 py-1.5 text-xs">{{ r.department || '—' }}</td>
+                          </tr>
+                        }
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              }
+
+              @if (importError(); as e) { <div class="text-xs rounded-lg px-3 py-2 bg-rose-50 text-rose-600">{{ e }}</div> }
+
+              <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button (click)="closeImport()" class="h-10 px-5 rounded-lg bg-slate-100 text-sm font-semibold text-ink hover:bg-slate-200">{{ i18n.t('cancel') }}</button>
+                <button (click)="doImport()" [disabled]="!importValidCount() || importing()"
+                  class="inline-flex items-center gap-1.5 h-10 px-6 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-semibold">
+                  <bbc-icon name="plus" [s]="16" />
+                  {{ importing() ? (fr() ? 'Import…' : 'Importing…') : (fr() ? 'Importer ' + importValidCount() + ' employé(s)' : 'Import ' + importValidCount() + ' employee(s)') }}
+                </button>
+              </div>
+            </div>
+          }
+        </bbc-card>
       } @else {
         <!-- Full-page employee form (replaces the create/edit modal) -->
         <bbc-card>
@@ -531,6 +682,11 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                   </button>
                 }
               </div>
+              @if (!roleCatalog().length) {
+                <div class="text-[11px] text-mute mt-2">
+                  {{ fr() ? 'Aucun rôle chargé — créez des rôles dans Paramètres → Rôles.' : 'No roles loaded — create roles in Settings → Roles.' }}
+                </div>
+              }
               @if (draftRoles().includes('form_teacher')) {
                 <label class="block mt-3 max-w-xs">
                   <span class="text-xs font-semibold text-ink">{{ fr() ? 'Classe (Prof. Principal)' : 'Form class' }}</span>
@@ -609,9 +765,11 @@ export class StaffComponent {
   protected i18n = inject(I18nService);
   private api = inject(StaffApi);
   private hrApi = inject(HrApi);
+  private settingsApi = inject(SettingsApi);
   private auth = inject(AuthService);
 
   protected rows = signal<EmployeeView[]>([]);
+  protected roleDefs = signal<RoleView[]>([]);
   protected tab = signal<'directory' | 'payroll' | 'departments' | 'leave'>('directory');
 
   // HR — departments & leave
@@ -626,7 +784,7 @@ export class StaffComponent {
   protected search = signal('');
   protected roleFilter = signal<string | null>(null);
   protected selectedId = signal<string | null>(null);
-  protected editing = signal(false);
+  protected mode = signal<'list' | 'edit' | 'import'>('list');
   protected editId = signal<string | null>(null);
   protected canWrite = this.auth.can('hr', 'write');
   protected draft: EmployeeUpsert = this.blank();
@@ -635,6 +793,14 @@ export class StaffComponent {
   protected accountMsg = signal<{ text: string; ok: boolean } | null>(null);
   protected resetting = signal(false);
   protected trackId = (e: EmployeeView) => e.id;
+
+  // Bulk import
+  protected importText = signal('');
+  protected importRows = signal<StaffImportRow[]>([]);
+  protected importResult = signal<StaffImportResult | null>(null);
+  protected importError = signal<string | null>(null);
+  protected importing = signal(false);
+  protected importCreateLogin = signal(false);
 
   protected fr = () => this.i18n.lang() === 'fr';
   protected money = fmtMoney;
@@ -655,13 +821,12 @@ export class StaffComponent {
     { value: 'other', label: this.fr() ? 'Autre' : 'Other' },
   ]);
 
-  protected roleCatalog = computed(() => [
-    { value: 'principal', label: this.fr() ? 'Proviseur' : 'Principal' },
-    { value: 'form_teacher', label: this.fr() ? 'Prof. Principal' : 'Form teacher' },
-    { value: 'teacher', label: this.fr() ? 'Enseignant' : 'Teacher' },
-    { value: 'surveillant', label: this.fr() ? 'Surveillant' : 'Supervisor' },
-    { value: 'cashier', label: this.fr() ? 'Caissier' : 'Cashier' },
-  ]);
+  /** Staff-assignable roles from the DB catalogue (excludes parent portal role). */
+  protected roleCatalog = computed(() =>
+    this.roleDefs()
+      .filter((r) => r.code !== 'parent')
+      .map((r) => ({ value: r.code, label: this.fr() ? r.labelFr : (r.labelEn || r.labelFr) })),
+  );
 
   protected roleOptions = computed(() => this.roleCatalog());
 
@@ -702,6 +867,7 @@ export class StaffComponent {
 
   constructor() {
     this.reload();
+    this.loadRoles();
     this.loadDepartments();
     this.loadLeaves();
   }
@@ -710,6 +876,13 @@ export class StaffComponent {
     this.api.list().subscribe((r) => {
       this.rows.set(r);
       if (!this.selectedId() && r.length) this.selectedId.set(r[0].id);
+    });
+  }
+
+  private loadRoles(): void {
+    this.settingsApi.listRoles().subscribe({
+      next: (roles) => this.roleDefs.set(roles),
+      error: () => this.roleDefs.set([]),
     });
   }
 
@@ -784,7 +957,7 @@ export class StaffComponent {
     this.draftRoles.set(['teacher']);
     this.createLogin.set(true);
     this.editId.set(null);
-    this.editing.set(true);
+    this.mode.set('edit');
   }
 
   protected resetCredentials(e: EmployeeView): void {
@@ -822,7 +995,7 @@ export class StaffComponent {
     };
     this.draftRoles.set([...e.roles]);
     this.editId.set(e.id);
-    this.editing.set(true);
+    this.mode.set('edit');
   }
 
   protected toggleRole(role: string): void {
@@ -830,7 +1003,7 @@ export class StaffComponent {
   }
 
   protected closeEditor(): void {
-    this.editing.set(false);
+    this.mode.set('list');
   }
 
   save(): void {
@@ -858,7 +1031,7 @@ export class StaffComponent {
     const req = id ? this.api.update(id, body) : this.api.create(body);
     req.subscribe({
       next: (res) => {
-        this.editing.set(false);
+        this.mode.set('list');
         this.selectedId.set(res?.id ?? id);
         this.accountMsg.set(null);
         if (wantsLogin && res?.id) {
@@ -885,6 +1058,221 @@ export class StaffComponent {
       if (this.selectedId() === e.id) this.selectedId.set(null);
       this.reload();
     });
+  }
+
+  protected exportList(): void {
+    const rows = this.filtered().map((e) => [
+      e.code, e.name, e.sex, e.type, e.email, e.phone,
+      (e.roles || []).join('|'), e.formClass, e.departmentName,
+      e.monthlySalary, e.hourlyRate,
+    ]);
+    downloadCsv(stampedName('personnel'),
+      ['code', 'nom', 'sexe', 'type', 'email', 'telephone', 'roles', 'classe', 'departement', 'salaire_mensuel', 'taux_horaire'],
+      rows);
+  }
+
+  protected downloadStaffTemplate(): void {
+    downloadCsv('modele-personnel.csv',
+      ['nom', 'sexe', 'type', 'email', 'telephone', 'roles', 'classe', 'departement', 'salaire_mensuel', 'taux_horaire'],
+      [[
+        'NGONO Jean Paul', 'M', 'Permanent', 'j.ngono@bbc.cm', '+237 6XX XX XX XX',
+        'teacher|form_teacher', '6ème A', 'Sciences', '350000', '',
+      ], [
+        'MBAH Alice', 'F', 'Vacataire', 'a.mbah@bbc.cm', '+237 6YY YY YY YY',
+        'teacher', '', '', '', '5000',
+      ]]);
+  }
+
+  // ---- Bulk import ---------------------------------------------------------
+  protected importValidCount = computed(() => this.importRows().filter((r) => this.importRowValid(r)).length);
+
+  protected importRowValid(r: StaffImportRow): boolean {
+    return !!r.name?.trim();
+  }
+
+  protected openImport(): void {
+    this.resetImport();
+    this.mode.set('import');
+  }
+
+  protected closeImport(): void {
+    this.mode.set('list');
+    this.resetImport();
+  }
+
+  protected resetImport(): void {
+    this.importText.set('');
+    this.importRows.set([]);
+    this.importResult.set(null);
+    this.importError.set(null);
+    this.importing.set(false);
+    this.importCreateLogin.set(false);
+  }
+
+  protected onImportText(text: string): void {
+    this.importText.set(text);
+    this.importRows.set(this.parseImportRows(text));
+  }
+
+  protected onImportFile(ev: Event): void {
+    const input = ev.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    this.importError.set(null);
+    const isExcel = /\.(xlsx?|xlsm)$/i.test(file.name);
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        if (isExcel) {
+          const XLSX = await import('xlsx');
+          const wb = XLSX.read(reader.result, { type: 'array' });
+          const sheet = wb.Sheets[wb.SheetNames[0]];
+          this.onImportText(XLSX.utils.sheet_to_csv(sheet));
+        } else {
+          this.onImportText(String(reader.result ?? ''));
+        }
+      } catch {
+        this.importError.set(this.fr() ? 'Fichier illisible — vérifiez le format.' : 'Unreadable file — check the format.');
+      }
+      input.value = '';
+    };
+    if (isExcel) reader.readAsArrayBuffer(file); else reader.readAsText(file);
+  }
+
+  protected loadImportSample(): void {
+    const sample =
+      'nom,sexe,type,email,telephone,roles,classe,departement,salaire_mensuel,taux_horaire\n' +
+      'NGONO Jean Paul,M,Permanent,j.ngono@bbc.cm,+237 670000001,teacher|form_teacher,6ème A,Sciences,350000,\n' +
+      'MBAH Alice,F,Vacataire,a.mbah@bbc.cm,+237 670000002,teacher,,, ,5000\n' +
+      'TCHATCHE Paul,M,Permanent,p.tchatche@bbc.cm,+237 670000003,prefect,,,280000,';
+    this.onImportText(sample);
+  }
+
+  protected doImport(): void {
+    const rows = this.importRows().filter((r) => this.importRowValid(r));
+    if (!rows.length) return;
+    this.importing.set(true);
+    this.importError.set(null);
+    this.api.importStaff({ createLogin: this.importCreateLogin(), rows }).subscribe({
+      next: (res) => { this.importing.set(false); this.importResult.set(res); this.reload(); },
+      error: (e) => { this.importing.set(false); this.importError.set(this.importErrorMessage(e)); },
+    });
+  }
+
+  private importErrorMessage(e: unknown): string {
+    const fr = this.fr();
+    if (e instanceof HttpErrorResponse) {
+      if (e.status === 0) return fr ? 'Connexion interrompue (réseau ou délai dépassé) — réessayez.' : 'Connection lost (network or timeout) — please retry.';
+      if (e.status === 401) return fr ? 'Session expirée — reconnectez-vous puis relancez l\'import.' : 'Session expired — sign in again then retry the import.';
+      if (e.status === 403) return fr ? 'Vous n\'avez pas la permission d\'importer le personnel.' : 'You do not have permission to import staff.';
+      if (e.status === 413) return fr ? 'Fichier trop volumineux — importez par lots plus petits.' : 'File too large — import in smaller batches.';
+      const msg = e.error?.message;
+      if (msg && typeof msg === 'object') {
+        const parts = Object.entries(msg as Record<string, string>).map(([k, v]) => `${k}: ${v}`);
+        if (parts.length) return parts.join(' · ');
+      }
+      if (typeof msg === 'string' && msg) return msg;
+      return (fr ? 'Import impossible' : 'Import failed') + ` (HTTP ${e.status}).`;
+    }
+    return fr ? 'Import impossible.' : 'Import failed.';
+  }
+
+  private parseImportRows(text: string): StaffImportRow[] {
+    const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length);
+    if (!lines.length) return [];
+    const delim = this.detectDelim(lines[0]);
+    const cells = lines.map((l) => this.splitLine(l, delim));
+    const map = this.mapStaffHeader(cells[0]);
+    const dataRows = map ? cells.slice(1) : cells;
+    const idx = map ?? {
+      name: 0, sex: 1, type: 2, email: 3, phone: 4, roles: 5,
+      formClass: 6, department: 7, monthlySalary: 8, hourlyRate: 9,
+    };
+    const at = (r: string[], i: number) => (i >= 0 ? (r[i] ?? '').trim() : '');
+    return dataRows.map((r) => ({
+      name: at(r, idx.name),
+      sex: this.normSex(at(r, idx.sex)),
+      type: this.normType(at(r, idx.type)),
+      email: at(r, idx.email) || undefined,
+      phone: at(r, idx.phone) || undefined,
+      roles: this.normRoles(at(r, idx.roles)),
+      formClass: at(r, idx.formClass) || undefined,
+      department: at(r, idx.department) || undefined,
+      monthlySalary: this.normNum(at(r, idx.monthlySalary)),
+      hourlyRate: this.normNum(at(r, idx.hourlyRate)),
+    }));
+  }
+
+  private mapStaffHeader(cells: string[]): {
+    name: number; sex: number; type: number; email: number; phone: number;
+    roles: number; formClass: number; department: number; monthlySalary: number; hourlyRate: number;
+  } | null {
+    const idx: Record<string, number> = {};
+    cells.forEach((raw, i) => {
+      const c = raw.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      if (idx['name'] === undefined && /^(nom|name|full.?name|employe)/.test(c)) idx['name'] = i;
+      else if (idx['sex'] === undefined && /(sexe|sex|genre|gender)/.test(c)) idx['sex'] = i;
+      else if (idx['type'] === undefined && /(type|contrat|contract|statut)/.test(c)) idx['type'] = i;
+      else if (idx['email'] === undefined && /(e-?mail|courriel)/.test(c)) idx['email'] = i;
+      else if (idx['phone'] === undefined && /(tel|phone|contact|numero)/.test(c)) idx['phone'] = i;
+      else if (idx['roles'] === undefined && /(role|roles|fonction)/.test(c)) idx['roles'] = i;
+      else if (idx['formClass'] === undefined && /(classe|form.?class|pp)/.test(c) && !/salaire/.test(c)) idx['formClass'] = i;
+      else if (idx['department'] === undefined && /(depart|dept|service)/.test(c)) idx['department'] = i;
+      else if (idx['monthlySalary'] === undefined && /(salaire|salary|mensuel|monthly)/.test(c)) idx['monthlySalary'] = i;
+      else if (idx['hourlyRate'] === undefined && /(taux|horaire|hourly|rate)/.test(c)) idx['hourlyRate'] = i;
+    });
+    if (idx['name'] === undefined) return null;
+    return {
+      name: idx['name'] ?? -1,
+      sex: idx['sex'] ?? -1,
+      type: idx['type'] ?? -1,
+      email: idx['email'] ?? -1,
+      phone: idx['phone'] ?? -1,
+      roles: idx['roles'] ?? -1,
+      formClass: idx['formClass'] ?? -1,
+      department: idx['department'] ?? -1,
+      monthlySalary: idx['monthlySalary'] ?? -1,
+      hourlyRate: idx['hourlyRate'] ?? -1,
+    };
+  }
+
+  private detectDelim(line: string): string {
+    const counts: Record<string, number> = { ';': 0, '\t': 0, ',': 0 };
+    for (const ch of line) if (ch in counts) counts[ch]!++;
+    if (counts['\t']! >= counts[';']! && counts['\t']! >= counts[',']!) return '\t';
+    if (counts[';']! >= counts[',']!) return ';';
+    return ',';
+  }
+
+  private splitLine(line: string, delim: string): string[] {
+    return line.split(delim).map((c) => c.replace(/^"|"$/g, '').trim());
+  }
+
+  private normSex(v: string): string {
+    const c = (v ?? '').trim().toLowerCase();
+    if (!c) return '';
+    if (/^(m|masculin|male|g|gar)/.test(c)) return 'M';
+    if (/^(f|feminin|female|fille)/.test(c)) return 'F';
+    return '';
+  }
+
+  private normType(v: string): string {
+    const c = (v ?? '').trim().toLowerCase();
+    if (!c) return '';
+    if (/^vac|contract|horaire/.test(c)) return 'Vacataire';
+    if (/^perm|titulaire|full/.test(c)) return 'Permanent';
+    return v.trim();
+  }
+
+  private normRoles(v: string): string[] {
+    if (!v?.trim()) return [];
+    return v.split(/[|;,/]+/).map((r) => r.trim()).filter(Boolean);
+  }
+
+  private normNum(v: string): number | null {
+    if (!v?.trim()) return null;
+    const n = Number(String(v).replace(/\s/g, '').replace(',', '.'));
+    return Number.isFinite(n) ? Math.round(n) : null;
   }
 
   private blank(): EmployeeUpsert {

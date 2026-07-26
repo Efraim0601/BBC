@@ -1,8 +1,10 @@
 package com.bbc.sms.staff.dto;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.Pattern;
 
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -49,4 +51,28 @@ public class StaffDtos {
             String username,
             boolean emailSent,
             String message) {}
+
+    /** One row of a bulk staff import (CSV / Excel parsed on the client). */
+    public record StaffImportRow(
+            String name,
+            String sex,
+            String type,
+            String email,
+            String phone,
+            String formClass,
+            /** Department name — resolved case-insensitively when {@code departmentId} is null. */
+            String department,
+            UUID departmentId,
+            Long monthlySalary,
+            Integer hourlyRate,
+            List<String> roles) {}
+
+    public record StaffImportRequest(
+            /** When true, provision a login for each row that has an e-mail. */
+            Boolean createLogin,
+            @NotEmpty List<StaffImportRow> rows) {}
+
+    public record StaffImportError(int row, String name, String message) {}
+
+    public record StaffImportResult(int created, int failed, List<StaffImportError> errors) {}
 }

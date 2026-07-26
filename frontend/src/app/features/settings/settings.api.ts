@@ -114,6 +114,10 @@ export class SettingsApi {
   private http = inject(HttpClient);
   private base = `${environment.apiUrl}/settings`;
 
+  listRoles(): Observable<RoleView[]> {
+    return this.http.get<RoleView[]>(`${this.base}/roles`);
+  }
+
   getMatrix(): Observable<PermissionMatrix> {
     return this.http.get<PermissionMatrix>(`${this.base}/permissions`);
   }
