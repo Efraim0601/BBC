@@ -4,6 +4,7 @@ Application de gestion scolaire bilingue (FR/EN), multi-tenant, **temps réel**.
 **Spring Boot** (Java 21) · **Angular 21** (zoneless, Signals) · **PostgreSQL** · **Docker**.
 
 > L'architecture détaillée est dans [ARCHITECTURE.md](ARCHITECTURE.md). Ce dépôt en est l'implémentation de référence (socle exécutable + modules cœur).
+> Guide utilisateur (formation module par module + fiches de test) : [GUIDE_UTILISATEUR.md](GUIDE_UTILISATEUR.md) · version HTML dans l’app : `/guide/` et `/guide/fiches-test.html`.
 
 ---
 

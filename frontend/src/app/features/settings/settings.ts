@@ -1,6 +1,9 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { SettingsApi, PermissionMatrix, RoleView, MailConfigUpdate } from './settings.api';
+import {
+  SettingsApi, PermissionMatrix, RoleView, RoleUpsert, MailConfigUpdate,
+  SchoolProfileView, SchoolProfileUpdate, HolidayView, CatalogItemView, CatalogItemUpsert,
+} from './settings.api';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
 import {
@@ -9,6 +12,7 @@ import {
 import { AcademicSetupComponent } from '../setup/academic-setup';
 
 type Level = 'none' | 'read' | 'write';
+type SettingsTab = 'academic' | 'general' | 'perms' | 'roles' | 'mail' | 'calendar' | 'discipline';
 
 @Component({
   selector: 'bbc-settings',
@@ -28,7 +32,7 @@ type Level = 'none' | 'read' | 'write';
         </div>
       </bbc-page-header>
 
-      <bbc-tabs [tabs]="tabs()" [value]="tab()" (change)="tab.set($any($event))" />
+      <bbc-tabs [tabs]="tabs()" [value]="tab()" (change)="onTab($any($event))" />
 
       @switch (tab()) {
         <!-- ===================== ACADEMIC SETUP ===================== -->
@@ -43,14 +47,76 @@ type Level = 'none' | 'read' | 'write';
               <div action class="w-8 h-8 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center">
                 <bbc-icon name="building" [s]="18" />
               </div>
-              <div class="space-y-0.5">
-                @for (r of schoolRows(); track r.label) {
-                  <div class="flex items-center justify-between py-2 border-b border-slate-50 last:border-0">
-                    <div class="text-sm text-mute">{{ r.label }}</div>
-                    <div class="text-sm font-semibold text-ink">{{ r.value }}</div>
+              @if (school(); as s) {
+                <div class="space-y-3">
+                  <div class="grid grid-cols-2 gap-3">
+                    <label class="block col-span-2">
+                      <span class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'Nom' : 'Name' }}</span>
+                      <input [(ngModel)]="schoolDraft.name" [disabled]="!canWrite"
+                        class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400 disabled:bg-slate-50" />
+                    </label>
+                    <label class="block col-span-2">
+                      <span class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'Devise / slogan' : 'Motto' }}</span>
+                      <input [(ngModel)]="schoolDraft.motto" [disabled]="!canWrite"
+                        class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400 disabled:bg-slate-50" />
+                    </label>
+                    <label class="block">
+                      <span class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'Ville' : 'City' }}</span>
+                      <input [(ngModel)]="schoolDraft.city" [disabled]="!canWrite"
+                        class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400 disabled:bg-slate-50" />
+                    </label>
+                    <label class="block">
+                      <span class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'Pays' : 'Country' }}</span>
+                      <input [(ngModel)]="schoolDraft.country" [disabled]="!canWrite"
+                        class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400 disabled:bg-slate-50" />
+                    </label>
+                    <label class="block">
+                      <span class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'Téléphone' : 'Phone' }}</span>
+                      <input [(ngModel)]="schoolDraft.phone" [disabled]="!canWrite"
+                        class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400 disabled:bg-slate-50" />
+                    </label>
+                    <label class="block">
+                      <span class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">E-mail</span>
+                      <input [(ngModel)]="schoolDraft.email" [disabled]="!canWrite"
+                        class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400 disabled:bg-slate-50" />
+                    </label>
+                    <label class="block">
+                      <span class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'Devise monétaire' : 'Currency' }}</span>
+                      <input [(ngModel)]="schoolDraft.currency" [disabled]="!canWrite"
+                        class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400 disabled:bg-slate-50" />
+                    </label>
+                    <label class="block">
+                      <span class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'Autorité de tutelle' : 'Authority' }}</span>
+                      <input [(ngModel)]="schoolDraft.authority" [disabled]="!canWrite"
+                        class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400 disabled:bg-slate-50" />
+                    </label>
+                    <label class="block">
+                      <span class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'Début des cours' : 'School start' }}</span>
+                      <input type="time" [(ngModel)]="schoolDraft.schoolStartTime" [disabled]="!canWrite"
+                        class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400 disabled:bg-slate-50" />
+                    </label>
+                    <label class="block">
+                      <span class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'Fin des cours' : 'School end' }}</span>
+                      <input type="time" [(ngModel)]="schoolDraft.schoolEndTime" [disabled]="!canWrite"
+                        class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400 disabled:bg-slate-50" />
+                    </label>
                   </div>
-                }
-              </div>
+                  @if (s.academicYear) {
+                    <div class="text-xs text-mute">{{ fr() ? 'Année scolaire' : 'Academic year' }}: <span class="font-semibold text-ink">{{ s.academicYear }}</span></div>
+                  }
+                  @if (canWrite) {
+                    <button (click)="saveSchool()" [disabled]="savingSchool()"
+                      class="inline-flex items-center gap-2 h-10 px-4 text-sm font-semibold rounded-lg bg-brand-600 hover:bg-brand-700 text-white disabled:opacity-60">
+                      <bbc-icon name="check" [s]="16" /> {{ savingSchool() ? '…' : (fr() ? 'Enregistrer' : 'Save') }}
+                    </button>
+                  }
+                  @if (schoolMsg(); as m) {
+                    <div class="text-xs rounded-lg px-3 py-2" [class]="m.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-600'">{{ m.text }}</div>
+                  }
+                </div>
+              } @else {
+                <bbc-empty icon="building" [label]="fr() ? 'Chargement…' : 'Loading…'" />
+              }
             </bbc-card>
 
             <bbc-card className="col-span-12 lg:col-span-6" [title]="fr() ? 'Lecteur d’empreintes' : 'Fingerprint reader'">
@@ -126,7 +192,14 @@ type Level = 'none' | 'read' | 'write';
                         </td>
                         @for (role of m.roles; track role.code) {
                           <td class="py-2 px-3 text-center">
-                            @if (canWrite) {
+                            @if (parentBlocked(role.code, mod)) {
+                              <span class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold opacity-40 cursor-not-allowed"
+                                [class]="cellClass(levelOf(role.code, mod))"
+                                [title]="fr() ? 'Le rôle parent n’a accès qu’au module parent' : 'Parent role can only access the parent module'">
+                                <span class="w-2 h-2 rounded-full" [class]="dotClass(levelOf(role.code, mod))"></span>
+                                {{ cellLabel(levelOf(role.code, mod)) }}
+                              </span>
+                            } @else if (canWrite) {
                               <button (click)="cycle(role.code, mod)"
                                 class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition hover:ring-2 hover:ring-brand-300"
                                 [class]="cellClass(levelOf(role.code, mod))">
@@ -157,28 +230,245 @@ type Level = 'none' | 'read' | 'write';
 
         <!-- ===================== ROLES ===================== -->
         @case ('roles') {
-          <bbc-card [title]="fr() ? 'Rôles utilisateurs' : 'User roles'"
-            [subtitle]="fr() ? 'Rôles définis dans le système' : 'Roles defined in the system'">
-            <div action class="w-8 h-8 rounded-lg bg-violet-50 text-violet-600 flex items-center justify-center">
-              <bbc-icon name="users" [s]="18" />
-            </div>
-            @if (matrix(); as m) {
-              <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
-                @for (role of m.roles; track role.code) {
-                  <div class="p-3 rounded-lg" [class]="roleCard(role)">
-                    <div class="text-[10px] uppercase tracking-wide font-semibold">
-                      {{ fr() ? role.labelFr : role.labelEn }}
+          <div class="grid grid-cols-12 gap-4">
+            <bbc-card className="col-span-12 lg:col-span-7" [title]="fr() ? 'Rôles utilisateurs' : 'User roles'"
+              [subtitle]="fr() ? 'Rôles définis dans le système' : 'Roles defined in the system'">
+              <div action class="w-8 h-8 rounded-lg bg-violet-50 text-violet-600 flex items-center justify-center">
+                <bbc-icon name="users" [s]="18" />
+              </div>
+              @if (matrix(); as m) {
+                <div class="space-y-2">
+                  @for (role of m.roles; track role.code) {
+                    <div class="p-3 rounded-lg border border-slate-100" [class]="role.builtin ? 'bg-brand-50/40' : 'bg-gold-50/40'">
+                      @if (editingRole()?.code === role.code) {
+                        <div class="grid grid-cols-2 gap-2">
+                          <input [(ngModel)]="editRoleDraft.labelFr" [placeholder]="fr() ? 'Libellé FR' : 'FR label'"
+                            class="h-9 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
+                          <input [(ngModel)]="editRoleDraft.labelEn" [placeholder]="fr() ? 'Libellé EN' : 'EN label'"
+                            class="h-9 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
+                          <div class="col-span-2 flex items-center gap-2">
+                            <button (click)="saveRoleEdit()" class="h-8 px-3 text-xs font-semibold rounded-lg bg-brand-600 text-white">{{ fr() ? 'OK' : 'Save' }}</button>
+                            <button (click)="cancelRoleEdit()" class="h-8 px-3 text-xs font-semibold rounded-lg bg-slate-100 text-mute">{{ i18n.t('cancel') }}</button>
+                          </div>
+                        </div>
+                      } @else {
+                        <div class="flex items-center justify-between gap-2">
+                          <div>
+                            <div class="text-sm font-bold text-ink">{{ fr() ? role.labelFr : role.labelEn }}</div>
+                            <div class="text-[11px] text-mute font-mono">{{ role.code }} · {{ role.builtin ? (fr() ? 'Intégré' : 'Built-in') : (fr() ? 'Personnalisé' : 'Custom') }}</div>
+                          </div>
+                          @if (!role.builtin && canWrite) {
+                            <div class="flex items-center gap-1">
+                              <button (click)="startRoleEdit(role)"
+                                class="h-8 px-2.5 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-mute hover:bg-slate-50">
+                                {{ fr() ? 'Modifier' : 'Edit' }}
+                              </button>
+                              <button (click)="deleteRole(role)"
+                                class="h-8 px-2.5 text-xs font-semibold rounded-lg bg-white border border-rose-200 text-rose-600 hover:bg-rose-50">
+                                {{ fr() ? 'Supprimer' : 'Delete' }}
+                              </button>
+                            </div>
+                          }
+                        </div>
+                      }
                     </div>
-                    <div class="text-sm font-bold mt-0.5">
-                      {{ role.builtin ? (fr() ? 'Intégré' : 'Built-in') : (fr() ? 'Personnalisé' : 'Custom') }}
+                  }
+                </div>
+              } @else {
+                <bbc-empty icon="users" [label]="fr() ? 'Aucun rôle' : 'No roles'" />
+              }
+            </bbc-card>
+
+            @if (canWrite) {
+              <bbc-card className="col-span-12 lg:col-span-5" [title]="fr() ? 'Nouveau rôle' : 'New role'"
+                [subtitle]="fr() ? 'Créer un rôle personnalisé' : 'Create a custom role'">
+                <div class="space-y-3">
+                  <label class="block">
+                    <span class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'Libellé (FR)' : 'Label (FR)' }}</span>
+                    <input [(ngModel)]="newRole.labelFr"
+                      class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
+                  </label>
+                  <label class="block">
+                    <span class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'Libellé (EN, optionnel)' : 'Label (EN, optional)' }}</span>
+                    <input [(ngModel)]="newRole.labelEn"
+                      class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
+                  </label>
+                  <button (click)="createRole()" [disabled]="!newRole.labelFr.trim() || creatingRole()"
+                    class="inline-flex items-center gap-2 h-10 px-4 text-sm font-semibold rounded-lg bg-brand-600 hover:bg-brand-700 text-white disabled:opacity-60">
+                    <bbc-icon name="plus" [s]="16" /> {{ creatingRole() ? '…' : (fr() ? 'Créer' : 'Create') }}
+                  </button>
+                  @if (roleMsg(); as m) {
+                    <div class="text-xs rounded-lg px-3 py-2" [class]="m.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-600'">{{ m.text }}</div>
+                  }
+                </div>
+              </bbc-card>
+            }
+          </div>
+        }
+
+        <!-- ===================== CALENDAR ===================== -->
+        @case ('calendar') {
+          <div class="grid grid-cols-12 gap-4">
+            <bbc-card className="col-span-12 lg:col-span-7"
+              [title]="fr() ? 'Jours fériés' : 'Holidays'"
+              [subtitle]="fr() ? 'Jours non ouvrés de l’établissement' : 'Non-working school days'">
+              <div action class="w-8 h-8 rounded-lg bg-sky-50 text-sky-600 flex items-center justify-center">
+                <bbc-icon name="calendar" [s]="18" />
+              </div>
+              @if (holidays().length === 0) {
+                <bbc-empty icon="calendar" [label]="fr() ? 'Aucun jour férié' : 'No holidays'" />
+              } @else {
+                <div class="space-y-1">
+                  @for (h of holidays(); track h.id) {
+                    <div class="flex items-center justify-between py-2 border-b border-slate-50 last:border-0">
+                      <div>
+                        <div class="text-sm font-semibold text-ink">{{ h.label }}</div>
+                        <div class="text-xs text-mute font-mono">{{ h.date }}</div>
+                      </div>
+                      @if (canWrite) {
+                        <button (click)="removeHoliday(h)"
+                          class="w-8 h-8 rounded-lg text-mute hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center">
+                          <bbc-icon name="x" [s]="14" />
+                        </button>
+                      }
                     </div>
+                  }
+                </div>
+              }
+            </bbc-card>
+
+            <div class="col-span-12 lg:col-span-5 space-y-4">
+              <bbc-card [title]="fr() ? 'Horaires scolaires' : 'School hours'">
+                <p class="text-sm text-mute">
+                  {{ fr()
+                    ? 'Les heures de début et de fin des cours se règlent dans l’onglet '
+                    : 'School start and end times are set in the ' }}
+                  <button type="button" (click)="tab.set('general')" class="font-semibold text-brand-600 hover:underline">
+                    {{ fr() ? 'Général' : 'General' }}
+                  </button>
+                  {{ fr() ? '.' : ' tab.' }}
+                </p>
+                @if (school(); as s) {
+                  <div class="mt-3 flex items-center gap-4 text-sm">
+                    <div><span class="text-mute">{{ fr() ? 'Début' : 'Start' }}:</span> <span class="font-semibold text-ink">{{ s.schoolStartTime }}</span></div>
+                    <div><span class="text-mute">{{ fr() ? 'Fin' : 'End' }}:</span> <span class="font-semibold text-ink">{{ s.schoolEndTime }}</span></div>
                   </div>
                 }
+              </bbc-card>
+
+              @if (canWrite) {
+                <bbc-card [title]="fr() ? 'Ajouter un jour férié' : 'Add holiday'">
+                  <div class="space-y-3">
+                    <label class="block">
+                      <span class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'Date' : 'Date' }}</span>
+                      <input type="date" [(ngModel)]="holidayDraft.date"
+                        class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
+                    </label>
+                    <label class="block">
+                      <span class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'Libellé' : 'Label' }}</span>
+                      <input [(ngModel)]="holidayDraft.label"
+                        class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
+                    </label>
+                    <button (click)="addHoliday()" [disabled]="!holidayDraft.date || !holidayDraft.label.trim() || savingHoliday()"
+                      class="inline-flex items-center gap-2 h-10 px-4 text-sm font-semibold rounded-lg bg-brand-600 hover:bg-brand-700 text-white disabled:opacity-60">
+                      <bbc-icon name="plus" [s]="16" /> {{ savingHoliday() ? '…' : (fr() ? 'Ajouter' : 'Add') }}
+                    </button>
+                  </div>
+                </bbc-card>
+              }
+            </div>
+          </div>
+        }
+
+        <!-- ===================== DISCIPLINE CATALOG ===================== -->
+        @case ('discipline') {
+          <div class="grid grid-cols-12 gap-4">
+            <bbc-card className="col-span-12 lg:col-span-6"
+              [title]="fr() ? 'Types d’incident' : 'Incident types'"
+              [subtitle]="fr() ? 'Catalogue des types actifs' : 'Active type catalog'">
+              <div action class="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center">
+                <bbc-icon name="shield" [s]="18" />
               </div>
-            } @else {
-              <bbc-empty icon="users" [label]="fr() ? 'Aucun rôle' : 'No roles'" />
-            }
-          </bbc-card>
+              @if (catalogTypes().length === 0) {
+                <bbc-empty icon="shield" [label]="fr() ? 'Aucun type' : 'No types'" />
+              } @else {
+                <div class="space-y-1 mb-4">
+                  @for (item of catalogTypes(); track item.id) {
+                    <div class="flex items-center justify-between py-2 border-b border-slate-50 last:border-0">
+                      <div>
+                        <div class="text-sm font-semibold text-ink">{{ fr() ? item.labelFr : item.labelEn }}</div>
+                        <div class="text-[11px] text-mute font-mono">{{ item.code }}</div>
+                      </div>
+                      @if (canWrite) {
+                        <button (click)="removeCatalog(item)"
+                          class="w-8 h-8 rounded-lg text-mute hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center">
+                          <bbc-icon name="x" [s]="14" />
+                        </button>
+                      }
+                    </div>
+                  }
+                </div>
+              }
+              @if (canWrite) {
+                <div class="pt-3 border-t border-slate-100 space-y-2">
+                  <div class="text-xs font-semibold text-mute uppercase tracking-wide">{{ fr() ? 'Ajouter un type' : 'Add type' }}</div>
+                  <div class="grid grid-cols-2 gap-2">
+                    <input [(ngModel)]="typeDraft.labelFr" [placeholder]="fr() ? 'Libellé FR' : 'FR label'"
+                      class="h-9 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
+                    <input [(ngModel)]="typeDraft.labelEn" [placeholder]="fr() ? 'Libellé EN' : 'EN label'"
+                      class="h-9 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
+                  </div>
+                  <button (click)="addCatalog('type')" [disabled]="!typeDraft.labelFr.trim()"
+                    class="inline-flex items-center gap-1.5 h-9 px-3 text-sm font-semibold rounded-lg bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-60">
+                    <bbc-icon name="plus" [s]="14" /> {{ fr() ? 'Ajouter' : 'Add' }}
+                  </button>
+                </div>
+              }
+            </bbc-card>
+
+            <bbc-card className="col-span-12 lg:col-span-6"
+              [title]="fr() ? 'Sanctions' : 'Sanctions'"
+              [subtitle]="fr() ? 'Catalogue des sanctions actives' : 'Active sanction catalog'">
+              <div action class="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+                <bbc-icon name="bell" [s]="18" />
+              </div>
+              @if (catalogSanctions().length === 0) {
+                <bbc-empty icon="bell" [label]="fr() ? 'Aucune sanction' : 'No sanctions'" />
+              } @else {
+                <div class="space-y-1 mb-4">
+                  @for (item of catalogSanctions(); track item.id) {
+                    <div class="flex items-center justify-between py-2 border-b border-slate-50 last:border-0">
+                      <div>
+                        <div class="text-sm font-semibold text-ink">{{ fr() ? item.labelFr : item.labelEn }}</div>
+                        <div class="text-[11px] text-mute font-mono">{{ item.code }}</div>
+                      </div>
+                      @if (canWrite) {
+                        <button (click)="removeCatalog(item)"
+                          class="w-8 h-8 rounded-lg text-mute hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center">
+                          <bbc-icon name="x" [s]="14" />
+                        </button>
+                      }
+                    </div>
+                  }
+                </div>
+              }
+              @if (canWrite) {
+                <div class="pt-3 border-t border-slate-100 space-y-2">
+                  <div class="text-xs font-semibold text-mute uppercase tracking-wide">{{ fr() ? 'Ajouter une sanction' : 'Add sanction' }}</div>
+                  <div class="grid grid-cols-2 gap-2">
+                    <input [(ngModel)]="sanctionDraft.labelFr" [placeholder]="fr() ? 'Libellé FR' : 'FR label'"
+                      class="h-9 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
+                    <input [(ngModel)]="sanctionDraft.labelEn" [placeholder]="fr() ? 'Libellé EN' : 'EN label'"
+                      class="h-9 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
+                  </div>
+                  <button (click)="addCatalog('sanction')" [disabled]="!sanctionDraft.labelFr.trim()"
+                    class="inline-flex items-center gap-1.5 h-9 px-3 text-sm font-semibold rounded-lg bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-60">
+                    <bbc-icon name="plus" [s]="14" /> {{ fr() ? 'Ajouter' : 'Add' }}
+                  </button>
+                </div>
+              }
+            </bbc-card>
+          </div>
         }
 
         <!-- ===================== MESSAGERIE (SMTP) ===================== -->
@@ -306,7 +596,30 @@ export class SettingsComponent {
   protected matrix = signal<PermissionMatrix | null>(null);
   protected canWrite = this.auth.can('settings', 'write');
   protected currentUser = this.auth.user;
-  protected tab = signal<'academic' | 'general' | 'perms' | 'roles' | 'mail'>('academic');
+  protected tab = signal<SettingsTab>('academic');
+
+  // School profile
+  protected school = signal<SchoolProfileView | null>(null);
+  protected schoolDraft: SchoolProfileUpdate = this.emptySchool();
+  protected savingSchool = signal(false);
+  protected schoolMsg = signal<{ ok: boolean; text: string } | null>(null);
+
+  // Roles
+  protected newRole: RoleUpsert = { labelFr: '', labelEn: '' };
+  protected creatingRole = signal(false);
+  protected editingRole = signal<RoleView | null>(null);
+  protected editRoleDraft: RoleUpsert = { labelFr: '', labelEn: '' };
+  protected roleMsg = signal<{ ok: boolean; text: string } | null>(null);
+
+  // Holidays
+  protected holidays = signal<HolidayView[]>([]);
+  protected holidayDraft = { date: '', label: '' };
+  protected savingHoliday = signal(false);
+
+  // Discipline catalog
+  protected catalog = signal<CatalogItemView[]>([]);
+  protected typeDraft = { labelFr: '', labelEn: '' };
+  protected sanctionDraft = { labelFr: '', labelEn: '' };
 
   // SMTP / mail config
   protected mailDraft: MailConfigUpdate = {
@@ -321,27 +634,18 @@ export class SettingsComponent {
 
   protected fr = () => this.i18n.lang() === 'fr';
 
-  protected tabs = computed(() => {
-    const t = [
-      { id: 'academic', label: this.fr() ? 'Scolarité' : 'Academics' },
-      { id: 'general', label: this.fr() ? 'Général' : 'General' },
-      { id: 'perms', label: this.fr() ? 'Permissions' : 'Permissions' },
-      { id: 'roles', label: this.fr() ? 'Rôles' : 'Roles' },
-      { id: 'mail', label: this.fr() ? 'Messagerie' : 'E-mail' },
-    ];
-    return t;
-  });
+  protected tabs = computed(() => [
+    { id: 'academic', label: this.fr() ? 'Scolarité' : 'Academics' },
+    { id: 'general', label: this.fr() ? 'Général' : 'General' },
+    { id: 'calendar', label: this.fr() ? 'Calendrier' : 'Calendar' },
+    { id: 'discipline', label: this.fr() ? 'Discipline' : 'Discipline' },
+    { id: 'perms', label: this.fr() ? 'Permissions' : 'Permissions' },
+    { id: 'roles', label: this.fr() ? 'Rôles' : 'Roles' },
+    { id: 'mail', label: this.fr() ? 'Messagerie' : 'E-mail' },
+  ]);
 
-  protected schoolRows = computed(() => {
-    const f = this.fr();
-    return [
-      { label: f ? 'Nom' : 'Name', value: 'Bayo Bilingual Complex' },
-      { label: f ? 'Ville' : 'City', value: 'Maroua, Cameroun' },
-      { label: f ? 'Année scolaire' : 'Academic year', value: '2025-2026' },
-      { label: f ? 'Devise' : 'Currency', value: 'FCFA (XAF)' },
-      { label: f ? 'Langues' : 'Languages', value: 'Français · English' },
-    ];
-  });
+  protected catalogTypes = computed(() => this.catalog().filter((c) => c.kind === 'type' && c.active));
+  protected catalogSanctions = computed(() => this.catalog().filter((c) => c.kind === 'sanction' && c.active));
 
   protected readerRows = computed(() => {
     const f = this.fr();
@@ -371,10 +675,163 @@ export class SettingsComponent {
   constructor() {
     this.reload();
     this.loadMail();
+    this.loadSchool();
+    this.loadHolidays();
+    this.loadCatalog();
+  }
+
+  protected onTab(id: SettingsTab): void {
+    this.tab.set(id);
   }
 
   private reload(): void {
     this.api.getMatrix().subscribe((m) => this.matrix.set(m));
+  }
+
+  private emptySchool(): SchoolProfileUpdate {
+    return {
+      name: '', motto: '', city: '', country: '', phone: '', email: '',
+      currency: 'XAF', authority: '', schoolStartTime: '07:30', schoolEndTime: '15:30',
+    };
+  }
+
+  private loadSchool(): void {
+    this.api.getSchool().subscribe((s) => {
+      this.school.set(s);
+      this.schoolDraft = {
+        name: s.name,
+        motto: s.motto ?? '',
+        city: s.city ?? '',
+        country: s.country ?? '',
+        phone: s.phone ?? '',
+        email: s.email ?? '',
+        currency: s.currency || 'XAF',
+        authority: s.authority ?? '',
+        schoolStartTime: s.schoolStartTime || '07:30',
+        schoolEndTime: s.schoolEndTime || '15:30',
+      };
+    });
+  }
+
+  protected saveSchool(): void {
+    if (!this.schoolDraft.name?.trim()) return;
+    this.savingSchool.set(true);
+    this.schoolMsg.set(null);
+    this.api.updateSchool(this.schoolDraft).subscribe({
+      next: (s) => {
+        this.school.set(s);
+        this.savingSchool.set(false);
+        this.schoolMsg.set({ ok: true, text: this.fr() ? 'Profil enregistré.' : 'Profile saved.' });
+      },
+      error: (e) => {
+        this.savingSchool.set(false);
+        this.schoolMsg.set({ ok: false, text: e?.error?.message ?? (this.fr() ? 'Échec de l’enregistrement.' : 'Save failed.') });
+      },
+    });
+  }
+
+  private loadHolidays(): void {
+    this.api.listHolidays().subscribe((h) => this.holidays.set(h));
+  }
+
+  protected addHoliday(): void {
+    const date = this.holidayDraft.date;
+    const label = this.holidayDraft.label.trim();
+    if (!date || !label) return;
+    this.savingHoliday.set(true);
+    this.api.addHoliday(date, label).subscribe({
+      next: () => {
+        this.holidayDraft = { date: '', label: '' };
+        this.savingHoliday.set(false);
+        this.loadHolidays();
+      },
+      error: () => this.savingHoliday.set(false),
+    });
+  }
+
+  protected removeHoliday(h: HolidayView): void {
+    this.api.deleteHoliday(h.id).subscribe(() => this.loadHolidays());
+  }
+
+  private loadCatalog(): void {
+    this.api.listCatalog().subscribe((c) => this.catalog.set(c));
+  }
+
+  protected addCatalog(kind: 'type' | 'sanction'): void {
+    const draft = kind === 'type' ? this.typeDraft : this.sanctionDraft;
+    if (!draft.labelFr.trim()) return;
+    const body: CatalogItemUpsert = {
+      kind,
+      labelFr: draft.labelFr.trim(),
+      labelEn: draft.labelEn.trim() || undefined,
+    };
+    this.api.createCatalog(body).subscribe({
+      next: () => {
+        if (kind === 'type') this.typeDraft = { labelFr: '', labelEn: '' };
+        else this.sanctionDraft = { labelFr: '', labelEn: '' };
+        this.loadCatalog();
+      },
+    });
+  }
+
+  protected removeCatalog(item: CatalogItemView): void {
+    this.api.deleteCatalog(item.id).subscribe(() => this.loadCatalog());
+  }
+
+  protected createRole(): void {
+    if (!this.newRole.labelFr.trim()) return;
+    this.creatingRole.set(true);
+    this.roleMsg.set(null);
+    this.api.createRole({
+      labelFr: this.newRole.labelFr.trim(),
+      labelEn: this.newRole.labelEn?.trim() || undefined,
+    }).subscribe({
+      next: () => {
+        this.newRole = { labelFr: '', labelEn: '' };
+        this.creatingRole.set(false);
+        this.roleMsg.set({ ok: true, text: this.fr() ? 'Rôle créé.' : 'Role created.' });
+        this.reload();
+      },
+      error: (e) => {
+        this.creatingRole.set(false);
+        this.roleMsg.set({ ok: false, text: e?.error?.message ?? (this.fr() ? 'Échec.' : 'Failed.') });
+      },
+    });
+  }
+
+  protected startRoleEdit(role: RoleView): void {
+    this.editingRole.set(role);
+    this.editRoleDraft = { labelFr: role.labelFr, labelEn: role.labelEn };
+  }
+
+  protected cancelRoleEdit(): void {
+    this.editingRole.set(null);
+  }
+
+  protected saveRoleEdit(): void {
+    const role = this.editingRole();
+    if (!role || !this.editRoleDraft.labelFr.trim()) return;
+    this.api.updateRole(role.code, {
+      labelFr: this.editRoleDraft.labelFr.trim(),
+      labelEn: this.editRoleDraft.labelEn?.trim() || undefined,
+    }).subscribe({
+      next: () => {
+        this.editingRole.set(null);
+        this.reload();
+      },
+    });
+  }
+
+  protected deleteRole(role: RoleView): void {
+    if (role.builtin) return;
+    const ok = confirm(this.fr()
+      ? `Supprimer le rôle « ${role.labelFr} » ?`
+      : `Delete role “${role.labelEn || role.labelFr}”?`);
+    if (!ok) return;
+    this.api.deleteRole(role.code).subscribe({
+      next: () => this.reload(),
+      error: (e) => this.roleMsg.set({ ok: false, text: e?.error?.message ?? (this.fr() ? 'Suppression impossible.' : 'Delete failed.') }),
+    });
   }
 
   private loadMail(): void {
@@ -428,8 +885,18 @@ export class SettingsComponent {
     return ((row && row[module]) as Level) ?? 'none';
   }
 
+  protected parentBlocked(roleCode: string, module: string): boolean {
+    return roleCode === 'parent' && module !== 'parent';
+  }
+
   protected cycle(roleCode: string, module: string): void {
     if (!this.canWrite) return;
+    if (roleCode === 'parent' && module !== 'parent') {
+      alert(this.fr()
+        ? 'Le rôle parent ne peut pas recevoir d’accès aux modules du personnel.'
+        : 'The parent role cannot be granted staff module access.');
+      return;
+    }
     const m = this.matrix();
     if (!m) return;
 
@@ -489,11 +956,5 @@ export class SettingsComponent {
     return role.builtin
       ? 'bg-brand-100 text-brand-700'
       : 'bg-gold-100 text-gold-600';
-  }
-
-  protected roleCard(role: RoleView): string {
-    return role.builtin
-      ? 'bg-brand-50 text-brand-700'
-      : 'bg-gold-50 text-gold-600';
   }
 }

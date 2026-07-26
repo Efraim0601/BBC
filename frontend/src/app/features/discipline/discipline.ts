@@ -1,11 +1,21 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DisciplineApi, IncidentView, IncidentUpsert, StudentLookup, NotifyResult } from './discipline.api';
+import { SettingsApi, CatalogItemView } from '../settings/settings.api';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
 import {
   IconComponent, CardComponent, PageHeaderComponent, EmptyComponent, AvatarComponent,
 } from '../../core/ui';
+
+const FALLBACK_TYPES = ['Retard', 'Absence', 'Conduite', 'Tenue'];
+const FALLBACK_SANCTIONS = [
+  'Avertissement verbal',
+  'Avertissement écrit',
+  'Convocation parent',
+  'Exclusion temporaire',
+  'Conseil de discipline',
+];
 
 @Component({
   selector: 'bbc-discipline',
@@ -58,19 +68,16 @@ import {
                 class="h-10 px-3 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-brand-400" />
               <select [(ngModel)]="draft.type"
                 class="h-10 px-3 rounded-lg border border-slate-200 text-sm bg-white focus:outline-none focus:border-brand-400">
-                <option value="Retard">Retard</option>
-                <option value="Absence">Absence</option>
-                <option value="Conduite">Conduite</option>
-                <option value="Tenue">Tenue</option>
+                @for (t of typeOptions(); track t) {
+                  <option [value]="t">{{ t }}</option>
+                }
               </select>
               <select [(ngModel)]="draft.sanction"
                 class="h-10 px-3 rounded-lg border border-slate-200 text-sm bg-white focus:outline-none focus:border-brand-400">
                 <option value="">{{ fr() ? '— Sanction —' : '— Sanction —' }}</option>
-                <option value="Avertissement verbal">Avertissement verbal</option>
-                <option value="Avertissement écrit">Avertissement écrit</option>
-                <option value="Convocation parent">Convocation parent</option>
-                <option value="Exclusion temporaire">Exclusion temporaire</option>
-                <option value="Conseil de discipline">Conseil de discipline</option>
+                @for (s of sanctionOptions(); track s) {
+                  <option [value]="s">{{ s }}</option>
+                }
               </select>
               <input [(ngModel)]="draft.description" [placeholder]="fr() ? 'Description' : 'Description'"
                 class="md:col-span-2 h-10 px-3 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-brand-400" />
@@ -191,6 +198,7 @@ import {
 export class DisciplineComponent {
   protected i18n = inject(I18nService);
   private api = inject(DisciplineApi);
+  private settingsApi = inject(SettingsApi);
   private auth = inject(AuthService);
 
   protected rows = signal<IncidentView[]>([]);
@@ -207,7 +215,22 @@ export class DisciplineComponent {
   protected notifyMsg = signal<{ text: string; ok: boolean } | null>(null);
   protected notifying = signal(false);
 
+  private catalogTypes = signal<CatalogItemView[]>([]);
+  private catalogSanctions = signal<CatalogItemView[]>([]);
+
   protected fr = () => this.i18n.lang() === 'fr';
+
+  protected typeOptions = computed(() => {
+    const items = this.catalogTypes().filter((c) => c.active);
+    if (!items.length) return FALLBACK_TYPES;
+    return items.map((c) => (this.fr() ? c.labelFr : c.labelEn) || c.labelFr);
+  });
+
+  protected sanctionOptions = computed(() => {
+    const items = this.catalogSanctions().filter((c) => c.active);
+    if (!items.length) return FALLBACK_SANCTIONS;
+    return items.map((c) => (this.fr() ? c.labelFr : c.labelEn) || c.labelFr);
+  });
 
   protected tplOptions = computed(() => [
     { id: 'absence' as const, label: this.fr() ? 'Absence' : 'Absence' },
@@ -243,10 +266,25 @@ export class DisciplineComponent {
 
   constructor() {
     this.reload();
+    this.loadCatalog();
   }
 
   private reload(): void {
     this.api.list().subscribe((r) => this.rows.set(r));
+  }
+
+  private loadCatalog(): void {
+    this.settingsApi.listCatalog().subscribe({
+      next: (items) => {
+        this.catalogTypes.set(items.filter((c) => c.kind === 'type'));
+        this.catalogSanctions.set(items.filter((c) => c.kind === 'sanction'));
+        const types = this.typeOptions();
+        if (types.length && !types.includes(this.draft.type)) {
+          this.draft.type = types[0];
+        }
+      },
+      error: () => { /* keep hardcoded fallbacks */ },
+    });
   }
 
   protected toggleForm(): void {
@@ -330,7 +368,7 @@ export class DisciplineComponent {
     return {
       studentRef: '',
       incidentDate: new Date().toISOString().slice(0, 10),
-      type: 'Retard',
+      type: FALLBACK_TYPES[0],
       description: '',
       sanction: '',
     };

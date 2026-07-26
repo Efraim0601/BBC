@@ -125,6 +125,25 @@
   .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 18px}
   .card h4{margin-top:0}
   .kbd{font-size:12px;background:#fff;border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:1px 6px;font-weight:700}
+  ul.checklist{list-style:none;padding-left:0;margin:12px 0}
+  ul.checklist li{
+    position:relative;padding:8px 12px 8px 36px;margin:0;border-bottom:1px solid var(--line);
+    background:#fff;
+  }
+  ul.checklist li:first-child{border-radius:10px 10px 0 0}
+  ul.checklist li:last-child{border-bottom:0;border-radius:0 0 10px 10px}
+  ul.checklist li::before{
+    content:'☐'; position:absolute; left:12px; top:8px; font-size:15px; color:var(--brand-600);
+  }
+  ul.checklist .ok{color:var(--ok);font-weight:700}
+  .sheet-card{
+    background:#fff;border:1px solid var(--line);border-radius:12px;padding:4px 0 0;margin:18px 0 28px;
+    box-shadow:0 1px 2px rgba(15,34,56,.05); overflow:hidden;
+  }
+  .sheet-card > h4{margin:0;padding:14px 16px 10px;border-bottom:1px solid var(--line);background:var(--brand-50)}
+  .sheet-card .checklist{margin:0}
+  .sheet-card .checklist li:first-child{border-radius:0}
+  a.print-link{font-size:13.5px;font-weight:700}
 
   @media (max-width:1000px){
     .wrap{grid-template-columns:1fr}
@@ -152,7 +171,7 @@
     <img src="/bbc-logo.png" alt="BBC">
     <div>
       <div class="bt">BBC SMS</div>
-      <div class="bs"><span class="l-fr">Guide utilisateur</span><span class="l-en">User guide</span> · v1.0</div>
+      <div class="bs"><span class="l-fr">Guide utilisateur</span><span class="l-en">User guide</span> · v1.1</div>
     </div>
   </div>
   <div class="spacer"></div>
@@ -168,11 +187,14 @@
   <a href="#intro"><span class="l-fr">Présentation</span><span class="l-en">Overview</span></a>
   <a href="#login"><span class="l-fr">Se connecter</span><span class="l-en">Signing in</span></a>
   <a href="#nav"><span class="l-fr">Navigation</span><span class="l-en">Navigation</span></a>
+  <a href="#track"><span class="l-fr">Parcours</span><span class="l-en">Track filter</span></a>
   <a href="#roles"><span class="l-fr">Rôles &amp; permissions</span><span class="l-en">Roles &amp; permissions</span></a>
+  <a href="#custom-roles"><span class="l-fr">Rôles personnalisés</span><span class="l-en">Custom roles</span></a>
 
   <h4><span class="l-fr">Communauté</span><span class="l-en">Community</span></h4>
   <a href="#students"><span class="l-fr">Élèves</span><span class="l-en">Students</span></a>
-  <a href="#journey"><span class="l-fr">Parcours</span><span class="l-en">Journey</span></a>
+  <a href="#guardians"><span class="l-fr">Père / Mère / Tuteur</span><span class="l-en">Father / Mother / Guardian</span></a>
+  <a href="#journey"><span class="l-fr">Parcours scolaire</span><span class="l-en">School journey</span></a>
   <a href="#health"><span class="l-fr">Santé</span><span class="l-en">Health</span></a>
   <a href="#documents"><span class="l-fr">Documents</span><span class="l-en">Documents</span></a>
   <a href="#staff"><span class="l-fr">Personnel</span><span class="l-en">Staff</span></a>
@@ -194,9 +216,15 @@
   <a href="#alerts"><span class="l-fr">Alertes</span><span class="l-en">Alerts</span></a>
   <a href="#reports"><span class="l-fr">Rapports</span><span class="l-en">Reports</span></a>
   <a href="#settings"><span class="l-fr">Paramètres</span><span class="l-en">Settings</span></a>
+  <a href="#calendar"><span class="l-fr">Calendrier &amp; ouverture</span><span class="l-en">Calendar &amp; opening</span></a>
+  <a href="#discipline-catalog"><span class="l-fr">Catalogue Discipline</span><span class="l-en">Discipline catalog</span></a>
 
   <h4><span class="l-fr">Parents</span><span class="l-en">Parents</span></h4>
   <a href="#parent"><span class="l-fr">Portail parent</span><span class="l-en">Parent portal</span></a>
+
+  <h4><span class="l-fr">Formation</span><span class="l-en">Training</span></h4>
+  <a href="#tests"><span class="l-fr">Fiches de test</span><span class="l-en">Test sheets</span></a>
+  <a href="fiches-test.html"><span class="l-fr">Fiches (imprimable)</span><span class="l-en">Sheets (printable)</span></a>
 
   <h4><span class="l-fr">Annexes</span><span class="l-en">Appendix</span></h4>
   <a href="#limits"><span class="l-fr">Limites connues</span><span class="l-en">Known limitations</span></a>
@@ -213,8 +241,8 @@
     <span class="l-en">The complete school management system manual: every module, screen by screen, from Primary to Secondary, in French and English.</span>
   </p>
   <div class="meta">
-    <span class="l-fr">Version 1.0 · Captures d'écran prises sur un jeu de données de démonstration · Utilisez le sélecteur <b style="display:inline">FR / EN</b> en haut à droite pour changer de langue.</span>
-    <span class="l-en">Version 1.0 · Screenshots taken from a demonstration dataset · Use the <b style="display:inline">FR / EN</b> switch at the top right to change language.</span>
+    <span class="l-fr">Version 1.1 · Captures d'écran sur un jeu de démonstration · Sélecteur <b style="display:inline">FR / EN</b> en haut · Lien <b style="display:inline">Aide</b> aussi dans l'application.</span>
+    <span class="l-en">Version 1.1 · Screenshots from a demonstration dataset · <b style="display:inline">FR / EN</b> switch at the top · <b style="display:inline">Help</b> link also in the app.</span>
   </div>
 </div>
 
@@ -267,10 +295,11 @@
   <li>Saisissez votre <strong>nom d'utilisateur</strong> et votre <strong>mot de passe</strong>.</li>
   <li>L'icône en forme d'œil, à droite du champ mot de passe, affiche ou masque ce que vous tapez.</li>
   <li>Cliquez sur <strong>Se connecter</strong>.</li>
+  <li>Personnel : choisissez un <strong>parcours</strong> (Maternelle / Primaire / Secondaire × Francophone / Anglophone), ou <strong>Tous les parcours</strong> si vous êtes administrateur — voir <a href="#track">Parcours</a>.</li>
+  <li>Vous arrivez sur la <strong>grille des applications</strong> (personnel) ou sur le <a href="#parent">portail parent</a>.</li>
 </ol>
-<p>Selon votre rôle, vous arrivez ensuite sur le <a href="#dashboard">Tableau de bord</a> (personnel de l'établissement) ou sur le <a href="#parent">portail parent</a> (comptes parents).</p>
 <h4>Changer la langue</h4>
-<p>Le sélecteur <strong>FR / EN</strong> bascule toute l'interface, immédiatement et sans rechargement. Votre choix est mémorisé dans le navigateur : vous le retrouverez à la prochaine visite, sur ce poste. Ce réglage est propre au navigateur, pas au compte — un même utilisateur peut donc être en français sur un poste et en anglais sur un autre.</p>
+<p>Le sélecteur <strong>FR / EN</strong> bascule toute l'interface, immédiatement et sans rechargement. Votre choix est mémorisé dans le navigateur.</p>
 <div class="warn">
   <b>Mot de passe oublié</b>
   <p>Le lien <em>« Oublié ? »</em> envoie un <strong>mot de passe temporaire par e-mail</strong> lorsque le compte personnel a une adresse renseignée et que le SMTP est configuré (Paramètres). Sinon, adressez-vous à l'administrateur (rôle <code>principal</code>), qui peut réinitialiser depuis le module Personnel.</p>
@@ -282,10 +311,11 @@
   <li>Enter your <strong>username</strong> and <strong>password</strong>.</li>
   <li>The eye icon to the right of the password field shows or hides what you type.</li>
   <li>Click <strong>Sign in</strong>.</li>
+  <li>Staff: pick a <strong>track</strong> (Nursery / Primary / Secondary × Francophone / Anglophone), or <strong>All tracks</strong> if you are an administrator — see <a href="#track">Track filter</a>.</li>
+  <li>You then land on the <strong>Apps grid</strong> (staff) or the <a href="#parent">parent portal</a>.</li>
 </ol>
-<p>Depending on your role you then land on the <a href="#dashboard">Dashboard</a> (school staff) or the <a href="#parent">parent portal</a> (parent accounts).</p>
 <h4>Changing the language</h4>
-<p>The <strong>FR / EN</strong> switch flips the whole interface instantly, with no reload. Your choice is remembered in the browser, so it survives to your next visit on that machine. The setting belongs to the browser, not to the account — the same user can be in French on one machine and English on another.</p>
+<p>The <strong>FR / EN</strong> switch flips the whole interface instantly, with no reload. Your choice is remembered in the browser.</p>
 <div class="warn">
   <b>Forgotten password</b>
   <p>The <em>“Forgot?”</em> link e-mails a <strong>temporary password</strong> when the staff account has an address on file and SMTP is configured (Settings). Otherwise ask the school administrator (<code>principal</code>), who can reset from the Staff module.</p>
@@ -312,7 +342,9 @@
   <tr><th>Élément</th><th>Rôle</th></tr>
   <tr><td><strong>☰</strong> (à gauche)</td><td>Replie le menu latéral en simple bande d'icônes, pour gagner de la largeur. Votre choix est mémorisé.</td></tr>
   <tr><td><strong>Logo BBC SMS</strong></td><td>Ramène à la grille Applications.</td></tr>
+  <tr><td><strong>Établissement / parcours</strong></td><td>Rappelle l'école et le <a href="#track">parcours actif</a> ; permet de changer de parcours.</td></tr>
   <tr><td><strong>FR / EN</strong></td><td>Change la langue de l'interface.</td></tr>
+  <tr><td><strong>Aide</strong></td><td>Ouvre ce guide HTML bilingue (<code>/guide/</code>).</td></tr>
   <tr><td><strong>Votre nom</strong></td><td>Rappelle le compte connecté et son rôle.</td></tr>
   <tr><td><strong>Se déconnecter</strong></td><td>Ferme la session et revient à l'écran de connexion. Sans confirmation — le clic est immédiat.</td></tr>
 </table>
@@ -329,10 +361,49 @@
   <tr><th>Item</th><th>Purpose</th></tr>
   <tr><td><strong>☰</strong> (left)</td><td>Collapses the sidebar to a strip of icons, freeing horizontal space. Your choice is remembered.</td></tr>
   <tr><td><strong>BBC SMS logo</strong></td><td>Returns to the Apps grid.</td></tr>
+  <tr><td><strong>School / track</strong></td><td>Shows the school and the <a href="#track">active track</a>; lets you switch track.</td></tr>
   <tr><td><strong>FR / EN</strong></td><td>Changes the interface language.</td></tr>
+  <tr><td><strong>Help</strong></td><td>Opens this bilingual HTML guide (<code>/guide/</code>).</td></tr>
   <tr><td><strong>Your name</strong></td><td>Shows the signed-in account and its role.</td></tr>
   <tr><td><strong>Sign out</strong></td><td>Ends the session and returns to sign-in. There is no confirmation — the click acts at once.</td></tr>
 </table>
+</div>
+
+<!-- ====================== TRACK FILTER ====================== -->
+<h2 id="track"><span class="l-fr">Parcours (filtre)</span><span class="l-en">Track filter</span></h2>
+
+<div class="l-fr">
+<p>Le <strong>parcours</strong> filtre sections, classes et élèves. Une section créée en « Primaire FR » n'apparaît pas si vous êtes en « Secondaire EN ».</p>
+<ul>
+  <li>Combinaisons : <strong>Maternelle / Primaire / Secondaire</strong> × <strong>Francophone / Anglophone</strong>.</li>
+  <li><strong>Tous les parcours</strong> (direction / admin) : vue sur toute l'école, utile pour l'import ou le pilotage global.</li>
+  <li>Le parcours actif est visible dans le <strong>bandeau</strong> et se change à tout moment.</li>
+</ul>
+<div class="tip">
+  <b>Astuce direction</b>
+  <p>Utilisez <strong>Tous les parcours</strong> pour voir toute l'école, puis revenez à un parcours pour travailler proprement (listes courtes, classes du bon système).</p>
+</div>
+<div class="note">
+  <b>Données « disparues » ?</b>
+  <p>Vérifiez d'abord le parcours actif. Les élèves non affectés restent visibles dans leur parcours ; une classe d'un autre parcours n'apparaîtra jamais dans le filtre courant.</p>
+</div>
+</div>
+
+<div class="l-en">
+<p>The <strong>track</strong> filters sections, classes and students. A section created under “Primary FR” does not appear when you are on “Secondary EN”.</p>
+<ul>
+  <li>Combinations: <strong>Nursery / Primary / Secondary</strong> × <strong>Francophone / Anglophone</strong>.</li>
+  <li><strong>All tracks</strong> (leadership / admin): a school-wide view, useful for imports or global steering.</li>
+  <li>The active track is shown in the <strong>top bar</strong> and can be changed at any time.</li>
+</ul>
+<div class="tip">
+  <b>Leadership tip</b>
+  <p>Use <strong>All tracks</strong> to see the whole school, then switch back to one track to work cleanly (short lists, classes for the right system).</p>
+</div>
+<div class="note">
+  <b>“Missing” data?</b>
+  <p>Check the active track first. Unassigned students stay visible in their track; a class from another track never appears in the current filter.</p>
+</div>
 </div>
 
 <!-- ====================== ROLES ====================== -->
@@ -352,17 +423,26 @@
   <tr><td><span class="badge b-warn">Lecture</span></td><td>Le module s'ouvre en consultation. Les boutons de création, modification et suppression sont masqués.</td></tr>
   <tr><td><span class="badge b-ok">Complet</span></td><td>Consultation <em>et</em> modification.</td></tr>
 </table>
-<p>Les six rôles livrés avec le système sont : <strong>Principal</strong>, <strong>Préfet d'études</strong>, <strong>Économe</strong>, <strong>Prof. Principal</strong>, <strong>Enseignant</strong> et <strong>Parent</strong>.</p>
+<p>Les rôles livrés : <strong>Principal</strong>, <strong>Préfet d'études</strong>, <strong>Économe</strong>, <strong>Prof. Principal</strong>, <strong>Enseignant</strong> et <strong>Parent</strong>. Des <a href="#custom-roles">rôles personnalisés</a> peuvent être créés dans Paramètres.</p>
+<table>
+  <tr><th>Rôle</th><th>Vocation</th></tr>
+  <tr><td><strong>Principal</strong></td><td>Pilotage, Paramètres, tous modules.</td></tr>
+  <tr><td><strong>Économe</strong></td><td>Finance (écriture).</td></tr>
+  <tr><td><strong>Enseignant / Prof. principal</strong></td><td>Notes, cahier, classe.</td></tr>
+  <tr><td><strong>Préfet</strong></td><td>Vie scolaire, discipline, présence.</td></tr>
+  <tr><td><strong>Rôles personnalisés</strong></td><td>Créés dans Paramètres → Rôles.</td></tr>
+  <tr><td><strong>Parent</strong></td><td><strong>Uniquement</strong> le portail parent (ses enfants). Pas d'Académique / Élèves / Finance staff.</td></tr>
+</table>
 <h4>Modifier une permission</h4>
 <p>Dans <strong>Paramètres → Permissions</strong>, <strong>cliquez une case</strong> : elle passe de <em>Aucun</em> à <em>Lecture</em>, puis à <em>Complet</em>, puis revient à <em>Aucun</em>. Il n'y a pas de bouton « Enregistrer » — <strong>le changement est appliqué immédiatement</strong>.</p>
 <div class="warn">
-  <b>Deux points importants</b>
-  <p>1. Un utilisateur déjà connecté ne verra pas ses menus changer tout de suite : ses permissions sont chargées à la connexion. Il doit <strong>se déconnecter puis se reconnecter</strong> pour que la nouvelle matrice s'applique à son interface.</p>
-  <p>2. La matrice ne couvre que 11 des 17 modules. <em>Parcours, Santé, Documents, Cahier de textes, Correspondance</em> et <em>Alertes</em> ne sont pas éditables ici dans la version 1.0.</p>
+  <b>Points importants</b>
+  <p>1. Un utilisateur déjà connecté doit <strong>se déconnecter puis se reconnecter</strong> pour que la nouvelle matrice s'applique à son interface.</p>
+  <p>2. Le rôle <strong>Parent</strong> ne peut pas recevoir Académique / Élèves / Finance : l'accès reste limité au portail (sécurité ligne à ligne sur ses enfants). Les cellules concernées sont bloquées.</p>
 </div>
 <div class="note">
   <b>Le serveur a toujours le dernier mot</b>
-  <p>Masquer un bouton n'est qu'un confort d'affichage : chaque requête est revalidée côté serveur. Un utilisateur ne peut donc rien faire de plus en contournant l'interface.</p>
+  <p>Masquer un bouton n'est qu'un confort d'affichage : chaque requête est revalidée côté serveur.</p>
 </div>
 </div>
 
@@ -374,23 +454,62 @@
   <tr><td><span class="badge b-warn">Read</span></td><td>The module opens read-only. Create, edit and delete controls are hidden.</td></tr>
   <tr><td><span class="badge b-ok">Write</span></td><td>Viewing <em>and</em> editing.</td></tr>
 </table>
-<p>The six roles shipped with the system are: <strong>Principal</strong>, <strong>Dean of studies</strong>, <strong>Bursar</strong>, <strong>Form Teacher</strong>, <strong>Teacher</strong> and <strong>Parent</strong>.</p>
+<p>Shipped roles: <strong>Principal</strong>, <strong>Dean of studies</strong>, <strong>Bursar</strong>, <strong>Form Teacher</strong>, <strong>Teacher</strong> and <strong>Parent</strong>. <a href="#custom-roles">Custom roles</a> can be created in Settings.</p>
+<table>
+  <tr><th>Role</th><th>Purpose</th></tr>
+  <tr><td><strong>Principal</strong></td><td>Steering, Settings, all modules.</td></tr>
+  <tr><td><strong>Bursar</strong></td><td>Finance (write).</td></tr>
+  <tr><td><strong>Teacher / Form teacher</strong></td><td>Marks, coursebook, class.</td></tr>
+  <tr><td><strong>Dean</strong></td><td>School life, discipline, attendance.</td></tr>
+  <tr><td><strong>Custom roles</strong></td><td>Created in Settings → Roles.</td></tr>
+  <tr><td><strong>Parent</strong></td><td><strong>Only</strong> the parent portal (their children). No staff Academic / Students / Finance.</td></tr>
+</table>
 <h4>Changing a permission</h4>
 <p>In <strong>Settings → Permissions</strong>, <strong>click a cell</strong>: it cycles from <em>None</em> to <em>Read</em> to <em>Write</em> and back to <em>None</em>. There is no Save button — <strong>the change applies immediately</strong>.</p>
 <div class="warn">
-  <b>Two important points</b>
-  <p>1. A user who is already signed in will not see their menus change straight away: permissions are loaded at sign-in. They must <strong>sign out and back in</strong> for the new matrix to reach their interface.</p>
-  <p>2. The matrix covers only 11 of the 17 modules. <em>Journey, Health, Documents, Coursebook, Correspondence</em> and <em>Alerts</em> cannot be edited here in version 1.0.</p>
+  <b>Important points</b>
+  <p>1. A user who is already signed in must <strong>sign out and back in</strong> for the new matrix to reach their interface.</p>
+  <p>2. The <strong>Parent</strong> role cannot be granted Academic / Students / Finance: access stays limited to the portal (row-level security on their children). Those cells are locked.</p>
 </div>
 <div class="note">
   <b>The server always decides</b>
-  <p>Hiding a button is a display convenience only: every request is re-checked on the server. Bypassing the interface gains a user nothing.</p>
+  <p>Hiding a button is a display convenience only: every request is re-checked on the server.</p>
+</div>
+</div>
+
+<!-- ====================== CUSTOM ROLES ====================== -->
+<h2 id="custom-roles"><span class="l-fr">Rôles personnalisés</span><span class="l-en">Custom roles</span></h2>
+
+<div class="l-fr">
+<p>Dans <strong>Paramètres → Rôles</strong>, créez un rôle (ex. Surveillant) : il apparaît avec le badge <strong>Personnalisé</strong>.</p>
+<ol>
+  <li>Créez le rôle (libellé FR / EN).</li>
+  <li>Dans <strong>Permissions</strong>, donnez-lui les modules voulus (ex. <code>discipline:write</code> → cellule Complet).</li>
+  <li>Affectez-le à un compte dans <a href="#staff">Personnel</a>.</li>
+</ol>
+<div class="tip">
+  <b>Parent vs personnalisé</b>
+  <p>Un rôle personnalisé peut ouvrir des modules staff. Le rôle <strong>Parent</strong> reste cantonné au portail — c'est une restriction de sécurité, pas un oubli de matrice.</p>
+</div>
+</div>
+
+<div class="l-en">
+<p>In <strong>Settings → Roles</strong>, create a role (e.g. Supervisor): it appears with the <strong>Custom</strong> badge.</p>
+<ol>
+  <li>Create the role (FR / EN labels).</li>
+  <li>In <strong>Permissions</strong>, grant the modules you need (e.g. <code>discipline:write</code> → Write cell).</li>
+  <li>Assign it to an account in <a href="#staff">Staff</a>.</li>
+</ol>
+<div class="tip">
+  <b>Parent vs custom</b>
+  <p>A custom role can open staff modules. The <strong>Parent</strong> role stays portal-only — that is a security restriction, not a matrix oversight.</p>
 </div>
 </div>
 
 <!-- ====================== STUDENTS ====================== -->
 <h2 id="students"><span class="l-fr">Élèves</span><span class="l-en">Students</span></h2>
 <p class="sub"><span class="l-fr">Élèves, parents, familles · permission <code>students</code></span><span class="l-en">Students, parents, families · <code>students</code> permission</span></p>
+<span id="guardians"></span>
 
 <figure>
   <img class="l-fr" src="img/fr-students.webp" alt="Liste des élèves" loading="lazy">
@@ -401,65 +520,65 @@
 <div class="l-fr">
 <h4>Trouver un élève</h4>
 <ul>
-  <li>La <strong>recherche</strong> porte sur le nom, le matricule et le nom du parent. <em>Elle ne cherche pas dans la classe</em> — pour cela, utilisez les filtres ou triez la colonne Classe.</li>
-  <li>Les puces <strong>Tous systèmes / Francophone / Anglophone</strong> et <strong>Tous niveaux / Primaire / Secondaire</strong> restreignent la liste.</li>
-  <li>Toutes les colonnes se trient par un clic sur leur en-tête.</li>
+  <li>La <strong>recherche</strong> porte sur le nom, le matricule et les contacts famille.</li>
+  <li>Les listes sont filtrées par le <a href="#track">parcours actif</a> ; triez par classe via l'en-tête de colonne.</li>
+  <li>Import Excel/CSV + <strong>modèle</strong> téléchargeable depuis le module.</li>
 </ul>
 <h4>Consulter une fiche</h4>
-<p><strong>Cliquez une ligne</strong> : la fiche s'ouvre juste sous le tableau. Elle réunit l'identité, les informations du parent, les comptes parents liés, et l'état civil scolaire (matricule, date de naissance, classe, section).</p>
-<h4>Inscrire un élève</h4>
-<p><strong>Nouvel élève</strong> ouvre un formulaire pleine page en trois blocs :</p>
+<p><strong>Cliquez une ligne</strong> : la fiche s'ouvre sous le tableau (identité, scolarité, famille, comptes parents).</p>
+<h4>Inscrire un élève — Père / Mère / Tuteur</h4>
+<p><strong>Nouvel élève</strong> ouvre un formulaire pleine page :</p>
 <ul>
   <li><strong>Identité</strong> — Nom et Prénom (obligatoires), Sexe, Date de naissance.</li>
-  <li><strong>Scolarité</strong> — la Classe, choisie dans une liste. Le sous-système et le niveau en sont <em>déduits automatiquement</em> : vous n'avez pas à les saisir.</li>
-  <li><strong>Parent / tuteur</strong> — nom et téléphone.</li>
+  <li><strong>Scolarité</strong> — Classe (sous-système et niveau déduits). Un élève « Non affecté » reste visible dans le parcours.</li>
+  <li><strong>Père / Mère / Tuteur</strong> — pour chacun : nom, téléphone, e-mail. Le <strong>contact principal</strong> (SMS) est dérivé automatiquement (père → mère → tuteur).</li>
 </ul>
 <div class="note">
   <b>Créez vos classes d'abord</b>
-  <p>Si aucune classe n'existe encore, le formulaire vous le signale. Passez par <strong>Paramètres → Scolarité</strong> pour créer sections puis classes, avant d'inscrire vos élèves.</p>
+  <p>Si aucune classe n'existe encore, passez par <strong>Paramètres → Scolarité</strong> (section puis classes) dans le parcours actif.</p>
 </div>
 <h4>Donner un accès au portail à un parent</h4>
-<p>Dans la fiche d'un élève, section <strong>Comptes parents</strong> → <strong>Ajouter</strong>. Renseignez le nom complet, un identifiant de connexion et un mot de passe.</p>
+<p>Dans la fiche, section <strong>Comptes parents</strong> → <strong>Ajouter</strong>. Renseignez le nom complet, un identifiant et un mot de passe.</p>
 <div class="tip">
   <b>Un parent, plusieurs enfants</b>
-  <p>Pour rattacher un second enfant à un parent existant, saisissez <strong>le même identifiant</strong> dans la fiche de cet autre enfant : le compte est relié, pas dupliqué. Le parent verra alors ses deux enfants dans son portail.</p>
+  <p>Réutilisez <strong>le même identifiant</strong> sur la fiche d'un autre enfant : le compte est relié, pas dupliqué.</p>
 </div>
 <h4>Supprimer</h4>
-<p><strong>Supprimer</strong> demande une confirmation. L'élève et toutes ses données associées sont retirés du registre.</p>
+<p><strong>Supprimer</strong> demande une confirmation. L'élève et ses données associées sont retirés du registre.</p>
 </div>
 
 <div class="l-en">
 <h4>Finding a student</h4>
 <ul>
-  <li><strong>Search</strong> matches the name, the student ID and the parent's name. <em>It does not search the class</em> — use the filters or sort the Class column for that.</li>
-  <li>The <strong>All systems / Francophone / English</strong> and <strong>All levels / Primary / Secondary</strong> chips narrow the list.</li>
-  <li>Every column sorts on a click of its header.</li>
+  <li><strong>Search</strong> matches the name, student ID and family contacts.</li>
+  <li>Lists are filtered by the <a href="#track">active track</a>; sort by class via the column header.</li>
+  <li>Excel/CSV import + downloadable <strong>template</strong> from the module.</li>
 </ul>
 <h4>Opening a profile</h4>
-<p><strong>Click a row</strong> and the profile opens just below the table. It gathers identity, parent details, linked parent accounts and school record (ID, date of birth, class, section).</p>
-<h4>Enrolling a student</h4>
-<p><strong>New student</strong> opens a full-page form in three blocks:</p>
+<p><strong>Click a row</strong> and the profile opens below the table (identity, schooling, family, parent accounts).</p>
+<h4>Enrolling a student — Father / Mother / Guardian</h4>
+<p><strong>New student</strong> opens a full-page form:</p>
 <ul>
   <li><strong>Identity</strong> — Last name and First name (required), Sex, Date of birth.</li>
-  <li><strong>Schooling</strong> — the Class, picked from a list. Sub-system and level are <em>derived automatically</em>: you do not enter them.</li>
-  <li><strong>Parent / guardian</strong> — name and phone.</li>
+  <li><strong>Schooling</strong> — Class (sub-system and level derived). An “Unassigned” student stays visible in the track.</li>
+  <li><strong>Father / Mother / Guardian</strong> — for each: name, phone, e-mail. The <strong>primary contact</strong> (SMS) is derived automatically (father → mother → guardian).</li>
 </ul>
 <div class="note">
   <b>Create your classes first</b>
-  <p>If no class exists yet, the form says so. Go to <strong>Settings → Academics</strong> to create sections then classes before enrolling students.</p>
+  <p>If no class exists yet, go to <strong>Settings → Academics</strong> (section then classes) in the active track.</p>
 </div>
 <h4>Giving a parent portal access</h4>
-<p>In a student's profile, section <strong>Parent accounts</strong> → <strong>Add</strong>. Enter the full name, a login username and a password.</p>
+<p>In the profile, section <strong>Parent accounts</strong> → <strong>Add</strong>. Enter the full name, a login username and a password.</p>
 <div class="tip">
   <b>One parent, several children</b>
-  <p>To attach a second child to an existing parent, enter <strong>the same username</strong> on that other child's profile: the account is linked, not duplicated. The parent will then see both children in their portal.</p>
+  <p>Reuse <strong>the same username</strong> on another child's profile: the account is linked, not duplicated.</p>
 </div>
 <h4>Deleting</h4>
-<p><strong>Delete</strong> asks for confirmation. The student and all related data are removed from the registry.</p>
+<p><strong>Delete</strong> asks for confirmation. The student and related data are removed from the registry.</p>
 </div>
 
 <!-- ====================== JOURNEY ====================== -->
-<h2 id="journey"><span class="l-fr">Parcours</span><span class="l-en">Journey</span></h2>
+<h2 id="journey"><span class="l-fr">Parcours scolaire</span><span class="l-en">School journey</span></h2>
 <p class="sub"><span class="l-fr">Parcours scolaire complet, année par année · permission <code>journey</code></span><span class="l-en">Full school journey, year by year · <code>journey</code> permission</span></p>
 
 <figure>
@@ -674,6 +793,10 @@
   <b>Imprimer</b>
   <p>Le bouton <strong>Imprimer</strong> ouvre la fenêtre d'impression du navigateur ; choisissez « Enregistrer au format PDF » pour obtenir un fichier. Notez que le bouton <em>Exporter</em> fait exactement la même chose : il n'y a pas encore de génération de PDF ni d'export de fichier dans cette version.</p>
 </div>
+<div class="warn">
+  <b>Parents</b>
+  <p>Les comptes <code>parent</code> n'ont <strong>pas</strong> accès à ce module. Ils consultent les notes de <strong>leurs</strong> enfants uniquement dans le <a href="#parent">portail parent</a>.</p>
+</div>
 </div>
 
 <div class="l-en">
@@ -699,6 +822,10 @@
   <b>Printing</b>
   <p>The <strong>Print</strong> button opens the browser's print dialog; choose “Save as PDF” to get a file. Note that the <em>Export</em> button does exactly the same thing: there is no PDF generation or file export in this version yet.</p>
 </div>
+<div class="warn">
+  <b>Parents</b>
+  <p><code>parent</code> accounts have <strong>no</strong> access to this module. They view marks for <strong>their</strong> children only in the <a href="#parent">parent portal</a>.</p>
+</div>
 </div>
 
 <!-- ====================== PRESENCE ====================== -->
@@ -718,16 +845,15 @@
   <li>La grande carte sombre à gauche est le <strong>lecteur</strong> : elle affiche le dernier élève scanné, avec son heure de passage.</li>
   <li>Les quatre indicateurs donnent le <strong>taux de présence</strong>, les <strong>retards</strong>, les <strong>absents</strong> et le total des scans.</li>
   <li><strong>Scans en direct</strong> liste les 12 derniers passages, le plus récent en tête.</li>
-  <li><strong>Journal de présence du jour</strong> reprend tous les élèves, avec recherche (nom ou matricule) et filtres par classe et par statut.</li>
+  <li><strong>Journal de présence</strong> reprend les élèves (recherche nom/matricule, filtres classe et statut). Choisissez une <strong>date</strong> dans l'en-tête pour l'historique.</li>
 </ul>
 <div class="note">
-  <b>Cette page est en consultation</b>
-  <p>La présence se saisit par le lecteur d'empreintes, pas ici : il n'y a ni bouton ni formulaire de pointage manuel dans la version 1.0.</p>
+  <b>Retards &amp; calendrier</b>
+  <p>Un <strong>retard</strong> = arrivée après l'<a href="#calendar">heure d'ouverture</a> (Paramètres → Général). Les <strong>week-ends</strong> et <strong>jours fériés</strong> du calendrier scolaire ne génèrent pas de retard.</p>
 </div>
 <div class="warn">
   <b>Le voyant « En ligne » est décoratif</b>
-  <p>Le bandeau vert <em>En ligne</em> est affiché en permanence : il ne reflète pas l'état réel du lecteur, qui n'est pas interrogé. Un lecteur débranché continuera d'afficher « En ligne ». Pour vérifier qu'il fonctionne vraiment, faites un pointage de test et regardez si la ligne apparaît.</p>
-  <p>Le compteur <em>Total scans</em> compte tous les élèves du tableau, y compris les absents — ce n'est donc pas un nombre de scans. Et si vous laissez la page ouverte après minuit, elle continue d'afficher la veille : rechargez-la chaque matin.</p>
+  <p>Le bandeau vert <em>En ligne</em> est affiché en permanence : il ne reflète pas l'état réel du lecteur. Pour vérifier, faites un pointage de test. Si la page est restée ouverte après minuit, rechargez-la.</p>
 </div>
 </div>
 
@@ -738,16 +864,15 @@
   <li>The large dark card on the left is the <strong>reader</strong>: it shows the last student scanned, with their check-in time.</li>
   <li>The four indicators give the <strong>attendance rate</strong>, the <strong>lates</strong>, the <strong>absentees</strong> and the scan total.</li>
   <li><strong>Live scans</strong> lists the last 12 check-ins, newest first.</li>
-  <li><strong>Today's presence journal</strong> lists every student, with search (name or ID) and filters by class and status.</li>
+  <li>The <strong>attendance journal</strong> lists students (search by name/ID, class and status filters). Pick a <strong>date</strong> in the header for history.</li>
 </ul>
 <div class="note">
-  <b>This page is read-only</b>
-  <p>Attendance is captured by the fingerprint reader, not here: there is no manual check-in button or form in version 1.0.</p>
+  <b>Lates &amp; calendar</b>
+  <p>A <strong>late</strong> = arrival after the <a href="#calendar">opening time</a> (Settings → General). <strong>Weekends</strong> and school-calendar <strong>holidays</strong> do not generate lates.</p>
 </div>
 <div class="warn">
   <b>The “Online” light is decorative</b>
-  <p>The green <em>Online</em> badge is always displayed: it does not reflect the reader's actual state, which is never polled. An unplugged reader will still read “Online”. To check it really works, do a test scan and see whether the row appears.</p>
-  <p>The <em>Total scans</em> counter counts every student on the board, absentees included — so it is not a number of scans. And if you leave the page open past midnight it keeps showing the previous day: reload it each morning.</p>
+  <p>The green <em>Online</em> badge is always displayed: it does not reflect the reader's actual state. To check it works, do a test scan. If the page stayed open past midnight, reload it.</p>
 </div>
 </div>
 
@@ -763,34 +888,26 @@
 
 <div class="l-fr">
 <h4>Enregistrer un incident</h4>
-<p><strong>Nouvel incident</strong> ouvre un panneau de saisie. Le <strong>matricule</strong>, la <strong>date</strong> et le <strong>type</strong> sont obligatoires. Le type se choisit parmi <em>Retard, Absence, Conduite, Tenue</em>, et la sanction parmi <em>Avertissement verbal, Avertissement écrit, Convocation parent, Exclusion temporaire, Conseil de discipline</em>.</p>
+<p><strong>Nouvel incident</strong> : saisissez le <strong>matricule</strong> — la fiche élève (nom, classe) s'affiche automatiquement. La <strong>date</strong> et le <strong>motif</strong> sont obligatoires. Motifs et sanctions viennent du <a href="#discipline-catalog">catalogue Paramètres</a>.</p>
 <div class="note">
   <b>Si Enregistrer ne réagit pas</b>
-  <p>C'est qu'un des trois champs obligatoires est vide. Aucun message ne le signale dans cette version.</p>
+  <p>Un champ obligatoire est vide. Aucun message ne le signale toujours.</p>
 </div>
-<p>Un incident se crée et se supprime, mais <strong>ne se modifie pas</strong>. La corbeille supprime sans confirmation.</p>
-<h4>Le panneau « Notifier le parent »</h4>
-<div class="warn">
-  <b>Ce panneau ne fait qu'écrire le message — il ne l'envoie pas</b>
-  <p>Les boutons <strong>SMS</strong> et <strong>Envoyer</strong> ne sont pas raccordés dans la version 1.0 : cliquer dessus ne fait rien. Le panneau prépare un texte à partir de modèles (Absence, Retard, Convocation, Fermeture), mais aucune passerelle SMS ou e-mail n'est branchée.</p>
-  <p>Utilisez-le comme un <strong>aide-rédaction</strong> : cliquez la cloche d'un incident pour pré-remplir le message, puis copiez le texte et envoyez-le par votre propre moyen. La zone de texte est en lecture seule, mais son contenu reste sélectionnable.</p>
-</div>
+<p>Un incident se crée et se supprime ; la corbeille peut supprimer sans confirmation.</p>
+<h4>Notifier le parent</h4>
+<p>La cloche préremplit le message. <strong>SMS</strong> / <strong>Envoyer</strong> utilisent le téléphone du contact principal ; un <strong>message de résultat</strong> s'affiche (envoyé / pas de téléphone / erreur).</p>
 </div>
 
 <div class="l-en">
 <h4>Recording an incident</h4>
-<p><strong>New incident</strong> opens an entry panel. The <strong>student ID</strong>, the <strong>date</strong> and the <strong>type</strong> are required. The type is picked from <em>Retard, Absence, Conduite, Tenue</em>, and the sanction from <em>Avertissement verbal, Avertissement écrit, Convocation parent, Exclusion temporaire, Conseil de discipline</em>.</p>
+<p><strong>New incident</strong>: enter the <strong>student ID</strong> — the student card (name, class) appears automatically. The <strong>date</strong> and <strong>type</strong> are required. Types and sanctions come from the <a href="#discipline-catalog">Settings catalog</a>.</p>
 <div class="note">
-  <b>These two lists are French-only</b>
-  <p>The type and sanction options are not translated in version 1.0 — they read in French even in English mode. If <em>Save</em> does not react, one of the three required fields is empty; no message says so.</p>
+  <b>If Save does not react</b>
+  <p>A required field is empty. An error is not always shown.</p>
 </div>
-<p>An incident can be created and deleted, but <strong>not edited</strong>. The bin deletes without confirmation.</p>
-<h4>The “Notify parent” panel</h4>
-<div class="warn">
-  <b>This panel only writes the message — it does not send it</b>
-  <p>The <strong>SMS</strong> and <strong>Send</strong> buttons are not wired in version 1.0: clicking them does nothing. The panel drafts text from templates (Absence, Late, Summon, Closure), but no SMS or e-mail gateway is connected.</p>
-  <p>Use it as a <strong>drafting aid</strong>: click an incident's bell to pre-fill the message, then copy the text and send it by your own means. The text area is read-only, but its content stays selectable.</p>
-</div>
+<p>An incident can be created and deleted; the bin may delete without confirmation.</p>
+<h4>Notify the parent</h4>
+<p>The bell prefills the message. <strong>SMS</strong> / <strong>Send</strong> use the primary contact phone; a <strong>result message</strong> is shown (sent / no phone / error).</p>
 </div>
 
 <!-- ====================== COURSEBOOK ====================== -->
@@ -1150,6 +1267,8 @@
 <!-- ====================== SETTINGS ====================== -->
 <h2 id="settings"><span class="l-fr">Paramètres</span><span class="l-en">Settings</span></h2>
 <p class="sub"><span class="l-fr">Configuration, rôles, messagerie · permission <code>settings</code></span><span class="l-en">Configuration, roles, e-mail · <code>settings</code> permission</span></p>
+<span id="calendar"></span>
+<span id="discipline-catalog"></span>
 
 <figure>
   <img class="l-fr" src="img/fr-settings.webp" alt="Paramètres — Scolarité" loading="lazy">
@@ -1158,47 +1277,43 @@
 </figure>
 
 <div class="l-fr">
-<p>Cinq onglets : <strong>Scolarité</strong>, <strong>Général</strong>, <strong>Permissions</strong>, <strong>Rôles</strong> et <strong>Messagerie</strong>.</p>
-<h4>Scolarité — la fondation de l'application</h4>
-<p>C'est ici que tout commence, dans cet ordre :</p>
+<p>Onglets : <strong>Scolarité</strong>, <strong>Général</strong>, <strong>Calendrier</strong>, <strong>Catalogue Discipline</strong>, <strong>Permissions</strong>, <strong>Rôles</strong> et <strong>Messagerie</strong>.</p>
+<h4>Scolarité — la fondation</h4>
+<p>Ordre recommandé (dans le <a href="#track">parcours actif</a>) :</p>
 <ol>
-  <li><strong>Sections</strong> — regroupent les classes par sous-système et niveau (ex. « Secondaire FR »). Un libellé, un sous-système (Francophone / Anglophone) et un niveau (Primaire / Secondaire).</li>
-  <li><strong>Classes</strong> — un nom (ex. <code>6ème A</code>) et la section de rattachement. <em>Le bouton reste désactivé tant qu'aucune section n'existe.</em></li>
-  <li><strong>Matières</strong> — un code, un nom en français, un nom en anglais et un <strong>coefficient</strong> (celui qui pondère les bulletins).</li>
+  <li><strong>Sections</strong> — libellé + système + niveau (verrouillé au parcours).</li>
+  <li><strong>Classes</strong> — rattachées à la section. <em>Le bouton reste désactivé tant qu'aucune section n'existe.</em></li>
+  <li><strong>Matières</strong> — code, noms FR/EN, <strong>coefficient</strong>.</li>
 </ol>
-<p>Les suppressions demandent confirmation.</p>
-<h4>Permissions</h4>
-<p>La matrice rôle × module, décrite en détail dans <a href="#roles">Rôles &amp; permissions</a>.</p>
+<h4>Général &amp; calendrier scolaire</h4>
+<p><strong>Général</strong> : identité de l'école (nom, contacts, devise, autorité), <strong>heure d'ouverture</strong> (seuil de retard) et heure de fin.</p>
+<p><strong>Calendrier</strong> : jours fériés / fermetures. Ces dates <strong>ne génèrent pas de retards</strong> au pointage (week-ends exclus aussi). Voir <a href="#presence">Présence</a>.</p>
+<h4>Catalogue Discipline</h4>
+<p>Personnalisez les listes <strong>Motif</strong> (type) et <strong>Sanction</strong>. Elles alimentent le module <a href="#discipline">Discipline</a>.</p>
+<h4>Permissions &amp; Rôles</h4>
+<p>Matrice décrite dans <a href="#roles">Rôles &amp; permissions</a>. Création de <a href="#custom-roles">rôles personnalisés</a> dans l'onglet Rôles.</p>
 <h4>Messagerie</h4>
-<p>La configuration du <strong>serveur SMTP</strong> : activation, hôte, port, utilisateur, mot de passe, adresse et nom d'expéditeur, STARTTLS. Laissez le mot de passe vide pour conserver celui déjà en place.</p>
-<p>La carte <strong>Notifications</strong> propose un seul déclencheur — <em>Création d'un utilisateur</em> — et un outil de <strong>test d'envoi</strong>. Enregistrez la configuration <em>avant</em> de tester.</p>
-<div class="warn">
-  <b>Deux onglets à ne pas surestimer</b>
-  <p><strong>Général</strong> n'est pas configurable : nom, ville, année scolaire, devise, langues et fiche du lecteur d'empreintes y sont <strong>en dur</strong> dans l'application. Ce que vous y lisez (« En ligne », « Dernière synchro : il y a 3 min », le modèle du lecteur) est décoratif et ne reflète aucun équipement réel.</p>
-  <p><strong>Rôles</strong> est en lecture seule : la version 1.0 ne permet pas de créer ou de modifier un rôle. Les six rôles livrés sont ceux dont vous disposez ; ce que vous pouvez ajuster, ce sont leurs <em>permissions</em>.</p>
-</div>
+<p>Configuration <strong>SMTP</strong> (nécessaire pour envoi d'identifiants et e-mails de test). Enregistrez avant de tester.</p>
 </div>
 
 <div class="l-en">
-<p>Five tabs: <strong>Academics</strong>, <strong>General</strong>, <strong>Permissions</strong>, <strong>Roles</strong> and <strong>E-mail</strong>.</p>
-<h4>Academics — the application's foundation</h4>
-<p>Everything starts here, in this order:</p>
+<p>Tabs: <strong>Academics</strong>, <strong>General</strong>, <strong>Calendar</strong>, <strong>Discipline catalog</strong>, <strong>Permissions</strong>, <strong>Roles</strong> and <strong>E-mail</strong>.</p>
+<h4>Academics — the foundation</h4>
+<p>Recommended order (in the <a href="#track">active track</a>):</p>
 <ol>
-  <li><strong>Sections</strong> — group classes by sub-system and level (e.g. “Secondaire FR”). A label, a sub-system (Francophone / English) and a level (Primary / Secondary).</li>
-  <li><strong>Classes</strong> — a name (e.g. <code>Form 1 A</code>) and the section it belongs to. <em>The button stays disabled until a section exists.</em></li>
-  <li><strong>Subjects</strong> — a code, a French name, an English name and a <strong>coefficient</strong> (the one that weights report cards).</li>
+  <li><strong>Sections</strong> — label + system + level (locked to the track).</li>
+  <li><strong>Classes</strong> — attached to the section. <em>The button stays disabled until a section exists.</em></li>
+  <li><strong>Subjects</strong> — code, FR/EN names, <strong>coefficient</strong>.</li>
 </ol>
-<p>Deletions ask for confirmation.</p>
-<h4>Permissions</h4>
-<p>The role × module matrix, described in detail under <a href="#roles">Roles &amp; permissions</a>.</p>
+<h4>General &amp; school calendar</h4>
+<p><strong>General</strong>: school identity (name, contacts, currency, authority), <strong>opening time</strong> (late threshold) and closing time.</p>
+<p><strong>Calendar</strong>: holidays / closures. These dates <strong>do not generate lates</strong> on check-in (weekends excluded too). See <a href="#presence">Attendance</a>.</p>
+<h4>Discipline catalog</h4>
+<p>Customise the <strong>Type</strong> and <strong>Sanction</strong> lists. They feed the <a href="#discipline">Discipline</a> module.</p>
+<h4>Permissions &amp; Roles</h4>
+<p>Matrix described under <a href="#roles">Roles &amp; permissions</a>. Create <a href="#custom-roles">custom roles</a> on the Roles tab.</p>
 <h4>E-mail</h4>
-<p>The <strong>SMTP server</strong> configuration: enable, host, port, username, password, from address and from name, STARTTLS. Leave the password blank to keep the existing one.</p>
-<p>The <strong>Notifications</strong> card offers a single trigger — <em>User created</em> — and a <strong>test sending</strong> tool. Save the configuration <em>before</em> testing.</p>
-<div class="warn">
-  <b>Two tabs not to overrate</b>
-  <p><strong>General</strong> is not configurable: name, city, academic year, currency, languages and the fingerprint-reader card are <strong>hardcoded</strong> in the application. What you read there (“Online”, “Last sync: 3 min ago”, the reader model) is decorative and reflects no real equipment.</p>
-  <p><strong>Roles</strong> is read-only: version 1.0 does not allow creating or editing a role. The six shipped roles are what you have; what you can adjust are their <em>permissions</em>.</p>
-</div>
+<p><strong>SMTP</strong> configuration (needed for credential sending and test e-mails). Save before testing.</p>
 </div>
 
 <!-- ====================== PARENT ====================== -->
@@ -1211,47 +1326,175 @@
 </figure>
 
 <div class="l-fr">
-<p>Les comptes de rôle <code>parent</code> arrivent directement ici après connexion. Le portail ne comporte pas les modules du personnel.</p>
+<p>Les comptes de rôle <code>parent</code> arrivent directement sur <code>/parent</code>. Le portail ne comporte <strong>pas</strong> les modules du personnel. Les données sont <strong>strictement</strong> limitées aux enfants liés.</p>
 <h4>Choisir un enfant</h4>
-<p>La barre <strong>Mes enfants</strong> présente une pastille par enfant rattaché au compte. Cliquez pour basculer. Le premier enfant est sélectionné automatiquement.</p>
-<h4>Les trois onglets</h4>
+<p>La barre <strong>Mes enfants</strong> présente une pastille par enfant. Cliquez pour basculer. Le premier est sélectionné automatiquement.</p>
+<h4>Les onglets</h4>
 <ul>
-  <li><strong>Vue d'ensemble</strong> — taux de présence, solde de frais, statut des frais et nombre d'évaluations.</li>
-  <li><strong>Notes</strong> — le détail par matière et par séquence, avec la moyenne en bas de tableau.</li>
-  <li><strong>Boîte à suggestions</strong> — pour écrire à l'établissement : choisissez une catégorie (Suggestion, Question, Réclamation, Remerciement), rédigez, puis <strong>Envoyer le message</strong>. La carte <em>Mes messages</em> conserve l'historique.</li>
+  <li><strong>Vue d'ensemble</strong> — présence, solde de frais, statut.</li>
+  <li><strong>Notes</strong> — détail par matière et séquence.</li>
+  <li><strong>Présence / frais</strong> — cohérents avec les modules staff.</li>
+  <li><strong>Boîte à suggestions</strong> — écrire à l'établissement.</li>
 </ul>
 <div class="note">
   <b>Comment ouvrir un accès parent</b>
-  <p>Un compte parent se crée depuis la fiche de l'élève : <a href="#students">Élèves</a> → sélectionner l'élève → <strong>Comptes parents</strong> → <strong>Ajouter</strong>. Réutilisez le même identifiant pour rattacher plusieurs enfants à un même parent.</p>
+  <p>Depuis la fiche élève : <a href="#students">Élèves</a> → <strong>Comptes parents</strong> → <strong>Ajouter</strong>. Réutilisez le même identifiant pour plusieurs enfants.</p>
 </div>
 <div class="warn">
-  <b>Points connus de la version 1.0</b>
-  <p>Sous le nom de l'enfant s'affiche un <strong>identifiant technique</strong> (une longue suite de caractères) à la place du matricule : c'est une anomalie connue, sans conséquence sur les données.</p>
-  <p>La <strong>moyenne</strong> de l'onglet Notes est une moyenne <em>simple</em> : elle ne tient pas compte des coefficients des matières. Elle peut donc différer de la moyenne du bulletin officiel, qui, elle, est pondérée. Le bulletin fait foi.</p>
-  <p>Les <strong>coordonnées de l'école</strong> affichées en bas de la vue d'ensemble sont des exemples figés dans l'application, pas les coordonnées configurées de l'établissement.</p>
+  <b>Sécurité</b>
+  <p>Appeler une URL staff (ex. <code>/apps/academic</code>) depuis un compte parent → accès refusé / redirection. Le rôle Parent ne peut pas recevoir Académique / Élèves / Finance dans la matrice.</p>
 </div>
 </div>
 
 <div class="l-en">
-<p>Accounts with the <code>parent</code> role land here directly after signing in. The portal does not carry the staff modules.</p>
+<p>Accounts with the <code>parent</code> role land directly on <code>/parent</code>. The portal does <strong>not</strong> carry staff modules. Data is <strong>strictly</strong> limited to linked children.</p>
 <h4>Picking a child</h4>
-<p>The <strong>My children</strong> bar shows one pill per child attached to the account. Click to switch. The first child is selected automatically.</p>
-<h4>The three tabs</h4>
+<p>The <strong>My children</strong> bar shows one pill per child. Click to switch. The first is selected automatically.</p>
+<h4>The tabs</h4>
 <ul>
-  <li><strong>Overview</strong> — attendance rate, fee balance, fee status and number of assessments.</li>
-  <li><strong>Grades</strong> — the detail by subject and sequence, with the average at the foot of the table.</li>
-  <li><strong>Suggestion box</strong> — to write to the school: choose a category (Suggestion, Question, Complaint, Thanks), write, then <strong>Send message</strong>. The <em>My messages</em> card keeps the history.</li>
+  <li><strong>Overview</strong> — attendance, fee balance, status.</li>
+  <li><strong>Grades</strong> — detail by subject and sequence.</li>
+  <li><strong>Attendance / fees</strong> — consistent with staff modules.</li>
+  <li><strong>Suggestion box</strong> — write to the school.</li>
 </ul>
 <div class="note">
   <b>How to open a parent access</b>
-  <p>A parent account is created from the student's profile: <a href="#students">Students</a> → select the student → <strong>Parent accounts</strong> → <strong>Add</strong>. Reuse the same username to attach several children to one parent.</p>
+  <p>From the student profile: <a href="#students">Students</a> → <strong>Parent accounts</strong> → <strong>Add</strong>. Reuse the same username for several children.</p>
 </div>
 <div class="warn">
-  <b>Known points in version 1.0</b>
-  <p>Under the child's name a <strong>technical identifier</strong> (a long string) is shown instead of the student ID: this is a known glitch, with no consequence for the data.</p>
-  <p>The <strong>average</strong> on the Grades tab is a <em>plain</em> mean: it ignores subject coefficients. It may therefore differ from the official report card's average, which is weighted. The report card prevails.</p>
-  <p>The <strong>school contacts</strong> shown at the foot of the overview are examples fixed in the application, not the school's configured details.</p>
+  <b>Security</b>
+  <p>Calling a staff URL (e.g. <code>/apps/academic</code>) from a parent account → access denied / redirect. The Parent role cannot be granted Academic / Students / Finance in the matrix.</p>
 </div>
+</div>
+
+<!-- ====================== TEST SHEETS ====================== -->
+<h2 id="tests"><span class="l-fr">Fiches de test</span><span class="l-en">Test sheets</span></h2>
+
+<div class="l-fr">
+<p>Cochez chaque ligne pendant la formation. Convention : ☐ à faire · <span class="ok">✓</span> critère de réussite. Version imprimable : <a class="print-link" href="fiches-test.html">fiches-test.html</a>.</p>
+</div>
+<div class="l-en">
+<p>Tick each line during training. Convention: ☐ to do · <span class="ok">✓</span> success criterion. Printable version: <a class="print-link" href="fiches-test.html">fiches-test.html</a>.</p>
+</div>
+
+<div class="sheet-card">
+  <h4><span class="l-fr">Premiers pas</span><span class="l-en">Getting started</span></h4>
+  <ul class="checklist l-fr">
+    <li>Se connecter avec son compte — <span class="ok">✓</span> Accueil des applications affiché</li>
+    <li>Changer FR ↔ EN — <span class="ok">✓</span> Labels de l'interface changent</li>
+    <li>Changer de parcours (bandeau) — <span class="ok">✓</span> Listes élèves/classes se mettent à jour</li>
+    <li>Ouvrir <strong>Aide</strong> (<code>/guide/</code>) — <span class="ok">✓</span> Guide HTML bilingue s'affiche</li>
+    <li>Se déconnecter — <span class="ok">✓</span> Retour à l'écran de connexion</li>
+  </ul>
+  <ul class="checklist l-en">
+    <li>Sign in with your account — <span class="ok">✓</span> Apps home shown</li>
+    <li>Switch FR ↔ EN — <span class="ok">✓</span> UI labels change</li>
+    <li>Change track (top bar) — <span class="ok">✓</span> Student/class lists update</li>
+    <li>Open <strong>Help</strong> (<code>/guide/</code>) — <span class="ok">✓</span> Bilingual HTML guide opens</li>
+    <li>Sign out — <span class="ok">✓</span> Back to sign-in screen</li>
+  </ul>
+</div>
+
+<div class="sheet-card">
+  <h4><span class="l-fr">Paramètres</span><span class="l-en">Settings</span></h4>
+  <ul class="checklist l-fr">
+    <li>Créer section + classe dans le parcours actif — <span class="ok">✓</span> Classe listée, bouton Nouvelle classe actif</li>
+    <li>Régler l'heure d'ouverture (ex. 07:45) — <span class="ok">✓</span> Enregistré dans Général</li>
+    <li>Ajouter un jour férié — <span class="ok">✓</span> Visible dans Calendrier</li>
+    <li>Ajouter un motif « Bagarre » — <span class="ok">✓</span> Apparaît dans Discipline</li>
+    <li>Tester l'e-mail SMTP — <span class="ok">✓</span> Message de succès (si SMTP configuré)</li>
+  </ul>
+  <ul class="checklist l-en">
+    <li>Create section + class in the active track — <span class="ok">✓</span> Class listed, New class enabled</li>
+    <li>Set opening time (e.g. 07:45) — <span class="ok">✓</span> Saved in General</li>
+    <li>Add a holiday — <span class="ok">✓</span> Visible in Calendar</li>
+    <li>Add a type “Fight” — <span class="ok">✓</span> Appears in Discipline</li>
+    <li>Test SMTP e-mail — <span class="ok">✓</span> Success message (if SMTP configured)</li>
+  </ul>
+</div>
+
+<div class="sheet-card">
+  <h4><span class="l-fr">Élèves</span><span class="l-en">Students</span></h4>
+  <ul class="checklist l-fr">
+    <li>Créer un élève avec père + mère renseignés — <span class="ok">✓</span> Fiche enregistrée</li>
+    <li>L'affecter à une classe — <span class="ok">✓</span> Classe visible dans la liste</li>
+    <li>Créer un compte parent sur la fiche — <span class="ok">✓</span> Login parent fonctionne sur <code>/parent</code></li>
+    <li>Télécharger le modèle CSV et importer 2 lignes — <span class="ok">✓</span> Élèves créés / rapport d'import</li>
+    <li>Créer un élève « Non affecté » — <span class="ok">✓</span> Visible dans le parcours (pas fantôme)</li>
+  </ul>
+  <ul class="checklist l-en">
+    <li>Create a student with father + mother filled — <span class="ok">✓</span> Profile saved</li>
+    <li>Assign to a class — <span class="ok">✓</span> Class visible in the list</li>
+    <li>Create a parent account on the profile — <span class="ok">✓</span> Parent login works on <code>/parent</code></li>
+    <li>Download the CSV template and import 2 rows — <span class="ok">✓</span> Students created / import report</li>
+    <li>Create an “Unassigned” student — <span class="ok">✓</span> Visible in the track (not a ghost)</li>
+  </ul>
+</div>
+
+<div class="sheet-card">
+  <h4><span class="l-fr">Présence</span><span class="l-en">Attendance</span></h4>
+  <ul class="checklist l-fr">
+    <li>Ouvrir Présence aujourd'hui — <span class="ok">✓</span> KPIs + journal</li>
+    <li>Filtrer une classe — <span class="ok">✓</span> Lignes filtrées</li>
+    <li>Choisir une date passée — <span class="ok">✓</span> Journal de ce jour</li>
+    <li>Modifier l'heure d'ouverture puis simuler un scan tardif — <span class="ok">✓</span> Statut « retard » cohérent</li>
+    <li>Ajouter un férié = aujourd'hui et scanner — <span class="ok">✓</span> Pas de retard compté</li>
+  </ul>
+  <ul class="checklist l-en">
+    <li>Open Attendance for today — <span class="ok">✓</span> KPIs + journal</li>
+    <li>Filter one class — <span class="ok">✓</span> Rows filtered</li>
+    <li>Pick a past date — <span class="ok">✓</span> Journal for that day</li>
+    <li>Change opening time then simulate a late scan — <span class="ok">✓</span> “Late” status consistent</li>
+    <li>Add a holiday = today and scan — <span class="ok">✓</span> No late counted</li>
+  </ul>
+</div>
+
+<div class="sheet-card">
+  <h4>Discipline</h4>
+  <ul class="checklist l-fr">
+    <li>Saisir un matricule existant — <span class="ok">✓</span> Nom + classe affichés</li>
+    <li>Enregistrer un incident avec motif catalogue — <span class="ok">✓</span> Dans la liste</li>
+    <li>Prefill « Notifier » puis SMS — <span class="ok">✓</span> Message de résultat (envoyé / pas de téléphone)</li>
+    <li>Ajouter une sanction personnalisée (Paramètres) — <span class="ok">✓</span> Disponible dans le formulaire</li>
+  </ul>
+  <ul class="checklist l-en">
+    <li>Enter an existing student ID — <span class="ok">✓</span> Name + class shown</li>
+    <li>Save an incident with a catalog type — <span class="ok">✓</span> In the list</li>
+    <li>Prefill “Notify” then SMS — <span class="ok">✓</span> Result message (sent / no phone)</li>
+    <li>Add a custom sanction (Settings) — <span class="ok">✓</span> Available in the form</li>
+  </ul>
+</div>
+
+<div class="sheet-card">
+  <h4><span class="l-fr">Académique</span><span class="l-en">Academic</span></h4>
+  <ul class="checklist l-fr">
+    <li>Saisir une note pour un élève de sa classe — <span class="ok">✓</span> Note enregistrée</li>
+    <li>Générer le bulletin — <span class="ok">✓</span> Moyennes / rang cohérents</li>
+    <li>Se connecter en parent — <span class="ok">✓</span> Module Académique <strong>absent</strong> du menu</li>
+    <li>Sur le portail, ouvrir les notes de l'enfant — <span class="ok">✓</span> Uniquement cet enfant</li>
+  </ul>
+  <ul class="checklist l-en">
+    <li>Enter a mark for a student in your class — <span class="ok">✓</span> Mark saved</li>
+    <li>Generate the report card — <span class="ok">✓</span> Averages / rank consistent</li>
+    <li>Sign in as parent — <span class="ok">✓</span> Academic module <strong>absent</strong> from the menu</li>
+    <li>On the portal, open the child's grades — <span class="ok">✓</span> Only that child</li>
+  </ul>
+</div>
+
+<div class="sheet-card">
+  <h4><span class="l-fr">Portail parent</span><span class="l-en">Parent portal</span></h4>
+  <ul class="checklist l-fr">
+    <li>Connexion parent — <span class="ok">✓</span> Portail (pas la grille staff)</li>
+    <li>Basculer entre deux enfants (si liés) — <span class="ok">✓</span> Données changent</li>
+    <li>Consulter notes / présence / frais — <span class="ok">✓</span> Cohérent avec le staff</li>
+    <li>Appeler une URL staff (<code>/apps/academic</code>) — <span class="ok">✓</span> Accès refusé / redirection</li>
+  </ul>
+  <ul class="checklist l-en">
+    <li>Parent sign-in — <span class="ok">✓</span> Portal (not the staff grid)</li>
+    <li>Switch between two children (if linked) — <span class="ok">✓</span> Data changes</li>
+    <li>View grades / attendance / fees — <span class="ok">✓</span> Consistent with staff</li>
+    <li>Call a staff URL (<code>/apps/academic</code>) — <span class="ok">✓</span> Access denied / redirect</li>
+  </ul>
 </div>
 
 <!-- ====================== LIMITS ====================== -->
@@ -1284,19 +1527,17 @@
 <ul>
   <li><strong>Finance → Débiteurs et Dépenses</strong> : les deux onglets sont vides.</li>
   <li><strong>Configuration des frais</strong> : aucun écran (les montants sont posés en base).</li>
-  <li><strong>Paramètres → Général</strong> : entièrement en dur, rien n'y est modifiable.</li>
-  <li><strong>Paramètres → Rôles</strong> : lecture seule, pas de création de rôle.</li>
+  <li><strong>Paramètres → Général</strong> : identité et heures d'ouverture sont éditables ; le voyant lecteur reste décoratif.</li>
   <li><strong>Documents</strong> : pas de téléversement de fichier — c'est un registre de références.</li>
-  <li><strong>Présence</strong> : pas de pointage manuel ; seul le lecteur alimente le tableau.</li>
+  <li><strong>Présence</strong> : le lecteur alimente le tableau ; vérifiez heure d'ouverture et calendrier pour les retards.</li>
 </ul>
 
 <h3>Affichages trompeurs</h3>
 <ul>
-  <li>Le voyant <strong>« En ligne »</strong> du lecteur d'empreintes (Présence et Paramètres → Général) est toujours vert : l'équipement n'est jamais interrogé.</li>
-  <li>La carte <strong>« Alertes &amp; rappels »</strong> du Tableau de bord affiche des textes fixes, dont une « sauvegarde quotidienne » qui n'existe pas.</li>
+  <li>Le voyant <strong>« En ligne »</strong> du lecteur d'empreintes (Présence) est toujours vert : l'équipement n'est jamais interrogé.</li>
+  <li>La carte <strong>« Alertes &amp; rappels »</strong> du Tableau de bord peut afficher des textes fixes.</li>
   <li>La <strong>Masse salariale</strong> additionne des taux horaires à des salaires mensuels : le total n'est pas exploitable pour les vacataires.</li>
-  <li><strong>Finance</strong> et <strong>Emploi du temps</strong> affichent des identifiants techniques là où on attendrait un nom d'élève ou d'enseignant.</li>
-  <li>Le <strong>portail parent</strong> affiche un identifiant technique à la place du matricule, et une moyenne non pondérée.</li>
+  <li><strong>Finance</strong> et <strong>Emploi du temps</strong> peuvent afficher des identifiants techniques là où on attendrait un nom.</li>
 </ul>
 
 <h3>Suppressions sans confirmation</h3>
@@ -1308,7 +1549,6 @@
 <ul>
   <li>Dans plusieurs listes (Parcours, Santé, Documents, Cahier de textes, Correspondance), les icônes <strong>Modifier</strong> et <strong>Supprimer</strong> ne se révèlent qu'<strong>au survol</strong> de la ligne : elles sont difficiles à atteindre sur écran tactile.</li>
   <li>Quand un champ obligatoire manque, le bouton <strong>Enregistrer</strong> reste souvent muet plutôt que d'afficher une erreur. Si rien ne se passe, vérifiez les champs marqués obligatoires dans ce guide.</li>
-  <li>Les listes déroulantes de <strong>type</strong> et de <strong>sanction</strong> du module Discipline restent en français en mode anglais.</li>
 </ul>
 </div>
 
@@ -1339,19 +1579,17 @@
 <ul>
   <li><strong>Finance → Debtors and Expenses</strong>: both tabs are empty.</li>
   <li><strong>Fee configuration</strong>: no screen (amounts are set in the database).</li>
-  <li><strong>Settings → General</strong>: entirely hardcoded, nothing is editable.</li>
-  <li><strong>Settings → Roles</strong>: read-only, no role creation.</li>
+  <li><strong>Settings → General</strong>: identity and opening hours are editable; the reader light remains decorative.</li>
   <li><strong>Documents</strong>: no file upload — it is a register of references.</li>
-  <li><strong>Attendance</strong>: no manual check-in; only the reader feeds the board.</li>
+  <li><strong>Attendance</strong>: the reader feeds the board; check opening time and calendar for lates.</li>
 </ul>
 
 <h3>Misleading displays</h3>
 <ul>
-  <li>The fingerprint reader's <strong>“Online”</strong> light (Attendance and Settings → General) is always green: the device is never polled.</li>
-  <li>The Dashboard's <strong>“Alerts &amp; reminders”</strong> card shows fixed text, including a “daily backup” that does not exist.</li>
+  <li>The fingerprint reader's <strong>“Online”</strong> light (Attendance) is always green: the device is never polled.</li>
+  <li>The Dashboard's <strong>“Alerts &amp; reminders”</strong> card may show fixed text.</li>
   <li><strong>Payroll</strong> adds hourly rates to monthly salaries: the total is unusable for contractors.</li>
-  <li><strong>Finance</strong> and <strong>Timetable</strong> show technical identifiers where a student or teacher name would be expected.</li>
-  <li>The <strong>parent portal</strong> shows a technical identifier instead of the student ID, and an unweighted average.</li>
+  <li><strong>Finance</strong> and <strong>Timetable</strong> may show technical identifiers where a name would be expected.</li>
 </ul>
 
 <h3>Deletions without confirmation</h3>
@@ -1363,7 +1601,6 @@
 <ul>
   <li>In several lists (Journey, Health, Documents, Coursebook, Correspondence), the <strong>Edit</strong> and <strong>Delete</strong> icons only reveal themselves <strong>on hover</strong>: they are hard to reach on a touch screen.</li>
   <li>When a required field is missing, the <strong>Save</strong> button often stays silent rather than showing an error. If nothing happens, check the fields marked required in this guide.</li>
-  <li>The Discipline module's <strong>type</strong> and <strong>sanction</strong> dropdowns stay in French in English mode.</li>
 </ul>
 </div>
 
@@ -1372,59 +1609,77 @@
 
 <div class="l-fr">
 <h4>Un module a disparu de mon menu.</h4>
-<p>Votre rôle n'a plus l'accès. Demandez au <em>principal</em> de vérifier <strong>Paramètres → Permissions</strong>, puis <strong>déconnectez-vous et reconnectez-vous</strong> : les permissions ne sont relues qu'à la connexion.</p>
+<p>Votre rôle n'a plus l'accès. Demandez au <em>principal</em> de vérifier <strong>Paramètres → Permissions</strong>, puis <strong>déconnectez-vous et reconnectez-vous</strong>.</p>
 
-<h4>Je viens de changer une permission, l'utilisateur ne voit rien.</h4>
-<p>C'est normal. Il doit se reconnecter. Le changement est bien enregistré côté serveur, mais son interface travaille avec la photo de ses droits prise à la connexion.</p>
+<h4>Données « disparues ».</h4>
+<p>Vérifiez le <strong>parcours</strong> actif (bandeau) ou choisissez <strong>Tous les parcours</strong>.</p>
+
+<h4>Impossible de créer une classe.</h4>
+<p>Créez d'abord une <strong>section</strong> dans ce parcours.</p>
+
+<h4>Élève invisible.</h4>
+<p>Affectez une classe, ou restez dans le bon parcours (non affecté reste visible).</p>
+
+<h4>Parent voit toute l'école.</h4>
+<p>Ne doit plus arriver : rôle Parent bloqué hors portail ; signalez tout contournement.</p>
+
+<h4>Retards absurdes le dimanche / un férié.</h4>
+<p>Week-ends et fériés exclus ; vérifiez <strong>Paramètres → Calendrier</strong> et l'heure d'ouverture.</p>
 
 <h4>« Enregistrer » ne fait rien.</h4>
-<p>Un champ obligatoire est vide. La version 1.0 n'affiche pas toujours d'erreur. Reportez-vous à la section du module dans ce guide : les champs obligatoires y sont indiqués.</p>
+<p>Un champ obligatoire est vide. Reportez-vous à la section du module dans ce guide.</p>
 
 <h4>Le bulletin d'un élève est bloqué.</h4>
-<p>Il a un solde de frais impayé. Enregistrez le règlement dans <a href="#finance">Finance</a> ; le bulletin se débloque une fois le solde à zéro.</p>
+<p>Solde de frais impayé. Enregistrez le règlement dans <a href="#finance">Finance</a>.</p>
 
-<h4>Comment obtenir un PDF d'un bulletin ou d'un reçu ?</h4>
-<p>Cliquez <strong>Imprimer</strong> et choisissez « Enregistrer au format PDF » dans la fenêtre du navigateur. La génération de PDF n'est pas encore intégrée à l'application.</p>
+<h4>Comment obtenir un PDF ?</h4>
+<p>Cliquez <strong>Imprimer</strong> → « Enregistrer au format PDF ».</p>
 
 <h4>Le parent ne voit pas son enfant.</h4>
-<p>Le compte n'est pas rattaché. Ouvrez la fiche de l'élève → <strong>Comptes parents</strong> → <strong>Ajouter</strong>, en réutilisant l'identifiant existant du parent.</p>
-
-<h4>Je ne trouve pas la liste des débiteurs.</h4>
-<p>L'onglet existe mais n'est pas raccordé dans la version 1.0 (voir <a href="#limits">Limites connues</a>). Les bulletins bloqués et le portail parent restent des indicateurs fiables de dette.</p>
+<p>Ouvrez la fiche → <strong>Comptes parents</strong> → <strong>Ajouter</strong>, en réutilisant l'identifiant existant.</p>
 
 <h4>La page Présence n'affiche plus rien de récent.</h4>
-<p>Si elle est restée ouverte depuis la veille, elle affiche encore la journée précédente. Rechargez-la (<span class="kbd">F5</span>).</p>
+<p>Si elle est restée ouverte depuis la veille, rechargez-la (<span class="kbd">F5</span>).</p>
 </div>
 
 <div class="l-en">
 <h4>A module has vanished from my menu.</h4>
-<p>Your role lost access. Ask the <em>principal</em> to check <strong>Settings → Permissions</strong>, then <strong>sign out and back in</strong>: permissions are only re-read at sign-in.</p>
+<p>Your role lost access. Ask the <em>principal</em> to check <strong>Settings → Permissions</strong>, then <strong>sign out and back in</strong>.</p>
 
-<h4>I just changed a permission and the user sees nothing.</h4>
-<p>That is expected. They must sign in again. The change is saved on the server, but their interface works from the snapshot of their rights taken at sign-in.</p>
+<h4>“Missing” data.</h4>
+<p>Check the active <strong>track</strong> (top bar) or choose <strong>All tracks</strong>.</p>
+
+<h4>I cannot create a class.</h4>
+<p>Create a <strong>section</strong> in this track first.</p>
+
+<h4>Student invisible.</h4>
+<p>Assign a class, or stay on the right track (unassigned stays visible).</p>
+
+<h4>A parent sees the whole school.</h4>
+<p>Must not happen: Parent role is locked outside the portal; report any bypass.</p>
+
+<h4>Absurd lates on Sunday / a holiday.</h4>
+<p>Weekends and holidays are excluded; check <strong>Settings → Calendar</strong> and opening time.</p>
 
 <h4>“Save” does nothing.</h4>
-<p>A required field is empty. Version 1.0 does not always show an error. Check this guide's section for the module: required fields are marked there.</p>
+<p>A required field is empty. Check this guide's section for the module.</p>
 
 <h4>A student's report card is blocked.</h4>
-<p>They have an outstanding fee balance. Record the payment in <a href="#finance">Finance</a>; the report card unblocks once the balance reaches zero.</p>
+<p>Outstanding fee balance. Record the payment in <a href="#finance">Finance</a>.</p>
 
-<h4>How do I get a PDF of a report card or a receipt?</h4>
-<p>Click <strong>Print</strong> and choose “Save as PDF” in the browser dialog. PDF generation is not built into the application yet.</p>
+<h4>How do I get a PDF?</h4>
+<p>Click <strong>Print</strong> → “Save as PDF”.</p>
 
 <h4>A parent cannot see their child.</h4>
-<p>The account is not linked. Open the student's profile → <strong>Parent accounts</strong> → <strong>Add</strong>, reusing the parent's existing username.</p>
-
-<h4>I cannot find the debtor list.</h4>
-<p>The tab exists but is not wired up in version 1.0 (see <a href="#limits">Known limitations</a>). Blocked report cards and the parent portal remain reliable indicators of debt.</p>
+<p>Open the profile → <strong>Parent accounts</strong> → <strong>Add</strong>, reusing the existing username.</p>
 
 <h4>The Attendance page shows nothing recent.</h4>
-<p>If it has been open since yesterday, it still shows the previous day. Reload it (<span class="kbd">F5</span>).</p>
+<p>If it has been open since yesterday, reload it (<span class="kbd">F5</span>).</p>
 </div>
 
 <p style="margin-top:56px;padding-top:18px;border-top:1px solid var(--line);font-size:13px;color:var(--mute);text-align:center">
-  <span class="l-fr">BBC SMS v1.0 — Bayo Bilingual Complex, Maroua, Cameroun. Guide utilisateur. Les captures illustrent un jeu de données de démonstration.</span>
-  <span class="l-en">BBC SMS v1.0 — Bayo Bilingual Complex, Maroua, Cameroon. User guide. Screenshots illustrate a demonstration dataset.</span>
+  <span class="l-fr">BBC SMS v1.1 — Bayo Bilingual Complex, Maroua, Cameroun. Guide utilisateur. Les captures illustrent un jeu de données de démonstration.</span>
+  <span class="l-en">BBC SMS v1.1 — Bayo Bilingual Complex, Maroua, Cameroon. User guide. Screenshots illustrate a demonstration dataset.</span>
 </p>
 
 </main>
@@ -1464,13 +1719,19 @@
   // Highlight the section currently on screen.
   var links = Array.prototype.slice.call(toc.querySelectorAll('a'));
   var byId = {};
-  links.forEach(function (a) { byId[a.getAttribute('href').slice(1)] = a; });
+  links.forEach(function (a) {
+    var href = a.getAttribute('href') || '';
+    if (href.charAt(0) === '#') byId[href.slice(1)] = a;
+  });
   var seen = new Set();
   var obs = new IntersectionObserver(function (entries) {
     entries.forEach(function (en) {
       if (en.isIntersecting) seen.add(en.target.id); else seen.delete(en.target.id);
     });
-    var first = links.find(function (a) { return seen.has(a.getAttribute('href').slice(1)); });
+    var first = links.find(function (a) {
+      var href = a.getAttribute('href') || '';
+      return href.charAt(0) === '#' && seen.has(href.slice(1));
+    });
     links.forEach(function (a) { a.classList.toggle('on', a === first); });
   }, { rootMargin: '-70px 0px -75% 0px' });
   Object.keys(byId).forEach(function (id) {

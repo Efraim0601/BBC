@@ -372,22 +372,79 @@ import {
                 }
               </section>
 
-              <!-- Parent / guardian -->
-              <section>
-                <div class="text-[11px] uppercase tracking-wider text-mute font-bold mb-3">{{ fr() ? 'Parent / tuteur' : 'Parent / guardian' }}</div>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <label class="block">
-                    <span class="text-xs font-semibold text-ink">{{ fr() ? 'Nom du parent' : 'Parent name' }}</span>
-                    <input [(ngModel)]="draft.parentName" name="parentName"
-                      class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
-                  </label>
-                  <label class="block">
-                    <span class="text-xs font-semibold text-ink">{{ fr() ? 'Téléphone parent' : 'Parent phone' }}</span>
-                    <input [(ngModel)]="draft.parentPhone" name="parentPhone" placeholder="+237 6XX XX XX XX"
-                      class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
-                  </label>
+              <!-- Parents / guardian -->
+              <section class="space-y-5">
+                <div class="text-[11px] uppercase tracking-wider text-mute font-bold">{{ fr() ? 'Famille / tuteur' : 'Family / guardian' }}</div>
+
+                <div class="rounded-lg border border-slate-100 p-4">
+                  <div class="text-xs font-bold text-ink mb-3">{{ fr() ? 'Père' : 'Father' }}</div>
+                  <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <label class="block">
+                      <span class="text-xs font-semibold text-ink">{{ fr() ? 'Nom' : 'Name' }}</span>
+                      <input [(ngModel)]="draft.fatherName" name="fatherName" (ngModelChange)="syncParentDisplay()"
+                        class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
+                    </label>
+                    <label class="block">
+                      <span class="text-xs font-semibold text-ink">{{ fr() ? 'Téléphone' : 'Phone' }}</span>
+                      <input [(ngModel)]="draft.fatherPhone" name="fatherPhone" (ngModelChange)="syncParentDisplay()" placeholder="+237 6XX XX XX XX"
+                        class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
+                    </label>
+                    <label class="block">
+                      <span class="text-xs font-semibold text-ink">E-mail</span>
+                      <input [(ngModel)]="draft.fatherEmail" name="fatherEmail" type="email"
+                        class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
+                    </label>
+                  </div>
                 </div>
-                <p class="text-[11px] text-mute mt-2">
+
+                <div class="rounded-lg border border-slate-100 p-4">
+                  <div class="text-xs font-bold text-ink mb-3">{{ fr() ? 'Mère' : 'Mother' }}</div>
+                  <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <label class="block">
+                      <span class="text-xs font-semibold text-ink">{{ fr() ? 'Nom' : 'Name' }}</span>
+                      <input [(ngModel)]="draft.motherName" name="motherName" (ngModelChange)="syncParentDisplay()"
+                        class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
+                    </label>
+                    <label class="block">
+                      <span class="text-xs font-semibold text-ink">{{ fr() ? 'Téléphone' : 'Phone' }}</span>
+                      <input [(ngModel)]="draft.motherPhone" name="motherPhone" (ngModelChange)="syncParentDisplay()" placeholder="+237 6XX XX XX XX"
+                        class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
+                    </label>
+                    <label class="block">
+                      <span class="text-xs font-semibold text-ink">E-mail</span>
+                      <input [(ngModel)]="draft.motherEmail" name="motherEmail" type="email"
+                        class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
+                    </label>
+                  </div>
+                </div>
+
+                <div class="rounded-lg border border-slate-100 p-4">
+                  <div class="text-xs font-bold text-ink mb-3">{{ fr() ? 'Tuteur' : 'Guardian' }}</div>
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <label class="block">
+                      <span class="text-xs font-semibold text-ink">{{ fr() ? 'Nom' : 'Name' }}</span>
+                      <input [(ngModel)]="draft.guardianName" name="guardianName" (ngModelChange)="syncParentDisplay()"
+                        class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
+                    </label>
+                    <label class="block">
+                      <span class="text-xs font-semibold text-ink">{{ fr() ? 'Lien / relation' : 'Relation' }}</span>
+                      <input [(ngModel)]="draft.guardianRelation" name="guardianRelation" [placeholder]="fr() ? 'Oncle, grand-mère…' : 'Uncle, grandmother…'"
+                        class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
+                    </label>
+                    <label class="block">
+                      <span class="text-xs font-semibold text-ink">{{ fr() ? 'Téléphone' : 'Phone' }}</span>
+                      <input [(ngModel)]="draft.guardianPhone" name="guardianPhone" (ngModelChange)="syncParentDisplay()" placeholder="+237 6XX XX XX XX"
+                        class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
+                    </label>
+                    <label class="block">
+                      <span class="text-xs font-semibold text-ink">E-mail</span>
+                      <input [(ngModel)]="draft.guardianEmail" name="guardianEmail" type="email"
+                        class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
+                    </label>
+                  </div>
+                </div>
+
+                <p class="text-[11px] text-mute">
                   {{ fr()
                     ? 'Pour créer un compte de connexion parent (identifiant / mot de passe), enregistrez d’abord l’élève puis utilisez « Comptes parents » sur sa fiche.'
                     : 'To create a parent login (username / password), save the student first, then use “Parent accounts” on their profile.' }}
@@ -871,7 +928,18 @@ export class StudentsComponent {
       classId: s.classId ?? null,
       parentName: s.parentName,
       parentPhone: s.parentPhone,
+      fatherName: s.fatherName ?? '',
+      fatherPhone: s.fatherPhone ?? '',
+      fatherEmail: s.fatherEmail ?? '',
+      motherName: s.motherName ?? '',
+      motherPhone: s.motherPhone ?? '',
+      motherEmail: s.motherEmail ?? '',
+      guardianName: s.guardianName ?? '',
+      guardianPhone: s.guardianPhone ?? '',
+      guardianEmail: s.guardianEmail ?? '',
+      guardianRelation: s.guardianRelation ?? '',
     };
+    this.syncParentDisplay();
     this.mode.set('edit');
   }
 
@@ -883,6 +951,7 @@ export class StudentsComponent {
 
   save(): void {
     if (!this.draft.firstName || !this.draft.lastName) return;
+    this.syncParentDisplay();
     const id = this.editId();
     const req = id ? this.api.update(id, this.draft) : this.api.create(this.draft);
     req.subscribe((s) => {
@@ -890,6 +959,24 @@ export class StudentsComponent {
       this.selectedId.set(s.id);
       this.reload();
     });
+  }
+
+  /** Prefer father → mother → guardian for legacy parentName / parentPhone display fields. */
+  protected syncParentDisplay(): void {
+    const d = this.draft;
+    if (d.fatherName?.trim()) {
+      d.parentName = d.fatherName.trim();
+      d.parentPhone = d.fatherPhone?.trim() || d.parentPhone || '';
+    } else if (d.motherName?.trim()) {
+      d.parentName = d.motherName.trim();
+      d.parentPhone = d.motherPhone?.trim() || d.parentPhone || '';
+    } else if (d.guardianName?.trim()) {
+      d.parentName = d.guardianName.trim();
+      d.parentPhone = d.guardianPhone?.trim() || d.parentPhone || '';
+    } else {
+      d.parentName = '';
+      d.parentPhone = '';
+    }
   }
 
   remove(s: Student): void {
@@ -905,6 +992,9 @@ export class StudentsComponent {
     return {
       firstName: '', lastName: '', niu: '', sex: 'M', birthplace: '', repeats: false,
       classId: null, parentName: '', parentPhone: '',
+      fatherName: '', fatherPhone: '', fatherEmail: '',
+      motherName: '', motherPhone: '', motherEmail: '',
+      guardianName: '', guardianPhone: '', guardianEmail: '', guardianRelation: '',
       subsystem: s?.subsystem,
       level: s?.level,
     };

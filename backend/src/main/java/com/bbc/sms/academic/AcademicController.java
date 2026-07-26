@@ -17,13 +17,13 @@ public class AcademicController {
     public AcademicController(AcademicService service) { this.service = service; }
 
     @GetMapping("/students/{studentId}/grades")
-    @PreAuthorize("@perm.can('academic','read')")
+    @PreAuthorize("@perm.can('academic','read') and @perm.staffOnly()")
     public List<GradeView> listForStudent(@PathVariable UUID studentId) {
         return service.listForStudent(studentId);
     }
 
     @PostMapping("/grades")
-    @PreAuthorize("@perm.can('academic','write')")
+    @PreAuthorize("@perm.can('academic','write') and @perm.staffOnly()")
     public GradeView upsert(@Valid @RequestBody GradeUpsert in) {
         return service.upsert(in);
     }

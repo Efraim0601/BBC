@@ -232,6 +232,34 @@ public class StudentService {
 
         s.setParentName(in.parentName());
         s.setParentPhone(in.parentPhone());
+        s.setFatherName(blankToNull(in.fatherName()));
+        s.setFatherPhone(blankToNull(in.fatherPhone()));
+        s.setFatherEmail(blankToNull(in.fatherEmail()));
+        s.setMotherName(blankToNull(in.motherName()));
+        s.setMotherPhone(blankToNull(in.motherPhone()));
+        s.setMotherEmail(blankToNull(in.motherEmail()));
+        s.setGuardianName(blankToNull(in.guardianName()));
+        s.setGuardianPhone(blankToNull(in.guardianPhone()));
+        s.setGuardianEmail(blankToNull(in.guardianEmail()));
+        s.setGuardianRelation(blankToNull(in.guardianRelation()));
+        // Keep legacy primary contact in sync for SMS / older screens.
+        syncPrimaryContact(s);
+    }
+
+    /** Prefer father → mother → guardian → explicit parentName for the legacy fields. */
+    private static void syncPrimaryContact(Student s) {
+        if (blankToNull(s.getParentName()) == null) {
+            if (s.getFatherName() != null) {
+                s.setParentName(s.getFatherName());
+                if (s.getParentPhone() == null) s.setParentPhone(s.getFatherPhone());
+            } else if (s.getMotherName() != null) {
+                s.setParentName(s.getMotherName());
+                if (s.getParentPhone() == null) s.setParentPhone(s.getMotherPhone());
+            } else if (s.getGuardianName() != null) {
+                s.setParentName(s.getGuardianName());
+                if (s.getParentPhone() == null) s.setParentPhone(s.getGuardianPhone());
+            }
+        }
     }
 
     /** Turn empty/blank input into null so optional, CHECK-constrained columns stay valid. */
@@ -253,6 +281,10 @@ public class StudentService {
         return new StudentView(s.getId(), s.getMatricule(), s.getNiu(), s.getFirstName(), s.getLastName(),
                 name, s.getSex(), s.getDob(), s.getBirthplace(), s.isRepeats(),
                 s.getClassId(), s.getClassName(), s.getSubsystem(), s.getLevel(),
-                s.getParentName(), s.getParentPhone(), s.getPhotoHue());
+                s.getParentName(), s.getParentPhone(),
+                s.getFatherName(), s.getFatherPhone(), s.getFatherEmail(),
+                s.getMotherName(), s.getMotherPhone(), s.getMotherEmail(),
+                s.getGuardianName(), s.getGuardianPhone(), s.getGuardianEmail(), s.getGuardianRelation(),
+                s.getPhotoHue());
     }
 }

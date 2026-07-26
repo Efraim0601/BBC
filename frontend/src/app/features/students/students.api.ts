@@ -18,6 +18,16 @@ export interface StudentUpsert {
   level?: string;
   parentName?: string;
   parentPhone?: string;
+  fatherName?: string | null;
+  fatherPhone?: string | null;
+  fatherEmail?: string | null;
+  motherName?: string | null;
+  motherPhone?: string | null;
+  motherEmail?: string | null;
+  guardianName?: string | null;
+  guardianPhone?: string | null;
+  guardianEmail?: string | null;
+  guardianRelation?: string | null;
 }
 
 export interface ParentAccountView {

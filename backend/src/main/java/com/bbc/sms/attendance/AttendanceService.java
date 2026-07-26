@@ -4,6 +4,7 @@ import com.bbc.sms.attendance.dto.AttendanceDtos.*;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.realtime.RealtimeService;
 import com.bbc.sms.platform.tenant.TenantContext;
+import com.bbc.sms.settings.SchoolProfileService;
 import com.bbc.sms.student.Student;
 import com.bbc.sms.student.StudentRepository;
 import org.springframework.stereotype.Service;
@@ -18,8 +19,6 @@ import java.util.*;
 @Service
 public class AttendanceService {
 
-    private static final LocalTime SCHOOL_START = LocalTime.of(7, 30);
-
     /**
      * A reader counts as online if it checked in within this window. The on-site agent
      * posts on every scan, so a quiet stretch mid-lesson is normal — the window is wide
@@ -31,13 +30,16 @@ public class AttendanceService {
     private final DeviceRepository devices;
     private final StudentRepository students;
     private final RealtimeService realtime;
+    private final SchoolProfileService schoolProfile;
 
     public AttendanceService(AttendanceRepository repo, DeviceRepository devices,
-                             StudentRepository students, RealtimeService realtime) {
+                             StudentRepository students, RealtimeService realtime,
+                             SchoolProfileService schoolProfile) {
         this.repo = repo;
         this.devices = devices;
         this.students = students;
         this.realtime = realtime;
+        this.schoolProfile = schoolProfile;
     }
 
     /** Reader health for the tenant — drives the Attendance and Settings status cards. */
@@ -118,10 +120,28 @@ public class AttendanceService {
 
         LocalTime t = in.time() != null && !in.time().isBlank()
                 ? LocalTime.parse(in.time()) : LocalTime.now();
-        int lateMin = (int) Math.max(0, java.time.Duration.between(SCHOOL_START, t).toMinutes());
+        LocalDate today = LocalDate.now();
+        // Weekends and configured holidays are never counted as late/absent scans.
+        if (today.getDayOfWeek().getValue() >= 6 || schoolProfile.isHoliday(today)) {
+            AttendanceRecord rec = repo.findBySchoolIdAndStudentIdAndDate(schoolId, student.getId(), today)
+                    .orElseGet(AttendanceRecord::new);
+            rec.setSchoolId(schoolId);
+            rec.setStudentId(student.getId());
+            rec.setDate(today);
+            rec.setStatus("present");
+            rec.setCheckInTime(String.format("%02d:%02d", t.getHour(), t.getMinute()));
+            rec.setLateMinutes(0);
+            rec.setSource("fingerprint");
+            rec.setDedupKey(in.dedupKey());
+            AttendanceView view = toView(repo.save(rec), student);
+            realtime.broadcast(schoolId, "attendance", view);
+            return view;
+        }
+
+        LocalTime start = schoolProfile.schoolStart();
+        int lateMin = (int) Math.max(0, java.time.Duration.between(start, t).toMinutes());
         String status = lateMin > 0 ? "late" : "present";
 
-        LocalDate today = LocalDate.now();
         AttendanceRecord rec = repo.findBySchoolIdAndStudentIdAndDate(schoolId, student.getId(), today)
                 .orElseGet(AttendanceRecord::new);
         rec.setSchoolId(schoolId);

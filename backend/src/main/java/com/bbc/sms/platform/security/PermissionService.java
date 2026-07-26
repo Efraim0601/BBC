@@ -36,6 +36,15 @@ public class PermissionService {
         return p != null && "parent".equals(p.roleCode());
     }
 
+    /**
+     * Staff modules (Academic, Students roster, Finance…) must never be reachable
+     * by a Parent account — even if the matrix was misconfigured historically.
+     * Use: {@code @PreAuthorize("@perm.can('academic','read') and @perm.staffOnly()")}.
+     */
+    public boolean staffOnly() {
+        return !isParent();
+    }
+
     private AppUserPrincipal currentPrincipal() {
         Object principal = SecurityContextHolder.getContext().getAuthentication() == null
                 ? null : SecurityContextHolder.getContext().getAuthentication().getPrincipal();

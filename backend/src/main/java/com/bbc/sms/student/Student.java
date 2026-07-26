@@ -59,6 +59,29 @@ public class Student {
     @Column(name = "parent_phone")
     private String parentPhone;
 
+    @Column(name = "father_name")
+    private String fatherName;
+    @Column(name = "father_phone")
+    private String fatherPhone;
+    @Column(name = "father_email")
+    private String fatherEmail;
+
+    @Column(name = "mother_name")
+    private String motherName;
+    @Column(name = "mother_phone")
+    private String motherPhone;
+    @Column(name = "mother_email")
+    private String motherEmail;
+
+    @Column(name = "guardian_name")
+    private String guardianName;
+    @Column(name = "guardian_phone")
+    private String guardianPhone;
+    @Column(name = "guardian_email")
+    private String guardianEmail;
+    @Column(name = "guardian_relation")
+    private String guardianRelation;
+
     @Column(name = "photo_hue")
     private int photoHue = 210;
 

@@ -16,21 +16,21 @@ public class BulletinController {
     public BulletinController(BulletinService service) { this.service = service; }
 
     @GetMapping("/students/{studentId}/bulletin")
-    @PreAuthorize("@perm.can('academic','read')")
+    @PreAuthorize("@perm.can('academic','read') and @perm.staffOnly()")
     public BulletinView bulletin(@PathVariable UUID studentId,
                                  @RequestParam(defaultValue = "1") int sequence) {
         return service.bulletin(studentId, sequence);
     }
 
     @GetMapping("/classes/{className}/pv")
-    @PreAuthorize("@perm.can('academic','read')")
+    @PreAuthorize("@perm.can('academic','read') and @perm.staffOnly()")
     public PvView pv(@PathVariable String className,
                      @RequestParam(defaultValue = "1") int sequence) {
         return service.pv(className, sequence);
     }
 
     @PostMapping("/students/{studentId}/bulletin/validate")
-    @PreAuthorize("@perm.can('academic','write')")
+    @PreAuthorize("@perm.can('academic','write') and @perm.staffOnly()")
     public BulletinView validate(@PathVariable UUID studentId,
                                  @Valid @RequestBody ValidateRequest req) {
         return service.validate(studentId, req);

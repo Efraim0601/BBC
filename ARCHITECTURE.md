@@ -147,7 +147,20 @@ Sécurité WebSocket : handshake authentifié par JWT, abonnement filtré par `s
 
 ## 6. Sécurité & permissions (RBAC)
 
-Le prototype contient déjà la **matrice `DEFAULT_PERMISSIONS`** (`rôle → module → none|read|write`). On la porte telle quelle en base (`permission_grant`), **éditable** depuis Settings.
+La matrice `permission_grant` (`rôle × module → none|read|write`) est **éditable** depuis Paramètres.
+Les **rôles personnalisés** (`role.builtin = false`) se créent via `POST /api/settings/roles`.
+
+**Rôle Parent (ACL ligne à ligne)** :
+- La matrice refuse d’accorder aux parents les modules staff (académique, élèves, finance…).
+- Les contrôleurs staff exigent `@perm.staffOnly()` en plus de `@perm.can(...)`.
+- Le portail `/api/parent/**` filtre strictement via `parent_student` (`assertOwnership`).
+
+**Catalogues & calendrier** (V30) :
+- `discipline_catalog` — motifs / sanctions éditables par établissement.
+- `school.school_start_time` / `school_end_time` — seuil de retard.
+- `school_holiday` — jours sans retard au pointage.
+- Fiche élève : `father_*` / `mother_*` / `guardian_*` (+ contact legacy `parent_name`/`parent_phone`).
+
 
 - **Authentification** : JWT *access* (court, ~15 min) + *refresh* (cookie httpOnly). Login = `employee` ou `parent`.
 - **Autorisation** :

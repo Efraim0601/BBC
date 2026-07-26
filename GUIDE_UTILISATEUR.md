@@ -1,191 +1,292 @@
 # Guide utilisateur — BBC SMS
 
-**Bayo Bilingual Complex — Système de gestion scolaire**
-Application bilingue (FR/EN), temps réel, accessible depuis un navigateur web.
+**Bayo Bilingual Complex — Système de gestion scolaire**  
+Application bilingue (FR / EN), temps réel, accessible depuis un navigateur.
 
-> Ce guide s'adresse aux **utilisateurs finaux** (direction, économat, enseignants, parents).
-> Pour l'installation et l'exploitation technique, voir [README.md](README.md) et [ARCHITECTURE.md](ARCHITECTURE.md).
+> Guide destiné aux **utilisateurs finaux** (direction, économat, enseignants, parents).  
+> Installation technique : [README.md](README.md) · Architecture : [ARCHITECTURE.md](ARCHITECTURE.md).  
+> Guide interactif dans l’application : menu **Aide** ou URL `/guide/`.
+
+---
+
+## Comment utiliser ce guide
+
+1. Lisez la section **Premiers pas** (§1) une fois.
+2. Suivez **module par module** le chapitre qui correspond à votre rôle.
+3. À la fin de chaque module, cochez la **fiche de test** : elle valide que vous savez faire les gestes essentiels.
+4. En cas de doute, la **FAQ** (§12) et le portail **Aide** (`/guide/`) reprennent les mêmes concepts.
+
+**Convention des fiches de test**
+
+| Symbole | Signification |
+|---|---|
+| ☐ | À faire pendant la formation / prise en main |
+| ✓ | Critère de réussite attendu |
 
 ---
 
 ## 1. Premiers pas
 
 ### 1.1 Se connecter
-1. Ouvrez l'application dans votre navigateur (l'adresse vous est communiquée par l'établissement, ex. `https://votre-ecole…`).
-2. Saisissez votre **identifiant** et votre **mot de passe**, puis validez.
-3. Vous arrivez sur la **page d'accueil des applications** (la grille de modules).
+1. Ouvrez l’adresse communiquée par l’établissement.
+2. Saisissez **identifiant** et **mot de passe**.
+3. Après connexion (personnel) : choisissez un **parcours** (Maternelle / Primaire / Secondaire × Francophone / Anglophone), ou **Tous les parcours** si vous êtes administrateur.
+4. Vous arrivez sur la **grille des applications**.
 
-> En mode démonstration, trois comptes existent (mot de passe `password`) :
-> - **`principal`** — accès à tous les modules (Finance en lecture seule) ;
-> - **`econome`** — Finance complète (encaissements, dépenses, débiteurs) ;
-> - **`parent1`** — portail parent (suivi de ses enfants).
+### 1.2 Se repérer
+- **Barre supérieure** : établissement, **parcours actif**, langue FR/EN, profil, déconnexion, lien **Aide**.
+- **Applications** : modules regroupés en 4 pôles — Communauté, Pédagogie, Opérations, Pilotage.
+- **Menu latéral** : navigation rapide une fois dans un module.
 
-### 1.2 Changer la langue
-Un bouton **FR / EN** dans la barre supérieure bascule instantanément toute l'interface entre français et anglais. Votre choix est conservé.
+> Vous ne voyez que les modules autorisés pour votre rôle (matrice Paramètres).
 
-### 1.3 Se repérer dans l'écran
-- **Barre supérieure** : nom de l'établissement, sélecteur de langue, votre profil et le bouton de **déconnexion**.
-- **Accueil des applications** : les modules sont regroupés en 4 pôles — **Communauté**, **Pédagogie**, **Opérations**, **Pilotage**. Cliquez sur une tuile pour ouvrir le module.
-- **Barre latérale** : une fois dans un module, elle reste affichée pour naviguer d'un module à l'autre sans repasser par l'accueil.
+### 1.3 Le parcours (concept clé)
+Le parcours **filtre** sections, classes et élèves. Une section créée en « Primaire FR » n’apparaît pas si vous êtes en « Secondaire EN ».  
+**Astuce direction** : utilisez **Tous les parcours** pour voir toute l’école, puis revenez à un parcours pour travailler proprement.
 
-> **Vous ne voyez que les modules autorisés pour votre rôle.** Si une tuile n'apparaît pas, c'est que votre profil n'y a pas accès (voir §8).
-
-### 1.4 Le « temps réel »
-Certaines pages se mettent à jour **toutes seules**, sans rafraîchir : c'est notamment le cas du tableau de **Présence**, qui affiche chaque pointage au moment où il a lieu. Laissez simplement l'onglet ouvert.
-
----
-
-## 2. Les rôles et qui fait quoi
-
-| Rôle | Vocation | Accès typiques |
+### Fiche de test — Premiers pas
+| # | Action | Réussi si |
 |---|---|---|
-| **Principal / Direction** | Pilotage global | Tous les modules ; Finance en **lecture seule** ; gère la matrice de permissions |
-| **Économe** | Gestion financière | Finance complète, frais, débiteurs, dépenses |
-| **Enseignant** | Saisie pédagogique | Notes de ses classes, cahier de textes, présence |
-| **Professeur principal (form teacher)** | Suivi de classe | Bulletins de sa classe, discipline, dossiers, alertes |
-| **Préfet / Discipline** | Vie scolaire | Incidents, sanctions, correspondance parents |
-| **Parent** | Suivi de l'enfant | Portail parent : notes, présence, frais, suggestions |
-
-Les droits sont définis **module par module** sur trois niveaux : **aucun accès**, **lecture seule**, ou **lecture + écriture**. Ils sont modifiables depuis **Paramètres** (§8) et s'appliquent immédiatement.
+| ☐ 1 | Se connecter avec son compte | ✓ Accueil des applications affiché |
+| ☐ 2 | Changer FR ↔ EN | ✓ Labels de l’interface changent |
+| ☐ 3 | Changer de parcours (bandeau) | ✓ Listes élèves/classes se mettent à jour |
+| ☐ 4 | Ouvrir **Aide** (`/guide/`) | ✓ Guide HTML bilingue s’affiche |
+| ☐ 5 | Se déconnecter | ✓ Retour à l’écran de connexion |
 
 ---
 
-## 3. Pôle Communauté
+## 2. Rôles et permissions (concept)
 
-### 3.1 Élèves
-Le référentiel central des élèves, parents et familles.
-- **Lister / rechercher** un élève ; les listes sont denses et filtrables.
-- **Ajouter / modifier** une fiche élève (état civil, classe, parents liés).
-- **Lier un parent** à un ou plusieurs enfants (un parent peut suivre plusieurs élèves).
+| Rôle | Vocation |
+|---|---|
+| **Principal** | Pilotage, Paramètres, tous modules |
+| **Économe** | Finance (écriture) |
+| **Enseignant / Prof. principal** | Notes, cahier, classe |
+| **Préfet** | Vie scolaire, discipline, présence |
+| **Rôles personnalisés** | Créés dans Paramètres → Rôles |
+| **Parent** | **Uniquement** le portail parent (ses enfants) |
 
-### 3.2 Parcours scolaire
-La **timeline pluriannuelle** d'un élève : classes successives, redoublements, passages. Permet de retracer l'historique d'un élève sur plusieurs années.
+Niveaux : **Aucun** · **Lecture** · **Écriture**.  
+Le rôle **Parent** ne peut pas recevoir Académique / Élèves / Finance : l’accès reste limité au portail (sécurité ligne à ligne sur ses enfants).
 
-### 3.3 Santé
-Le **carnet médical** : infirmerie, antécédents, et inscription aux **clubs** et activités.
-
-### 3.4 Documents
-Le **dossier administratif** de l'élève : pièces justificatives, documents d'orientation et de scolarité.
-
-### 3.5 Personnel / RH
-Gestion du **personnel** : fiches employés, **départements** et **congés**. Réservé à la direction / RH.
-
----
-
-## 4. Pôle Pédagogie
-
-### 4.1 Académique (notes & bulletins)
-Le cœur pédagogique.
-- **Saisir les notes** par séquence et par matière.
-- **Générer les bulletins** : moyennes, **rang**, appréciations, procès-verbaux (PV).
-- **Validation** des bulletins par la direction.
-- **Blocage en cas de dette** : un bulletin peut être retenu si la scolarité n'est pas à jour (lien avec la Finance).
-
-> Les enseignants saisissent les notes de **leurs** classes ; les bulletins sont validés au niveau de l'établissement.
-
-### 4.2 Présence (biométrie, temps réel)
-Le suivi de présence, alimenté par le **lecteur d'empreintes** ou par **saisie manuelle**.
-- Le tableau affiche, **en direct**, les arrivées (présent / en retard / absent) avec l'heure de pointage et le nombre de minutes de retard.
-- **SMS automatiques** aux parents prévus à l'arrivée / en cas d'absence (selon configuration).
-- Vous pouvez aussi **pointer manuellement** un élève depuis cette page.
-
-### 4.3 Discipline
-Le registre de **vie scolaire** : enregistrement des **incidents**, application de **sanctions graduées**, et notification des parents par SMS.
-
-### 4.4 Cahier de textes
-Le **cahier de textes & devoirs** : ce qui a été fait en classe, les devoirs donnés et leurs échéances. Renseigné par les enseignants.
+### Fiche de test — Rôles
+| # | Action | Réussi si |
+|---|---|---|
+| ☐ 1 | Ouvrir Paramètres → Permissions | ✓ Matrice rôles × modules visible |
+| ☐ 2 | Créer un rôle personnalisé (ex. Surveillant) | ✓ Apparaît dans Rôles (badge « Personnalisé ») |
+| ☐ 3 | Lui donner `discipline:write` | ✓ Cellule passe en Complet |
+| ☐ 4 | Tenter d’accorder `academic` au rôle Parent | ✓ Refusé / cellule bloquée |
+| ☐ 5 | Affecter le nouveau rôle à un compte Personnel | ✓ L’utilisateur ne voit que ses modules |
 
 ---
 
-## 5. Pôle Opérations
+## 3. Paramètres (Pilotage)
 
-### 5.1 Finance
-Module de gestion financière (écriture réservée à l'**économe**, lecture pour la direction).
-- **Encaisser un paiement** : méthode, tranche, montant — un **reçu** est rattaché.
-- **Configurer les frais** par niveau et sous-système (tranches de scolarité).
-- **Situation d'un élève** : ce qui est payé / dû.
-- **Débiteurs** : liste des élèves en retard de paiement.
-- **Dépenses** et **synthèse des recettes**.
+### 3.1 Scolarité (sections, classes, matières)
+Ordre recommandé :
+1. Créer une **section** (libellé + système + niveau — verrouillé au parcours actif).
+2. Créer des **classes** rattachées à cette section.
+3. Importer / créer les **matières** et coefficients.
 
-> Astuce : enregistrer un paiement met automatiquement à jour le **solde** de l'élève et débloque, le cas échéant, l'accès à son bulletin.
+### 3.2 Général
+Identité de l’école : nom, contacts, devise, autorité, **heure d’ouverture** (seuil de retard) et heure de fin.
 
-### 5.2 Emploi du temps
-La **grille horaire** par classe (édition créneau par créneau), avec **détection automatique des conflits** (même enseignant ou même salle au même moment).
+### 3.3 Calendrier scolaire
+Jours fériés / fermetures : ces dates **ne génèrent pas de retards** au pointage biométrique (week-ends exclus aussi).
 
-### 5.3 Événements
-Création d'**annonces et d'événements** (réunions, examens, fêtes) avec **notification des parents** ciblée par classe ou audience.
+### 3.4 Catalogue Discipline
+Personnalisez les listes **Motif** (type) et **Sanction**. Elles alimentent le module Discipline.
 
-### 5.4 Messages
-Le **carnet de correspondance** numérique avec les parents : échanges écrits, mots et réponses.
+### 3.5 Messagerie SMTP
+Nécessaire pour envoi d’identifiants et e-mails de test.
 
----
-
-## 6. Pôle Pilotage
-
-### 6.1 Tableau de bord
-La **vue d'ensemble** : KPIs adaptés à votre rôle (effectif, taux de présence du jour, indicateurs financiers).
-
-### 6.2 Alertes
-Repère les **élèves à risque** (présence, notes, finance) et émet des **alertes automatiques** pour permettre une action précoce.
-
-### 6.3 Rapports
-L'**analytique de l'établissement** : bilan financier, présence mensuelle, démographie. Sert au pilotage et aux comptes-rendus.
-
-### 6.4 Paramètres
-La configuration de l'établissement : **matrice de permissions** (rôles × modules), gestion des comptes et du **lecteur d'empreintes**. Voir §8.
+### Fiche de test — Paramètres
+| # | Action | Réussi si |
+|---|---|---|
+| ☐ 1 | Créer section + classe dans le parcours actif | ✓ Classe listée, bouton Nouvelle classe actif |
+| ☐ 2 | Régler l’heure d’ouverture (ex. 07:45) | ✓ Enregistré dans Général |
+| ☐ 3 | Ajouter un jour férié | ✓ Visible dans Calendrier |
+| ☐ 4 | Ajouter un motif « Bagarre » | ✓ Apparaît dans Discipline |
+| ☐ 5 | Tester l’e-mail SMTP | ✓ Message de succès (si SMTP configuré) |
 
 ---
 
-## 7. Le portail parent
+## 4. Module Élèves (Communauté)
 
-Connecté avec un compte **parent**, vous accédez uniquement aux informations de **vos enfants** :
-- **Notes et bulletins** ;
-- **Présence** (arrivées, retards, absences) ;
-- **Frais** : situation des paiements et reçus ;
-- **Boîte à suggestions** : pour adresser remarques et demandes à l'établissement.
+### Concepts
+- Fiche élève : état civil, classe, **père / mère / tuteur** (nom, téléphone, e-mail).
+- Le **contact principal** (SMS) est dérivé automatiquement (père → mère → tuteur).
+- **Comptes parents** : créés depuis la fiche (identifiant + mot de passe) → accès portail.
+- Import Excel/CSV + **modèle** téléchargeable.
+- Listes filtrées par parcours ; tri par classe.
 
-Si vous avez plusieurs enfants, vous basculez de l'un à l'autre depuis le portail.
-
----
-
-## 8. Administration (Paramètres)
-
-Réservé à la direction.
-
-### 8.1 Matrice de permissions
-Un tableau **rôle × module**. Pour chaque croisement, choisissez **Aucun / Lecture / Écriture**. Les changements sont **appliqués immédiatement** : un utilisateur connecté voit son menu et ses droits évoluer à la prochaine action.
-
-> Les contrôles d'accès sont **toujours vérifiés côté serveur**. Masquer une tuile ne suffit pas à donner un droit : c'est la matrice qui fait foi.
-
-### 8.2 Comptes utilisateurs
-Création et gestion des comptes du personnel et des parents, attribution des rôles.
-
-### 8.3 Lecteur d'empreintes
-Enregistrement et clé du **lecteur biométrique** utilisé par le module Présence.
+### Fiche de test — Élèves
+| # | Action | Réussi si |
+|---|---|---|
+| ☐ 1 | Créer un élève avec père + mère renseignés | ✓ Fiche enregistrée |
+| ☐ 2 | L’affecter à une classe | ✓ Classe visible dans la liste |
+| ☐ 3 | Créer un compte parent sur la fiche | ✓ Login parent fonctionne sur `/parent` |
+| ☐ 4 | Télécharger le modèle CSV et importer 2 lignes | ✓ Élèves créés / rapport d’import |
+| ☐ 5 | Créer un élève « Non affecté » | ✓ Visible dans le parcours (pas fantôme) |
 
 ---
 
-## 9. Questions fréquentes
+## 5. Module Personnel / RH
 
-**Je ne vois pas un module.** Votre rôle n'y a pas accès. Demandez à la direction d'ajuster la matrice de permissions (§8.1).
+### Concepts
+Fiches employés, rôles multiples, e-mail / téléphone **validés**, création de compte de connexion.
 
-**Le tableau de présence ne bouge pas.** Vérifiez que l'onglet est resté ouvert et que le lecteur (ou la saisie manuelle) envoie bien les pointages. La mise à jour est automatique, sans rafraîchir.
-
-**Un bulletin est bloqué.** L'élève a probablement une dette de scolarité : vérifiez sa **situation** dans Finance (§5.1).
-
-**Comment changer la langue ?** Bouton **FR / EN** en haut de l'écran (§1.2).
-
-**J'ai oublié mon mot de passe.** Utilisez **Oublié ?** sur l'écran de connexion : un mot de passe temporaire est envoyé par e-mail si votre fiche personnel en a un et si le SMTP est configuré. Sinon, contactez l'administrateur, qui peut réinitialiser votre compte depuis Personnel.
-
----
-
-## 10. Bonnes pratiques
-
-- **Déconnectez-vous** en fin de journée sur un poste partagé.
-- Saisissez les **notes** et la **présence** au fil de l'eau : les parents et le tableau de bord les voient en quasi temps réel.
-- Avant d'éditer les bulletins, vérifiez que les **paiements** sont à jour pour éviter les blocages de dernière minute.
-- Utilisez les **Rapports** en fin de période pour vos comptes-rendus de conseil.
+### Fiche de test — Personnel
+| # | Action | Réussi si |
+|---|---|---|
+| ☐ 1 | Créer un enseignant avec e-mail valide | ✓ Fiche OK |
+| ☐ 2 | Saisir e-mail `test` | ✓ Refusé (validation) |
+| ☐ 3 | Attribuer le rôle créé en §2 | ✓ Affiché sur la fiche |
+| ☐ 4 | Créer le login + envoi e-mail | ✓ Compte utilisable (si SMTP) |
 
 ---
 
-*Document de référence fonctionnelle — à adapter au paramétrage réel de votre établissement.*
+## 6. Module Présence
+
+### Concepts
+- Pointages lecteur / saisie ; tableau **temps réel**.
+- **Retard** = arrivée après l’heure d’ouverture (Paramètres → Général).
+- Week-ends et **jours fériés** : pas de retard.
+- Historique : choisir une **date** dans l’en-tête.
+- Liste triée / filtrable **par classe**.
+
+### Fiche de test — Présence
+| # | Action | Réussi si |
+|---|---|---|
+| ☐ 1 | Ouvrir Présence aujourd’hui | ✓ KPIs + journal |
+| ☐ 2 | Filtrer une classe | ✓ Lignes filtrées |
+| ☐ 3 | Choisir une date passée | ✓ Journal de ce jour |
+| ☐ 4 | Modifier l’heure d’ouverture puis simuler un scan tardif | ✓ Statut « retard » cohérent |
+| ☐ 5 | Ajouter un férié = aujourd’hui et scanner | ✓ Pas de retard compté |
+
+---
+
+## 7. Module Discipline
+
+### Concepts
+- Incident lié à un **matricule** : la fiche élève s’affiche automatiquement.
+- Motifs / sanctions issus du **catalogue** Paramètres.
+- Notification parent (SMS / Envoyer) : utilise le téléphone parent ; résultat affiché.
+
+### Fiche de test — Discipline
+| # | Action | Réussi si |
+|---|---|---|
+| ☐ 1 | Saisir un matricule existant | ✓ Nom + classe affichés |
+| ☐ 2 | Enregistrer un incident avec motif catalogue | ✓ Dans la liste |
+| ☐ 3 | Prefill « Notifier » puis SMS | ✓ Message de résultat (envoyé / pas de téléphone) |
+| ☐ 4 | Ajouter une sanction personnalisée (Paramètres) | ✓ Disponible dans le formulaire |
+
+---
+
+## 8. Module Académique (notes & bulletins)
+
+### Concepts
+Saisie des notes par séquence, bulletins, rang, PV, validation direction.  
+**Parents** : pas d’accès à ce module ; ils voient les notes de **leurs** enfants dans le portail.
+
+### Fiche de test — Académique
+| # | Action | Réussi si |
+|---|---|---|
+| ☐ 1 | Saisir une note pour un élève de sa classe | ✓ Note enregistrée |
+| ☐ 2 | Générer le bulletin | ✓ Moyennes / rang cohérents |
+| ☐ 3 | Se connecter en parent | ✓ Module Académique **absent** du menu |
+| ☐ 4 | Sur le portail, ouvrir les notes de l’enfant | ✓ Uniquement cet enfant |
+
+---
+
+## 9. Autres modules (synthèse + tests courts)
+
+### 9.1 Parcours scolaire
+Timeline pluriannuelle d’un élève.  
+**Test** : ☐ ouvrir un élève → ✓ historique de classes visible.
+
+### 9.2 Santé / Documents / Fournitures
+Carnet médical, pièces administratives, listes de fournitures & livres par classe.  
+**Test** : ☐ publier une liste de livres → ✓ visible côté parent.
+
+### 9.3 Cahier de textes
+Leçons & devoirs.  
+**Test** : ☐ ajouter une entrée → ✓ visible pour la classe.
+
+### 9.4 Finance
+Encaissements, frais, débiteurs, dépenses (écriture économe).  
+**Test** : ☐ encaisser un paiement → ✓ reçu + solde mis à jour.
+
+### 9.5 Emploi du temps / Événements / Messages
+Grille horaire, annonces, correspondance.  
+**Test** : ☐ créer un événement + notifier → ✓ compteur de destinataires.
+
+### 9.6 Tableau de bord / Alertes / Rapports
+Pilotage.  
+**Test** : ☐ ouvrir Dashboard + un rapport mensuel → ✓ chiffres non vides si données présentes.
+
+---
+
+## 10. Portail parent
+
+### Concepts
+Compte `parent` → redirection `/parent`.  
+Données **strictement** limitées aux enfants liés (`parent_student`).  
+Notes, présence, frais, suggestions.
+
+### Fiche de test — Portail parent
+| # | Action | Réussi si |
+|---|---|---|
+| ☐ 1 | Connexion parent | ✓ Portail (pas la grille staff) |
+| ☐ 2 | Basculer entre deux enfants (si liés) | ✓ Données changent |
+| ☐ 3 | Consulter notes / présence / frais | ✓ Cohérent avec le staff |
+| ☐ 4 | Appeler une URL staff (`/apps/academic`) | ✓ Accès refusé / redirection |
+
+---
+
+## 11. Scénario de bout en bout (direction)
+
+Ordre conseillé pour une année neuve :
+
+1. Paramètres → Général (identité + heure d’ouverture) + Calendrier (fériés).  
+2. Scolarité : sections → classes → matières / coefficients.  
+3. Catalogue Discipline (motifs / sanctions).  
+4. Rôles personnalisés + matrice de permissions.  
+5. Import élèves + création comptes parents.  
+6. Personnel + emplois du temps.  
+7. Présence / Discipline / Académique au quotidien.  
+8. Finance (frais) avant les bulletins.
+
+### Fiche de test — Bout en bout
+| # | Action | Réussi si |
+|---|---|---|
+| ☐ 1 | Parcourir les 8 étapes ci-dessus sur un parcours test | ✓ Aucun blocage « données invisibles » |
+| ☐ 2 | Parent voit uniquement son enfant | ✓ Pas de liste école |
+| ☐ 3 | Bulletin généré pour une classe avec notes | ✓ PDF / écran bulletin OK |
+
+---
+
+## 12. FAQ
+
+**Je ne vois pas un module.** Matrice Paramètres → Permissions.  
+**Données « disparues ».** Vérifiez le **parcours** actif (bandeau) ou choisissez « Tous les parcours ».  
+**Impossible de créer une classe.** Créez d’abord une **section** dans ce parcours.  
+**Élève invisible.** Affectez une classe, ou restez dans le bon parcours (non affecté reste visible).  
+**Parent voit toute l’école.** Ne doit plus arriver : rôle Parent bloqué hors portail ; signalez tout contournement.  
+**Retards absurdes le dimanche.** Week-ends et fériés exclus ; vérifiez le calendrier.  
+**Mot de passe oublié.** Lien « Oublié ? » (e-mail) ou reset via Personnel.  
+**Langue.** Bouton FR / EN en haut.
+
+---
+
+## 13. Bonnes pratiques
+
+- Déconnexion sur poste partagé.  
+- Saisie notes / présence au fil de l’eau.  
+- Vérifier les paiements avant validation des bulletins.  
+- Former chaque rôle avec **sa** fiche de test uniquement.  
+- Conserver ce guide à jour après chaque évolution Paramètres.
+
+---
+
+*Guide fonctionnel BBC SMS — formation et prise en main. Adapter les exemples au paramétrage réel de l’établissement.*

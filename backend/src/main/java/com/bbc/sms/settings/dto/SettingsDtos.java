@@ -2,20 +2,24 @@ package com.bbc.sms.settings.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 public class SettingsDtos {
 
     public record RoleView(String code, String labelFr, String labelEn, boolean builtin) {}
 
+    public record RoleUpsert(
+            String code,
+            @NotBlank String labelFr,
+            String labelEn) {}
+
     // ---- School profile -----------------------------------------------------
 
-    /**
-     * The school's own identity. Readable by any signed-in user because bulletins,
-     * receipts and the parent portal all print it; writable only with settings:write.
-     */
     public record SchoolProfileView(
             String code,
             String name,
@@ -28,7 +32,9 @@ public class SettingsDtos {
             String website,
             String currency,
             String authority,
-            String academicYear) {}
+            String academicYear,
+            String schoolStartTime,
+            String schoolEndTime) {}
 
     public record SchoolProfileUpdate(
             @NotBlank String name,
@@ -40,13 +46,23 @@ public class SettingsDtos {
             String email,
             String website,
             String currency,
-            String authority) {}
+            String authority,
+            @Pattern(regexp = "^$|^([01]\\d|2[0-3]):[0-5]\\d$", message = "Heure invalide (HH:mm)")
+            String schoolStartTime,
+            @Pattern(regexp = "^$|^([01]\\d|2[0-3]):[0-5]\\d$", message = "Heure invalide (HH:mm)")
+            String schoolEndTime) {}
+
+    public record HolidayView(UUID id, LocalDate date, String label) {}
+
+    public record HolidayUpsert(
+            @NotNull LocalDate date,
+            @NotBlank String label) {}
 
     /** Full permission matrix for the Settings editor (§13.1). */
     public record PermissionMatrix(
             List<String> modules,
             List<RoleView> roles,
-            Map<String, Map<String, String>> matrix) {}   // role -> module -> none|read|write
+            Map<String, Map<String, String>> matrix) {}
 
     public record PermissionUpdate(
             @NotBlank String roleCode,
@@ -56,7 +72,6 @@ public class SettingsDtos {
     public record UpdateRequest(@NotNull List<PermissionUpdate> updates) {}
 
     // ---- SMTP / mail configuration (§ admin) --------------------------------
-    /** Current SMTP config for the editor. The password is never echoed back. */
     public record MailConfigView(
             boolean enabled,
             String host,
@@ -68,7 +83,6 @@ public class SettingsDtos {
             boolean useTls,
             boolean notifyOnUserCreate) {}
 
-    /** Update payload. A blank/absent password keeps the stored one. */
     public record MailConfigUpdate(
             boolean enabled,
             String host,
@@ -81,4 +95,22 @@ public class SettingsDtos {
             Boolean notifyOnUserCreate) {}
 
     public record TestMailRequest(@NotBlank String to) {}
+
+    // ---- Discipline catalogs ------------------------------------------------
+    public record CatalogItemView(
+            UUID id,
+            String kind,
+            String code,
+            String labelFr,
+            String labelEn,
+            int sortOrder,
+            boolean active) {}
+
+    public record CatalogItemUpsert(
+            @NotBlank @Pattern(regexp = "type|sanction") String kind,
+            String code,
+            @NotBlank String labelFr,
+            String labelEn,
+            Integer sortOrder,
+            Boolean active) {}
 }
