@@ -187,88 +187,90 @@ const KNOWN_COLORS: Record<string, string> = {
         </bbc-card>
 
         <!-- Slot editor -->
-        @if (canWrite && draft(); as d) {
-          <bbc-card className="mt-5 fade-in"
-            [title]="d.existing ? (fr() ? 'Modifier le créneau' : 'Edit slot') : (fr() ? 'Nouveau créneau' : 'New slot')">
-            <div class="space-y-4">
-              <div class="bg-brand-50 border border-brand-100 rounded-lg p-3 flex items-center gap-3">
-                <div class="w-10 h-10 rounded-lg bg-brand-600 text-white flex items-center justify-center shrink-0">
-                  <bbc-icon name="calendar" [s]="18" />
-                </div>
-                <div>
-                  <div class="text-sm font-bold text-brand-700">
-                    {{ selectedClass() }} — {{ dayName(d.dayIdx) }} · {{ slotTime(d.slotIdx) }}
+        @if (canWrite) {
+          @if (draft(); as d) {
+            <bbc-card className="mt-5 fade-in"
+              [title]="d.existing ? (fr() ? 'Modifier le créneau' : 'Edit slot') : (fr() ? 'Nouveau créneau' : 'New slot')">
+              <div class="space-y-4">
+                <div class="bg-brand-50 border border-brand-100 rounded-lg p-3 flex items-center gap-3">
+                  <div class="w-10 h-10 rounded-lg bg-brand-600 text-white flex items-center justify-center shrink-0">
+                    <bbc-icon name="calendar" [s]="18" />
                   </div>
-                  <div class="text-xs text-mute">
-                    {{ fr() ? 'Sélectionnez la matière, l’enseignant et la salle' : 'Select subject, teacher and room' }}
+                  <div>
+                    <div class="text-sm font-bold text-brand-700">
+                      {{ selectedClass() }} — {{ dayName(d.dayIdx) }} · {{ slotTime(d.slotIdx) }}
+                    </div>
+                    <div class="text-xs text-mute">
+                      {{ fr() ? 'Sélectionnez la matière, l’enseignant et la salle' : 'Select subject, teacher and room' }}
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div>
-                  <label class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">
-                    {{ fr() ? 'Matière' : 'Subject' }}
-                  </label>
-                  <select [(ngModel)]="d.subjectCode"
-                    class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400">
-                    <option value="">{{ fr() ? '— Choisir —' : '— Pick —' }}</option>
-                    @if (d.subjectCode && !subjectsForClass().some(s => s.code === d.subjectCode)) {
-                      <option [value]="d.subjectCode">{{ d.subjectCode }}</option>
-                    }
-                    @for (s of subjectsForClass(); track s.id) {
-                      <option [value]="s.code">{{ subjectLabel(s) }} ({{ s.code }})</option>
-                    }
-                  </select>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div>
+                    <label class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">
+                      {{ fr() ? 'Matière' : 'Subject' }}
+                    </label>
+                    <select [(ngModel)]="d.subjectCode"
+                      class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400">
+                      <option value="">{{ fr() ? '— Choisir —' : '— Pick —' }}</option>
+                      @if (unknownSubject(d.subjectCode)) {
+                        <option [value]="d.subjectCode">{{ d.subjectCode }}</option>
+                      }
+                      @for (s of subjectsForClass(); track s.id) {
+                        <option [value]="s.code">{{ subjectLabel(s) }} ({{ s.code }})</option>
+                      }
+                    </select>
+                  </div>
+                  <div>
+                    <label class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">
+                      {{ fr() ? 'Enseignant' : 'Teacher' }}
+                    </label>
+                    <select [(ngModel)]="d.teacherId"
+                      class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400">
+                      <option value="">{{ fr() ? '— Aucun —' : '— None —' }}</option>
+                      @if (unknownTeacher(d.teacherId)) {
+                        <option [value]="d.teacherId">{{ teacherLabel(d.teacherId) }}</option>
+                      }
+                      @for (t of teachers(); track t.id) {
+                        <option [value]="t.id">{{ t.name }}{{ t.code ? ' (' + t.code + ')' : '' }}</option>
+                      }
+                    </select>
+                  </div>
+                  <div>
+                    <label class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">
+                      {{ fr() ? 'Salle' : 'Room' }}
+                    </label>
+                    <input [(ngModel)]="d.room" list="tt-rooms" placeholder="S1, Lab…"
+                      class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400" />
+                    <datalist id="tt-rooms">
+                      @for (r of knownRooms(); track r) {
+                        <option [value]="r"></option>
+                      }
+                    </datalist>
+                  </div>
                 </div>
-                <div>
-                  <label class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">
-                    {{ fr() ? 'Enseignant' : 'Teacher' }}
-                  </label>
-                  <select [(ngModel)]="d.teacherId"
-                    class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400">
-                    <option value="">{{ fr() ? '— Aucun —' : '— None —' }}</option>
-                    @if (d.teacherId && !teachers().some(t => t.id === d.teacherId)) {
-                      <option [value]="d.teacherId">{{ d.teacherId }}</option>
-                    }
-                    @for (t of teachers(); track t.id) {
-                      <option [value]="t.id">{{ t.name }}{{ t.code ? ' (' + t.code + ')' : '' }}</option>
-                    }
-                  </select>
-                </div>
-                <div>
-                  <label class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">
-                    {{ fr() ? 'Salle' : 'Room' }}
-                  </label>
-                  <input [(ngModel)]="d.room" list="tt-rooms" placeholder="S1, Lab…"
-                    class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400" />
-                  <datalist id="tt-rooms">
-                    @for (r of knownRooms(); track r) {
-                      <option [value]="r"></option>
-                    }
-                  </datalist>
-                </div>
-              </div>
 
-              <div class="flex items-center gap-2">
-                @if (d.existing) {
-                  <button (click)="remove()"
-                    class="inline-flex items-center gap-2 h-10 px-3.5 text-sm font-semibold rounded-lg bg-rose-50 text-rose-600 border border-rose-200 hover:bg-rose-100">
-                    <bbc-icon name="trash" [s]="16" /> {{ fr() ? 'Supprimer' : 'Delete' }}
+                <div class="flex items-center gap-2">
+                  @if (d.existing) {
+                    <button (click)="remove()"
+                      class="inline-flex items-center gap-2 h-10 px-3.5 text-sm font-semibold rounded-lg bg-rose-50 text-rose-600 border border-rose-200 hover:bg-rose-100">
+                      <bbc-icon name="trash" [s]="16" /> {{ fr() ? 'Supprimer' : 'Delete' }}
+                    </button>
+                  }
+                  <div class="flex-1"></div>
+                  <button (click)="cancel()"
+                    class="inline-flex items-center gap-2 h-10 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
+                    {{ i18n.t('cancel') }}
                   </button>
-                }
-                <div class="flex-1"></div>
-                <button (click)="cancel()"
-                  class="inline-flex items-center gap-2 h-10 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
-                  {{ i18n.t('cancel') }}
-                </button>
-                <button (click)="save()"
-                  class="inline-flex items-center gap-2 h-10 px-3.5 text-sm font-semibold rounded-lg bg-brand-600 text-white hover:bg-brand-700">
-                  <bbc-icon name="check" [s]="16" [sw]="2.5" /> {{ i18n.t('save') }}
-                </button>
+                  <button (click)="save()"
+                    class="inline-flex items-center gap-2 h-10 px-3.5 text-sm font-semibold rounded-lg bg-brand-600 text-white hover:bg-brand-700">
+                    <bbc-icon name="check" [s]="16" [sw]="2.5" /> {{ i18n.t('save') }}
+                  </button>
+                </div>
               </div>
-            </div>
-          </bbc-card>
+            </bbc-card>
+          }
         }
       } @else {
         <bbc-card>
@@ -354,6 +356,15 @@ export class TimetableComponent {
     if (!id) return '—';
     const t = this.teachers().find((x) => x.id === id);
     return t ? t.name : id;
+  }
+
+  /** Keep a legacy value visible in the <select> when it is not in the current option list. */
+  protected unknownSubject(code: string): boolean {
+    return !!code && !this.subjectsForClass().some((s) => s.code === code);
+  }
+
+  protected unknownTeacher(id: string): boolean {
+    return !!id && !this.teachers().some((t) => t.id === id);
   }
 
   protected subjectColor(code: string | null): string {
