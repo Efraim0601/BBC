@@ -463,7 +463,22 @@ async function captureFinance() {
   await clickText(t('Annuler', 'Cancel'));
   await clickText(t('Frais', 'Fees'), 'button');
   await sleep(1200);
-  await shot('96-finance-grille-frais');
+  await shot('96-finance-grille-frais', { full: true });
+
+  // Surcharge de grille sur une classe : le formulaire en mode « par classe »
+  await clickText(t('Nouvelle grille', 'New grid'));
+  await sleep(500);
+  await clickText(t('Surcharge par classe', 'Per-class override'));
+  await sleep(700);
+  await shot('97-finance-grille-classe', { full: true });
+  await clickText(t('Annuler', 'Cancel'));
+
+  await clickText(t('Moyens de paiement', 'Payment methods'), 'button');
+  await sleep(1200);
+  await shot('98-finance-moyens-paiement', { full: true });
+  await clickText(t('Coordonnées', 'Details'));
+  await sleep(700);
+  await shot('99-finance-canal-coordonnees', { full: true });
 }
 
 async function captureTimetable() {
@@ -537,6 +552,10 @@ async function captureParent() {
   await loginAs('parent1', { allParcours: false });
   await sleep(1200);
   await shot('160-parent-accueil');
+  await clickText(t('Frais & paiements', 'Fees & payments'), 'button');
+  await sleep(1400);
+  await shot('164-parent-frais', { full: true });
+
   await clickText(t('Notes', 'Grades'), 'button');
   await sleep(900);
   await shot('161-parent-notes');

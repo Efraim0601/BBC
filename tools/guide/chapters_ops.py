@@ -13,11 +13,12 @@ CH_FINANCE = {
             "en": "Bursar (write); management read-only. The screenshots in this chapter use a bursar account."},
     "blocks": [
         {"type": "p", "fr":
-            "Quatre onglets : __Encaissements__, __Débiteurs__, __Dépenses__ et __Frais__. Chaque onglet charge "
-            "ses données à la première visite, et le bouton __Exporter__ produit un CSV de l'onglet courant.",
+            "Cinq onglets : __Encaissements__, __Débiteurs__, __Dépenses__, __Frais__ et __Moyens de paiement__. "
+            "Chaque onglet charge ses données à la première visite, et le bouton __Exporter__ produit un CSV de "
+            "l'onglet courant.",
          "en":
-            "Four tabs: __Payments__, __Debtors__, __Expenses__ and __Fees__. Each tab loads its data on first "
-            "visit, and __Export__ produces a CSV of the current tab."},
+            "Five tabs: __Payments__, __Debtors__, __Expenses__, __Fees__ and __Payment methods__. Each tab loads "
+            "its data on first visit, and __Export__ produces a CSV of the current tab."},
         {"type": "note", "tone": "info", "fr":
             "Un compte en **lecture seule** voit les mêmes chiffres, sans aucun bouton d'écriture : le bandeau "
             "« Lecture seule » le rappelle en haut de page.",
@@ -25,25 +26,98 @@ CH_FINANCE = {
             "A **read-only** account sees the same figures with no write buttons: the “Read-only” badge at the top "
             "of the page is a reminder."},
 
-        {"type": "h", "fr": "11.1 Définir la grille des frais (à faire en premier)",
-         "en": "11.1 Set the fee grid (do this first)"},
+        {"type": "h", "fr": "11.1 Configurer les moyens de paiement",
+         "en": "11.1 Configure the payment methods"},
+        {"type": "p", "fr":
+            "L'école encaisse par **espèces**, **Orange Money**, **MTN Mobile Money**, **carte bancaire (MPGS)** "
+            "et **virement**. Chaque canal porte les coordonnées que les familles utiliseront pour payer : c'est "
+            "cette configuration qui rend le paiement progressif possible depuis la maison.",
+         "en":
+            "The school collects by **cash**, **Orange Money**, **MTN Mobile Money**, **bank card (MPGS)** and "
+            "**transfer**. Each channel carries the details families will use to pay: this configuration is what "
+            "makes progressive payment from home possible."},
         {"type": "steps", "items": [
-            {"fr": "Onglet __Frais__ → __Nouvelle grille__. Choisissez le **niveau** (Primaire ou Secondaire) et le "
-                   "**sous-système** (Francophone, Anglophone, ou « Les deux »).",
-             "en": "__Fees__ tab → __New grid__. Choose the **level** (Primary or Secondary) and the **sub-system** "
-                   "(Francophone, English, or “Both”).",
+            {"fr": "Ouvrez l'onglet __Moyens de paiement__. Les cinq canaux sont livrés préconfigurés ; trois "
+                   "interrupteurs les pilotent.",
+             "en": "Open the __Payment methods__ tab. The five channels ship preconfigured; three switches drive them.",
+             "img": "98-finance-moyens-paiement",
+             "caption": {"fr": "Chaque canal : actif, visible des parents, référence obligatoire, et ses coordonnées.",
+                         "en": "Each channel: enabled, shown to parents, reference required, and its account details."}},
+            {"fr": "__Actif__ autorise l'encaissement par ce canal. __Visible des parents__ le publie dans le "
+                   "portail parent avec ses coordonnées. __Référence obligatoire__ impose la saisie de l'identifiant "
+                   "de transaction : laissez-la cochée pour OM, MoMo, MPGS et virement — c'est la preuve du versement.",
+             "en": "__Enabled__ allows collection through this channel. __Shown to parents__ publishes it in the "
+                   "parent portal with its details. __Reference required__ forces the transaction ID to be entered: "
+                   "keep it ticked for OM, MoMo, MPGS and transfers — it is the proof of payment."},
+            {"fr": "Cliquez __Coordonnées__ pour saisir le **numéro à créditer** (Orange Money, MoMo), "
+                   "l'**identifiant marchand** (MPGS) ou le **RIB** (virement), l'intitulé du compte et les "
+                   "instructions affichées au parent, en français et en anglais.",
+             "en": "Click __Details__ to enter the **number to credit** (Orange Money, MoMo), the **merchant ID** "
+                   "(MPGS) or the **bank account** (transfer), the account name and the instructions shown to the "
+                   "parent, in French and English.",
+             "img": "99-finance-canal-coordonnees",
+             "caption": {"fr": "Coordonnées et instructions : elles s'affichent telles quelles dans le portail parent.",
+                         "en": "Details and instructions: they appear as-is in the parent portal."}},
+            {"fr": "__Enregistrer__. Le parent voit immédiatement le canal dans son espace, onglet "
+                   "__Frais & paiements__.",
+             "en": "__Save__. The parent immediately sees the channel in their space, __Fees & payments__ tab."},
+        ]},
+        {"type": "note", "tone": "warn", "fr":
+            "Ces canaux servent à **enregistrer et tracer** un versement, pas à le déclencher : le parent paie "
+            "depuis son téléphone ou à la banque, puis transmet la référence à l'économat qui saisit "
+            "l'encaissement. Aucun débit n'est initié par l'application.",
+         "en":
+            "These channels **record and trace** a payment, they do not trigger one: the parent pays from their "
+            "phone or at the bank, then passes the reference to the bursary, who records the payment. The "
+            "application never initiates a debit."},
+
+        {"type": "h", "fr": "11.2 Définir la grille des frais (par niveau ou par classe)",
+         "en": "11.2 Set the fee grid (per level or per class)"},
+        {"type": "p", "fr":
+            "Une grille décrit ce qu'un élève doit sur l'année et **comment ce montant se découpe en tranches**. "
+            "Elle se définit à deux niveaux : une grille par **niveau** (le cas général) et, si les frais diffèrent, "
+            "une **surcharge par classe** qui prime pour les élèves de cette classe.",
+         "en":
+            "A grid describes what a student owes for the year and **how that amount splits into installments**. "
+            "It is defined at two levels: a grid per **level** (the general case) and, when fees differ, a "
+            "**per-class override** that wins for the students of that class."},
+        {"type": "steps", "items": [
+            {"fr": "Onglet __Frais__ → __Nouvelle grille__. Le tableau distingue les grilles de niveau des "
+                   "surcharges de classe, repérées par une pastille « classe ».",
+             "en": "__Fees__ tab → __New grid__. The table separates level grids from class overrides, flagged with "
+                   "a “class” chip.",
              "img": "96-finance-grille-frais",
-             "caption": {"fr": "Grille des frais : total annuel et découpage en tranches.",
-                         "en": "Fee grid: annual total and split into installments."}},
-            {"fr": "Saisissez le **total annuel**, puis les **tranches** (T1, T2, T3…). __Ajouter__ crée une "
-                   "tranche supplémentaire, la croix en supprime une.",
-             "en": "Enter the **annual total**, then the **installments** (T1, T2, T3…). __Add__ creates one more, "
-                   "the cross removes one."},
+             "caption": {"fr": "Grilles de l'établissement : par niveau, et la surcharge de la classe 4ème.",
+                         "en": "The school's grids: per level, plus the override for class 4ème."}},
+            {"fr": "Choisissez la portée : __Grille du niveau__ (niveau + sous-système) ou __Surcharge par "
+                   "classe__, puis la classe concernée. Le niveau et le sous-système suivent alors automatiquement "
+                   "la classe.",
+             "en": "Choose the scope: __Level grid__ (level + sub-system) or __Per-class override__, then the class. "
+                   "Level and sub-system then follow the class automatically.",
+             "img": "97-finance-grille-classe",
+             "caption": {"fr": "Surcharge de classe : total annuel et tranches nommées avec leur échéance.",
+                         "en": "Class override: annual total and named installments with their due dates."}},
+            {"fr": "Saisissez le **total annuel**, puis les **tranches** : un **libellé** (« Inscription », "
+                   "« Tranche 2 »…), un **montant** et une **échéance**. __Ajouter une tranche__ en crée une de "
+                   "plus, la croix en retire une. Il peut y en avoir autant que nécessaire.",
+             "en": "Enter the **annual total**, then the **installments**: a **label** (“Registration”, "
+                   "“Installment 2”…), an **amount** and a **due date**. __Add an installment__ creates one more, "
+                   "the cross removes one. There can be as many as needed."},
             {"fr": "La somme des tranches doit **égaler** le total annuel : un rappel s'affiche sous les champs et "
                    "le serveur refuse un écart.",
              "en": "The installments must **add up** to the annual total: a reminder appears under the fields and "
                    "the server refuses a mismatch."},
+            {"fr": "__Enregistrer__. Les soldes de tous les élèves concernés sont recalculés immédiatement, et la "
+                   "corbeille d'une surcharge fait retomber la classe sur la grille de son niveau.",
+             "en": "__Save__. The balances of all affected students are recomputed at once, and deleting an "
+                   "override drops the class back to its level grid."},
         ]},
+        {"type": "note", "tone": "info", "fr":
+            "L'échéance sert au parent : une tranche non réglée après sa date apparaît **en retard** dans son "
+            "espace, en rouge. Laissez le champ vide si l'école ne fixe pas de date.",
+         "en":
+            "The due date serves the parent: an unpaid installment past its date shows as **overdue** in their "
+            "space, in red. Leave the field empty if the school sets no deadline."},
         {"type": "note", "tone": "warn", "fr":
             "Cette grille sert de référence à **tout le reste** : solde de chaque élève, liste des débiteurs, taux "
             "de recouvrement et blocage des bulletins. Renseignez-la avant le premier encaissement de l'année.",
@@ -51,19 +125,33 @@ CH_FINANCE = {
             "This grid is the reference for **everything else**: each student's balance, the debtor list, the "
             "recovery rate and report-card blocking. Set it up before the first payment of the year."},
 
-        {"type": "h", "fr": "11.2 Encaisser un paiement", "en": "11.2 Record a payment"},
+        {"type": "h", "fr": "11.3 Encaisser un paiement", "en": "11.3 Record a payment"},
         {"type": "steps", "items": [
             {"fr": "Cliquez __Nouveau paiement__. Choisissez la **classe** puis l'**élève** : la seconde liste se "
                    "remplit après la première.",
              "en": "Click __New payment__. Choose the **class** then the **student**: the second list fills after "
                    "the first.",
              "img": "91-finance-nouveau-paiement",
-             "caption": {"fr": "Fenêtre d'encaissement : élève, tranche, montant et méthode.",
-                         "en": "Payment dialog: student, installment, amount and method."}},
-            {"fr": "Sélectionnez la **tranche** (T1, T2, T3), saisissez le **montant** et choisissez la **méthode** : "
-                   "Espèces, Mobile Money ou Virement.",
-             "en": "Select the **installment** (T1, T2, T3), enter the **amount** and pick the **method**: Cash, "
-                   "Mobile Money or Transfer."},
+             "caption": {"fr": "La situation de l'élève s'affiche : grille appliquée, reste à payer et tranches.",
+                         "en": "The student's position appears: grid in force, outstanding balance and installments."}},
+            {"fr": "La **situation de l'élève** apparaît aussitôt : grille appliquée (classe ou niveau), reste à "
+                   "payer et **état de chaque tranche** — verte si réglée, rouge si en retard. La première tranche "
+                   "non soldée est présélectionnée et le montant restant pré-rempli ; cliquez une autre tranche "
+                   "pour changer.",
+             "en": "The **student's position** appears immediately: grid in force (class or level), outstanding "
+                   "balance and the **state of each installment** — green when settled, red when overdue. The first "
+                   "unsettled installment is preselected and its remaining amount pre-filled; click another one to "
+                   "change."},
+            {"fr": "Ajustez le **montant** si le parent verse une somme partielle, et la **date** si l'encaissement "
+                   "est antérieur.",
+             "en": "Adjust the **amount** if the parent pays part of it, and the **date** if the payment is backdated."},
+            {"fr": "Choisissez le **moyen de paiement** parmi les canaux actifs (§11.1). Pour Orange Money, MTN "
+                   "MoMo, MPGS ou un virement, saisissez la **référence de transaction** communiquée par le "
+                   "parent : sans elle, l'enregistrement est refusé. Le numéro du compte de l'école est rappelé "
+                   "sous le champ.",
+             "en": "Pick the **payment method** among the active channels (§11.1). For Orange Money, MTN MoMo, MPGS "
+                   "or a transfer, enter the **transaction reference** provided by the parent: without it the "
+                   "record is refused. The school account number is recalled under the field."},
             {"fr": "__Générer le reçu__ enregistre le paiement et ouvre immédiatement le reçu numéroté.",
              "en": "__Generate receipt__ saves the payment and immediately opens the numbered receipt.",
              "img": "92-finance-recu",
@@ -75,10 +163,16 @@ CH_FINANCE = {
                    "receipt icon in the history."},
         ]},
         {"type": "figure", "img": "90-finance-encaissements",
-         "caption": {"fr": "Onglet Encaissements : indicateurs 30 jours, courbe des recettes et historique filtrable par méthode.",
-                     "en": "Payments tab: 30-day indicators, revenue chart and history filterable by method."}},
+         "caption": {"fr": "Onglet Encaissements : indicateurs 30 jours, courbe des recettes et historique — chaque ligne porte son canal et sa référence.",
+                     "en": "Payments tab: 30-day indicators, revenue chart and history — each row carries its channel and reference."}},
+        {"type": "note", "tone": "tip", "fr":
+            "La référence saisie est reprise dans l'historique, dans l'export CSV et dans l'espace du parent : "
+            "en cas de contestation, elle permet de retrouver la transaction chez l'opérateur.",
+         "en":
+            "The reference is repeated in the history, in the CSV export and in the parent's space: in case of a "
+            "dispute it is what lets you trace the transaction with the operator."},
 
-        {"type": "h", "fr": "11.3 Suivre les débiteurs", "en": "11.3 Track debtors"},
+        {"type": "h", "fr": "11.4 Suivre les débiteurs", "en": "11.4 Track debtors"},
         {"type": "steps", "items": [
             {"fr": "Onglet __Débiteurs__ : trois indicateurs — total impayé, montant déjà encaissé et **taux de "
                    "recouvrement** (encaissé ÷ attendu, sur toute l'école).",
@@ -95,7 +189,7 @@ CH_FINANCE = {
              "en": "__Export__ produces the follow-up list as CSV."},
         ]},
 
-        {"type": "h", "fr": "11.4 Enregistrer une dépense", "en": "11.4 Record an expense"},
+        {"type": "h", "fr": "11.5 Enregistrer une dépense", "en": "11.5 Record an expense"},
         {"type": "steps", "items": [
             {"fr": "Onglet __Dépenses__ → __Nouvelle dépense__ : date, **catégorie** (salaires, fournitures, "
                    "énergie, eau, maintenance, transport, cantine, internet, examens, sport, santé, divers), "
@@ -117,10 +211,19 @@ CH_FINANCE = {
              "en": "The bin deletes an expense after confirmation; the 30-day indicators recompute at once."},
         ]},
         {"type": "check", "items": [
-            {"fr": "Créer une grille de frais dont les tranches totalisent le montant annuel.",
-             "en": "Create a fee grid whose installments add up to the annual total."},
-            {"fr": "Encaisser un paiement et imprimer le reçu.",
-             "en": "Record a payment and print the receipt."},
+            {"fr": "Renseigner le numéro Orange Money et MTN MoMo de l'école, puis les rendre visibles des parents.",
+             "en": "Fill in the school's Orange Money and MTN MoMo numbers, then make them visible to parents."},
+            {"fr": "Créer une grille de niveau dont les tranches totalisent le montant annuel.",
+             "en": "Create a level grid whose installments add up to the annual total."},
+            {"fr": "Créer une surcharge pour une classe avec quatre tranches datées, et vérifier qu'un élève de "
+                   "cette classe la suit.",
+             "en": "Create an override for one class with four dated installments, and check that a student of that "
+                   "class follows it."},
+            {"fr": "Encaisser une tranche par Orange Money avec sa référence, et constater le refus si la référence "
+                   "manque.",
+             "en": "Record an installment via Orange Money with its reference, and observe the refusal when the "
+                   "reference is missing."},
+            {"fr": "Imprimer le reçu correspondant.", "en": "Print the matching receipt."},
             {"fr": "Retrouver l'élève dans la liste des débiteurs et lire son solde.",
              "en": "Find the student in the debtor list and read their balance."},
             {"fr": "Enregistrer une dépense et vérifier l'effet sur le solde 30 jours.",

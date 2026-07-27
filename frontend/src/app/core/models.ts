@@ -87,7 +87,12 @@ export interface PaymentView {
   matricule: string | null;
   className: string | null;
   amount: number;
+  /** Code du canal : CASH, OM, MOMO, MPGS, TRANSFER… */
   method: string;
+  methodLabelFr: string;
+  methodLabelEn: string;
+  /** Référence de transaction chez l'opérateur, si le canal l'exige. */
+  reference: string | null;
   tranche: number | null;
   paidOn: string;
 }

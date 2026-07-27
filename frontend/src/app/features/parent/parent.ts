@@ -15,6 +15,8 @@ import {
   SuggestionView,
   SuggestionRequest,
   ClassResourceView,
+  StudentFeeStatementView,
+  PaymentChannelView,
 } from './parent.api';
 
 interface CategoryOption {
@@ -134,6 +136,150 @@ const fmtMoney = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} FCFA`;
                     </div>
                   }
                 </div>
+              </bbc-card>
+            }
+          }
+
+          @case ('fees') {
+            @if (statement(); as st) {
+              <!-- Où en est la scolarité : total, réglé, reste dû -->
+              <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
+                <bbc-kpi tone="neutral" icon="wallet"
+                  [label]="fr() ? 'Frais de la classe' : 'Class fees'"
+                  [value]="money(st.total)"
+                  [sub]="st.className + (st.gridSource === 'class' ? (fr() ? ' · grille de classe' : ' · class grid') : '')" />
+                <bbc-kpi tone="ok" icon="cash"
+                  [label]="fr() ? 'Déjà réglé' : 'Already paid'"
+                  [value]="money(st.paid)" [sub]="st.progressPct + '%'" />
+                <bbc-kpi [tone]="st.balance > 0 ? 'warn' : 'ok'" icon="receipt"
+                  [label]="fr() ? 'Reste à payer' : 'Outstanding'"
+                  [value]="money(st.balance)" />
+                @if (nextTranche(); as nt) {
+                  <bbc-kpi [tone]="nt.overdue ? 'bad' : 'gold'" icon="clock"
+                    [label]="fr() ? 'Prochaine tranche' : 'Next installment'"
+                    [value]="money(nt.remaining)"
+                    [sub]="nt.label + (nt.dueOn ? (fr() ? ' · avant le ' : ' · by ') + nt.dueOn : '')" />
+                } @else {
+                  <bbc-kpi tone="ok" icon="check"
+                    [label]="fr() ? 'Prochaine tranche' : 'Next installment'"
+                    [value]="fr() ? 'Aucune' : 'None'" [sub]="fr() ? 'scolarité à jour' : 'fees up to date'" />
+                }
+              </div>
+
+              <!-- Échéancier de la classe -->
+              <bbc-card className="mb-5"
+                [title]="fr() ? 'Échéancier' : 'Payment schedule'"
+                [subtitle]="fr() ? 'Tranches de la classe ' + st.className : 'Installments for class ' + st.className">
+                @if (st.tranches.length === 0) {
+                  <bbc-empty icon="wallet"
+                    [label]="fr() ? 'L’école n’a pas encore publié d’échéancier pour cette classe.'
+                                  : 'The school has not published a schedule for this class yet.'" />
+                } @else {
+                  <div class="space-y-2">
+                    @for (t of st.tranches; track t.index) {
+                      <div class="flex flex-wrap items-center gap-3 rounded-xl2 border p-3" [class]="trancheTone(t)">
+                        <div class="w-9 h-9 rounded-lg bg-white/70 flex items-center justify-center font-bold text-sm text-ink shrink-0">
+                          {{ t.index }}
+                        </div>
+                        <div class="min-w-0 flex-1">
+                          <div class="font-semibold text-ink">{{ t.label }}</div>
+                          <div class="text-[11px] text-mute">
+                            @if (t.dueOn) {
+                              {{ fr() ? 'À payer avant le' : 'Due by' }} {{ t.dueOn }}
+                            } @else {
+                              {{ fr() ? 'Sans date limite' : 'No due date' }}
+                            }
+                          </div>
+                        </div>
+                        <div class="text-right">
+                          <div class="font-bold text-ink">{{ money(t.amount) }}</div>
+                          @if (t.remaining > 0 && t.paid > 0) {
+                            <div class="text-[11px] text-mute">{{ fr() ? 'reste' : 'left' }} {{ money(t.remaining) }}</div>
+                          }
+                        </div>
+                        <span class="text-[11px] font-bold px-2 py-1 rounded-lg"
+                          [class]="t.status === 'paid' ? 'bg-emerald-100 text-emerald-700'
+                                   : t.overdue ? 'bg-rose-100 text-rose-700'
+                                   : t.status === 'partial' ? 'bg-amber-100 text-amber-700'
+                                   : 'bg-slate-100 text-slate-600'">
+                          {{ trancheStatusLabel(t) }}
+                        </span>
+                      </div>
+                    }
+                  </div>
+                }
+              </bbc-card>
+
+              <!-- Comment régler -->
+              @if (channels().length) {
+                <bbc-card className="mb-5"
+                  [title]="fr() ? 'Comment payer' : 'How to pay'"
+                  [subtitle]="fr() ? 'Moyens acceptés par l’école — conservez la référence de la transaction'
+                                   : 'Methods accepted by the school — keep the transaction reference'">
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    @for (c of channels(); track c.code) {
+                      <div class="rounded-xl2 border border-slate-200 p-4">
+                        <div class="font-semibold text-ink">{{ channelLabel(c) }}</div>
+                        @if (c.accountRef) {
+                          <div class="mt-1 text-sm">
+                            <span class="text-mute">{{ fr() ? 'Compte' : 'Account' }} :</span>
+                            <b class="font-mono text-ink">{{ c.accountRef }}</b>
+                            @if (c.accountName) { <span class="text-mute"> · {{ c.accountName }}</span> }
+                          </div>
+                        }
+                        @if (channelInstructions(c); as ins) {
+                          <p class="text-[12px] text-mute mt-2 leading-relaxed">{{ ins }}</p>
+                        }
+                        @if (c.requiresReference) {
+                          <div class="text-[11px] text-amber-700 mt-2 font-semibold">
+                            {{ fr() ? 'Communiquez la référence de la transaction à l’économat.'
+                                    : 'Give the transaction reference to the bursary.' }}
+                          </div>
+                        }
+                      </div>
+                    }
+                  </div>
+                </bbc-card>
+              }
+
+              <!-- Reçus -->
+              <bbc-card [title]="fr() ? 'Mes versements' : 'My payments'"
+                [subtitle]="st.payments.length + (fr() ? ' reçu(s)' : ' receipt(s)')">
+                @if (st.payments.length === 0) {
+                  <bbc-empty icon="receipt" [label]="fr() ? 'Aucun versement enregistré' : 'No payment recorded'" />
+                } @else {
+                  <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                      <thead class="border-b border-slate-100">
+                        <tr class="text-[11px] uppercase text-mute">
+                          <th class="text-left font-semibold py-2">{{ fr() ? 'N° reçu' : 'Receipt N°' }}</th>
+                          <th class="text-left font-semibold py-2">{{ fr() ? 'Date' : 'Date' }}</th>
+                          <th class="text-left font-semibold py-2">{{ fr() ? 'Moyen' : 'Method' }}</th>
+                          <th class="text-right font-semibold py-2">{{ fr() ? 'Montant' : 'Amount' }}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        @for (p of st.payments; track p.receiptNo) {
+                          <tr class="border-b border-slate-50 last:border-0">
+                            <td class="py-2.5 font-mono text-xs text-brand-600 font-semibold">{{ p.receiptNo }}</td>
+                            <td class="py-2.5 text-mute">{{ p.paidOn }}</td>
+                            <td class="py-2.5">
+                              <div class="text-ink">{{ fr() ? p.methodLabelFr : p.methodLabelEn }}</div>
+                              @if (p.reference) {
+                                <div class="text-[11px] text-mute font-mono">{{ p.reference }}</div>
+                              }
+                            </td>
+                            <td class="py-2.5 text-right font-bold text-emerald-700">{{ money(p.amount) }}</td>
+                          </tr>
+                        }
+                      </tbody>
+                    </table>
+                  </div>
+                }
+              </bbc-card>
+            } @else {
+              <bbc-card>
+                <bbc-empty icon="wallet" [label]="fr() ? 'Chargement de la situation…' : 'Loading fee statement…'" />
               </bbc-card>
             }
           }
@@ -329,17 +475,47 @@ export class ParentComponent {
   protected suggestions = signal<SuggestionView[]>([]);
   protected supplies = signal<ClassResourceView | null>(null);
   protected books = signal<ClassResourceView | null>(null);
-  protected tab = signal<'overview' | 'grades' | 'resources' | 'suggest'>('overview');
+  protected tab = signal<'overview' | 'fees' | 'grades' | 'resources' | 'suggest'>('overview');
+  /** Situation de scolarité de l'enfant sélectionné (grille de sa classe). */
+  protected statement = signal<StudentFeeStatementView | null>(null);
+  protected channels = signal<PaymentChannelView[]>([]);
 
   protected fr = () => this.i18n.lang() === 'fr';
   protected money = fmtMoney;
 
   protected tabs = computed(() => [
     { id: 'overview', label: this.fr() ? 'Vue d’ensemble' : 'Overview' },
+    { id: 'fees', label: this.fr() ? 'Frais & paiements' : 'Fees & payments' },
     { id: 'grades', label: this.fr() ? 'Notes' : 'Grades' },
     { id: 'resources', label: this.fr() ? 'Fournitures & manuels' : 'Supplies & textbooks' },
     { id: 'suggest', label: this.fr() ? 'Boîte à suggestions' : 'Suggestion box' },
   ]);
+
+  /** Prochaine tranche à régler : la première qui n'est pas soldée. */
+  protected nextTranche = computed(() =>
+    this.statement()?.tranches.find((t) => t.remaining > 0) ?? null);
+
+  protected channelLabel(c: PaymentChannelView): string {
+    return this.fr() ? c.labelFr : c.labelEn;
+  }
+
+  protected channelInstructions(c: PaymentChannelView): string | null {
+    return (this.fr() ? c.instructionsFr : c.instructionsEn) ?? c.instructionsFr ?? null;
+  }
+
+  protected trancheTone(t: { status: string; overdue: boolean }): string {
+    if (t.status === 'paid') return 'border-emerald-200 bg-emerald-50';
+    if (t.overdue) return 'border-rose-200 bg-rose-50';
+    if (t.status === 'partial') return 'border-amber-200 bg-amber-50';
+    return 'border-slate-200 bg-white';
+  }
+
+  protected trancheStatusLabel(t: { status: string; overdue: boolean }): string {
+    if (t.status === 'paid') return this.fr() ? 'Réglée' : 'Settled';
+    if (t.overdue) return this.fr() ? 'En retard' : 'Overdue';
+    if (t.status === 'partial') return this.fr() ? 'Partielle' : 'Partial';
+    return this.fr() ? 'À venir' : 'Upcoming';
+  }
 
   protected booksTotal = computed(() =>
     (this.books()?.items ?? []).reduce((sum, it) => sum + (it.price ?? 0), 0));
@@ -421,6 +597,7 @@ export class ParentComponent {
 
   constructor() {
     this.school.ensureLoaded();
+    this.api.paymentChannels().subscribe({ next: (c) => this.channels.set(c), error: () => this.channels.set([]) });
     this.api.children().subscribe((cs) => {
       this.children.set(cs);
       const first = cs[0];
@@ -436,7 +613,9 @@ export class ParentComponent {
     this.grades.set([]);
     this.supplies.set(null);
     this.books.set(null);
+    this.statement.set(null);
     this.api.grades(child.studentId).subscribe((g) => this.grades.set(g));
+    this.api.fees(child.studentId).subscribe((st) => this.statement.set(st));
     this.api.resources(child.studentId, 'supplies').subscribe((r) => this.supplies.set(r));
     this.api.resources(child.studentId, 'books').subscribe((r) => this.books.set(r));
   }

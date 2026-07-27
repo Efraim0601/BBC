@@ -1,6 +1,8 @@
 package com.bbc.sms.parentportal;
 
 import com.bbc.sms.classkit.dto.ClassKitDtos.ClassResourceView;
+import com.bbc.sms.finance.dto.FeeDtos.PaymentChannelView;
+import com.bbc.sms.finance.dto.FeeDtos.StudentFeeStatementView;
 import com.bbc.sms.parentportal.dto.ParentDtos.*;
 import com.bbc.sms.platform.security.AppUserPrincipal;
 import jakarta.validation.Valid;
@@ -40,6 +42,20 @@ public class ParentController {
     public ClassResourceView resources(@AuthenticationPrincipal AppUserPrincipal principal,
                                        @PathVariable UUID studentId, @PathVariable String kind) {
         return service.resources(principal, studentId, kind);
+    }
+
+    @GetMapping("/children/{studentId}/fees")
+    @PreAuthorize("@perm.isParent()")
+    public StudentFeeStatementView fees(@AuthenticationPrincipal AppUserPrincipal principal,
+                                        @PathVariable UUID studentId) {
+        return service.feeStatement(principal, studentId);
+    }
+
+    /** Comment régler : canaux acceptés, coordonnées et instructions. */
+    @GetMapping("/payment-channels")
+    @PreAuthorize("@perm.isParent()")
+    public List<PaymentChannelView> paymentChannels(@AuthenticationPrincipal AppUserPrincipal principal) {
+        return service.paymentChannels(principal);
     }
 
     @PostMapping("/suggestions")

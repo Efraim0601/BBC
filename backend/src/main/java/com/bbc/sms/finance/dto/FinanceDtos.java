@@ -18,7 +18,12 @@ public class FinanceDtos {
             String matricule,
             String className,
             long amount,
+            /** Code du canal encaissé : CASH, OM, MOMO, MPGS, TRANSFER… */
             String method,
+            String methodLabelFr,
+            String methodLabelEn,
+            /** Référence de transaction chez l'opérateur (mobile money, carte, virement). */
+            String reference,
             Integer tranche,
             LocalDate paidOn) {}
 
@@ -26,6 +31,7 @@ public class FinanceDtos {
             @NotNull UUID studentId,
             @Positive long amount,
             @NotBlank String method,
+            String reference,
             Integer tranche,
             LocalDate paidOn) {}
 

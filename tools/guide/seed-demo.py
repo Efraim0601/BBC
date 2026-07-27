@@ -250,6 +250,52 @@ def econome_token() -> str:
     return res["accessToken"] if res else ""
 
 
+CHANNELS = [
+    ("OM", {"accountRef": "+237 699 00 11 22", "accountName": "Bayo Bilingual Complex",
+            "instructionsFr": "Composez #150*1#, choisissez « Transfert d'argent » vers le numéro de l'école, "
+                              "puis transmettez l'ID de transaction à l'économat.",
+            "instructionsEn": "Dial #150*1#, choose “Money transfer” to the school number, then give the "
+                              "transaction ID to the bursary."}),
+    ("MOMO", {"accountRef": "+237 677 33 44 55", "accountName": "Bayo Bilingual Complex",
+              "instructionsFr": "Composez *126#, choisissez « Transfert » vers le numéro de l'école, "
+                                "puis transmettez l'ID de transaction à l'économat.",
+              "instructionsEn": "Dial *126#, choose “Transfer” to the school number, then give the "
+                                "transaction ID to the bursary."}),
+    ("MPGS", {"accountRef": "MERCHANT-BBC-4471", "accountName": "Afriland First Bank",
+              "instructionsFr": "Paiement par carte au guichet de la banque partenaire ; "
+                                "présentez le numéro d'autorisation à l'économat.",
+              "instructionsEn": "Card payment at the partner bank desk; show the authorisation number "
+                                "to the bursary."}),
+    ("TRANSFER", {"accountRef": "CM21 1000 5000 1234 5678 9012 345", "accountName": "Bayo Bilingual Complex",
+                  "instructionsFr": "Virement en précisant le matricule de l'élève en référence.",
+                  "instructionsEn": "Transfer quoting the student ID as reference."}),
+]
+
+
+def seed_payment_channels(tok):
+    """Coordonnées Orange Money / MoMo / MPGS publiées aux familles."""
+    print("· moyens de paiement")
+    for code, body in CHANNELS:
+        call("PUT", f"/finance/channels/{code}", body, quiet=True, token=tok)
+
+
+def seed_class_fee_grid(classes, tok):
+    """Surcharge de grille sur une classe, avec tranches datées (paiement progressif)."""
+    print("· grille de frais par classe (4ème)")
+    cid = classes.get("4ème")
+    if not cid:
+        return
+    call("PUT", "/finance/fees/config", {
+        "level": "secondary", "subsystem": "FR", "classId": cid, "total": 180000,
+        "tranches": [
+            {"label": "Inscription", "amount": 60000, "dueOn": d(-20)},
+            {"label": "Tranche 2", "amount": 50000, "dueOn": d(15)},
+            {"label": "Tranche 3", "amount": 40000, "dueOn": d(75)},
+            {"label": "Tranche 4", "amount": 30000, "dueOn": d(140)},
+        ],
+    }, token=tok)
+
+
 def seed_finance():
     """Encaissements et dépenses : seul le rôle économe a le droit d'écriture."""
     print("· finance (compte économe)")
@@ -257,18 +303,28 @@ def seed_finance():
     if not tok:
         print("    ! compte économe indisponible — étape ignorée")
         return
+    seed_payment_channels(tok)
+    seed_class_fee_grid({c["name"]: c["id"] for c in (call("GET", "/setup/classes") or [])}, tok)
     students = call("GET", "/students") or []
-    methods = ["Espèces", "Mobile Money", "Virement"]
+    methods = ["CASH", "OM", "MOMO", "MPGS"]
     if len(call("GET", "/finance/payments", token=tok) or []) < 5:
         for i, st in enumerate(students):
             if i % 5 == 4:            # 20 % d'élèves sans aucun versement (débiteurs)
                 continue
             tranches = 1 if i % 3 == 0 else 2
             for t in range(1, tranches + 1):
+                method = methods[i % len(methods)]
+                # Les canaux mobile money / carte exigent une référence d'opérateur.
+                reference = None if method == "CASH" else {
+                    "OM": f"OM{random.randint(10**9, 10**10 - 1)}",
+                    "MOMO": f"MP{random.randint(10**9, 10**10 - 1)}",
+                    "MPGS": f"AUTH-{random.randint(100000, 999999)}",
+                }[method]
                 call("POST", "/finance/payments", {
                     "studentId": st["id"],
                     "amount": 40000 if t == 1 else 30000,
-                    "method": methods[i % 3],
+                    "method": method,
+                    "reference": reference,
                     "tranche": t,
                     "paidOn": d(-random.randint(1, 28)),
                 }, quiet=True, token=tok)

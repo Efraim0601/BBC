@@ -2,7 +2,8 @@ import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@a
 import { FormsModule } from '@angular/forms';
 import {
   FinanceApi, PaymentRequest, SituationView, ExpenseView, ExpenseRequest,
-  FeeConfigView, FeeConfigUpdate,
+  FeeConfigView, FeeConfigUpdate, PaymentChannelView, PaymentChannelUpdate,
+  StudentFeeStatementView, TrancheStatusView,
 } from './finance.api';
 import { StudentApi } from '../students/students.api';
 import { SetupApi, ClassView } from '../../core/setup.api';
@@ -18,7 +19,7 @@ import {
 
 const fmtMoney = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} FCFA`;
 
-type Tab = 'payments' | 'debtors' | 'expenses' | 'fees';
+type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
 
 @Component({
   selector: 'bbc-finance',
@@ -87,12 +88,7 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees';
             [subtitle]="filtered().length + (fr() ? ' reçus' : ' receipts')">
             <div action>
               <bbc-chip-filter [allLabel]="fr() ? 'Tout' : 'All'" [value]="methodFilter()"
-                (change)="methodFilter.set($event)"
-                [options]="[
-                  { value: 'Espèces', label: fr() ? 'Espèces' : 'Cash' },
-                  { value: 'Mobile Money', label: 'Mobile Money' },
-                  { value: 'Virement', label: fr() ? 'Virement' : 'Transfer' }
-                ]" />
+                (change)="methodFilter.set($event)" [options]="methodOptions()" />
             </div>
             @if (filtered().length === 0) {
               <bbc-empty icon="receipt" [label]="fr() ? 'Aucun paiement' : 'No payments'" />
@@ -125,7 +121,12 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees';
                             <span class="text-xs bg-brand-50 text-brand-700 px-2 py-0.5 rounded font-semibold">T{{ p.tranche }}</span>
                           } @else { <span class="text-mute">—</span> }
                         </td>
-                        <td class="py-2.5 text-mute">{{ p.method }}</td>
+                        <td class="py-2.5">
+                          <div class="text-ink">{{ methodLabel(p) }}</div>
+                          @if (p.reference) {
+                            <div class="text-[11px] text-mute font-mono">{{ p.reference }}</div>
+                          }
+                        </td>
                         <td class="py-2.5 text-mute">{{ p.paidOn }}</td>
                         <td class="py-2.5 text-right font-bold text-emerald-700">{{ money(p.amount) }}</td>
                         <td class="py-2.5 pr-5 text-right">
@@ -367,24 +368,56 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees';
 
             @if (canWrite && feeFormOpen()) {
               <form (ngSubmit)="saveFee()" class="bg-slate-50 rounded-xl2 p-4 mb-4 space-y-3">
+                <!-- Portée : grille du niveau, ou surcharge d'une classe précise -->
+                <div class="inline-flex rounded-lg border border-slate-200 p-0.5 bg-white">
+                  <button type="button" (click)="setFeeScope('level')" [disabled]="!!feeEditingId()"
+                    class="h-8 px-3 text-xs font-semibold rounded-md disabled:opacity-60"
+                    [class]="!feeDraft.classId ? 'bg-brand-600 text-white' : 'text-ink hover:bg-slate-50'">
+                    {{ fr() ? 'Grille du niveau' : 'Level grid' }}
+                  </button>
+                  <button type="button" (click)="setFeeScope('class')" [disabled]="!!feeEditingId()"
+                    class="h-8 px-3 text-xs font-semibold rounded-md disabled:opacity-60"
+                    [class]="feeDraft.classId ? 'bg-brand-600 text-white' : 'text-ink hover:bg-slate-50'">
+                    {{ fr() ? 'Surcharge par classe' : 'Per-class override' }}
+                  </button>
+                </div>
+
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <div>
-                    <label class="block text-xs font-semibold text-mute mb-1">{{ fr() ? 'Niveau' : 'Level' }} *</label>
-                    <select name="level" [(ngModel)]="feeDraft.level" [disabled]="!!feeEditingId()"
-                      class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400 disabled:bg-slate-100">
-                      <option value="primary">{{ fr() ? 'Primaire' : 'Primary' }}</option>
-                      <option value="secondary">{{ fr() ? 'Secondaire' : 'Secondary' }}</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label class="block text-xs font-semibold text-mute mb-1">{{ fr() ? 'Sous-système' : 'Sub-system' }}</label>
-                    <select name="subsystem" [(ngModel)]="feeDraft.subsystem" [disabled]="!!feeEditingId()"
-                      class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400 disabled:bg-slate-100">
-                      <option [ngValue]="null">{{ fr() ? 'Les deux' : 'Both' }}</option>
-                      <option value="FR">{{ fr() ? 'Francophone' : 'Francophone' }}</option>
-                      <option value="EN">{{ fr() ? 'Anglophone' : 'English' }}</option>
-                    </select>
-                  </div>
+                  @if (feeDraft.classId) {
+                    <div class="md:col-span-2">
+                      <label class="block text-xs font-semibold text-mute mb-1">{{ fr() ? 'Classe' : 'Class' }} *</label>
+                      <select name="feeClass" [ngModel]="feeDraft.classId" (ngModelChange)="onFeeClass($event)"
+                        [disabled]="!!feeEditingId()"
+                        class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400 disabled:bg-slate-100">
+                        @for (c of setupClasses(); track c.id) {
+                          <option [ngValue]="c.id">{{ c.name }} · {{ c.sectionLabel }}</option>
+                        }
+                      </select>
+                      <span class="text-[11px] text-mute mt-1 block">
+                        {{ fr() ? 'Cette grille remplace celle du niveau pour les élèves de la classe.'
+                                : 'This grid replaces the level grid for the students of that class.' }}
+                      </span>
+                    </div>
+                  } @else {
+                    <div>
+                      <label class="block text-xs font-semibold text-mute mb-1">{{ fr() ? 'Niveau' : 'Level' }} *</label>
+                      <select name="level" [(ngModel)]="feeDraft.level" [disabled]="!!feeEditingId()"
+                        class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400 disabled:bg-slate-100">
+                        <option value="maternelle">{{ fr() ? 'Maternelle' : 'Kindergarten' }}</option>
+                        <option value="primary">{{ fr() ? 'Primaire' : 'Primary' }}</option>
+                        <option value="secondary">{{ fr() ? 'Secondaire' : 'Secondary' }}</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label class="block text-xs font-semibold text-mute mb-1">{{ fr() ? 'Sous-système' : 'Sub-system' }}</label>
+                      <select name="subsystem" [(ngModel)]="feeDraft.subsystem" [disabled]="!!feeEditingId()"
+                        class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400 disabled:bg-slate-100">
+                        <option [ngValue]="null">{{ fr() ? 'Les deux' : 'Both' }}</option>
+                        <option value="FR">{{ fr() ? 'Francophone' : 'Francophone' }}</option>
+                        <option value="EN">{{ fr() ? 'Anglophone' : 'English' }}</option>
+                      </select>
+                    </div>
+                  }
                   <div>
                     <label class="block text-xs font-semibold text-mute mb-1">{{ fr() ? 'Total annuel (FCFA)' : 'Annual total (FCFA)' }} *</label>
                     <input type="number" name="total" [(ngModel)]="feeDraft.total" min="1"
@@ -393,14 +426,23 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees';
                 </div>
 
                 <div>
-                  <label class="block text-xs font-semibold text-mute mb-1">{{ fr() ? 'Tranches (FCFA)' : 'Installments (FCFA)' }}</label>
-                  <div class="flex flex-wrap items-center gap-2">
+                  <label class="block text-xs font-semibold text-mute mb-1">
+                    {{ fr() ? 'Tranches — libellé, montant et échéance' : 'Installments — label, amount and due date' }}
+                  </label>
+                  <div class="space-y-2">
                     @for (t of feeDraft.tranches; track $index) {
-                      <div class="flex items-center gap-1">
-                        <span class="text-[11px] font-bold text-mute">T{{ $index + 1 }}</span>
-                        <input type="number" min="0" [ngModel]="t" (ngModelChange)="setTranche($index, $event)"
-                          [name]="'tranche' + $index"
-                          class="h-9 w-28 px-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
+                      <div class="flex flex-wrap items-center gap-2">
+                        <span class="text-[11px] font-bold text-mute w-6">{{ $index + 1 }}</span>
+                        <input [ngModel]="t.label" (ngModelChange)="setTrancheField($index, 'label', $event)"
+                          [name]="'trlabel' + $index" [placeholder]="fr() ? 'Libellé (T1, Rentrée…)' : 'Label (T1, Term 1…)'"
+                          class="h-9 w-40 px-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
+                        <input type="number" min="0" [ngModel]="t.amount" (ngModelChange)="setTrancheField($index, 'amount', $event)"
+                          [name]="'tramount' + $index" placeholder="0"
+                          class="h-9 w-32 px-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
+                        <span class="text-[11px] text-mute">{{ fr() ? 'à payer avant le' : 'due by' }}</span>
+                        <input type="date" [ngModel]="t.dueOn" (ngModelChange)="setTrancheField($index, 'dueOn', $event)"
+                          [name]="'trdue' + $index"
+                          class="h-9 px-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
                         <button type="button" (click)="removeTranche($index)" class="text-mute hover:text-rose-600">
                           <bbc-icon name="x" [s]="14" />
                         </button>
@@ -408,7 +450,7 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees';
                     }
                     <button type="button" (click)="addTranche()"
                       class="inline-flex items-center gap-1 h-9 px-3 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
-                      <bbc-icon name="plus" [s]="12" /> {{ fr() ? 'Ajouter' : 'Add' }}
+                      <bbc-icon name="plus" [s]="12" /> {{ fr() ? 'Ajouter une tranche' : 'Add an installment' }}
                     </button>
                   </div>
                   <p class="text-[11px] mt-1.5"
@@ -445,7 +487,7 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees';
                 <table class="w-full text-sm">
                   <thead class="border-y border-slate-100 bg-slate-50/50">
                     <tr class="text-[11px] uppercase tracking-wide text-mute">
-                      <th class="text-left font-semibold py-2 pl-5">{{ fr() ? 'Niveau' : 'Level' }}</th>
+                      <th class="text-left font-semibold py-2 pl-5">{{ fr() ? 'S’applique à' : 'Applies to' }}</th>
                       <th class="text-left font-semibold py-2">{{ fr() ? 'Sous-système' : 'Sub-system' }}</th>
                       <th class="text-left font-semibold py-2">{{ fr() ? 'Tranches' : 'Installments' }}</th>
                       <th class="text-right font-semibold py-2">{{ fr() ? 'Total annuel' : 'Annual total' }}</th>
@@ -456,7 +498,16 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees';
                     @for (c of feeConfigs(); track c.id) {
                       <tr class="border-b border-slate-50 last:border-0 hover:bg-slate-50/50 group">
                         <td class="py-2.5 pl-5 font-semibold text-ink">
-                          {{ c.level === 'primary' ? (fr() ? 'Primaire' : 'Primary') : (fr() ? 'Secondaire' : 'Secondary') }}
+                          @if (c.className) {
+                            <span class="inline-flex items-center gap-1.5">
+                              {{ c.className }}
+                              <span class="text-[10px] uppercase tracking-wide bg-gold-50 text-gold-600 px-1.5 py-0.5 rounded font-bold">
+                                {{ fr() ? 'classe' : 'class' }}
+                              </span>
+                            </span>
+                          } @else {
+                            {{ levelLabel(c.level) }}
+                          }
                         </td>
                         <td class="py-2.5 text-mute">
                           {{ c.subsystem ? (c.subsystem === 'FR' ? 'Francophone' : (fr() ? 'Anglophone' : 'English')) : (fr() ? 'Les deux' : 'Both') }}
@@ -464,8 +515,9 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees';
                         <td class="py-2.5">
                           <div class="flex flex-wrap gap-1">
                             @for (t of c.tranches; track $index) {
-                              <span class="text-xs bg-brand-50 text-brand-700 px-2 py-0.5 rounded font-semibold">
-                                T{{ $index + 1 }} · {{ money(t) }}
+                              <span class="text-xs bg-brand-50 text-brand-700 px-2 py-0.5 rounded font-semibold"
+                                [title]="t.dueOn ? (fr() ? 'À payer avant le ' : 'Due by ') + t.dueOn : ''">
+                                {{ t.label }} · {{ money(t.amount) }}@if (t.dueOn) { <span class="font-normal opacity-70"> · {{ t.dueOn }}</span> }
                               </span>
                             } @empty { <span class="text-mute text-xs">—</span> }
                           </div>
@@ -477,6 +529,10 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees';
                               [title]="fr() ? 'Modifier' : 'Edit'">
                               <bbc-icon name="edit" [s]="14" />
                             </button>
+                            <button (click)="confirmFeeDel.set(c)" class="ml-2 text-mute hover:text-rose-600 opacity-0 group-hover:opacity-100 focus:opacity-100 transition"
+                              [title]="fr() ? 'Supprimer' : 'Delete'">
+                              <bbc-icon name="trash" [s]="14" />
+                            </button>
                           </td>
                         }
                       </tr>
@@ -486,14 +542,141 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees';
               </div>
               <p class="text-[11px] text-mute mt-3">
                 {{ fr()
-                  ? 'La grille sert de référence au solde de chaque élève et au blocage des bulletins pour dette.'
-                  : 'The grid drives each student’s balance and the debt-blocking of report cards.' }}
+                  ? 'Un élève suit la grille de sa classe si elle existe, sinon celle de son niveau. La grille détermine son solde, ses tranches et le blocage du bulletin pour dette.'
+                  : 'A student follows their class grid when it exists, otherwise their level grid. The grid drives the balance, the installments and the debt-blocking of report cards.' }}
               </p>
             }
           </bbc-card>
         }
+
+        @case ('channels') {
+          <bbc-card [title]="fr() ? 'Moyens de paiement' : 'Payment methods'"
+            [subtitle]="fr() ? 'Canaux acceptés par l’école et coordonnées communiquées aux parents'
+                             : 'Channels the school accepts and the details shown to parents'">
+            <div class="space-y-3">
+              @for (c of channels(); track c.code) {
+                <div class="rounded-xl2 border p-4"
+                  [class]="c.enabled ? 'border-slate-200 bg-white' : 'border-slate-100 bg-slate-50/60'">
+                  <div class="flex flex-wrap items-center gap-3">
+                    <div class="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
+                      [class]="channelTone(c.code)">
+                      <bbc-icon [name]="channelIcon(c.code)" [s]="18" />
+                    </div>
+                    <div class="min-w-0 flex-1">
+                      <div class="font-semibold text-ink">{{ fr() ? c.labelFr : c.labelEn }}</div>
+                      <div class="text-[11px] text-mute font-mono">{{ c.code }}</div>
+                    </div>
+                    @if (canWrite) {
+                      <label class="inline-flex items-center gap-2 text-xs font-semibold text-ink">
+                        <input type="checkbox" [ngModel]="c.enabled" (ngModelChange)="patchChannel(c, { enabled: $event })"
+                          class="w-4 h-4 rounded border-slate-300 text-brand-600" />
+                        {{ fr() ? 'Actif' : 'Enabled' }}
+                      </label>
+                      <label class="inline-flex items-center gap-2 text-xs font-semibold text-ink">
+                        <input type="checkbox" [ngModel]="c.visibleToParents" (ngModelChange)="patchChannel(c, { visibleToParents: $event })"
+                          class="w-4 h-4 rounded border-slate-300 text-brand-600" />
+                        {{ fr() ? 'Visible des parents' : 'Shown to parents' }}
+                      </label>
+                      <label class="inline-flex items-center gap-2 text-xs font-semibold text-ink">
+                        <input type="checkbox" [ngModel]="c.requiresReference" (ngModelChange)="patchChannel(c, { requiresReference: $event })"
+                          class="w-4 h-4 rounded border-slate-300 text-brand-600" />
+                        {{ fr() ? 'Référence obligatoire' : 'Reference required' }}
+                      </label>
+                      <button (click)="toggleChannelEdit(c.code)"
+                        class="h-9 px-3 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
+                        {{ channelEdit() === c.code ? (fr() ? 'Fermer' : 'Close') : (fr() ? 'Coordonnées' : 'Details') }}
+                      </button>
+                    }
+                  </div>
+
+                  @if (c.accountRef && channelEdit() !== c.code) {
+                    <div class="text-xs text-mute mt-2">
+                      {{ fr() ? 'Compte' : 'Account' }} : <b class="text-ink font-mono">{{ c.accountRef }}</b>
+                      @if (c.accountName) { · {{ c.accountName }} }
+                    </div>
+                  }
+
+                  @if (canWrite && channelEdit() === c.code) {
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4 pt-4 border-t border-slate-100">
+                      <label class="block">
+                        <span class="text-xs font-semibold text-ink">{{ fr() ? 'Libellé (FR)' : 'Label (FR)' }}</span>
+                        <input [(ngModel)]="channelDraft.labelFr"
+                          class="mt-1 w-full h-10 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
+                      </label>
+                      <label class="block">
+                        <span class="text-xs font-semibold text-ink">{{ fr() ? 'Libellé (EN)' : 'Label (EN)' }}</span>
+                        <input [(ngModel)]="channelDraft.labelEn"
+                          class="mt-1 w-full h-10 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
+                      </label>
+                      <label class="block">
+                        <span class="text-xs font-semibold text-ink">
+                          {{ c.code === 'MPGS' ? (fr() ? 'Identifiant marchand' : 'Merchant ID')
+                             : c.code === 'TRANSFER' ? (fr() ? 'RIB / IBAN' : 'Bank account')
+                             : (fr() ? 'Numéro à créditer' : 'Number to credit') }}
+                        </span>
+                        <input [(ngModel)]="channelDraft.accountRef" placeholder="+237 6XX XX XX XX"
+                          class="mt-1 w-full h-10 px-3 text-sm rounded-lg border border-slate-200 font-mono focus:outline-none focus:border-brand-400" />
+                      </label>
+                      <label class="block">
+                        <span class="text-xs font-semibold text-ink">{{ fr() ? 'Intitulé du compte' : 'Account name' }}</span>
+                        <input [(ngModel)]="channelDraft.accountName" [placeholder]="fr() ? 'Bayo Bilingual Complex' : 'Bayo Bilingual Complex'"
+                          class="mt-1 w-full h-10 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
+                      </label>
+                      <label class="block md:col-span-2">
+                        <span class="text-xs font-semibold text-ink">{{ fr() ? 'Instructions au parent (FR)' : 'Parent instructions (FR)' }}</span>
+                        <textarea [(ngModel)]="channelDraft.instructionsFr" rows="2"
+                          class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400"></textarea>
+                      </label>
+                      <label class="block md:col-span-2">
+                        <span class="text-xs font-semibold text-ink">{{ fr() ? 'Instructions au parent (EN)' : 'Parent instructions (EN)' }}</span>
+                        <textarea [(ngModel)]="channelDraft.instructionsEn" rows="2"
+                          class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400"></textarea>
+                      </label>
+                    </div>
+                    <div class="flex justify-end gap-2 mt-3">
+                      <button (click)="channelEdit.set(null)"
+                        class="h-9 px-4 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
+                        {{ i18n.t('cancel') }}
+                      </button>
+                      <button (click)="saveChannel(c)"
+                        class="h-9 px-4 text-sm font-semibold rounded-lg bg-brand-600 text-white hover:bg-brand-700">
+                        {{ i18n.t('save') }}
+                      </button>
+                    </div>
+                  }
+                </div>
+              } @empty {
+                <bbc-empty icon="wallet" [label]="fr() ? 'Aucun moyen de paiement' : 'No payment method'" />
+              }
+            </div>
+
+            @if (channelMsg(); as m) {
+              <div class="mt-3 text-xs rounded-lg px-3 py-2"
+                [class]="m.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-600'">{{ m.text }}</div>
+            }
+
+            <p class="text-[11px] text-mute mt-4">
+              {{ fr()
+                ? 'Les canaux « visibles des parents » apparaissent dans le portail parent avec leurs coordonnées et instructions : c’est ainsi qu’une famille règle une tranche par Orange Money, MTN MoMo ou carte, puis communique la référence à l’économat.'
+                : 'Channels marked “shown to parents” appear in the parent portal with their details and instructions: that is how a family settles an installment by Orange Money, MTN MoMo or card, then passes the reference to the bursary.' }}
+            </p>
+          </bbc-card>
+        }
       }
     </div>
+
+    @if (confirmFeeDel(); as cf) {
+      <bbc-confirm
+        [title]="fr() ? 'Supprimer cette grille ?' : 'Delete this grid?'"
+        [body]="(cf.className
+                  ? (fr() ? 'La classe ' + cf.className + ' repassera sur la grille de son niveau.'
+                          : 'Class ' + cf.className + ' will fall back to its level grid.')
+                  : (fr() ? 'Les élèves de ce niveau n’auront plus de grille de référence.'
+                          : 'Students of this level will no longer have a reference grid.'))"
+        [confirmLabel]="fr() ? 'Supprimer' : 'Delete'"
+        [cancelLabel]="i18n.t('cancel')"
+        (confirm)="removeFee(cf)" (cancel)="confirmFeeDel.set(null)" />
+    }
 
     @if (confirmExpenseDel(); as ce) {
       <bbc-confirm
@@ -527,7 +710,7 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees';
               </div>
               <div>
                 <label class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'Élève' : 'Student' }}</label>
-                <select [(ngModel)]="draft.studentId" [disabled]="!payClass()"
+                <select [ngModel]="draft.studentId" (ngModelChange)="onPayStudent($event)" [disabled]="!payClass()"
                   class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400 disabled:bg-slate-50">
                   <option value="">{{ fr() ? '— Choisir —' : '— Choose —' }}</option>
                   @for (s of payStudents(); track s.id) {
@@ -537,18 +720,48 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees';
               </div>
             </div>
 
-            <div>
-              <label class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'Tranche' : 'Installment' }}</label>
-              <div class="grid grid-cols-3 gap-2">
-                @for (n of [1, 2, 3]; track n) {
-                  <button (click)="draft.tranche = n"
-                    class="h-10 text-xs font-semibold rounded-lg border transition"
-                    [class]="draft.tranche === n ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-slate-200 text-mute hover:border-brand-300'">
-                    T{{ n }}
-                  </button>
+            <!-- Situation de l'élève : ce qui reste dû, tranche par tranche -->
+            @if (statement(); as st) {
+              <div class="rounded-xl2 bg-slate-50 border border-slate-100 p-3">
+                <div class="flex items-center justify-between text-xs mb-2">
+                  <span class="text-mute">
+                    {{ fr() ? 'Grille' : 'Grid' }} :
+                    <b class="text-ink">{{ st.gridSource === 'class' ? st.className : levelOfClass(st.className) }}</b>
+                    @if (st.gridSource === 'class') {
+                      <span class="ml-1 text-[10px] uppercase bg-gold-50 text-gold-600 px-1.5 py-0.5 rounded font-bold">{{ fr() ? 'classe' : 'class' }}</span>
+                    }
+                  </span>
+                  <span class="text-mute">
+                    {{ fr() ? 'Reste à payer' : 'Outstanding' }} :
+                    <b [class]="st.balance > 0 ? 'text-rose-600' : 'text-emerald-700'">{{ money(st.balance) }}</b>
+                  </span>
+                </div>
+                @if (st.tranches.length) {
+                  <div class="flex flex-wrap gap-1.5">
+                    @for (t of st.tranches; track t.index) {
+                      <button (click)="pickTranche(t)"
+                        class="text-[11px] px-2 py-1 rounded-lg border font-semibold transition"
+                        [class]="draft.tranche === t.index ? 'border-brand-500 bg-brand-50 text-brand-700'
+                                 : t.status === 'paid' ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                 : t.overdue ? 'border-rose-200 bg-rose-50 text-rose-700'
+                                 : 'border-slate-200 bg-white text-mute hover:border-brand-300'">
+                        {{ t.label }} · {{ money(t.remaining || t.amount) }}
+                        @if (t.status === 'paid') { ✓ } @else if (t.overdue) { ⚠ }
+                      </button>
+                    }
+                  </div>
+                  <p class="text-[11px] text-mute mt-2">
+                    {{ fr() ? 'Cliquez une tranche pour pré-remplir le montant restant.'
+                            : 'Click an installment to pre-fill the remaining amount.' }}
+                  </p>
+                } @else {
+                  <p class="text-[11px] text-amber-700">
+                    {{ fr() ? 'Aucune grille de frais ne couvre cet élève — définissez-la dans l’onglet Frais.'
+                            : 'No fee grid covers this student — define one in the Fees tab.' }}
+                  </p>
                 }
               </div>
-            </div>
+            }
 
             <div class="grid grid-cols-2 gap-3">
               <div>
@@ -560,25 +773,59 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees';
                 </div>
               </div>
               <div>
-                <label class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'Méthode' : 'Method' }}</label>
-                <div class="grid grid-cols-3 gap-1.5">
-                  @for (m of methods; track m) {
-                    <button (click)="draft.method = m"
-                      class="h-10 text-[11px] font-semibold rounded-lg border transition px-1"
-                      [class]="draft.method === m ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-slate-200 text-mute hover:border-brand-300'">
-                      {{ m === 'Espèces' ? (fr() ? 'Espèces' : 'Cash') : m === 'Virement' ? (fr() ? 'Virement' : 'Transfer') : 'MoMo' }}
-                    </button>
-                  }
-                </div>
+                <label class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'Date' : 'Date' }}</label>
+                <input type="date" [(ngModel)]="draft.paidOn"
+                  class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400" />
               </div>
             </div>
+
+            <div>
+              <label class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'Moyen de paiement' : 'Payment method' }}</label>
+              <div class="flex flex-wrap gap-1.5">
+                @for (c of activeChannels(); track c.code) {
+                  <button (click)="pickChannel(c)"
+                    class="h-10 px-3 text-[12px] font-semibold rounded-lg border transition"
+                    [class]="draft.method === c.code ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-slate-200 text-mute hover:border-brand-300'">
+                    {{ fr() ? c.labelFr : c.labelEn }}
+                  </button>
+                } @empty {
+                  <span class="text-xs text-amber-700">
+                    {{ fr() ? 'Aucun moyen de paiement actif — activez-en un dans l’onglet Moyens de paiement.'
+                            : 'No active payment method — enable one in the Payment methods tab.' }}
+                  </span>
+                }
+              </div>
+            </div>
+
+            @if (selectedChannel(); as ch) {
+              @if (ch.requiresReference) {
+                <div>
+                  <label class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">
+                    {{ fr() ? 'Référence de transaction' : 'Transaction reference' }} *
+                  </label>
+                  <input [(ngModel)]="draft.reference"
+                    [placeholder]="fr() ? 'ID de la transaction communiqué par le parent' : 'Transaction ID provided by the parent'"
+                    class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400 font-mono" />
+                  @if (ch.accountRef) {
+                    <p class="text-[11px] text-mute mt-1">
+                      {{ fr() ? 'Compte de l’école' : 'School account' }} : <b>{{ ch.accountRef }}</b>
+                      @if (ch.accountName) { · {{ ch.accountName }} }
+                    </p>
+                  }
+                </div>
+              }
+            }
+
+            @if (payError(); as e) {
+              <div class="text-xs rounded-lg px-3 py-2 bg-rose-50 text-rose-600">{{ e }}</div>
+            }
           </div>
           <div class="flex items-center justify-end gap-2 px-5 py-4 border-t border-slate-100">
             <button (click)="closePayment()"
               class="h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
               {{ i18n.t('cancel') }}
             </button>
-            <button (click)="save()" [disabled]="!draft.studentId || !draft.amount"
+            <button (click)="save()" [disabled]="!canSubmitPayment()"
               class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50">
               <bbc-icon name="receipt" [s]="16" /> {{ fr() ? 'Générer le reçu' : 'Generate receipt' }}
             </button>
@@ -690,11 +937,19 @@ export class FinanceComponent {
   protected paymentOpen = signal(false);
   protected receipt = signal<PaymentView | null>(null);
   protected draft: PaymentRequest = this.blank();
-  protected methods = ['Espèces', 'Mobile Money', 'Virement'];
 
   protected setupClasses = signal<ClassView[]>([]);
   protected payClass = signal('');
   protected payStudents = signal<Student[]>([]);
+  protected payError = signal<string | null>(null);
+  /** Situation de l'élève sélectionné : sert à proposer la bonne tranche. */
+  protected statement = signal<StudentFeeStatementView | null>(null);
+
+  // --- moyens de paiement ---------------------------------------------------
+  protected channels = signal<PaymentChannelView[]>([]);
+  protected channelEdit = signal<string | null>(null);
+  protected channelDraft: PaymentChannelUpdate = {};
+  protected channelMsg = signal<{ ok: boolean; text: string } | null>(null);
 
   // --- debtors -------------------------------------------------------------
   /**
@@ -707,7 +962,7 @@ export class FinanceComponent {
   protected debtorsError = signal(false);
   protected debtorQuery = signal('');
   protected debtorClassFilter = signal<string | null>(null);
-  private debtorsLoaded = false;
+  protected debtorsLoaded = false;
 
   // --- expenses ------------------------------------------------------------
   protected expenses = signal<ExpenseView[]>([]);
@@ -743,6 +998,7 @@ export class FinanceComponent {
   protected feeError = signal<string | null>(null);
   protected feeEditingId = signal<string | null>(null);
   protected feeDraft: FeeConfigUpdate = this.blankFee();
+  protected confirmFeeDel = signal<FeeConfigView | null>(null);
   private feesLoaded = false;
 
   protected fr = () => this.i18n.lang() === 'fr';
@@ -798,7 +1054,7 @@ export class FinanceComponent {
   });
 
   // --- fee derivations -----------------------------------------------------
-  protected tranchesSum = computed(() => (this.feeDraft.tranches ?? []).reduce((a, t) => a + (Number(t) || 0), 0));
+  protected tranchesSum = computed(() => (this.feeDraft.tranches ?? []).reduce((a, t) => a + (Number(t.amount) || 0), 0));
   protected tranchesMatch = computed(() => !this.tranchesSum() || this.tranchesSum() === Number(this.feeDraft.total));
 
   protected tabs = computed(() => [
@@ -806,12 +1062,32 @@ export class FinanceComponent {
     { id: 'debtors', label: this.fr() ? 'Débiteurs' : 'Debtors' },
     { id: 'expenses', label: this.fr() ? 'Dépenses' : 'Expenses' },
     { id: 'fees', label: this.fr() ? 'Frais' : 'Fees' },
+    { id: 'channels', label: this.fr() ? 'Moyens de paiement' : 'Payment methods' },
   ]);
+
+  /** Canaux ouverts à l'encaissement ; le filtre de l'historique, lui, montre tout. */
+  protected activeChannels = computed(() => this.channels().filter((c) => c.enabled));
+
+  protected selectedChannel = computed(() =>
+    this.channels().find((c) => c.code === this.draft.method) ?? null);
+
+  protected methodOptions = computed(() =>
+    this.channels().map((c) => ({ value: c.code, label: this.fr() ? c.labelFr : c.labelEn })));
+
+  /** Un canal peut exiger une référence : le bouton reste inactif tant qu'elle manque. */
+  protected canSubmitPayment = computed(() => {
+    if (!this.draft.studentId || !this.draft.amount) return false;
+    const ch = this.selectedChannel();
+    if (!ch) return false;
+    return !ch.requiresReference || !!this.draft.reference?.trim();
+  });
 
   constructor() {
     this.reloadSummary();
     this.reloadPayments();
     this.setupApi.listClasses().subscribe({ next: (c) => this.setupClasses.set(c), error: () => {} });
+    // Les canaux servent dès l'onglet Encaissements (filtre, libellés, saisie).
+    this.reloadChannels();
   }
 
   private reloadSummary(): void {
@@ -828,6 +1104,79 @@ export class FinanceComponent {
     if (t === 'debtors' && !this.debtorsLoaded) this.reloadDebtors();
     if (t === 'expenses' && !this.expensesLoaded) this.reloadExpenses();
     if (t === 'fees' && !this.feesLoaded) this.reloadFees();
+  }
+
+  // ------------------------------------------------------- moyens de paiement
+  protected reloadChannels(): void {
+    this.api.channels().subscribe({ next: (c) => this.channels.set(c), error: () => {} });
+  }
+
+  protected toggleChannelEdit(code: string): void {
+    if (this.channelEdit() === code) { this.channelEdit.set(null); return; }
+    const c = this.channels().find((x) => x.code === code);
+    if (!c) return;
+    this.channelDraft = {
+      labelFr: c.labelFr, labelEn: c.labelEn,
+      accountRef: c.accountRef ?? '', accountName: c.accountName ?? '',
+      instructionsFr: c.instructionsFr ?? '', instructionsEn: c.instructionsEn ?? '',
+    };
+    this.channelMsg.set(null);
+    this.channelEdit.set(code);
+  }
+
+  protected saveChannel(c: PaymentChannelView): void {
+    this.api.updateChannel(c.code, this.channelDraft).subscribe({
+      next: () => {
+        this.channelEdit.set(null);
+        this.channelMsg.set({ ok: true, text: this.fr() ? 'Moyen de paiement enregistré.' : 'Payment method saved.' });
+        this.reloadChannels();
+      },
+      error: (e) => this.channelMsg.set({
+        ok: false, text: e?.error?.message ?? (this.fr() ? 'Enregistrement impossible.' : 'Could not save.'),
+      }),
+    });
+  }
+
+  /** Bascule immédiate d'un interrupteur (actif, visible, référence obligatoire). */
+  protected patchChannel(c: PaymentChannelView, patch: PaymentChannelUpdate): void {
+    this.api.updateChannel(c.code, patch).subscribe({
+      next: () => this.reloadChannels(),
+      error: (e) => this.channelMsg.set({
+        ok: false, text: e?.error?.message ?? (this.fr() ? 'Modification impossible.' : 'Update failed.'),
+      }),
+    });
+  }
+
+  protected channelIcon(code: string): string {
+    return { CASH: 'cash', OM: 'phone', MOMO: 'phone', MPGS: 'receipt', TRANSFER: 'wallet' }[code] ?? 'wallet';
+  }
+
+  protected channelTone(code: string): string {
+    return {
+      CASH: 'bg-emerald-50 text-emerald-700',
+      OM: 'bg-orange-50 text-orange-700',
+      MOMO: 'bg-gold-50 text-gold-600',
+      MPGS: 'bg-brand-50 text-brand-700',
+      TRANSFER: 'bg-slate-100 text-slate-700',
+    }[code] ?? 'bg-slate-100 text-slate-700';
+  }
+
+  protected methodLabel(p: PaymentView): string {
+    return (this.fr() ? p.methodLabelFr : p.methodLabelEn) || p.method;
+  }
+
+  protected levelLabel(level: string): string {
+    switch ((level || '').toLowerCase()) {
+      case 'maternelle': return this.fr() ? 'Maternelle' : 'Kindergarten';
+      case 'secondary': return this.fr() ? 'Secondaire' : 'Secondary';
+      default: return this.fr() ? 'Primaire' : 'Primary';
+    }
+  }
+
+  /** Niveau de la classe d'un élève, pour dire d'où vient la grille appliquée. */
+  protected levelOfClass(className: string | null): string {
+    const c = this.setupClasses().find((x) => x.name === className);
+    return c ? this.levelLabel(c.level) : (this.fr() ? 'Niveau' : 'Level');
   }
 
   protected reloadDebtors(): void {
@@ -907,7 +1256,10 @@ export class FinanceComponent {
     this.feeError.set(null);
     this.feeEditingId.set(c?.id ?? null);
     this.feeDraft = c
-      ? { level: c.level, subsystem: c.subsystem, total: c.total, tranches: [...c.tranches], items: c.items }
+      ? {
+          level: c.level, subsystem: c.subsystem, classId: c.classId, total: c.total,
+          tranches: c.tranches.map((t) => ({ ...t })), items: c.items,
+        }
       : this.blankFee();
     this.feeFormOpen.set(true);
   }
@@ -915,17 +1267,48 @@ export class FinanceComponent {
     this.feeFormOpen.set(false);
     this.feeError.set(null);
   }
+
+  /** Bascule entre grille de niveau et surcharge de classe. */
+  protected setFeeScope(scope: 'level' | 'class'): void {
+    if (scope === 'level') {
+      this.feeDraft = { ...this.feeDraft, classId: null };
+      return;
+    }
+    const first = this.setupClasses()[0];
+    this.feeDraft = { ...this.feeDraft, classId: first?.id ?? null };
+    if (first) this.onFeeClass(first.id);
+  }
+
+  /** Le niveau et le sous-système suivent la classe choisie : ils décrivent la même réalité. */
+  protected onFeeClass(classId: string): void {
+    const c = this.setupClasses().find((x) => x.id === classId);
+    this.feeDraft = {
+      ...this.feeDraft,
+      classId,
+      level: c?.level ?? this.feeDraft.level,
+      subsystem: c?.subsystem ?? this.feeDraft.subsystem,
+    };
+  }
+
   protected addTranche(): void {
-    this.feeDraft = { ...this.feeDraft, tranches: [...(this.feeDraft.tranches ?? []), 0] };
+    const next = (this.feeDraft.tranches ?? []).length + 1;
+    this.feeDraft = {
+      ...this.feeDraft,
+      tranches: [...(this.feeDraft.tranches ?? []), { label: 'T' + next, amount: 0, dueOn: null }],
+    };
   }
   protected removeTranche(i: number): void {
     const t = [...(this.feeDraft.tranches ?? [])];
     t.splice(i, 1);
     this.feeDraft = { ...this.feeDraft, tranches: t };
   }
-  protected setTranche(i: number, v: number): void {
+  protected setTrancheField(i: number, field: 'label' | 'amount' | 'dueOn', value: unknown): void {
     const t = [...(this.feeDraft.tranches ?? [])];
-    t[i] = Number(v) || 0;
+    const current = { ...t[i] };
+    if (field === 'amount') current.amount = Number(value) || 0;
+    else if (field === 'label') current.label = String(value ?? '');
+    else current.dueOn = value ? String(value) : null;
+    t[i] = current;
     this.feeDraft = { ...this.feeDraft, tranches: t };
   }
 
@@ -936,13 +1319,21 @@ export class FinanceComponent {
       return;
     }
     this.feeSaving.set(true);
-    this.api.saveFeeConfig({ ...d, tranches: (d.tranches ?? []).filter((t) => t > 0) }).subscribe({
-      next: () => { this.feeSaving.set(false); this.feeFormOpen.set(false); this.reloadFees(); },
+    this.api.saveFeeConfig({ ...d, tranches: (d.tranches ?? []).filter((t) => t.amount > 0) }).subscribe({
+      next: () => { this.feeSaving.set(false); this.feeFormOpen.set(false); this.reloadFees(); this.reloadDebtors(); },
       error: (e) => {
         this.feeSaving.set(false);
         // The server rejects a tranche sum that differs from the total — show its wording, not a generic one.
         this.feeError.set(e?.error?.message ?? (this.fr() ? 'Enregistrement impossible.' : 'Could not save.'));
       },
+    });
+  }
+
+  protected removeFee(c: FeeConfigView): void {
+    this.confirmFeeDel.set(null);
+    this.api.deleteFeeConfig(c.id).subscribe({
+      next: () => { this.reloadFees(); this.reloadDebtors(); },
+      error: (e) => this.feeError.set(e?.error?.message ?? (this.fr() ? 'Suppression impossible.' : 'Delete failed.')),
     });
   }
 
@@ -959,9 +1350,9 @@ export class FinanceComponent {
   protected exportPayments(): void {
     downloadCsv(
       stampedName('encaissements'),
-      ['Recu', 'Eleve', 'Matricule', 'Classe', 'Tranche', 'Methode', 'Date', 'Montant'],
+      ['Recu', 'Eleve', 'Matricule', 'Classe', 'Tranche', 'Moyen', 'Reference', 'Date', 'Montant'],
       this.filtered().map((p) => [p.receiptNo, p.studentName, p.matricule, p.className,
-        p.tranche ?? '', p.method, p.paidOn, p.amount]),
+        p.tranche ?? '', this.methodLabel(p), p.reference ?? '', p.paidOn, p.amount]),
     );
   }
 
@@ -985,13 +1376,19 @@ export class FinanceComponent {
   protected exportFees(): void {
     downloadCsv(
       stampedName('grille-frais'),
-      ['Niveau', 'Sous-systeme', 'Total annuel', 'Tranches'],
-      this.feeConfigs().map((c) => [c.level, c.subsystem ?? 'ALL', c.total, c.tranches.join(' + ')]),
+      ['Portee', 'Niveau', 'Sous-systeme', 'Total annuel', 'Tranches'],
+      this.feeConfigs().map((c) => [c.className ?? 'Niveau', c.level, c.subsystem ?? 'ALL', c.total,
+        c.tranches.map((t) => `${t.label}=${t.amount}${t.dueOn ? '@' + t.dueOn : ''}`).join(' + ')]),
     );
   }
 
   protected openPayment(): void {
     this.draft = this.blank();
+    // Premier canal actif par défaut — l'espèce n'est pas toujours acceptée.
+    const first = this.activeChannels()[0];
+    if (first) this.draft.method = first.code;
+    this.payError.set(null);
+    this.statement.set(null);
     this.payClass.set('');
     this.payStudents.set([]);
     this.paymentOpen.set(true);
@@ -1003,9 +1400,37 @@ export class FinanceComponent {
   protected onPayClass(name: string): void {
     this.payClass.set(name);
     this.draft.studentId = '';
+    this.statement.set(null);
     this.payStudents.set([]);
     if (!name) return;
     this.studentApi.list(name).subscribe({ next: (r) => this.payStudents.set(r), error: () => this.payStudents.set([]) });
+  }
+
+  /** À la sélection d'un élève, on charge sa situation : grille, tranches et reste dû. */
+  protected onPayStudent(studentId: string): void {
+    this.draft.studentId = studentId;
+    this.statement.set(null);
+    this.payError.set(null);
+    if (!studentId) return;
+    this.api.statement(studentId).subscribe({
+      next: (st) => {
+        this.statement.set(st);
+        const next = st.tranches.find((t) => t.remaining > 0);
+        if (next) this.pickTranche(next);
+      },
+      error: () => this.statement.set(null),
+    });
+  }
+
+  /** Pré-remplit le montant avec ce qui reste dû sur la tranche choisie. */
+  protected pickTranche(t: TrancheStatusView): void {
+    this.draft.tranche = t.index;
+    this.draft.amount = t.remaining > 0 ? t.remaining : t.amount;
+  }
+
+  protected pickChannel(c: PaymentChannelView): void {
+    this.draft.method = c.code;
+    if (!c.requiresReference) this.draft.reference = null;
   }
   protected viewReceipt(p: PaymentView): void {
     this.receipt.set(p);
@@ -1015,13 +1440,21 @@ export class FinanceComponent {
   }
 
   protected save(): void {
-    if (!this.draft.studentId || !this.draft.amount) return;
-    this.api.recordPayment(this.draft).subscribe((created) => {
-      this.paymentOpen.set(false);
-      this.draft = this.blank();
-      this.reloadSummary();
-      this.reloadPayments();
-      if (created) this.receipt.set(created);
+    if (!this.canSubmitPayment()) return;
+    this.payError.set(null);
+    this.api.recordPayment(this.draft).subscribe({
+      next: (created) => {
+        this.paymentOpen.set(false);
+        this.draft = this.blank();
+        this.statement.set(null);
+        this.reloadSummary();
+        this.reloadPayments();
+        if (this.debtorsLoaded) this.reloadDebtors();
+        if (created) this.receipt.set(created);
+      },
+      // Le serveur refuse un canal désactivé ou une référence manquante : son message est le plus précis.
+      error: (e) => this.payError.set(e?.error?.message
+        ?? (this.fr() ? 'Encaissement impossible.' : 'Could not record the payment.')),
     });
   }
 
@@ -1029,8 +1462,16 @@ export class FinanceComponent {
     return id.length > 8 ? id.slice(0, 8) : id;
   }
 
+  /**
+   * Brouillon vide. Le canal est fixé ici à l'espèce et ajusté à l'ouverture de la
+   * fenêtre : cette méthode sert à initialiser un champ de classe, donc avant que les
+   * `computed` du composant n'existent.
+   */
   private blank(): PaymentRequest {
-    return { studentId: '', amount: 0, method: 'Espèces', tranche: 1 };
+    return {
+      studentId: '', amount: 0, method: 'CASH', reference: null, tranche: 1,
+      paidOn: new Date().toISOString().slice(0, 10),
+    };
   }
 
   private blankExpense(): ExpenseRequest {
@@ -1038,6 +1479,14 @@ export class FinanceComponent {
   }
 
   private blankFee(): FeeConfigUpdate {
-    return { level: 'primary', subsystem: null, total: 0, tranches: [0, 0, 0], items: null };
+    return {
+      level: 'primary', subsystem: null, classId: null, total: 0,
+      tranches: [
+        { label: 'T1', amount: 0, dueOn: null },
+        { label: 'T2', amount: 0, dueOn: null },
+        { label: 'T3', amount: 0, dueOn: null },
+      ],
+      items: null,
+    };
   }
 }

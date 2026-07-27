@@ -9,5 +9,6 @@ import java.util.UUID;
 public interface PaymentRepository extends JpaRepository<Payment, UUID> {
     List<Payment> findBySchoolIdOrderByPaidOnDesc(UUID schoolId);
     List<Payment> findBySchoolIdAndPaidOnBetween(UUID schoolId, LocalDate from, LocalDate to);
+    List<Payment> findBySchoolIdAndStudentIdOrderByPaidOnAsc(UUID schoolId, UUID studentId);
     long countBySchoolId(UUID schoolId);
 }

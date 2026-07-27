@@ -105,11 +105,22 @@ CH_PARENT = {
         {"type": "figure", "img": "160-parent-accueil",
          "caption": {"fr": "Accueil du portail : sélecteur d'enfants, taux de présence, solde et coordonnées de l'école.",
                      "en": "Portal home: child selector, attendance rate, balance and school contacts."}},
-        {"type": "steps", "title": {"fr": "Les quatre onglets", "en": "The four tabs"}, "items": [
+        {"type": "steps", "title": {"fr": "Les cinq onglets", "en": "The five tabs"}, "items": [
             {"fr": "__Vue d'ensemble__ — taux de présence, solde de frais avec son statut (à jour, partiel, "
                    "impayé), nombre d'évaluations et coordonnées de l'établissement.",
              "en": "__Overview__ — attendance rate, fee balance with its status (up to date, partial, unpaid), "
                    "number of assessments and school contacts."},
+            {"fr": "__Frais & paiements__ — la **situation de scolarité** de l'enfant selon la grille de sa "
+                   "classe : montant annuel, part déjà réglée, reste à payer, **échéancier tranche par tranche** "
+                   "(réglée, partielle, à venir, en retard), **moyens de paiement** acceptés avec leurs "
+                   "coordonnées, et l'historique des reçus avec leur référence de transaction.",
+             "en": "__Fees & payments__ — the child's **fee position** according to their class grid: annual "
+                   "amount, share already paid, outstanding balance, **installment-by-installment schedule** "
+                   "(settled, partial, upcoming, overdue), accepted **payment methods** with their details, and the "
+                   "receipt history with transaction references.",
+             "img": "164-parent-frais",
+             "caption": {"fr": "Frais & paiements : échéancier de la classe, comment payer, et les reçus déjà émis.",
+                         "en": "Fees & payments: the class schedule, how to pay, and the receipts already issued."}},
             {"fr": "__Notes__ — le détail par matière, coefficient et séquence, avec la **moyenne pondérée** "
                    "calculée exactement comme sur le bulletin officiel.",
              "en": "__Grades__ — the detail per subject, coefficient and sequence, with the **weighted average** "
@@ -134,6 +145,14 @@ CH_PARENT = {
                          "en": "Suggestion box: composer on the left, history and statuses on the right."}},
         ]},
         {"type": "note", "tone": "info", "fr":
+            "Le parent **ne paie pas depuis l'application** : il règle par Orange Money, MTN MoMo, carte ou "
+            "virement avec les coordonnées affichées, puis transmet la **référence de transaction** à l'économat, "
+            "qui enregistre le versement. La situation se met à jour dès l'enregistrement.",
+         "en":
+            "The parent **does not pay inside the application**: they settle by Orange Money, MTN MoMo, card or "
+            "transfer using the details shown, then pass the **transaction reference** to the bursary, who records "
+            "it. The position updates as soon as the payment is recorded."},
+        {"type": "note", "tone": "info", "fr":
             "Quand plusieurs enfants sont rattachés au même compte, une barre de sélection apparaît en haut : "
             "changer d'enfant recharge notes, listes et soldes.",
          "en":
@@ -150,6 +169,12 @@ CH_PARENT = {
         {"type": "check", "items": [
             {"fr": "Me connecter avec un compte parent et consulter les notes.",
              "en": "Sign in with a parent account and consult the marks."},
+            {"fr": "Ouvrir __Frais & paiements__ et lire l'échéancier de la classe de l'enfant.",
+             "en": "Open __Fees & payments__ and read the child's class schedule."},
+            {"fr": "Retrouver le numéro Orange Money de l'école et les instructions de paiement.",
+             "en": "Find the school's Orange Money number and the payment instructions."},
+            {"fr": "Vérifier qu'un versement enregistré par l'économat apparaît dans « Mes versements ».",
+             "en": "Check that a payment recorded by the bursary appears under “My payments”."},
             {"fr": "Basculer d'un enfant à l'autre.", "en": "Switch from one child to the other."},
             {"fr": "Vérifier qu'une liste non publiée n'apparaît pas.",
              "en": "Check that an unpublished list does not appear."},
@@ -275,6 +300,12 @@ CH_FAQ = {
               "C'est volontaire et non contournable : le rôle parent est limité à son portail (§2.2)."],
              ["« Votre session a expiré ».",
               "Inactivité prolongée ou poste en veille. Reconnectez-vous ; le travail enregistré n'est pas perdu."],
+             ["Un élève n'a pas le bon montant de frais.",
+              "Il suit la grille de sa classe si elle existe, sinon celle de son niveau. Vérifiez qu'il est bien affecté à sa classe (§4.3) et regardez la portée des grilles (§11.2)."],
+             ["Impossible d'enregistrer un paiement Orange Money.",
+              "La référence de transaction est obligatoire pour ce canal, ou le canal a été désactivé dans __Finance → Moyens de paiement__ (§11.1)."],
+             ["Le parent ne voit pas comment payer.",
+              "Le canal n'est pas coché « Visible des parents », ou ses coordonnées sont vides (§11.1)."],
              ["Le taux de recouvrement semble faux.",
               "Il rapporte l'encaissé à l'attendu **de toute l'école**, d'après la grille des frais. Vérifiez que chaque niveau a bien sa grille (§11.1)."],
          ], "en": [
@@ -304,6 +335,12 @@ CH_FAQ = {
               "This is deliberate and cannot be bypassed: the parent role is limited to its portal (§2.2)."],
              ["“Your session has expired”.",
               "Long inactivity or a sleeping computer. Sign in again; saved work is not lost."],
+             ["A student has the wrong fee amount.",
+              "They follow their class grid when it exists, otherwise their level grid. Check they are assigned to their class (§4.3) and review the scope of the grids (§11.2)."],
+             ["An Orange Money payment cannot be recorded.",
+              "The transaction reference is mandatory for that channel, or the channel was disabled in __Finance → Payment methods__ (§11.1)."],
+             ["The parent cannot see how to pay.",
+              "The channel is not ticked “Shown to parents”, or its details are empty (§11.1)."],
              ["The recovery rate looks wrong.",
               "It compares collected against expected **for the whole school**, based on the fee grid. Check that each level has its grid (§11.1)."],
          ]}},
@@ -327,7 +364,9 @@ CH_ANNEXES = {
              ["Séquence", "Période d'évaluation (1 à 6) sur laquelle porte un bulletin."],
              ["PV", "Procès-verbal : classement d'une classe par moyenne pour une séquence."],
              ["APC", "Approche par compétences — format de bulletin de la maternelle et du primaire."],
-             ["Tranche", "Fraction du montant annuel des frais (T1, T2, T3)."],
+             ["Tranche", "Fraction du montant annuel des frais, avec son libellé et son échéance."],
+             ["Canal de paiement", "Moyen accepté par l'école : espèces, Orange Money (OM), MTN Mobile Money (MOMO), carte bancaire (MPGS), virement."],
+             ["Référence de transaction", "Identifiant fourni par l'opérateur (ID Orange Money, ID MoMo, n° d'autorisation MPGS) : la preuve du versement."],
              ["Matricule", "Identifiant interne de l'élève, attribué par le système."],
              ["NIU", "Identifiant unique national, saisi depuis le registre officiel."],
              ["Contact principal", "Responsable retenu pour les SMS : père, sinon mère, sinon tuteur."],
@@ -338,7 +377,9 @@ CH_ANNEXES = {
              ["Sequence", "Assessment period (1 to 6) a report card covers."],
              ["Master sheet", "Class ranking by average for one sequence."],
              ["APC", "Competency-based approach — the report card format for kindergarten and primary."],
-             ["Installment", "A fraction of the annual fee amount (T1, T2, T3)."],
+             ["Installment", "A fraction of the annual fee amount, with its label and due date."],
+             ["Payment channel", "A method the school accepts: cash, Orange Money (OM), MTN Mobile Money (MOMO), bank card (MPGS), transfer."],
+             ["Transaction reference", "The identifier issued by the operator (Orange Money ID, MoMo ID, MPGS authorisation number): the proof of payment."],
              ["Student ID", "Internal student identifier, assigned by the system."],
              ["NIU", "National unique identifier, taken from the official register."],
              ["Main contact", "The adult used for SMS: father, else mother, else guardian."],

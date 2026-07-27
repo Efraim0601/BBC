@@ -6,6 +6,9 @@ import com.bbc.sms.academic.Subject;
 import com.bbc.sms.academic.SubjectRepository;
 import com.bbc.sms.classkit.ClassKitService;
 import com.bbc.sms.classkit.dto.ClassKitDtos.ClassResourceView;
+import com.bbc.sms.finance.FeeService;
+import com.bbc.sms.finance.dto.FeeDtos.PaymentChannelView;
+import com.bbc.sms.finance.dto.FeeDtos.StudentFeeStatementView;
 import com.bbc.sms.parentportal.dto.ParentDtos.*;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AppUserPrincipal;
@@ -35,19 +38,22 @@ public class ParentService {
     private final SubjectRepository subjects;
     private final SuggestionRepository suggestions;
     private final ClassKitService classKit;
+    private final FeeService fees;
 
     public ParentService(JdbcTemplate jdbc,
                          StudentRepository students,
                          GradeRepository grades,
                          SubjectRepository subjects,
                          SuggestionRepository suggestions,
-                         ClassKitService classKit) {
+                         ClassKitService classKit,
+                         FeeService fees) {
         this.jdbc = jdbc;
         this.students = students;
         this.grades = grades;
         this.subjects = subjects;
         this.suggestions = suggestions;
         this.classKit = classKit;
+        this.fees = fees;
     }
 
     /** Student ids linked to the given parent account. */
@@ -74,20 +80,15 @@ public class ParentService {
 
             String name = s.getLastName().toUpperCase() + " " + s.getFirstName();
 
-            long[] balance = {0L};
-            String[] status = {"unpaid"};
-            jdbc.query(
-                    "SELECT balance, status FROM student_fee WHERE school_id = ? AND student_id = ?",
-                    rs -> {
-                        balance[0] = rs.getLong("balance");
-                        status[0] = rs.getString("status");
-                    },
-                    schoolId, studentId);
+            // Même calcul que l'onglet « Frais & paiements » (grille de la classe moins les
+            // versements reçus) : deux écrans du même portail ne peuvent pas annoncer
+            // deux soldes différents au parent.
+            StudentFeeStatementView st = fees.statement(schoolId, studentId);
 
             int attendanceRate = attendanceRate(schoolId, studentId);
 
             out.add(new ChildView(studentId, s.getMatricule(), name, s.getClassName(),
-                    balance[0], status[0], attendanceRate));
+                    st.balance(), st.status(), attendanceRate));
         }
         return out;
     }
@@ -131,6 +132,21 @@ public class ParentService {
             return new ClassResourceView(null, s.getClassName(), kind, false, null, List.of());
         }
         return classKit.publishedForClass(s.getClassId(), kind);
+    }
+
+    /**
+     * Situation de scolarité d'un enfant : grille de sa classe découpée en tranches,
+     * part déjà réglée, reste à payer et reçus. C'est la vue qui permet au parent de
+     * suivre un paiement progressif sans passer par le secrétariat.
+     */
+    public StudentFeeStatementView feeStatement(AppUserPrincipal p, UUID studentId) {
+        assertOwnership(p.schoolId(), p.userId(), studentId);
+        return fees.statement(p.schoolId(), studentId);
+    }
+
+    /** Moyens de paiement que l'école accepte et publie aux familles (avec leurs coordonnées). */
+    public List<PaymentChannelView> paymentChannels(AppUserPrincipal p) {
+        return fees.parentChannels(p.schoolId());
     }
 
     private static String labelOr(Map<String, String> label, String lang, String fallback) {

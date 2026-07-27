@@ -28,12 +28,20 @@ public class FeeConfig {
 
     private String subsystem;
 
+    /**
+     * Classe à laquelle cette grille s'applique. {@code null} = grille par défaut du
+     * niveau ; renseignée, elle prime sur celle du niveau pour les élèves de la classe.
+     */
+    @Column(name = "class_id")
+    private UUID classId;
+
     @Column(nullable = false)
     private long total;
 
+    /** Tranches nommées : {@code [{label, amount, dueOn}]} — l'ordre fait foi. */
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(columnDefinition = "jsonb")
-    private List<Long> tranches;
+    private List<Map<String, Object>> tranches;
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(columnDefinition = "jsonb")

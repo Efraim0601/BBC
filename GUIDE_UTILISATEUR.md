@@ -794,41 +794,74 @@ La grille couvre **six jours** (lundi → samedi) et **neuf créneaux** horaires
 
 **Pour qui :** Économe (écriture) ; direction en lecture. Les captures de ce chapitre sont prises avec un compte économe.
 
-Quatre onglets : **Encaissements**, **Débiteurs**, **Dépenses** et **Frais**. Chaque onglet charge ses données à la première visite, et le bouton **Exporter** produit un CSV de l'onglet courant.
+Cinq onglets : **Encaissements**, **Débiteurs**, **Dépenses**, **Frais** et **Moyens de paiement**. Chaque onglet charge ses données à la première visite, et le bouton **Exporter** produit un CSV de l'onglet courant.
 
 > **À savoir** — Un compte en **lecture seule** voit les mêmes chiffres, sans aucun bouton d'écriture : le bandeau « Lecture seule » le rappelle en haut de page.
 
-### 11.1 Définir la grille des frais (à faire en premier)
+### 11.1 Configurer les moyens de paiement
 
-1. Onglet **Frais** → **Nouvelle grille**. Choisissez le **niveau** (Primaire ou Secondaire) et le **sous-système** (Francophone, Anglophone, ou « Les deux »).
+L'école encaisse par **espèces**, **Orange Money**, **MTN Mobile Money**, **carte bancaire (MPGS)** et **virement**. Chaque canal porte les coordonnées que les familles utiliseront pour payer : c'est cette configuration qui rend le paiement progressif possible depuis la maison.
 
-   ![Grille des frais : total annuel et découpage en tranches.](frontend/public/guide/img/fr-96-finance-grille-frais.webp)
-   *Grille des frais : total annuel et découpage en tranches.*
+1. Ouvrez l'onglet **Moyens de paiement**. Les cinq canaux sont livrés préconfigurés ; trois interrupteurs les pilotent.
 
-2. Saisissez le **total annuel**, puis les **tranches** (T1, T2, T3…). **Ajouter** crée une tranche supplémentaire, la croix en supprime une.
-3. La somme des tranches doit **égaler** le total annuel : un rappel s'affiche sous les champs et le serveur refuse un écart.
+   ![Chaque canal : actif, visible des parents, référence obligatoire, et ses coordonnées.](frontend/public/guide/img/fr-98-finance-moyens-paiement.webp)
+   *Chaque canal : actif, visible des parents, référence obligatoire, et ses coordonnées.*
+
+2. **Actif** autorise l'encaissement par ce canal. **Visible des parents** le publie dans le portail parent avec ses coordonnées. **Référence obligatoire** impose la saisie de l'identifiant de transaction : laissez-la cochée pour OM, MoMo, MPGS et virement — c'est la preuve du versement.
+3. Cliquez **Coordonnées** pour saisir le **numéro à créditer** (Orange Money, MoMo), l'**identifiant marchand** (MPGS) ou le **RIB** (virement), l'intitulé du compte et les instructions affichées au parent, en français et en anglais.
+
+   ![Coordonnées et instructions : elles s'affichent telles quelles dans le portail parent.](frontend/public/guide/img/fr-99-finance-canal-coordonnees.webp)
+   *Coordonnées et instructions : elles s'affichent telles quelles dans le portail parent.*
+
+4. **Enregistrer**. Le parent voit immédiatement le canal dans son espace, onglet **Frais & paiements**.
+
+> **Attention** — Ces canaux servent à **enregistrer et tracer** un versement, pas à le déclencher : le parent paie depuis son téléphone ou à la banque, puis transmet la référence à l'économat qui saisit l'encaissement. Aucun débit n'est initié par l'application.
+
+### 11.2 Définir la grille des frais (par niveau ou par classe)
+
+Une grille décrit ce qu'un élève doit sur l'année et **comment ce montant se découpe en tranches**. Elle se définit à deux niveaux : une grille par **niveau** (le cas général) et, si les frais diffèrent, une **surcharge par classe** qui prime pour les élèves de cette classe.
+
+1. Onglet **Frais** → **Nouvelle grille**. Le tableau distingue les grilles de niveau des surcharges de classe, repérées par une pastille « classe ».
+
+   ![Grilles de l'établissement : par niveau, et la surcharge de la classe 4ème.](frontend/public/guide/img/fr-96-finance-grille-frais.webp)
+   *Grilles de l'établissement : par niveau, et la surcharge de la classe 4ème.*
+
+2. Choisissez la portée : **Grille du niveau** (niveau + sous-système) ou **Surcharge par classe**, puis la classe concernée. Le niveau et le sous-système suivent alors automatiquement la classe.
+
+   ![Surcharge de classe : total annuel et tranches nommées avec leur échéance.](frontend/public/guide/img/fr-97-finance-grille-classe.webp)
+   *Surcharge de classe : total annuel et tranches nommées avec leur échéance.*
+
+3. Saisissez le **total annuel**, puis les **tranches** : un **libellé** (« Inscription », « Tranche 2 »…), un **montant** et une **échéance**. **Ajouter une tranche** en crée une de plus, la croix en retire une. Il peut y en avoir autant que nécessaire.
+4. La somme des tranches doit **égaler** le total annuel : un rappel s'affiche sous les champs et le serveur refuse un écart.
+5. **Enregistrer**. Les soldes de tous les élèves concernés sont recalculés immédiatement, et la corbeille d'une surcharge fait retomber la classe sur la grille de son niveau.
+
+> **À savoir** — L'échéance sert au parent : une tranche non réglée après sa date apparaît **en retard** dans son espace, en rouge. Laissez le champ vide si l'école ne fixe pas de date.
 
 > **Attention** — Cette grille sert de référence à **tout le reste** : solde de chaque élève, liste des débiteurs, taux de recouvrement et blocage des bulletins. Renseignez-la avant le premier encaissement de l'année.
 
-### 11.2 Encaisser un paiement
+### 11.3 Encaisser un paiement
 
 1. Cliquez **Nouveau paiement**. Choisissez la **classe** puis l'**élève** : la seconde liste se remplit après la première.
 
-   ![Fenêtre d'encaissement : élève, tranche, montant et méthode.](frontend/public/guide/img/fr-91-finance-nouveau-paiement.webp)
-   *Fenêtre d'encaissement : élève, tranche, montant et méthode.*
+   ![La situation de l'élève s'affiche : grille appliquée, reste à payer et tranches.](frontend/public/guide/img/fr-91-finance-nouveau-paiement.webp)
+   *La situation de l'élève s'affiche : grille appliquée, reste à payer et tranches.*
 
-2. Sélectionnez la **tranche** (T1, T2, T3), saisissez le **montant** et choisissez la **méthode** : Espèces, Mobile Money ou Virement.
-3. **Générer le reçu** enregistre le paiement et ouvre immédiatement le reçu numéroté.
+2. La **situation de l'élève** apparaît aussitôt : grille appliquée (classe ou niveau), reste à payer et **état de chaque tranche** — verte si réglée, rouge si en retard. La première tranche non soldée est présélectionnée et le montant restant pré-rempli ; cliquez une autre tranche pour changer.
+3. Ajustez le **montant** si le parent verse une somme partielle, et la **date** si l'encaissement est antérieur.
+4. Choisissez le **moyen de paiement** parmi les canaux actifs (§11.1). Pour Orange Money, MTN MoMo, MPGS ou un virement, saisissez la **référence de transaction** communiquée par le parent : sans elle, l'enregistrement est refusé. Le numéro du compte de l'école est rappelé sous le champ.
+5. **Générer le reçu** enregistre le paiement et ouvre immédiatement le reçu numéroté.
 
    ![Reçu : numéro, date, tranche, montant, méthode et cachet de l'école.](frontend/public/guide/img/fr-92-finance-recu.webp)
    *Reçu : numéro, date, tranche, montant, méthode et cachet de l'école.*
 
-4. **Imprimer** envoie le reçu à l'imprimante ou au PDF. Il reste consultable à tout moment via l'icône reçu de l'historique.
+6. **Imprimer** envoie le reçu à l'imprimante ou au PDF. Il reste consultable à tout moment via l'icône reçu de l'historique.
 
-![Onglet Encaissements : indicateurs 30 jours, courbe des recettes et historique filtrable par méthode.](frontend/public/guide/img/fr-90-finance-encaissements.webp)
-*Onglet Encaissements : indicateurs 30 jours, courbe des recettes et historique filtrable par méthode.*
+![Onglet Encaissements : indicateurs 30 jours, courbe des recettes et historique — chaque ligne porte son canal et sa référence.](frontend/public/guide/img/fr-90-finance-encaissements.webp)
+*Onglet Encaissements : indicateurs 30 jours, courbe des recettes et historique — chaque ligne porte son canal et sa référence.*
 
-### 11.3 Suivre les débiteurs
+> **Astuce** — La référence saisie est reprise dans l'historique, dans l'export CSV et dans l'espace du parent : en cas de contestation, elle permet de retrouver la transaction chez l'opérateur.
+
+### 11.4 Suivre les débiteurs
 
 1. Onglet **Débiteurs** : trois indicateurs — total impayé, montant déjà encaissé et **taux de recouvrement** (encaissé ÷ attendu, sur toute l'école).
 
@@ -838,7 +871,7 @@ Quatre onglets : **Encaissements**, **Débiteurs**, **Dépenses** et **Frais**. 
 2. Filtrez par **classe** ou cherchez un élève par son nom. Chaque ligne indique l'attendu, le payé, le solde et un statut : payé, partiel ou impayé.
 3. **Exporter** produit la liste de relance au format CSV.
 
-### 11.4 Enregistrer une dépense
+### 11.5 Enregistrer une dépense
 
 1. Onglet **Dépenses** → **Nouvelle dépense** : date, **catégorie** (salaires, fournitures, énergie, eau, maintenance, transport, cantine, internet, examens, sport, santé, divers), libellé et montant.
 
@@ -854,8 +887,11 @@ Quatre onglets : **Encaissements**, **Débiteurs**, **Dépenses** et **Frais**. 
 
 **Fiche de test — je sais faire**
 
-- [ ] Créer une grille de frais dont les tranches totalisent le montant annuel.
-- [ ] Encaisser un paiement et imprimer le reçu.
+- [ ] Renseigner le numéro Orange Money et MTN MoMo de l'école, puis les rendre visibles des parents.
+- [ ] Créer une grille de niveau dont les tranches totalisent le montant annuel.
+- [ ] Créer une surcharge pour une classe avec quatre tranches datées, et vérifier qu'un élève de cette classe la suit.
+- [ ] Encaisser une tranche par Orange Money avec sa référence, et constater le refus si la référence manque.
+- [ ] Imprimer le reçu correspondant.
 - [ ] Retrouver l'élève dans la liste des débiteurs et lire son solde.
 - [ ] Enregistrer une dépense et vérifier l'effet sur le solde 30 jours.
 - [ ] Exporter la liste des débiteurs.
@@ -1088,23 +1124,30 @@ Un compte parent se connecte à la **même adresse** que le personnel, avec le m
 ![Accueil du portail : sélecteur d'enfants, taux de présence, solde et coordonnées de l'école.](frontend/public/guide/img/fr-160-parent-accueil.webp)
 *Accueil du portail : sélecteur d'enfants, taux de présence, solde et coordonnées de l'école.*
 
-**Les quatre onglets**
+**Les cinq onglets**
 1. **Vue d'ensemble** — taux de présence, solde de frais avec son statut (à jour, partiel, impayé), nombre d'évaluations et coordonnées de l'établissement.
-2. **Notes** — le détail par matière, coefficient et séquence, avec la **moyenne pondérée** calculée exactement comme sur le bulletin officiel.
+2. **Frais & paiements** — la **situation de scolarité** de l'enfant selon la grille de sa classe : montant annuel, part déjà réglée, reste à payer, **échéancier tranche par tranche** (réglée, partielle, à venir, en retard), **moyens de paiement** acceptés avec leurs coordonnées, et l'historique des reçus avec leur référence de transaction.
+
+   ![Frais & paiements : échéancier de la classe, comment payer, et les reçus déjà émis.](frontend/public/guide/img/fr-164-parent-frais.webp)
+   *Frais & paiements : échéancier de la classe, comment payer, et les reçus déjà émis.*
+
+3. **Notes** — le détail par matière, coefficient et séquence, avec la **moyenne pondérée** calculée exactement comme sur le bulletin officiel.
 
    ![Notes de l'enfant sélectionné, avec moyenne pondérée en pied de tableau.](frontend/public/guide/img/fr-161-parent-notes.webp)
    *Notes de l'enfant sélectionné, avec moyenne pondérée en pied de tableau.*
 
-3. **Fournitures & manuels** — les listes **publiées** par l'école pour la classe de l'enfant (chapitre 14), avec le coût total des manuels.
+4. **Fournitures & manuels** — les listes **publiées** par l'école pour la classe de l'enfant (chapitre 14), avec le coût total des manuels.
 
    ![Listes de rentrée telles que les voit la famille.](frontend/public/guide/img/fr-162-parent-fournitures.webp)
    *Listes de rentrée telles que les voit la famille.*
 
-4. **Boîte à suggestions** — message à l'école, classé en Suggestion, Question, Réclamation ou Remerciement. Le parent suit l'état de chacun de ses messages : en attente de lecture, lu, traité, clôturé.
+5. **Boîte à suggestions** — message à l'école, classé en Suggestion, Question, Réclamation ou Remerciement. Le parent suit l'état de chacun de ses messages : en attente de lecture, lu, traité, clôturé.
 
    ![Boîte à suggestions : rédaction à gauche, historique et statuts à droite.](frontend/public/guide/img/fr-163-parent-suggestions.webp)
    *Boîte à suggestions : rédaction à gauche, historique et statuts à droite.*
 
+
+> **À savoir** — Le parent **ne paie pas depuis l'application** : il règle par Orange Money, MTN MoMo, carte ou virement avec les coordonnées affichées, puis transmet la **référence de transaction** à l'économat, qui enregistre le versement. La situation se met à jour dès l'enregistrement.
 
 > **À savoir** — Quand plusieurs enfants sont rattachés au même compte, une barre de sélection apparaît en haut : changer d'enfant recharge notes, listes et soldes.
 
@@ -1113,6 +1156,9 @@ Un compte parent se connecte à la **même adresse** que le personnel, avec le m
 **Fiche de test — je sais faire**
 
 - [ ] Me connecter avec un compte parent et consulter les notes.
+- [ ] Ouvrir **Frais & paiements** et lire l'échéancier de la classe de l'enfant.
+- [ ] Retrouver le numéro Orange Money de l'école et les instructions de paiement.
+- [ ] Vérifier qu'un versement enregistré par l'économat apparaît dans « Mes versements ».
 - [ ] Basculer d'un enfant à l'autre.
 - [ ] Vérifier qu'une liste non publiée n'apparaît pas.
 - [ ] Envoyer un message depuis la boîte à suggestions.
@@ -1175,6 +1221,9 @@ Chaque étape dépend de la précédente. Suivre cet ordre évite les blocages c
 | Les parents ne voient pas la liste de fournitures. | La liste est restée en **brouillon**. Cliquez **Publier** (chapitre 14). |
 | Impossible d'accorder un module au rôle parent. | C'est volontaire et non contournable : le rôle parent est limité à son portail (§2.2). |
 | « Votre session a expiré ». | Inactivité prolongée ou poste en veille. Reconnectez-vous ; le travail enregistré n'est pas perdu. |
+| Un élève n'a pas le bon montant de frais. | Il suit la grille de sa classe si elle existe, sinon celle de son niveau. Vérifiez qu'il est bien affecté à sa classe (§4.3) et regardez la portée des grilles (§11.2). |
+| Impossible d'enregistrer un paiement Orange Money. | La référence de transaction est obligatoire pour ce canal, ou le canal a été désactivé dans **Finance → Moyens de paiement** (§11.1). |
+| Le parent ne voit pas comment payer. | Le canal n'est pas coché « Visible des parents », ou ses coordonnées sont vides (§11.1). |
 | Le taux de recouvrement semble faux. | Il rapporte l'encaissé à l'attendu **de toute l'école**, d'après la grille des frais. Vérifiez que chaque niveau a bien sa grille (§11.1). |
 
 
@@ -1193,7 +1242,9 @@ Chaque étape dépend de la précédente. Suivre cet ordre évite les blocages c
 | Séquence | Période d'évaluation (1 à 6) sur laquelle porte un bulletin. |
 | PV | Procès-verbal : classement d'une classe par moyenne pour une séquence. |
 | APC | Approche par compétences — format de bulletin de la maternelle et du primaire. |
-| Tranche | Fraction du montant annuel des frais (T1, T2, T3). |
+| Tranche | Fraction du montant annuel des frais, avec son libellé et son échéance. |
+| Canal de paiement | Moyen accepté par l'école : espèces, Orange Money (OM), MTN Mobile Money (MOMO), carte bancaire (MPGS), virement. |
+| Référence de transaction | Identifiant fourni par l'opérateur (ID Orange Money, ID MoMo, n° d'autorisation MPGS) : la preuve du versement. |
 | Matricule | Identifiant interne de l'élève, attribué par le système. |
 | NIU | Identifiant unique national, saisi depuis le registre officiel. |
 | Contact principal | Responsable retenu pour les SMS : père, sinon mère, sinon tuteur. |

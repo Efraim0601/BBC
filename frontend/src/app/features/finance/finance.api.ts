@@ -7,7 +7,10 @@ import { FinanceSummary, PaymentView } from '../../core/models';
 export interface PaymentRequest {
   studentId: string;
   amount: number;
+  /** Code du canal encaissé : CASH, OM, MOMO, MPGS, TRANSFER… */
   method: string;
+  /** Référence de transaction de l'opérateur — exigée par certains canaux. */
+  reference?: string | null;
   tranche?: number;
   paidOn?: string;
 }
@@ -40,21 +43,100 @@ export interface ExpenseRequest {
   amount: number;
 }
 
+/** Une tranche de la grille : libellé, montant et échéance facultative. */
+export interface TrancheView {
+  label: string;
+  amount: number;
+  dueOn: string | null;
+}
+
 export interface FeeConfigView {
   id: string;
   level: string;
   subsystem: string | null;
+  /** Null = grille du niveau ; renseigné = surcharge appliquée à cette classe. */
+  classId: string | null;
+  className: string | null;
   total: number;
-  tranches: number[];
+  tranches: TrancheView[];
   items: Record<string, unknown>[] | null;
 }
 
 export interface FeeConfigUpdate {
   level: string;
   subsystem?: string | null;
+  classId?: string | null;
   total: number;
-  tranches: number[];
+  tranches: TrancheView[];
   items?: Record<string, unknown>[] | null;
+}
+
+/** Moyen de paiement accepté par l'établissement. */
+export interface PaymentChannelView {
+  id: string;
+  code: string;
+  labelFr: string;
+  labelEn: string;
+  /** Numéro Orange Money / MoMo, identifiant marchand MPGS, RIB… */
+  accountRef: string | null;
+  accountName: string | null;
+  instructionsFr: string | null;
+  instructionsEn: string | null;
+  requiresReference: boolean;
+  enabled: boolean;
+  visibleToParents: boolean;
+  sortOrder: number;
+}
+
+export interface PaymentChannelUpdate {
+  labelFr?: string;
+  labelEn?: string;
+  accountRef?: string | null;
+  accountName?: string | null;
+  instructionsFr?: string | null;
+  instructionsEn?: string | null;
+  requiresReference?: boolean;
+  enabled?: boolean;
+  visibleToParents?: boolean;
+  sortOrder?: number;
+}
+
+export interface TrancheStatusView {
+  index: number;
+  label: string;
+  amount: number;
+  dueOn: string | null;
+  paid: number;
+  remaining: number;
+  status: 'paid' | 'partial' | 'pending';
+  overdue: boolean;
+}
+
+export interface PaymentLineView {
+  receiptNo: string;
+  paidOn: string;
+  amount: number;
+  method: string;
+  methodLabelFr: string;
+  methodLabelEn: string;
+  reference: string | null;
+  tranche: number | null;
+}
+
+/** Situation de scolarité d'un élève, telle que la voient l'économat et le parent. */
+export interface StudentFeeStatementView {
+  studentId: string;
+  studentName: string;
+  matricule: string;
+  className: string;
+  gridSource: 'class' | 'level' | null;
+  total: number;
+  paid: number;
+  balance: number;
+  progressPct: number;
+  status: 'paid' | 'partial' | 'unpaid';
+  tranches: TrancheStatusView[];
+  payments: PaymentLineView[];
 }
 
 @Injectable({ providedIn: 'root' })
@@ -94,5 +176,17 @@ export class FinanceApi {
   }
   saveFeeConfig(body: FeeConfigUpdate): Observable<FeeConfigView> {
     return this.http.put<FeeConfigView>(`${this.base}/fees/config`, body);
+  }
+  deleteFeeConfig(id: string): Observable<void> {
+    return this.http.delete<void>(`${this.base}/fees/config/${id}`);
+  }
+  statement(studentId: string): Observable<StudentFeeStatementView> {
+    return this.http.get<StudentFeeStatementView>(`${this.base}/students/${studentId}/statement`);
+  }
+  channels(): Observable<PaymentChannelView[]> {
+    return this.http.get<PaymentChannelView[]>(`${this.base}/channels`);
+  }
+  updateChannel(code: string, body: PaymentChannelUpdate): Observable<PaymentChannelView> {
+    return this.http.put<PaymentChannelView>(`${this.base}/channels/${encodeURIComponent(code)}`, body);
   }
 }

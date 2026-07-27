@@ -30,8 +30,12 @@ public class Payment {
     @Column(nullable = false)
     private long amount;
 
+    /** Code du canal (payment_channel.code) : CASH, OM, MOMO, MPGS, TRANSFER… */
     @Column(nullable = false)
     private String method;
+
+    /** Référence de la transaction chez l'opérateur — la preuve côté parent. */
+    private String reference;
 
     private Integer tranche;
 

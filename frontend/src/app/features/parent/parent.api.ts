@@ -23,6 +23,61 @@ export interface GradeView {
   mark: number;
 }
 
+/** Une tranche vue par le parent : ce qui est couvert, ce qui reste, l'échéance. */
+export interface TrancheStatusView {
+  index: number;
+  label: string;
+  amount: number;
+  dueOn: string | null;
+  paid: number;
+  remaining: number;
+  status: 'paid' | 'partial' | 'pending';
+  overdue: boolean;
+}
+
+export interface PaymentLineView {
+  receiptNo: string;
+  paidOn: string;
+  amount: number;
+  method: string;
+  methodLabelFr: string;
+  methodLabelEn: string;
+  reference: string | null;
+  tranche: number | null;
+}
+
+/** Situation de scolarité d'un enfant, selon la grille de sa classe. */
+export interface StudentFeeStatementView {
+  studentId: string;
+  studentName: string;
+  matricule: string;
+  className: string;
+  gridSource: 'class' | 'level' | null;
+  total: number;
+  paid: number;
+  balance: number;
+  progressPct: number;
+  status: 'paid' | 'partial' | 'unpaid';
+  tranches: TrancheStatusView[];
+  payments: PaymentLineView[];
+}
+
+/** Moyen de paiement publié par l'école, avec ses coordonnées. */
+export interface PaymentChannelView {
+  id: string;
+  code: string;
+  labelFr: string;
+  labelEn: string;
+  accountRef: string | null;
+  accountName: string | null;
+  instructionsFr: string | null;
+  instructionsEn: string | null;
+  requiresReference: boolean;
+  enabled: boolean;
+  visibleToParents: boolean;
+  sortOrder: number;
+}
+
 export interface SuggestionView {
   id: string;
   category: string;
@@ -69,6 +124,12 @@ export class ParentApi {
   }
   resources(studentId: string, kind: ResourceKind): Observable<ClassResourceView> {
     return this.http.get<ClassResourceView>(`${this.base}/children/${studentId}/resources/${kind}`);
+  }
+  fees(studentId: string): Observable<StudentFeeStatementView> {
+    return this.http.get<StudentFeeStatementView>(`${this.base}/children/${studentId}/fees`);
+  }
+  paymentChannels(): Observable<PaymentChannelView[]> {
+    return this.http.get<PaymentChannelView[]>(`${this.base}/payment-channels`);
   }
   addSuggestion(body: SuggestionRequest): Observable<SuggestionView> {
     return this.http.post<SuggestionView>(`${this.base}/suggestions`, body);

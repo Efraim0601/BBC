@@ -25,16 +25,20 @@ public class FinanceService {
     private final StudentFeeRepository studentFees;
     private final FeeConfigRepository feeConfigs;
     private final StudentRepository students;
+    private final FeeService fees;
+    private final PaymentChannelRepository channels;
 
     public FinanceService(PaymentRepository payments, ExpenseRepository expenses, RealtimeService realtime,
                           StudentFeeRepository studentFees, FeeConfigRepository feeConfigs,
-                          StudentRepository students) {
+                          StudentRepository students, FeeService fees, PaymentChannelRepository channels) {
         this.payments = payments;
         this.expenses = expenses;
         this.realtime = realtime;
         this.studentFees = studentFees;
         this.feeConfigs = feeConfigs;
         this.students = students;
+        this.fees = fees;
+        this.channels = channels;
     }
 
     @Transactional(readOnly = true)
@@ -56,12 +60,23 @@ public class FinanceService {
     @Transactional
     public PaymentView recordPayment(PaymentRequest in) {
         UUID schoolId = TenantContext.get();
+
+        // Le canal doit exister et être actif ; ceux qui l'exigent (mobile money, carte,
+        // virement) imposent la référence de transaction, seule preuve opposable au parent.
+        PaymentChannel channel = fees.requireEnabledChannel(schoolId, in.method());
+        String reference = in.reference() == null || in.reference().isBlank() ? null : in.reference().trim();
+        if (channel.isRequiresReference() && reference == null) {
+            throw com.bbc.sms.platform.common.ApiException.badRequest(
+                    "Le moyen de paiement « " + channel.getLabelFr() + " » exige une référence de transaction.");
+        }
+
         Payment p = new Payment();
         p.setSchoolId(schoolId);
         p.setReceiptNo("RCT-2026-" + String.format("%04d", 1000 + payments.countBySchoolId(schoolId)));
         p.setStudentId(in.studentId());
         p.setAmount(in.amount());
-        p.setMethod(in.method());
+        p.setMethod(channel.getCode());
+        p.setReference(reference);
         p.setTranche(in.tranche());
         p.setPaidOn(in.paidOn() == null ? LocalDate.now() : in.paidOn());
         PaymentView view = toView(payments.save(p));
@@ -99,32 +114,24 @@ public class FinanceService {
         studentFees.save(fee);
     }
 
-    /** Fee-grid total for the student's level/subsystem, or 0 when no grid matches. */
+    /** Montant attendu selon la grille applicable à l'élève (classe, sinon niveau), 0 si aucune. */
     private long expectedTotal(UUID schoolId, UUID studentId) {
         Student s = students.findByIdAndSchoolId(studentId, schoolId).orElse(null);
-        if (s == null || s.getLevel() == null) return 0;
-        return feeConfigs.findBySchoolIdAndLevel(schoolId, s.getLevel()).stream()
-                .filter(c -> c.getSubsystem() == null || c.getSubsystem().equals(s.getSubsystem()))
-                .mapToLong(FeeConfig::getTotal)
-                .findFirst()
-                .orElse(0L);
+        return fees.resolveGrid(schoolId, s).map(FeeConfig::getTotal).orElse(0L);
     }
 
-    /** How many cumulative tranches the total paid now covers (falls back to the current count). */
+    /** Nombre de tranches entièrement couvertes par le total versé (valeur actuelle à défaut de grille). */
     private int tranchesCovered(UUID schoolId, UUID studentId, long paid, int current) {
         Student s = students.findByIdAndSchoolId(studentId, schoolId).orElse(null);
-        if (s == null || s.getLevel() == null) return current;
-        List<Long> tranches = feeConfigs.findBySchoolIdAndLevel(schoolId, s.getLevel()).stream()
-                .filter(c -> c.getSubsystem() == null || c.getSubsystem().equals(s.getSubsystem()))
-                .map(FeeConfig::getTranches)
-                .filter(t -> t != null && !t.isEmpty())
-                .findFirst()
-                .orElse(null);
-        if (tranches == null) return current;
+        FeeConfig grid = fees.resolveGrid(schoolId, s).orElse(null);
+        if (grid == null) return current;
+        var tranches = FeeService.fromJson(grid.getTranches());
+        if (tranches.isEmpty()) return current;
+
         long cumulative = 0;
         int covered = 0;
-        for (Long t : tranches) {
-            cumulative += t;
+        for (var t : tranches) {
+            cumulative += t.amount();
             if (paid >= cumulative) covered++;
             else break;
         }
@@ -191,9 +198,13 @@ public class FinanceService {
     /** {@code student} may be null — a payment can outlive the student record it points at. */
     private PaymentView toView(Payment p, Student s) {
         String name = s == null ? null : (s.getLastName() + " " + s.getFirstName()).trim();
+        PaymentChannel ch = channels.findBySchoolIdAndCode(p.getSchoolId(), p.getMethod()).orElse(null);
         return new PaymentView(p.getId(), p.getReceiptNo(), p.getStudentId(),
                 name, s == null ? null : s.getMatricule(), s == null ? null : s.getClassName(),
-                p.getAmount(), p.getMethod(), p.getTranche(), p.getPaidOn());
+                p.getAmount(), p.getMethod(),
+                ch == null ? p.getMethod() : ch.getLabelFr(),
+                ch == null ? p.getMethod() : ch.getLabelEn(),
+                p.getReference(), p.getTranche(), p.getPaidOn());
     }
 
     private ExpenseView toView(Expense e) {
