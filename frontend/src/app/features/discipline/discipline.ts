@@ -2,6 +2,9 @@ import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@a
 import { FormsModule } from '@angular/forms';
 import { DisciplineApi, IncidentView, IncidentUpsert, StudentLookup, NotifyResult } from './discipline.api';
 import { SettingsApi, CatalogItemView } from '../settings/settings.api';
+import { StudentApi } from '../students/students.api';
+import { SetupApi, ClassView } from '../../core/setup.api';
+import { Student } from '../../core/models';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
 import {
@@ -49,21 +52,34 @@ const FALLBACK_SANCTIONS = [
           @if (canWrite && showForm()) {
             <div class="rounded-xl border border-slate-100 bg-slate-50/50 p-4 mb-3 grid grid-cols-1 md:grid-cols-2 gap-2.5">
               <div>
-                <input [(ngModel)]="draft.studentRef" (ngModelChange)="onStudentRef($event)"
-                  [placeholder]="fr() ? 'Matricule / ID élève' : 'Matricule / Student ID'"
-                  class="w-full h-10 px-3 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-brand-400" />
-                @if (lookup(); as lu) {
-                  <div class="mt-2 flex items-center gap-2.5 p-2 rounded-lg bg-white border border-emerald-100">
-                    <bbc-avatar [name]="lu.name" [hue]="200" [size]="36" />
-                    <div class="min-w-0">
-                      <div class="text-sm font-semibold text-ink truncate">{{ lu.name }}</div>
-                      <div class="text-[11px] text-mute">{{ lu.matricule }} · {{ lu.className || (fr() ? 'Sans classe' : 'No class') }}</div>
-                    </div>
-                  </div>
-                } @else if (lookupErr(); as le) {
-                  <div class="mt-1.5 text-[11px] text-rose-600">{{ le }}</div>
-                }
+                <label class="block text-[11px] font-semibold text-mute mb-1">{{ fr() ? 'Classe' : 'Class' }}</label>
+                <select [ngModel]="incidentClass()" (ngModelChange)="onIncidentClass($event)"
+                  class="w-full h-10 px-3 rounded-lg border border-slate-200 text-sm bg-white focus:outline-none focus:border-brand-400">
+                  <option value="">{{ fr() ? '— Choisir —' : '— Choose —' }}</option>
+                  @for (c of setupClasses(); track c.id) {
+                    <option [value]="c.name">{{ c.name }}</option>
+                  }
+                </select>
               </div>
+              <div>
+                <label class="block text-[11px] font-semibold text-mute mb-1">{{ fr() ? 'Élève' : 'Student' }}</label>
+                <select [ngModel]="incidentStudentId()" (ngModelChange)="onIncidentStudent($event)" [disabled]="!incidentClass()"
+                  class="w-full h-10 px-3 rounded-lg border border-slate-200 text-sm bg-white focus:outline-none focus:border-brand-400 disabled:bg-slate-50">
+                  <option value="">{{ fr() ? '— Choisir —' : '— Choose —' }}</option>
+                  @for (s of incidentStudents(); track s.id) {
+                    <option [value]="s.id">{{ s.name }} · {{ s.matricule }}</option>
+                  }
+                </select>
+              </div>
+              @if (lookup(); as lu) {
+                <div class="md:col-span-2 flex items-center gap-2.5 p-2 rounded-lg bg-white border border-emerald-100">
+                  <bbc-avatar [name]="lu.name" [hue]="200" [size]="36" />
+                  <div class="min-w-0">
+                    <div class="text-sm font-semibold text-ink truncate">{{ lu.name }}</div>
+                    <div class="text-[11px] text-mute">{{ lu.matricule }} · {{ lu.className || (fr() ? 'Sans classe' : 'No class') }}</div>
+                  </div>
+                </div>
+              }
               <input [(ngModel)]="draft.incidentDate" type="date"
                 class="h-10 px-3 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-brand-400" />
               <select [(ngModel)]="draft.type"
@@ -199,14 +215,19 @@ export class DisciplineComponent {
   protected i18n = inject(I18nService);
   private api = inject(DisciplineApi);
   private settingsApi = inject(SettingsApi);
+  private setupApi = inject(SetupApi);
+  private studentApi = inject(StudentApi);
   private auth = inject(AuthService);
 
   protected rows = signal<IncidentView[]>([]);
   protected canWrite = this.auth.can('discipline', 'write');
   protected draft: IncidentUpsert = this.blank();
   protected lookup = signal<StudentLookup | null>(null);
-  protected lookupErr = signal<string | null>(null);
-  private lookupTimer: ReturnType<typeof setTimeout> | null = null;
+
+  protected setupClasses = signal<ClassView[]>([]);
+  protected incidentClass = signal('');
+  protected incidentStudents = signal<Student[]>([]);
+  protected incidentStudentId = signal('');
 
   protected showForm = signal(false);
   protected tpl = signal<'absence' | 'late' | 'summon' | 'closure'>('absence');
@@ -267,6 +288,7 @@ export class DisciplineComponent {
   constructor() {
     this.reload();
     this.loadCatalog();
+    this.setupApi.listClasses().subscribe({ next: (c) => this.setupClasses.set(c), error: () => {} });
   }
 
   private reload(): void {
@@ -290,25 +312,41 @@ export class DisciplineComponent {
   protected toggleForm(): void {
     this.showForm.update((v) => !v);
     this.lookup.set(null);
-    this.lookupErr.set(null);
+    this.incidentClass.set('');
+    this.incidentStudents.set([]);
+    this.incidentStudentId.set('');
   }
 
-  protected onStudentRef(ref: string): void {
-    this.draft.studentRef = ref;
+  protected onIncidentClass(name: string): void {
+    this.incidentClass.set(name);
+    this.incidentStudentId.set('');
+    this.incidentStudents.set([]);
+    this.draft.studentRef = '';
     this.lookup.set(null);
-    this.lookupErr.set(null);
-    if (this.lookupTimer) clearTimeout(this.lookupTimer);
-    const q = (ref || '').trim();
-    if (q.length < 3) return;
-    this.lookupTimer = setTimeout(() => {
-      this.api.lookup(q).subscribe({
-        next: (lu) => { this.lookup.set(lu); this.lookupErr.set(null); },
-        error: () => {
-          this.lookup.set(null);
-          this.lookupErr.set(this.fr() ? 'Élève introuvable' : 'Student not found');
-        },
-      });
-    }, 350);
+    if (!name) return;
+    this.studentApi.list(name).subscribe({
+      next: (r) => this.incidentStudents.set(r),
+      error: () => this.incidentStudents.set([]),
+    });
+  }
+
+  protected onIncidentStudent(id: string): void {
+    this.incidentStudentId.set(id);
+    const s = this.incidentStudents().find((x) => x.id === id);
+    if (!s) {
+      this.draft.studentRef = '';
+      this.lookup.set(null);
+      return;
+    }
+    this.draft.studentRef = s.matricule || s.id;
+    this.lookup.set({
+      id: s.id,
+      name: s.name,
+      matricule: s.matricule,
+      className: s.className,
+      parentName: '',
+      parentPhone: '',
+    });
   }
 
   protected save(): void {
@@ -317,6 +355,9 @@ export class DisciplineComponent {
       next: () => {
         this.draft = this.blank();
         this.lookup.set(null);
+        this.incidentClass.set('');
+        this.incidentStudents.set([]);
+        this.incidentStudentId.set('');
         this.showForm.set(false);
         this.reload();
       },

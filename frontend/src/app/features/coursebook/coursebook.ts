@@ -1,13 +1,13 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { CoursebookApi, ClassRef, EntryView, EntryUpsert } from './coursebook.api';
+import { CoursebookApi, EntryView, EntryUpsert } from './coursebook.api';
+import { SetupApi, ClassView, SubjectView } from '../../core/setup.api';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
 import {
   IconComponent, CardComponent, PageHeaderComponent, EmptyComponent, KpiComponent,
 } from '../../core/ui';
 
-interface SubjectOpt { code: string; fr: string; en: string; }
 interface DayGroup { date: string; entries: EntryView[]; }
 
 @Component({
@@ -65,8 +65,8 @@ interface DayGroup { date: string; entries: EntryView[]; }
               <label class="block text-[11px] font-semibold uppercase tracking-wide text-mute mb-1">{{ fr() ? 'Matière' : 'Subject' }}</label>
               <select [(ngModel)]="draft.subjectCode"
                 class="w-full h-10 px-3 rounded-lg border border-slate-200 text-sm bg-white focus:outline-none focus:border-brand-400">
-                @for (s of subjects; track s.code) {
-                  <option [value]="s.code">{{ fr() ? s.fr : s.en }}</option>
+                @for (s of subjectsForClass(); track s.id) {
+                  <option [value]="s.code">{{ subjectLabel(s) }}</option>
                 }
               </select>
             </div>
@@ -173,20 +173,11 @@ interface DayGroup { date: string; entries: EntryView[]; }
 export class CoursebookComponent {
   protected i18n = inject(I18nService);
   private api = inject(CoursebookApi);
+  private setupApi = inject(SetupApi);
   private auth = inject(AuthService);
 
-  protected readonly subjects: SubjectOpt[] = [
-    { code: 'MATH', fr: 'Mathématiques', en: 'Mathematics' },
-    { code: 'FR', fr: 'Français', en: 'French' },
-    { code: 'EN', fr: 'Anglais', en: 'English' },
-    { code: 'HG', fr: 'Histoire-Géographie', en: 'History-Geography' },
-    { code: 'SVT', fr: 'SVT', en: 'Biology' },
-    { code: 'PC', fr: 'Physique-Chimie', en: 'Physics-Chemistry' },
-    { code: 'EPS', fr: 'EPS', en: 'PE' },
-    { code: 'INFO', fr: 'Informatique', en: 'Computing' },
-  ];
-
-  protected classes = signal<ClassRef[]>([]);
+  protected subjects = signal<SubjectView[]>([]);
+  protected classes = signal<ClassView[]>([]);
   protected selectedClass = signal<string>('');
   protected entries = signal<EntryView[]>([]);
 
@@ -199,6 +190,14 @@ export class CoursebookComponent {
 
   protected homeworkCount = computed(() =>
     this.entries().filter((e) => !!e.homework).length);
+
+  protected subjectsForClass = computed(() => {
+    const name = this.selectedClass();
+    const cls = this.classes().find((c) => c.name === name);
+    const all = this.subjects();
+    if (!cls?.subsystem) return all;
+    return all.filter((s) => !s.subsystem || s.subsystem === cls.subsystem);
+  });
 
   protected groups = computed<DayGroup[]>(() => {
     const map = new Map<string, EntryView[]>();
@@ -213,7 +212,13 @@ export class CoursebookComponent {
   });
 
   constructor() {
-    this.api.classes().subscribe((r) => this.classes.set(r));
+    this.setupApi.listClasses().subscribe({ next: (c) => this.classes.set(c), error: () => {} });
+    this.setupApi.listSubjects().subscribe({ next: (s) => this.subjects.set(s), error: () => {} });
+  }
+
+  protected subjectLabel(s: SubjectView): string {
+    const l = s.label || {};
+    return (this.fr() ? l['fr'] : l['en']) || l['fr'] || l['en'] || s.code;
   }
 
   protected selectClass(name: string): void {
@@ -282,6 +287,12 @@ export class CoursebookComponent {
   }
 
   private blank(): EntryUpsert {
-    return { className: '', subjectCode: 'MATH', entryDate: '', content: '', homework: '', dueDate: '' };
+    const name = this.selectedClass();
+    const cls = this.classes().find((c) => c.name === name);
+    const all = this.subjects();
+    const filtered = cls?.subsystem
+      ? all.filter((s) => !s.subsystem || s.subsystem === cls.subsystem)
+      : all;
+    return { className: '', subjectCode: filtered[0]?.code ?? '', entryDate: '', content: '', homework: '', dueDate: '' };
   }
 }

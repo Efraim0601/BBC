@@ -2,6 +2,7 @@ import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@a
 import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { EventApi, EventView, EventUpsert } from './events.api';
+import { SetupApi, ClassView } from '../../core/setup.api';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
 import {
@@ -14,7 +15,6 @@ interface EventDraft {
   eventDate: string;
   description: string;
   audience: string;
-  targetClassesRaw: string;
 }
 
 interface TypeMeta {
@@ -241,9 +241,19 @@ const EVENT_TYPES: Record<string, TypeMeta> = {
                 </button>
               </div>
               @if (draft.audience === 'classes') {
-                <input [(ngModel)]="draft.targetClassesRaw"
-                  [placeholder]="fr() ? 'Classes ciblées (ex: 6ème, 5ème)' : 'Target classes (e.g. Form 1, Form 2)'"
-                  class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400" />
+                <div class="max-h-40 overflow-y-auto rounded-lg border border-slate-200 p-2 space-y-1">
+                  @for (c of setupClasses(); track c.id) {
+                    <label class="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-slate-50 cursor-pointer text-sm">
+                      <input type="checkbox" [checked]="selectedTargets().includes(c.name)"
+                        (change)="toggleTarget(c.name)"
+                        class="w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-400" />
+                      <span class="text-ink">{{ c.name }}</span>
+                      <span class="text-[11px] text-mute ml-auto">{{ c.subsystem }}</span>
+                    </label>
+                  } @empty {
+                    <div class="text-xs text-mute px-2 py-1">{{ fr() ? 'Aucune classe configurée' : 'No classes configured' }}</div>
+                  }
+                </div>
               }
             </div>
           </div>
@@ -263,10 +273,13 @@ const EVENT_TYPES: Record<string, TypeMeta> = {
 export class EventsComponent {
   protected i18n = inject(I18nService);
   private api = inject(EventApi);
+  private setupApi = inject(SetupApi);
   private auth = inject(AuthService);
 
   protected rows = signal<EventView[]>([]);
   protected counts = signal<Record<string, number>>({});
+  protected setupClasses = signal<ClassView[]>([]);
+  protected selectedTargets = signal<string[]>([]);
   protected canWrite = this.auth.can('events', 'write');
   protected creating = signal(false);
   protected draft: EventDraft = this.blank();
@@ -305,6 +318,7 @@ export class EventsComponent {
 
   constructor() {
     this.reload();
+    this.setupApi.listClasses().subscribe({ next: (c) => this.setupClasses.set(c), error: () => {} });
   }
 
   private reload(): void {
@@ -313,12 +327,19 @@ export class EventsComponent {
 
   protected openCreate(): void {
     this.draft = this.blank();
+    this.selectedTargets.set([]);
     this.creating.set(true);
   }
 
   protected closeCreate(): void {
     this.creating.set(false);
     this.draft = this.blank();
+    this.selectedTargets.set([]);
+  }
+
+  protected toggleTarget(name: string): void {
+    this.selectedTargets.update((list) =>
+      list.includes(name) ? list.filter((n) => n !== name) : [...list, name]);
   }
 
   protected save(): void {
@@ -329,13 +350,7 @@ export class EventsComponent {
       eventDate: this.draft.eventDate,
       description: this.draft.description,
       audience: this.draft.audience,
-      targetClasses:
-        this.draft.audience === 'classes'
-          ? this.draft.targetClassesRaw
-              .split(',')
-              .map((c) => c.trim())
-              .filter((c) => c.length > 0)
-          : [],
+      targetClasses: this.draft.audience === 'classes' ? [...this.selectedTargets()] : [],
     };
     this.api.create(body).subscribe(() => {
       this.closeCreate();
@@ -393,7 +408,6 @@ export class EventsComponent {
       eventDate: '',
       description: '',
       audience: 'all',
-      targetClassesRaw: '',
     };
   }
 }

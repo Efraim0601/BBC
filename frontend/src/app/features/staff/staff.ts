@@ -8,6 +8,7 @@ import {
 } from './staff.api';
 import { HrApi, DepartmentView, DepartmentUpsert, LeaveView, LeaveCreate } from './hr.api';
 import { SettingsApi, RoleView } from '../settings/settings.api';
+import { SetupApi, ClassView } from '../../core/setup.api';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
 import { downloadCsv, stampedName } from '../../core/csv';
@@ -607,7 +608,13 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                     }
                     <label class="block col-span-2">
                       <span class="text-xs font-semibold">{{ fr() ? 'Classe (PP)' : 'Form class' }}</span>
-                      <input [(ngModel)]="finalizeDraft.formClass" class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200" />
+                      <select [(ngModel)]="finalizeDraft.formClass"
+                        class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 bg-white">
+                        <option value="">{{ fr() ? '— Aucune —' : '— None —' }}</option>
+                        @for (c of setupClasses(); track c.id) {
+                          <option [value]="c.name">{{ c.name }}</option>
+                        }
+                      </select>
                     </label>
                   </div>
                   <div>
@@ -868,8 +875,13 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
               @if (draftRoles().includes('form_teacher')) {
                 <label class="block mt-3 max-w-xs">
                   <span class="text-xs font-semibold text-ink">{{ fr() ? 'Classe (Prof. Principal)' : 'Form class' }}</span>
-                  <input [(ngModel)]="draft.formClass" placeholder="6ème A"
-                    class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
+                  <select [(ngModel)]="draft.formClass"
+                    class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400">
+                    <option value="">{{ fr() ? '— Aucune —' : '— None —' }}</option>
+                    @for (c of setupClasses(); track c.id) {
+                      <option [value]="c.name">{{ c.name }}</option>
+                    }
+                  </select>
                 </label>
               }
             </section>
@@ -944,10 +956,12 @@ export class StaffComponent {
   private api = inject(StaffApi);
   private hrApi = inject(HrApi);
   private settingsApi = inject(SettingsApi);
+  private setupApi = inject(SetupApi);
   private auth = inject(AuthService);
 
   protected rows = signal<EmployeeView[]>([]);
   protected roleDefs = signal<RoleView[]>([]);
+  protected setupClasses = signal<ClassView[]>([]);
   protected tab = signal<'directory' | 'payroll' | 'departments' | 'leave' | 'applications'>('directory');
 
   // Applications / portal
@@ -1071,6 +1085,7 @@ export class StaffComponent {
     this.loadLeaves();
     this.loadPortal();
     this.loadApplications();
+    this.setupApi.listClasses().subscribe({ next: (c) => this.setupClasses.set(c), error: () => {} });
   }
 
   private reload(): void {

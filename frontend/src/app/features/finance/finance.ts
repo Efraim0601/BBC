@@ -4,9 +4,11 @@ import {
   FinanceApi, PaymentRequest, SituationView, ExpenseView, ExpenseRequest,
   FeeConfigView, FeeConfigUpdate,
 } from './finance.api';
+import { StudentApi } from '../students/students.api';
+import { SetupApi, ClassView } from '../../core/setup.api';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
-import { FinanceSummary, PaymentView } from '../../core/models';
+import { FinanceSummary, PaymentView, Student } from '../../core/models';
 import { downloadCsv, stampedName } from '../../core/csv';
 import {
   IconComponent, CardComponent, KpiComponent, PageHeaderComponent, EmptyComponent,
@@ -158,9 +160,12 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees';
 
           <bbc-card [title]="fr() ? 'Liste des débiteurs' : 'Debtors list'"
             [subtitle]="filteredDebtors().length + (fr() ? ' élèves avec un solde' : ' students with a balance')">
-            <div action class="flex items-center gap-2">
+            <div action class="flex flex-col sm:flex-row sm:items-center gap-2">
+              <bbc-chip-filter [allLabel]="fr() ? 'Toutes les classes' : 'All classes'" [value]="debtorClassFilter()"
+                (change)="debtorClassFilter.set($event)"
+                [options]="setupClasses().map(c => ({ value: c.name, label: c.name }))" />
               <input [ngModel]="debtorQuery()" (ngModelChange)="debtorQuery.set($event)" name="debtorQuery"
-                [placeholder]="fr() ? 'Rechercher un élève, une classe…' : 'Search a student, a class…'"
+                [placeholder]="fr() ? 'Rechercher un élève…' : 'Search a student…'"
                 class="h-9 w-56 px-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400" />
               <button (click)="exportDebtors()" [disabled]="!filteredDebtors().length"
                 class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed">
@@ -509,11 +514,27 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees';
             <button (click)="closePayment()" class="text-mute hover:text-ink"><bbc-icon name="x" [s]="18" /></button>
           </div>
           <div class="p-5 space-y-4">
-            <div>
-              <label class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'Élève (matricule / ID)' : 'Student (ID)' }}</label>
-              <input [(ngModel)]="draft.studentId"
-                [placeholder]="fr() ? 'Matricule ou identifiant élève…' : 'Student ID…'"
-                class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400 font-mono" />
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'Classe' : 'Class' }}</label>
+                <select [ngModel]="payClass()" (ngModelChange)="onPayClass($event)"
+                  class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400">
+                  <option value="">{{ fr() ? '— Choisir —' : '— Choose —' }}</option>
+                  @for (c of setupClasses(); track c.id) {
+                    <option [value]="c.name">{{ c.name }}</option>
+                  }
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'Élève' : 'Student' }}</label>
+                <select [(ngModel)]="draft.studentId" [disabled]="!payClass()"
+                  class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400 disabled:bg-slate-50">
+                  <option value="">{{ fr() ? '— Choisir —' : '— Choose —' }}</option>
+                  @for (s of payStudents(); track s.id) {
+                    <option [value]="s.id">{{ s.name }} · {{ s.matricule }}</option>
+                  }
+                </select>
+              </div>
             </div>
 
             <div>
@@ -656,6 +677,8 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees';
 export class FinanceComponent {
   protected i18n = inject(I18nService);
   private api = inject(FinanceApi);
+  private setupApi = inject(SetupApi);
+  private studentApi = inject(StudentApi);
   private auth = inject(AuthService);
 
   protected summary = signal<FinanceSummary | null>(null);
@@ -669,6 +692,10 @@ export class FinanceComponent {
   protected draft: PaymentRequest = this.blank();
   protected methods = ['Espèces', 'Mobile Money', 'Virement'];
 
+  protected setupClasses = signal<ClassView[]>([]);
+  protected payClass = signal('');
+  protected payStudents = signal<Student[]>([]);
+
   // --- debtors -------------------------------------------------------------
   /**
    * Holds /situation (every student), not /debtors (balances > 0 only): the KPIs need the
@@ -679,6 +706,7 @@ export class FinanceComponent {
   protected debtorsLoading = signal(false);
   protected debtorsError = signal(false);
   protected debtorQuery = signal('');
+  protected debtorClassFilter = signal<string | null>(null);
   private debtorsLoaded = false;
 
   // --- expenses ------------------------------------------------------------
@@ -736,11 +764,11 @@ export class FinanceComponent {
   protected debtors = computed(() => this.situation().filter((s) => s.balance > 0));
   protected filteredDebtors = computed(() => {
     const q = this.debtorQuery().trim().toLowerCase();
-    const list = this.debtors();
+    const cls = this.debtorClassFilter();
+    let list = this.debtors();
+    if (cls) list = list.filter((d) => d.className === cls);
     if (!q) return list;
-    return list.filter(
-      (d) => (d.studentName ?? '').toLowerCase().includes(q) || (d.className ?? '').toLowerCase().includes(q),
-    );
+    return list.filter((d) => (d.studentName ?? '').toLowerCase().includes(q));
   });
   protected debtTotal = computed(() => this.debtors().reduce((a, d) => a + d.balance, 0));
   /** School-wide, over every student — matches the Reports module's recovery rate. */
@@ -783,6 +811,7 @@ export class FinanceComponent {
   constructor() {
     this.reloadSummary();
     this.reloadPayments();
+    this.setupApi.listClasses().subscribe({ next: (c) => this.setupClasses.set(c), error: () => {} });
   }
 
   private reloadSummary(): void {
@@ -963,10 +992,20 @@ export class FinanceComponent {
 
   protected openPayment(): void {
     this.draft = this.blank();
+    this.payClass.set('');
+    this.payStudents.set([]);
     this.paymentOpen.set(true);
   }
   protected closePayment(): void {
     this.paymentOpen.set(false);
+  }
+
+  protected onPayClass(name: string): void {
+    this.payClass.set(name);
+    this.draft.studentId = '';
+    this.payStudents.set([]);
+    if (!name) return;
+    this.studentApi.list(name).subscribe({ next: (r) => this.payStudents.set(r), error: () => this.payStudents.set([]) });
   }
   protected viewReceipt(p: PaymentView): void {
     this.receipt.set(p);

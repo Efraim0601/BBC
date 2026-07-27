@@ -1,12 +1,12 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MessagesApi, NoticeView, NoticeUpsert } from './messages.api';
-import { StudentApi } from '../students/students.api';
 import { Student } from '../../core/models';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
 import {
   IconComponent, CardComponent, PageHeaderComponent, EmptyComponent, AvatarComponent, KpiComponent,
+  StudentClassPickerComponent,
 } from '../../core/ui';
 
 interface CategoryMeta { fr: string; en: string; badge: string; icon: string; }
@@ -17,7 +17,7 @@ interface CategoryMeta { fr: string; en: string; badge: string; icon: string; }
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     FormsModule, IconComponent, CardComponent, PageHeaderComponent, EmptyComponent,
-    AvatarComponent, KpiComponent,
+    AvatarComponent, KpiComponent, StudentClassPickerComponent,
   ],
   template: `
     <div class="fade-in max-w-6xl mx-auto">
@@ -28,25 +28,8 @@ interface CategoryMeta { fr: string; en: string; badge: string; icon: string; }
         <!-- Student picker -->
         <bbc-card className="col-span-12 lg:col-span-4"
           [title]="fr() ? 'Élèves' : 'Students'"
-          [subtitle]="students().length + (fr() ? ' inscrits' : ' enrolled')">
-          <input [ngModel]="query()" (ngModelChange)="query.set($event)"
-            [placeholder]="fr() ? 'Rechercher un élève…' : 'Search a student…'"
-            class="w-full h-9 px-3 mb-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
-          <div class="space-y-1 max-h-[28rem] overflow-y-auto pr-1">
-            @for (s of filtered(); track s.id) {
-              <button (click)="select(s)"
-                class="w-full flex items-center gap-2.5 p-2 rounded-lg text-left transition"
-                [class]="selectedId() === s.id ? 'bg-brand-50 border border-brand-200' : 'hover:bg-slate-50 border border-transparent'">
-                <bbc-avatar [name]="s.name" [hue]="s.photoHue" />
-                <div class="flex-1 min-w-0">
-                  <div class="text-sm font-semibold text-ink truncate">{{ s.name }}</div>
-                  <div class="text-[11px] text-mute">{{ s.matricule }} · {{ s.className }}</div>
-                </div>
-              </button>
-            } @empty {
-              <bbc-empty icon="users" [label]="fr() ? 'Aucun élève' : 'No student'" />
-            }
-          </div>
+          [subtitle]="fr() ? 'Filtrer par classe' : 'Filter by class'">
+          <bbc-student-class-picker [selectedId]="selectedId()" (select)="select($event)" />
         </bbc-card>
 
         <!-- Notices detail -->
@@ -179,7 +162,6 @@ interface CategoryMeta { fr: string; en: string; badge: string; icon: string; }
 export class MessagesComponent {
   protected i18n = inject(I18nService);
   private api = inject(MessagesApi);
-  private studentApi = inject(StudentApi);
   private auth = inject(AuthService);
 
   protected readonly categoryKeys = ['info', 'convocation', 'absence', 'reminder', 'congrats'];
@@ -191,9 +173,9 @@ export class MessagesComponent {
     congrats:    { fr: 'Félicitations', en: 'Congrats',    badge: 'bg-emerald-100 text-emerald-700', icon: 'star' },
   };
 
-  protected students = signal<Student[]>([]);
-  protected query = signal('');
   protected selectedId = signal<string | null>(null);
+  protected selectedStudent = signal<Student | null>(null);
+  protected selectedHue = signal(210);
   protected notices = signal<NoticeView[]>([]);
 
   protected showForm = signal(false);
@@ -202,31 +184,16 @@ export class MessagesComponent {
   protected canWrite = this.auth.can('messages', 'write');
   protected fr = () => this.i18n.lang() === 'fr';
 
-  protected filtered = computed(() => {
-    const q = this.query().trim().toLowerCase();
-    const list = this.students();
-    if (!q) return list;
-    return list.filter((s) =>
-      s.name.toLowerCase().includes(q) || s.matricule.toLowerCase().includes(q) || s.className.toLowerCase().includes(q));
-  });
-
-  protected selectedStudent = computed(() =>
-    this.students().find((s) => s.id === this.selectedId()) ?? null);
-
-  protected selectedHue = computed(() => this.selectedStudent()?.photoHue ?? 210);
-
   protected pending = computed(() =>
     this.notices().filter((n) => n.requiresAck && !n.acknowledged).length);
 
   protected signedCount = computed(() =>
     this.notices().filter((n) => n.acknowledged).length);
 
-  constructor() {
-    this.studentApi.list().subscribe((r) => this.students.set(r));
-  }
-
   protected select(s: Student): void {
     this.selectedId.set(s.id);
+    this.selectedStudent.set(s);
+    this.selectedHue.set(s.photoHue);
     this.showForm.set(false);
     this.draft = this.blank();
     this.reload(s.id);
