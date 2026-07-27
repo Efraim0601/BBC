@@ -39,3 +39,7 @@ BBC_SMS_standalone*.html
 # ~9 MB of xlsx/pdf/docx) — kept outside git; GUIDE_UTILISATEUR.md is tracked.
 bulletins templates/
 Guide_Utilisateur_BBC_SMS.docx
+
+# Outils Python (génération du guide)
+__pycache__/
+*.pyc

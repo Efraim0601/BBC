@@ -1,0 +1,220 @@
+/* Guide utilisateur BBC SMS — feuille de style (injectée dans index.html). */
+:root{
+  --brand-900:#0F2238; --brand-800:#152F4B; --brand-700:#1B3A5C; --brand-600:#2D5586;
+  --brand-100:#DCE6F1; --brand-50:#F1F5FA;
+  --gold-600:#94701D; --gold-500:#B98B25; --gold-400:#D4A843; --gold-50:#FBF6E8;
+  --ink:#0F2238; --mute:#5B6B82; --faint:#93A3B8;
+  --surface:#F5F7FA; --line:#E3E9F1; --card:#fff;
+  --ok:#16A34A; --ok-bg:#ECFDF5; --warn:#B45309; --warn-bg:#FFFBEB;
+  --bad:#DC2626; --bad-bg:#FEF2F2; --info-bg:#F1F5FA;
+  --sidebar:290px; --topbar:60px;
+  --radius:14px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  font-family:'Manrope',ui-sans-serif,system-ui,-apple-system,sans-serif;
+  color:var(--ink); background:var(--surface); font-size:16px; line-height:1.68;
+  -webkit-font-smoothing:antialiased;
+}
+html[data-lang="en"] .l-fr{display:none}
+html[data-lang="fr"] .l-en{display:none}
+img{max-width:100%}
+code{
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.88em;
+  background:#EEF2F7; border:1px solid var(--line); border-radius:5px; padding:1px 5px;
+}
+b{font-weight:800}
+
+/* ---------------------------------------------------------------- top bar */
+.topbar{
+  position:sticky; top:0; z-index:60; height:var(--topbar); display:flex; align-items:center;
+  gap:14px; padding:0 18px; background:var(--brand-800); color:#fff;
+}
+.topbar .brand{display:flex; align-items:center; gap:11px; min-width:0}
+.topbar .brand img{width:32px;height:32px;background:#fff;border-radius:8px;padding:3px;object-fit:contain}
+.topbar .bt{font-family:'Fraunces',Georgia,serif;font-weight:700;font-size:16px;line-height:1.15}
+.topbar .bs{font-size:11px;color:#B7CADC;line-height:1.15}
+.spacer{flex:1}
+.langsw{display:flex;background:rgba(255,255,255,.12);border-radius:9px;padding:3px;gap:2px}
+.langsw button{
+  font:inherit;font-size:12px;font-weight:800;letter-spacing:.04em;color:#B7CADC;background:none;
+  border:0;padding:6px 13px;border-radius:6px;cursor:pointer;transition:.15s;
+}
+.langsw button[aria-pressed="true"]{background:#fff;color:var(--brand-700)}
+.applink{
+  color:#fff;text-decoration:none;font-size:12px;font-weight:700;padding:7px 13px;border-radius:8px;
+  background:rgba(255,255,255,.12); white-space:nowrap;
+}
+.applink:hover{background:rgba(255,255,255,.22)}
+.menubtn{display:none;background:rgba(255,255,255,.12);border:0;color:#fff;border-radius:8px;
+  padding:7px 11px;cursor:pointer;font-size:15px;line-height:1}
+
+/* ------------------------------------------------------------------ layout */
+.wrap{display:grid;grid-template-columns:var(--sidebar) minmax(0,1fr);align-items:start}
+nav.toc{
+  position:sticky; top:var(--topbar); height:calc(100vh - var(--topbar)); overflow-y:auto;
+  background:#fff; border-right:1px solid var(--line); padding:20px 12px 60px;
+}
+nav.toc h4{
+  margin:20px 10px 6px; font-size:10.5px; letter-spacing:.15em; text-transform:uppercase;
+  color:var(--faint); font-weight:800;
+}
+nav.toc h4:first-child{margin-top:0}
+nav.toc a{
+  display:flex; gap:9px; align-items:baseline; padding:6px 10px; border-radius:8px; color:var(--mute);
+  text-decoration:none; font-size:13.5px; font-weight:600;
+}
+nav.toc a .n{font-size:11px;color:var(--faint);font-weight:800;min-width:20px}
+nav.toc a:hover{background:var(--brand-50);color:var(--brand-700)}
+nav.toc a.on{background:var(--brand-50);color:var(--brand-700)}
+nav.toc a.on .n{color:var(--gold-500)}
+main{padding:40px 46px 120px; max-width:1080px; margin:0 auto; min-width:0}
+
+/* -------------------------------------------------------------- typography */
+.hero{padding-bottom:26px;border-bottom:1px solid var(--line);margin-bottom:8px}
+h1{font-family:'Fraunces',Georgia,serif;font-size:42px;line-height:1.1;margin:6px 0 12px;font-weight:700;letter-spacing:-.015em}
+h2{
+  font-family:'Fraunces',Georgia,serif;font-size:28px;margin:0 0 6px;font-weight:700;letter-spacing:-.012em;
+}
+h3{font-size:18.5px;margin:34px 0 8px;font-weight:800;letter-spacing:-.01em}
+section{border-top:1px solid var(--line);margin-top:54px;padding-top:34px}
+section:first-of-type{border-top:0}
+.eyebrow{font-size:11px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;color:var(--gold-500);margin-bottom:6px}
+.lead{font-size:18px;color:var(--mute);max-width:72ch;margin:0}
+p{margin:12px 0;max-width:78ch}
+p.sub{color:var(--mute);font-size:15.5px;margin:2px 0 14px;max-width:78ch}
+ul,ol{margin:12px 0;padding-left:22px;max-width:78ch}
+li{margin:5px 0}
+a{color:var(--brand-600)}
+.ui{
+  font-weight:700;color:var(--brand-700);background:var(--brand-50);
+  border:1px solid var(--brand-100);border-radius:6px;padding:1px 6px;
+  white-space:nowrap; overflow-wrap:break-word;
+}
+
+/* ---------------------------------------------------------------- « qui » */
+.who{
+  display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;
+  background:var(--gold-50);border:1px solid #F0E3BE;border-radius:10px;
+  padding:9px 14px;margin:14px 0 4px;font-size:14px;color:#6C520F;max-width:78ch;
+}
+.who-label{font-size:10.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--gold-600)}
+
+/* ---------------------------------------------------------------- procédures */
+.steps{margin:22px 0 8px}
+.steps-title{
+  font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--brand-700);margin-bottom:12px;
+}
+ol.steplist{list-style:none;margin:0;padding:0;max-width:none}
+li.step{display:grid;grid-template-columns:34px minmax(0,1fr);gap:14px;padding:0 0 20px;position:relative}
+li.step:not(:last-child)::before{
+  content:"";position:absolute;left:16px;top:34px;bottom:0;width:2px;background:var(--line);
+}
+.step-n{
+  width:32px;height:32px;border-radius:50%;background:var(--brand-700);color:#fff;
+  display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;z-index:1;
+}
+.step-main{min-width:0;padding-top:3px}
+.step-body{max-width:76ch}
+.step-body b{color:var(--ink)}
+
+/* ------------------------------------------------------------------ images */
+figure.shot{margin:14px 0 4px;max-width:100%}
+figure.shot img{
+  display:block;width:100%;height:auto;border:1px solid var(--line);border-radius:var(--radius);
+  background:#fff;box-shadow:0 2px 6px rgba(15,34,56,.06),0 10px 30px rgba(15,34,56,.06);
+  cursor:zoom-in;
+}
+figure.shot figcaption{font-size:12.5px;color:var(--mute);margin-top:8px;padding-left:2px}
+
+/* ------------------------------------------------------------------- notes */
+.note{
+  display:grid;grid-template-columns:auto minmax(0,1fr);gap:12px;align-items:baseline;
+  border-radius:12px;padding:13px 16px;margin:16px 0;font-size:14.6px;max-width:78ch;
+  border:1px solid var(--line);background:var(--info-bg);
+}
+.note-label{
+  font-size:10px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;white-space:nowrap;
+  padding-top:2px;
+}
+.note.info{background:var(--info-bg);border-color:var(--brand-100)}
+.note.info .note-label{color:var(--brand-600)}
+.note.tip{background:var(--ok-bg);border-color:#BBF7D0}
+.note.tip .note-label{color:var(--ok)}
+.note.warn{background:var(--warn-bg);border-color:#FDE68A}
+.note.warn .note-label{color:var(--warn)}
+.note.limit{background:var(--bad-bg);border-color:#FECACA}
+.note.limit .note-label{color:var(--bad)}
+
+/* ------------------------------------------------------------------ tables */
+.tablewrap{margin:18px 0;overflow-x:auto;min-width:0}
+.tcap{font-size:12.5px;color:var(--mute);margin-bottom:7px}
+/* min(520px,100%) et non 520px : sur un téléphone, une largeur plancher fixe
+   imposerait sa taille à toute la page au lieu de faire défiler le tableau. */
+table{border-collapse:collapse;width:100%;min-width:min(520px,100%);background:#fff;
+  border:1px solid var(--line);border-radius:12px;overflow:hidden;font-size:14.5px}
+th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+th{background:#F8FAFC;font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--mute);font-weight:800}
+tbody tr:last-child td{border-bottom:0}
+
+/* ------------------------------------------------------------- fiche de test */
+.check{
+  background:#fff;border:1px solid var(--line);border-left:4px solid var(--gold-400);
+  border-radius:12px;padding:16px 20px;margin:26px 0 6px;max-width:78ch;
+}
+.check-title{font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--gold-600);margin-bottom:8px}
+.check ul{list-style:none;margin:0;padding:0}
+.check li{display:flex;gap:10px;align-items:flex-start;margin:7px 0;font-size:14.6px}
+.check .box{
+  width:15px;height:15px;border:2px solid var(--brand-100);border-radius:4px;flex:0 0 auto;margin-top:4px;
+}
+
+.foot{margin-top:70px;padding-top:20px;border-top:1px solid var(--line);color:var(--faint);font-size:12.5px}
+
+/* --------------------------------------------------------------- lightbox */
+.lightbox{
+  position:fixed;inset:0;z-index:100;background:rgba(9,20,33,.9);display:none;
+  align-items:center;justify-content:center;padding:26px;cursor:zoom-out;
+}
+.lightbox.on{display:flex}
+.lightbox img{max-width:100%;max-height:100%;border-radius:10px;box-shadow:0 30px 80px rgba(0,0,0,.5)}
+
+/* -------------------------------------------------------------- responsive */
+@media (max-width:1040px){
+  /* minmax(0,1fr) et non 1fr : sinon la colonne prend la largeur de son contenu
+     le plus rigide (tableaux, captures) et la page défile horizontalement. */
+  .wrap{grid-template-columns:minmax(0,1fr)}
+  .menubtn{display:block}
+  nav.toc{
+    position:fixed;top:var(--topbar);left:0;bottom:0;width:280px;z-index:50;
+    transform:translateX(-100%);transition:transform .2s;box-shadow:0 20px 50px rgba(15,34,56,.18);
+  }
+  nav.toc.open{transform:translateX(0)}
+  main{padding:28px 20px 90px}
+  h1{font-size:32px}
+  h2{font-size:24px}
+}
+@media (max-width:560px){
+  /* Sur un écran étroit, rien ne doit déborder : les libellés d'interface se
+     coupent comme du texte normal et les procédures se resserrent. */
+  body{font-size:15.5px}
+  .ui{white-space:normal}
+  p,ul,ol,.note,.check,.who{overflow-wrap:anywhere}
+  h2{font-size:21px}
+  .topbar .bs{display:none}
+  .topbar{gap:9px;padding:0 12px}
+  .applink{padding:7px 10px}
+  li.step{grid-template-columns:26px minmax(0,1fr);gap:10px}
+  .step-n{width:26px;height:26px;font-size:12px}
+  li.step:not(:last-child)::before{left:12px;top:28px}
+  .note{grid-template-columns:1fr;gap:4px}
+}
+@media print{
+  .topbar,nav.toc,.lightbox{display:none}
+  .wrap{grid-template-columns:1fr}
+  section{break-inside:avoid}
+  figure.shot img{box-shadow:none}
+}
