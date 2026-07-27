@@ -80,9 +80,21 @@ BBC SMS s'utilise depuis un navigateur (Chrome, Edge, Firefox ou Safari), sur or
    ![Demande de réinitialisation : seul l'identifiant est demandé.](frontend/public/guide/img/fr-02-login-mot-de-passe-oublie.webp)
    *Demande de réinitialisation : seul l'identifiant est demandé.*
 
-2. Saisissez votre identifiant puis **Envoyer un nouveau mot de passe**. Si une adresse e-mail est enregistrée sur votre fiche personnel, un mot de passe temporaire y est envoyé.
+2. Saisissez votre identifiant puis **Envoyer un nouveau mot de passe**. Si une adresse e-mail est enregistrée sur votre **fiche personnel**, un mot de passe temporaire de 10 caractères y est envoyé.
+3. Connectez-vous avec ce mot de passe temporaire. Demandez ensuite à l'administration de le remplacer par un mot de passe définitif (**Personnel → fiche → Réinitialiser**, §5.3).
 
-> **Attention** — Le message de confirmation est volontairement identique que le compte existe ou non : c'est une protection contre la découverte d'identifiants. Les comptes **sans e-mail** (parents, personnel sans adresse) doivent passer par l'administrateur, qui réinitialise depuis **Personnel → fiche → Réinitialiser** (§5.3).
+> **Attention** — Le message de confirmation est volontairement identique que le compte existe ou non : c'est une protection contre la découverte d'identifiants. Il ne signifie donc pas à lui seul qu'un e-mail est parti.
+
+*Qui peut réellement utiliser cette fonction, et ce qui se passe dans chaque cas.*
+
+| Situation | Résultat |
+|---|---|
+| Personnel **avec** e-mail sur sa fiche | Mot de passe temporaire envoyé à cette adresse ; l'ancien cesse de fonctionner. |
+| Personnel **sans** e-mail | Rien n'est modifié. Passez par l'administrateur : **Personnel → fiche → Réinitialiser** (§5.3). |
+| Compte **parent** | Non couvert : un compte parent n'est pas rattaché à une fiche personnel. L'administrateur recrée le mot de passe depuis la fiche de l'élève (§4.4). |
+| Messagerie **non configurée ou en panne** | **Votre mot de passe actuel reste valable** — rien n'est changé tant que l'e-mail n'est pas réellement parti. Contactez l'administration. |
+
+> **À savoir** — Côté administration : cette fonction dépend entièrement du **SMTP** de l'établissement (**Paramètres → Messagerie**, §3.7). Testez l'envoi après toute modification — sans messagerie opérationnelle, la réinitialisation en libre-service reste sans effet et tout passe par vous.
 
 ### 1.3 Choisir un parcours
 
@@ -1159,6 +1171,7 @@ Chaque étape dépend de la précédente. Suivre cet ordre évite les blocages c
 | Tout le monde est en retard depuis ce matin. | L'**heure de début des cours** a été modifiée dans Paramètres → Général (§3.4). |
 | Le SMS au parent n'est pas parti. | Le contact principal n'a pas de numéro. Complétez père / mère / tuteur sur la fiche élève (§4.3). |
 | Le nouvel employé n'a pas reçu ses identifiants. | SMTP absent ou mal configuré, ou fiche sans e-mail. Testez l'envoi (§3.7) puis utilisez **Réinitialiser** (§5.3). |
+| « Mot de passe oublié » : je ne reçois rien. | Trois causes possibles : aucune adresse sur votre fiche personnel, compte parent (non couvert), ou messagerie hors service. Dans tous les cas **votre mot de passe actuel reste valable** ; l'administrateur réinitialise (§1.2 et §5.3). |
 | Les parents ne voient pas la liste de fournitures. | La liste est restée en **brouillon**. Cliquez **Publier** (chapitre 14). |
 | Impossible d'accorder un module au rôle parent. | C'est volontaire et non contournable : le rôle parent est limité à son portail (§2.2). |
 | « Votre session a expiré ». | Inactivité prolongée ou poste en veille. Reconnectez-vous ; le travail enregistré n'est pas perdu. |

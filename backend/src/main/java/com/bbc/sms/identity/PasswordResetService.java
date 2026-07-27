@@ -68,17 +68,21 @@ public class PasswordResetService {
             return new ForgotPasswordResponse(true, GENERIC_OK);
         }
 
+        // Send FIRST, persist only on success: a temporary password saved after a failed
+        // send locks the account out — the old password no longer works and nobody ever
+        // received the new one. The reply stays generic either way (anti-enumeration).
         String tempPassword = generatePassword();
-        user.setPasswordHash(encoder.encode(tempPassword));
-        users.save(user);
-
         String schoolCode = schools.findById(user.getSchoolId()).map(School::getCode).orElse(null);
         boolean sent = mail.sendPasswordReset(user.getSchoolId(), user.getDisplayName(), email,
                 user.getUsername(), tempPassword, schoolCode);
         if (!sent) {
-            log.warn("Forgot-password: SMTP failed or disabled for user {} (school {})",
-                    user.getUsername(), user.getSchoolId());
+            log.warn("Forgot-password: SMTP failed or disabled for user {} (school {}) — "
+                    + "password left unchanged", user.getUsername(), user.getSchoolId());
+            return new ForgotPasswordResponse(true, GENERIC_OK);
         }
+
+        user.setPasswordHash(encoder.encode(tempPassword));
+        users.save(user);
         return new ForgotPasswordResponse(true, GENERIC_OK);
     }
 

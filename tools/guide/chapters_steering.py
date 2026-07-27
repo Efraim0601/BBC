@@ -267,6 +267,8 @@ CH_FAQ = {
               "Le contact principal n'a pas de numéro. Complétez père / mère / tuteur sur la fiche élève (§4.3)."],
              ["Le nouvel employé n'a pas reçu ses identifiants.",
               "SMTP absent ou mal configuré, ou fiche sans e-mail. Testez l'envoi (§3.7) puis utilisez __Réinitialiser__ (§5.3)."],
+             ["« Mot de passe oublié » : je ne reçois rien.",
+              "Trois causes possibles : aucune adresse sur votre fiche personnel, compte parent (non couvert), ou messagerie hors service. Dans tous les cas **votre mot de passe actuel reste valable** ; l'administrateur réinitialise (§1.2 et §5.3)."],
              ["Les parents ne voient pas la liste de fournitures.",
               "La liste est restée en **brouillon**. Cliquez __Publier__ (chapitre 14)."],
              ["Impossible d'accorder un module au rôle parent.",

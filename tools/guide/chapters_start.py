@@ -54,19 +54,45 @@ CH_PRISE_EN_MAIN = {
              "caption": {"fr": "Demande de réinitialisation : seul l'identifiant est demandé.",
                          "en": "Reset request: only the username is required."}},
             {"fr": "Saisissez votre identifiant puis __Envoyer un nouveau mot de passe__. Si une adresse e-mail "
-                   "est enregistrée sur votre fiche personnel, un mot de passe temporaire y est envoyé.",
-             "en": "Enter your username then __Send a new password__. If an e-mail address is on your staff record, "
-                   "a temporary password is sent to it."},
+                   "est enregistrée sur votre **fiche personnel**, un mot de passe temporaire de 10 caractères y "
+                   "est envoyé.",
+             "en": "Enter your username then __Send a new password__. If an e-mail address is on your **staff "
+                   "record**, a 10-character temporary password is sent to it."},
+            {"fr": "Connectez-vous avec ce mot de passe temporaire. Demandez ensuite à l'administration de le "
+                   "remplacer par un mot de passe définitif (__Personnel → fiche → Réinitialiser__, §5.3).",
+             "en": "Sign in with that temporary password, then ask the administration to replace it with a "
+                   "permanent one (__Staff → record → Reset__, §5.3)."},
         ]},
         {"type": "note", "tone": "warn", "fr":
             "Le message de confirmation est volontairement identique que le compte existe ou non : c'est une "
-            "protection contre la découverte d'identifiants. Les comptes **sans e-mail** (parents, personnel sans "
-            "adresse) doivent passer par l'administrateur, qui réinitialise depuis __Personnel → fiche → "
-            "Réinitialiser__ (§5.3).",
+            "protection contre la découverte d'identifiants. Il ne signifie donc pas à lui seul qu'un e-mail est "
+            "parti.",
          "en":
             "The confirmation message is deliberately the same whether or not the account exists — this prevents "
-            "account enumeration. Accounts **without an e-mail** (parents, staff with no address) must go through "
-            "the administrator, who resets from __Staff → record → Reset__ (§5.3)."},
+            "account enumeration. On its own it therefore does not mean an e-mail was actually sent."},
+        {"type": "table",
+         "caption": {"fr": "Qui peut réellement utiliser cette fonction, et ce qui se passe dans chaque cas.",
+                     "en": "Who can actually use this feature, and what happens in each case."},
+         "head": {"fr": ["Situation", "Résultat"], "en": ["Situation", "Outcome"]},
+         "rows": {"fr": [
+             ["Personnel **avec** e-mail sur sa fiche", "Mot de passe temporaire envoyé à cette adresse ; l'ancien cesse de fonctionner."],
+             ["Personnel **sans** e-mail", "Rien n'est modifié. Passez par l'administrateur : __Personnel → fiche → Réinitialiser__ (§5.3)."],
+             ["Compte **parent**", "Non couvert : un compte parent n'est pas rattaché à une fiche personnel. L'administrateur recrée le mot de passe depuis la fiche de l'élève (§4.4)."],
+             ["Messagerie **non configurée ou en panne**", "**Votre mot de passe actuel reste valable** — rien n'est changé tant que l'e-mail n'est pas réellement parti. Contactez l'administration."],
+         ], "en": [
+             ["Staff **with** an e-mail on file", "A temporary password is sent to that address; the old one stops working."],
+             ["Staff **without** an e-mail", "Nothing changes. Go through the administrator: __Staff → record → Reset__ (§5.3)."],
+             ["**Parent** account", "Not covered: a parent account is not linked to a staff record. The administrator recreates the password from the student record (§4.4)."],
+             ["E-mail **not configured or failing**", "**Your current password stays valid** — nothing changes unless the e-mail actually went out. Contact the administration."],
+         ]}},
+        {"type": "note", "tone": "info", "fr":
+            "Côté administration : cette fonction dépend entièrement du **SMTP** de l'établissement "
+            "(__Paramètres → Messagerie__, §3.7). Testez l'envoi après toute modification — sans messagerie "
+            "opérationnelle, la réinitialisation en libre-service reste sans effet et tout passe par vous.",
+         "en":
+            "For administrators: this feature depends entirely on the school **SMTP** settings "
+            "(__Settings → E-mail__, §3.7). Test sending after any change — without working e-mail, self-service "
+            "reset has no effect and everything goes through you."},
 
         {"type": "h", "fr": "1.3 Choisir un parcours", "en": "1.3 Choose a parcours"},
         {"type": "p", "fr":
