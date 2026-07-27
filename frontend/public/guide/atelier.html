@@ -1,0 +1,928 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Atelier pratique BBC SMS — BBC SMS</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/png" href="/bbc-logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&display=swap" rel="stylesheet">
+<style>/* Atelier pratique BBC SMS — support projetable (injecté dans atelier.html). */
+:root{
+  --brand-900:#0B1B2E; --brand-800:#12293F; --brand-700:#1B3A5C; --brand-600:#2D5586;
+  --brand-100:#DCE6F1; --brand-50:#F1F5FA;
+  --gold-500:#B98B25; --gold-400:#D4A843; --gold-50:#FBF6E8;
+  --ink:#0F2238; --mute:#5B6B82; --faint:#93A3B8;
+  --line:#E3E9F1; --ok:#16A34A; --ok-bg:#ECFDF5; --warn:#B45309; --warn-bg:#FFFBEB;
+  --bar:56px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;height:100%}
+body{
+  font-family:'Manrope',ui-sans-serif,system-ui,sans-serif; color:var(--ink); background:#0B1B2E;
+  -webkit-font-smoothing:antialiased; overflow:hidden;
+}
+code{
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.9em;
+  background:#EEF2F7; border:1px solid var(--line); border-radius:6px; padding:1px 7px;
+}
+b{font-weight:800}
+.ui{
+  font-weight:700;color:var(--brand-700);background:var(--brand-50);
+  border:1px solid var(--brand-100);border-radius:7px;padding:1px 8px;white-space:nowrap;
+}
+
+/* ------------------------------------------------------------------ diapos */
+.deck{height:100vh;width:100vw}
+.slide{
+  position:absolute; inset:0 0 var(--bar); display:none;
+  padding:52px 64px 30px; background:#fff; overflow:hidden;
+  flex-direction:column; gap:22px;
+}
+.slide.on{display:flex}
+.head{flex:0 0 auto}
+.eyebrow{
+  font-size:14px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;color:var(--gold-500);
+  margin-bottom:8px;
+}
+h1{font-family:'Fraunces',Georgia,serif;font-size:66px;line-height:1.05;margin:0 0 14px;font-weight:700;letter-spacing:-.02em}
+h2{font-family:'Fraunces',Georgia,serif;font-size:42px;line-height:1.1;margin:0;font-weight:700;letter-spacing:-.015em}
+h2.big{font-size:60px;margin:10px 0 18px}
+.lead{font-size:22px;color:var(--mute);margin:0;max-width:60ch}
+.body{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:18px;overflow:auto;
+      justify-content:safe center}
+.body.split{flex-direction:row;gap:34px;align-items:flex-start}
+.body.split > *{flex:1 1 0;min-width:0}
+
+/* ---------------------------------------------------------------- couverture */
+.slide.cover{background:linear-gradient(135deg,var(--brand-800),var(--brand-900) 60%);color:#fff;justify-content:center}
+.slide.cover::after{
+  content:"";position:absolute;right:-140px;top:-140px;width:520px;height:520px;border-radius:50%;
+  background:rgba(212,168,67,.14);filter:blur(30px);
+}
+.cover-inner{position:relative;z-index:1;max-width:60ch}
+.cover .eyebrow{color:var(--gold-400)}
+.cover .lead{color:#B7CADC;font-size:24px}
+.cover-meta{display:flex;gap:44px;margin:38px 0 30px}
+.cover-meta div{font-size:20px;font-weight:700;white-space:nowrap}
+.cover-meta span{display:block;font-size:12px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:var(--gold-400);margin-bottom:6px}
+.cover-hint{font-size:14px;color:#8FA8C0}
+
+/* ------------------------------------------------------- ouverture de module */
+.slide.section-open{background:linear-gradient(135deg,#fff, var(--brand-50));justify-content:center}
+.mod-badge{
+  /* align-self : dans une colonne flex, un inline-block s'étirerait sur toute la largeur. */
+  align-self:flex-start;
+  font-size:13px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;
+  color:#fff;background:var(--brand-700);border-radius:999px;padding:7px 18px;
+}
+.chips{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px}
+.chip{
+  font-size:15px;font-weight:700;color:var(--brand-700);background:#fff;
+  border:1px solid var(--brand-100);border-radius:999px;padding:6px 16px;
+}
+.chip.time{background:var(--gold-50);border-color:#F0E3BE;color:var(--gold-500)}
+.goal{font-size:24px;margin:0 0 22px;max-width:64ch;line-height:1.45}
+.goal span{
+  display:block;font-size:12px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--faint);margin-bottom:6px;
+}
+.plan{margin:0;padding-left:24px;font-size:19px;color:var(--mute);line-height:1.7}
+
+/* ------------------------------------------------------------------- listes */
+ol.steps{margin:0;padding-left:0;list-style:none;counter-reset:s;font-size:20px;line-height:1.5}
+ol.steps li{
+  counter-increment:s;position:relative;padding:0 0 16px 46px;
+}
+ol.steps li::before{
+  content:counter(s);position:absolute;left:0;top:-2px;width:30px;height:30px;border-radius:50%;
+  background:var(--brand-700);color:#fff;font-size:15px;font-weight:800;
+  display:flex;align-items:center;justify-content:center;
+}
+ul.points{margin:0;padding-left:0;list-style:none;font-size:21px;line-height:1.55}
+ul.points li{position:relative;padding:0 0 16px 30px}
+ul.points li::before{content:"";position:absolute;left:6px;top:11px;width:9px;height:9px;border-radius:50%;background:var(--gold-400)}
+.lbl{font-size:12px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);margin-bottom:12px}
+.lbl.ok{color:var(--ok)}
+
+/* --------------------------------------------------------------- exercices */
+.slide.exercise{background:linear-gradient(160deg,#fff 60%,var(--gold-50))}
+.slide.exercise .head{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}
+.slide.exercise .head .eyebrow{width:100%}
+.success{background:var(--ok-bg);border:1px solid #BBF7D0;border-radius:16px;padding:22px 26px}
+.success ul{margin:0;padding-left:22px;font-size:19px;line-height:1.6;color:#14532D}
+
+/* ---------------------------------------------------------------- captures */
+.shot{display:flex;align-items:flex-start;justify-content:center}
+.shot img{
+  max-width:100%;max-height:52vh;width:auto;height:auto;border:1px solid var(--line);border-radius:14px;
+  box-shadow:0 10px 40px rgba(15,34,56,.14);background:#fff;
+}
+
+/* ---------------------------------------------------------------- tableaux */
+table{border-collapse:collapse;width:100%;font-size:19px}
+.body.agenda{justify-content:flex-start}
+.agenda table{font-size:19px}
+.agenda-hours{font-family:'Manrope',sans-serif;font-size:22px;font-weight:700;color:var(--faint);margin-left:14px}
+.agenda td{padding:11px 12px;border-bottom:1px solid var(--line)}
+.agenda td.t{font-weight:800;color:var(--brand-700);width:88px;white-space:nowrap}
+.agenda td.d{color:var(--mute);width:80px;text-align:right;white-space:nowrap}
+.agenda td.a{color:var(--faint);width:120px;font-size:15px}
+.agenda tr.is-break td{background:var(--brand-50);color:var(--mute);font-style:italic}
+table.accounts{margin-bottom:22px}
+table.accounts th{
+  text-align:left;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--mute);
+  padding:8px 12px;background:#F8FAFC;border-bottom:1px solid var(--line);
+}
+table.accounts td{padding:10px 12px;border-bottom:1px solid var(--line)}
+table.pitfalls td{padding:14px 16px;border-bottom:1px solid var(--line);vertical-align:top;font-size:20px}
+table.pitfalls td.q{width:38%;font-weight:700;color:var(--warn);background:var(--warn-bg)}
+
+/* -------------------------------------------------------------------- pause */
+.slide.pause{background:linear-gradient(135deg,var(--brand-700),var(--brand-900));color:#fff;justify-content:center;align-items:center;text-align:center}
+.slide.pause .lead{color:#B7CADC}
+.pause-time{font-size:20px;font-weight:800;letter-spacing:.14em;color:var(--gold-400);margin-bottom:10px}
+
+/* ------------------------------------------------------------------ clôture */
+ul.roadmap{margin:0 0 26px;padding:0;list-style:none}
+ul.roadmap li{display:flex;gap:22px;align-items:baseline;padding:14px 0;border-bottom:1px solid var(--line);font-size:20px}
+ul.roadmap .when{flex:0 0 190px;font-weight:800;color:var(--brand-700)}
+.closing-note{font-size:19px;color:var(--mute);max-width:72ch;line-height:1.6}
+
+/* -------------------------------------------------------- barre & sommaire */
+.bar{
+  position:fixed;left:0;right:0;bottom:0;height:var(--bar);z-index:20;
+  display:flex;align-items:center;gap:10px;padding:0 20px;
+  background:var(--brand-900);color:#fff;
+}
+.bar button{
+  font:inherit;font-size:15px;font-weight:700;color:#fff;background:rgba(255,255,255,.12);
+  border:0;border-radius:9px;padding:9px 16px;cursor:pointer;
+}
+.bar button:hover{background:rgba(255,255,255,.24)}
+.bar .count{margin-left:auto;font-size:14px;color:#8FA8C0;font-weight:700}
+.bar .guide-link{
+  color:#fff;text-decoration:none;font-size:14px;font-weight:700;background:rgba(255,255,255,.12);
+  border-radius:9px;padding:9px 16px;
+}
+.progress{position:fixed;left:0;right:0;bottom:var(--bar);height:3px;background:rgba(255,255,255,.12);z-index:21}
+.progress div{height:100%;width:0;background:var(--gold-400);transition:width .2s}
+
+.overlay{position:fixed;inset:0;z-index:30;background:rgba(11,27,46,.94);display:none;padding:40px;overflow:auto}
+.overlay.on{display:block}
+.outline{max-width:900px;margin:0 auto;color:#fff}
+.outline h3{font-family:'Fraunces',Georgia,serif;font-size:30px;margin:0 0 22px;font-weight:700}
+.outline ul{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:8px 26px}
+.outline button{
+  width:100%;display:flex;align-items:baseline;gap:14px;font:inherit;font-size:17px;color:#DCE6F1;
+  background:rgba(255,255,255,.07);border:0;border-radius:10px;padding:12px 16px;cursor:pointer;text-align:left;
+}
+.outline button:hover{background:rgba(255,255,255,.16);color:#fff}
+.outline .n{font-weight:800;color:var(--gold-400);min-width:24px}
+.outline .t{margin-left:auto;font-size:14px;color:#8FA8C0}
+.outline li.brk button{background:rgba(212,168,67,.14);color:var(--gold-400);font-style:italic}
+
+/* ---------------------------------------------------------------- adaptatif */
+@media (max-width:1100px){
+  .slide{padding:34px 30px 24px}
+  h1{font-size:44px} h2{font-size:31px} h2.big{font-size:40px}
+  .body.split{flex-direction:column}
+  .shot img{max-height:38vh}
+  ol.steps, ul.points{font-size:17px}
+  .outline ul{grid-template-columns:1fr}
+}
+
+/* --------------------------------------------------- impression : 1 diapo/page */
+@media print{
+  body{overflow:visible;background:#fff}
+  .bar,.progress,.overlay{display:none !important}
+  .deck{height:auto}
+  .slide{
+    display:flex !important; position:relative; inset:auto; page-break-after:always;
+    height:auto; min-height:auto; padding:26px 0; border-bottom:1px solid var(--line);
+  }
+  .slide.cover,.slide.pause{color:var(--ink);background:#fff}
+  .slide.cover .lead,.slide.pause .lead{color:var(--mute)}
+  .shot img{max-height:none;box-shadow:none}
+}
+</style>
+</head>
+<body>
+<div class="deck" id="deck"><section class="slide cover">
+  <div class="cover-inner">
+    <div class="eyebrow">Bayo Bilingual Complex — Maroua</div>
+    <h1>Atelier pratique BBC SMS</h1>
+    <p class="lead">Prise en main du système de gestion scolaire — journée complète</p>
+    <div class="cover-meta">
+      <div><span>Durée</span>8 h 30 → 16 h 00</div>
+      <div><span>Public</span>Direction · Économat · Enseignants · Vie scolaire · Secrétariat</div>
+    </div>
+    <div class="cover-hint">Flèches ← → pour naviguer · <b>S</b> pour le sommaire · <b>P</b> pour imprimer</div>
+  </div>
+</section><section class="slide">
+  <div class="head"><div class="eyebrow">Programme</div><h2>Matin <span class="agenda-hours">08h30 → 12h00</span></h2></div>
+  <div class="body agenda"><table><tr class=""><td class="t">08h30</td><td>Accueil, objectifs, comptes de travail</td><td class="d">20 min</td><td class="a"></td></tr><tr class=""><td class="t">08h50</td><td>1 · Prise en main</td><td class="d">25 min</td><td class="a">tous</td></tr><tr class=""><td class="t">09h15</td><td>2 · Rôles &amp; permissions</td><td class="d">20 min</td><td class="a">direction</td></tr><tr class=""><td class="t">09h35</td><td>3 · Paramètres : sections, classes, matières</td><td class="d">35 min</td><td class="a">direction</td></tr><tr class="is-break"><td class="t">10h10</td><td>Pause</td><td class="d">15 min</td><td class="a"></td></tr><tr class=""><td class="t">10h25</td><td>4 · Élèves</td><td class="d">30 min</td><td class="a">secrétariat</td></tr><tr class=""><td class="t">10h55</td><td>5 · Personnel &amp; RH</td><td class="d">25 min</td><td class="a">direction</td></tr><tr class=""><td class="t">11h20</td><td>6 · Présence</td><td class="d">15 min</td><td class="a">vie scolaire</td></tr><tr class=""><td class="t">11h35</td><td>7 · Académique : bulletins &amp; PV</td><td class="d">25 min</td><td class="a">enseignants</td></tr><tr class="is-break"><td class="t">12h00</td><td>Déjeuner</td><td class="d">60 min</td><td class="a"></td></tr></table></div>
+</section><section class="slide">
+  <div class="head"><div class="eyebrow">Programme</div><h2>Après-midi <span class="agenda-hours">13h00 → 16h00</span></h2></div>
+  <div class="body agenda"><table><tr class=""><td class="t">13h00</td><td>8 · Discipline</td><td class="d">15 min</td><td class="a">vie scolaire</td></tr><tr class=""><td class="t">13h15</td><td>9 · Cahier de textes</td><td class="d">10 min</td><td class="a">enseignants</td></tr><tr class=""><td class="t">13h25</td><td>10 · Emploi du temps</td><td class="d">20 min</td><td class="a">direction</td></tr><tr class=""><td class="t">13h45</td><td>11 · Finance &amp; moyens de paiement</td><td class="d">40 min</td><td class="a">économat</td></tr><tr class="is-break"><td class="t">14h25</td><td>Pause</td><td class="d">10 min</td><td class="a"></td></tr><tr class=""><td class="t">14h35</td><td>12 · Événements &amp; correspondance</td><td class="d">20 min</td><td class="a">secrétariat</td></tr><tr class=""><td class="t">14h55</td><td>13 · Fournitures &amp; manuels</td><td class="d">10 min</td><td class="a">économat</td></tr><tr class=""><td class="t">15h05</td><td>14 · Parcours, santé, documents</td><td class="d">15 min</td><td class="a">secrétariat</td></tr><tr class=""><td class="t">15h20</td><td>15 · Pilotage</td><td class="d">15 min</td><td class="a">direction</td></tr><tr class=""><td class="t">15h35</td><td>16 · Portail parent</td><td class="d">15 min</td><td class="a">tous</td></tr><tr class=""><td class="t">15h50</td><td>Clôture : plan de démarrage</td><td class="d">10 min</td><td class="a">tous</td></tr></table></div>
+</section><section class="slide">
+  <div class="head">
+    <div class="eyebrow">Méthode</div>
+    <h2>Comment nous allons travailler</h2>
+  </div>
+  <div class="body"><ul class="points"><li>Chaque module suit le même rythme : <b>je montre</b>, <b>vous faites</b>, <b>on vérifie</b>.</li><li>Vous travaillez sur l&#x27;<b>environnement de démonstration</b> — aucune donnée réelle n&#x27;est touchée.</li><li>Une erreur n&#x27;a aucune conséquence : c&#x27;est le meilleur moment pour en faire.</li><li>Le <b>guide utilisateur</b> (menu <span class="ui">Aide</span>) reprend chaque procédure, capture à l&#x27;appui : personne n&#x27;a besoin de prendre des notes.</li></ul></div>
+</section><section class="slide">
+  <div class="head">
+    <div class="eyebrow">Avant de commencer</div>
+    <h2>Vos comptes de travail</h2>
+  </div>
+  <div class="body"><table class="accounts"><thead><tr><th>Identifiant</th><th>Mot de passe</th><th>Rôle</th><th>Ce qu&#x27;il permet</th></tr></thead><tbody><tr><td><code>principal</code></td><td><code>password</code></td><td>Direction</td><td>Tous les modules, sauf Finance en lecture</td></tr><tr><td><code>econome</code></td><td><code>password</code></td><td>Économat</td><td>Finance en écriture : encaissements, frais, canaux</td></tr><tr><td><code>parent1</code></td><td><code>password</code></td><td>Parent</td><td>Le portail parent, pour voir l&#x27;école côté famille</td></tr></tbody></table><ul class="points"><li>Trois postes suffisent par table : un compte direction, un compte économat, un compte parent.</li><li>L&#x27;adresse de travail est projetée au tableau — <b>ne la confondez pas avec l&#x27;adresse de production</b>.</li></ul></div>
+</section><section class="slide section-open">
+  <div class="body">
+    <div class="mod-badge">Module 1</div>
+    <h2 class="big">Prise en main</h2>
+    <div class="chips">
+      <span class="chip time">⏱ 25 min</span>
+      <span class="chip">Tous</span>
+    </div>
+    <p class="goal"><span>Objectif</span>Se connecter, comprendre le parcours, savoir où l&#x27;on est.</p>
+    <ul class="plan"><li>Démo : connexion et repères (7 min)</li><li>Exercice : votre première connexion (12 min)</li><li>Contrôle et questions (6 min)</li></ul>
+  </div>
+</section><section class="slide">
+  <div class="head">
+    <div class="eyebrow">Module 1 · Démonstration animateur</div>
+    <h2>Démonstration — se connecter</h2>
+  </div>
+  <div class="body split">
+    <ol class="steps"><li>Ouvrir l&#x27;adresse, montrer le sélecteur <span class="ui">FR / EN</span> : l&#x27;interface parle les deux langues.</li><li>Saisir <code>principal</code> / <code>password</code>, valider.</li><li>Insister : le <b>parcours</b> n&#x27;est pas un décor — il filtre toute l&#x27;application.</li></ol>
+    <div class="shot"><img src="img/fr-01-login.webp" alt="Démonstration — se connecter" width="1440" height="900" loading="lazy" decoding="async"></div>
+  </div>
+</section><section class="slide">
+  <div class="head">
+    <div class="eyebrow">Module 1 · Démonstration animateur</div>
+    <h2>Démonstration — le parcours</h2>
+  </div>
+  <div class="body split">
+    <ol class="steps"><li>Choisir <b>Primaire</b>, puis <b>Francophone</b> : montrer que les listes se réduisent.</li><li>Revenir au bandeau du haut, basculer sur <b>Tous les parcours</b>.</li><li>Faire dire à la salle : « je ne vois pas mes élèves » → première question à se poser : <b>quel parcours ?</b></li></ol>
+    <div class="shot"><img src="img/fr-04-parcours-niveau.webp" alt="Démonstration — le parcours" width="1440" height="900" loading="lazy" decoding="async"></div>
+  </div>
+</section><section class="slide exercise">
+  <div class="head">
+    <div class="eyebrow">Module 1 · À vous de jouer</div>
+    <h2>À vous — première connexion</h2>
+    <div class="chip time">⏱ 12 min</div>
+  </div>
+  <div class="body split">
+    <div><div class="lbl">Consigne</div><ol class="steps"><li>Connectez-vous avec le compte qui correspond à votre fonction.</li><li>Passez l&#x27;interface en anglais, puis revenez au français.</li><li>Choisissez le parcours <b>Secondaire · Francophone</b>, puis basculez sur <b>Tous les parcours</b>.</li><li>Ouvrez le guide par le bouton <span class="ui">Aide</span> et retrouvez le chapitre de votre module.</li></ol></div>
+    <div class="success"><div class="lbl ok">C'est réussi si…</div><ul><li>Vous savez changer de langue et de parcours sans quitter votre écran.</li><li>Vous savez ouvrir le guide et y retrouver votre chapitre.</li></ul></div>
+  </div>
+</section><section class="slide">
+  <div class="head">
+    <div class="eyebrow">Module 1 · Pièges fréquents</div>
+    <h2>Pièges — prise en main</h2>
+  </div>
+  <div class="body"><table class="pitfalls"><tr><td class="q">« Mes élèves ont disparu »</td><td>Mauvais parcours actif. Cliquer le bandeau en haut, choisir « Tous les parcours ».</td></tr><tr><td class="q">« Je n&#x27;ai pas ce module »</td><td>C&#x27;est le rôle, pas un bug. On verra la matrice au module 2.</td></tr><tr><td class="q">« Session expirée »</td><td>Inactivité prolongée. Se reconnecter ; rien de saisi n&#x27;est perdu.</td></tr></table></div>
+</section><section class="slide section-open">
+  <div class="body">
+    <div class="mod-badge">Module 2</div>
+    <h2 class="big">Rôles &amp; permissions</h2>
+    <div class="chips">
+      <span class="chip time">⏱ 20 min</span>
+      <span class="chip">Direction (les autres observent)</span>
+    </div>
+    <p class="goal"><span>Objectif</span>Comprendre qui voit quoi, et savoir l&#x27;ajuster sans appeler un technicien.</p>
+    <ul class="plan"><li>Démo : la matrice (6 min)</li><li>Exercice : créer un rôle et l&#x27;attribuer (10 min)</li><li>Contrôle (4 min)</li></ul>
+  </div>
+</section><section class="slide">
+  <div class="head">
+    <div class="eyebrow">Module 2 · Démonstration animateur</div>
+    <h2>Démonstration — la matrice des permissions</h2>
+  </div>
+  <div class="body split">
+    <ol class="steps"><li><span class="ui">Paramètres → Permissions</span> : une colonne par rôle, une ligne par module.</li><li>Cliquer une cellule : <b>Aucun → Lecture → Complet</b>. L&#x27;effet est immédiat.</li><li>Montrer la ligne <b>parent</b> : verrouillée hors de son portail — et expliquer pourquoi.</li><li>Rappeler : l&#x27;utilisateur voit le changement <b>à sa prochaine connexion</b>.</li></ol>
+    <div class="shot"><img src="img/fr-21-parametres-permissions.webp" alt="Démonstration — la matrice des permissions" width="1440" height="1365" loading="lazy" decoding="async"></div>
+  </div>
+</section><section class="slide exercise">
+  <div class="head">
+    <div class="eyebrow">Module 2 · À vous de jouer</div>
+    <h2>À vous — un rôle « Surveillant »</h2>
+    <div class="chip time">⏱ 10 min</div>
+  </div>
+  <div class="body split">
+    <div><div class="lbl">Consigne</div><ol class="steps"><li>Créez le rôle <b>Surveillant</b> dans <span class="ui">Paramètres → Rôles</span>.</li><li>Donnez-lui <b>Discipline : Complet</b> et <b>Présence : Lecture</b>.</li><li>Tentez de donner <b>Académique</b> au rôle <b>parent</b> — observez le refus.</li></ol></div>
+    <div class="success"><div class="lbl ok">C'est réussi si…</div><ul><li>Le rôle apparaît dans la matrice avec la mention « Personnalisé ».</li><li>Les deux cellules sont au bon niveau.</li><li>Vous savez expliquer pourquoi le rôle parent est bloqué.</li></ul></div>
+  </div>
+</section><section class="slide section-open">
+  <div class="body">
+    <div class="mod-badge">Module 3</div>
+    <h2 class="big">Paramètres — la fondation</h2>
+    <div class="chips">
+      <span class="chip time">⏱ 35 min</span>
+      <span class="chip">Direction</span>
+    </div>
+    <p class="goal"><span>Objectif</span>Construire le squelette de l&#x27;année : sections, classes, matières, horaires, calendrier.</p>
+    <ul class="plan"><li>Démo : sections → classes → matières (12 min)</li><li>Exercice : monter un parcours complet (18 min)</li><li>Contrôle (5 min)</li></ul>
+  </div>
+</section><section class="slide">
+  <div class="head">
+    <div class="eyebrow">Règle d&#x27;or</div>
+    <h2>L&#x27;ordre compte</h2>
+  </div>
+  <div class="body"><ul class="points"><li><b>Section → Classe → Élève.</b> Une classe ne peut pas exister sans section, un élève ne peut pas être inscrit sans classe.</li><li>C&#x27;est la cause numéro un des blocages de rentrée : le bouton <span class="ui">Nouvelle classe</span> reste gris tant qu&#x27;aucune section n&#x27;existe <b>dans le parcours actif</b>.</li></ul></div>
+</section><section class="slide">
+  <div class="head">
+    <div class="eyebrow">Module 3 · Démonstration animateur</div>
+    <h2>Démonstration — sections et classes</h2>
+  </div>
+  <div class="body split">
+    <ol class="steps"><li><span class="ui">Paramètres → Scolarité → Sections</span> : créer « Secondaire francophone ».</li><li>Onglet <span class="ui">Classes</span> : créer « 6ème A », rattachée à cette section.</li><li>Cliquer le compteur d&#x27;enseignants : cocher deux professeurs, enregistrer.</li><li>Onglet <span class="ui">Matières</span> : bouton <span class="ui">Importer les matières standard</span> — le catalogue officiel en un clic.</li></ol>
+    <div class="shot"><img src="img/fr-12-parametres-classes.webp" alt="Démonstration — sections et classes" width="1440" height="900" loading="lazy" decoding="async"></div>
+  </div>
+</section><section class="slide">
+  <div class="head">
+    <div class="eyebrow">Module 3 · Démonstration animateur</div>
+    <h2>Démonstration — horaires et calendrier</h2>
+  </div>
+  <div class="body split">
+    <ol class="steps"><li><span class="ui">Général</span> : renseigner l&#x27;identité de l&#x27;école, la devise, l&#x27;autorité de tutelle.</li><li>Insister sur <b>Début des cours</b> : c&#x27;est le <b>seuil de retard</b> du pointage.</li><li><span class="ui">Calendrier</span> : ajouter un jour férié — aucun retard ne sera compté ce jour-là.</li></ol>
+    <div class="shot"><img src="img/fr-18-parametres-general.webp" alt="Démonstration — horaires et calendrier" width="1440" height="900" loading="lazy" decoding="async"></div>
+  </div>
+</section><section class="slide exercise">
+  <div class="head">
+    <div class="eyebrow">Module 3 · À vous de jouer</div>
+    <h2>À vous — monter un parcours</h2>
+    <div class="chip time">⏱ 18 min</div>
+  </div>
+  <div class="body split">
+    <div><div class="lbl">Consigne</div><ol class="steps"><li>Créez une <b>section</b> dans votre parcours, puis <b>deux classes</b> dedans.</li><li>Importez les <b>matières standard</b> de votre sous-système et changez un coefficient.</li><li>Réglez l&#x27;<b>heure de début des cours</b> à 07h45.</li><li>Ajoutez un <b>jour férié</b> au calendrier.</li></ol></div>
+    <div class="success"><div class="lbl ok">C'est réussi si…</div><ul><li>Les deux classes apparaissent avec leur section et un effectif à zéro.</li><li>La liste des matières est remplie et un coefficient a été modifié.</li><li>Le jour férié figure au calendrier.</li></ul></div>
+  </div>
+</section><section class="slide">
+  <div class="head">
+    <div class="eyebrow">Module 3 · Pièges fréquents</div>
+    <h2>Pièges — paramétrage</h2>
+  </div>
+  <div class="body"><table class="pitfalls"><tr><td class="q"><span class="ui">Nouvelle classe</span> est gris</td><td>Aucune section dans ce parcours. Créer la section d&#x27;abord.</td></tr><tr><td class="q">La section est créée mais invisible</td><td>Elle appartient à un autre parcours — vérifier le bandeau.</td></tr><tr><td class="q">Les matières n&#x27;apparaissent pas</td><td>Le filtre Francophone / Anglophone en haut de l&#x27;onglet.</td></tr></table></div>
+</section><section class="slide pause">
+  <div class="body">
+    <div class="pause-time">⏱ 15 min</div>
+    <h2 class="big">Pause</h2>
+    <p class="lead">Au retour : on inscrit des élèves.</p>
+  </div>
+</section><section class="slide section-open">
+  <div class="body">
+    <div class="mod-badge">Module 4</div>
+    <h2 class="big">Élèves</h2>
+    <div class="chips">
+      <span class="chip time">⏱ 30 min</span>
+      <span class="chip">Secrétariat (tous suivent)</span>
+    </div>
+    <p class="goal"><span>Objectif</span>Inscrire une classe entière depuis le registre officiel et ouvrir un compte parent.</p>
+    <ul class="plan"><li>Démo : fiche élève et import (10 min)</li><li>Exercice : importer une classe, créer un compte parent (15 min)</li><li>Contrôle (5 min)</li></ul>
+  </div>
+</section><section class="slide">
+  <div class="head">
+    <div class="eyebrow">Module 4 · Démonstration animateur</div>
+    <h2>Démonstration — la fiche élève</h2>
+  </div>
+  <div class="body split">
+    <ol class="steps"><li>Cliquer une ligne : la fiche s&#x27;ouvre sous le tableau.</li><li>Montrer <b>père / mère / tuteur</b> et expliquer le <b>contact principal</b> déduit automatiquement.</li><li>C&#x27;est ce numéro qui recevra les SMS de discipline et les notifications.</li></ol>
+    <div class="shot"><img src="img/fr-31-eleves-fiche.webp" alt="Démonstration — la fiche élève" width="1440" height="900" loading="lazy" decoding="async"></div>
+  </div>
+</section><section class="slide">
+  <div class="head">
+    <div class="eyebrow">Module 4 · Démonstration animateur</div>
+    <h2>Démonstration — importer le registre</h2>
+  </div>
+  <div class="body split">
+    <ol class="steps"><li><span class="ui">Importer</span> → choisir la classe cible (ou la créer à la volée).</li><li>Coller le registre ou déposer le fichier Excel : l&#x27;en-tête est reconnu tout seul.</li><li>Montrer l&#x27;<b>aperçu</b> : coche verte = importable, croix rouge = nom manquant.</li><li>Importer, lire le <b>rapport</b> : créés, ignorés, et le motif de chaque ligne écartée.</li></ol>
+    <div class="shot"><img src="img/fr-36-eleves-import-apercu.webp" alt="Démonstration — importer le registre" width="1440" height="900" loading="lazy" decoding="async"></div>
+  </div>
+</section><section class="slide exercise">
+  <div class="head">
+    <div class="eyebrow">Module 4 · À vous de jouer</div>
+    <h2>À vous — inscrire et ouvrir l&#x27;accès famille</h2>
+    <div class="chip time">⏱ 15 min</div>
+  </div>
+  <div class="body split">
+    <div><div class="lbl">Consigne</div><ol class="steps"><li>Importez <b>cinq élèves</b> dans l&#x27;une de vos classes (utilisez le bouton <span class="ui">Exemple</span> si besoin).</li><li>Ouvrez la fiche du premier élève et complétez <b>père + téléphone</b>.</li><li>Créez-lui un <b>compte parent</b> : nom, identifiant, mot de passe.</li><li>Rattachez un <b>deuxième enfant</b> au même identifiant parent.</li></ol></div>
+    <div class="success"><div class="lbl ok">C'est réussi si…</div><ul><li>Les cinq élèves apparaissent dans la classe choisie.</li><li>La fiche affiche un contact principal et un compte parent.</li><li>Le compte parent indique « 2 enfants ».</li></ul></div>
+  </div>
+</section><section class="slide section-open">
+  <div class="body">
+    <div class="mod-badge">Module 5</div>
+    <h2 class="big">Personnel &amp; RH</h2>
+    <div class="chips">
+      <span class="chip time">⏱ 25 min</span>
+      <span class="chip">Direction</span>
+    </div>
+    <p class="goal"><span>Objectif</span>Créer une fiche employé, ouvrir son compte, et laisser le personnel se déclarer lui-même.</p>
+    <ul class="plan"><li>Démo : fiche, compte, portail d&#x27;inscription (9 min)</li><li>Exercice : recruter en deux temps (12 min)</li><li>Contrôle (4 min)</li></ul>
+  </div>
+</section><section class="slide">
+  <div class="head">
+    <div class="eyebrow">Module 5 · Démonstration animateur</div>
+    <h2>Démonstration — fiche et compte</h2>
+  </div>
+  <div class="body split">
+    <ol class="steps"><li><span class="ui">Nouvel employé</span> : identité, e-mail, <b>rôles multiples</b>, département, contrat.</li><li>Permanent = salaire mensuel ; Vacataire = taux horaire. Le champ s&#x27;adapte.</li><li>Cocher <span class="ui">Créer un compte de connexion</span> : les identifiants partent par e-mail.</li><li>Sur une fiche existante : <span class="ui">Réinitialiser</span> renvoie un mot de passe.</li></ol>
+    <div class="shot"><img src="img/fr-42-personnel-formulaire.webp" alt="Démonstration — fiche et compte" width="1440" height="900" loading="lazy" decoding="async"></div>
+  </div>
+</section><section class="slide">
+  <div class="head">
+    <div class="eyebrow">Module 5 · Démonstration animateur</div>
+    <h2>Démonstration — le portail d&#x27;inscription</h2>
+  </div>
+  <div class="body split">
+    <ol class="steps"><li>Onglet <span class="ui">Candidatures</span> : activer le portail, copier le lien.</li><li>Montrer le formulaire public : le personnel remplit lui-même sa fiche.</li><li>Retour côté administration : <b>Accepter</b> puis <b>Finaliser</b> — salaire, rôles, compte.</li><li>Insister : rien n&#x27;est créé tant que l&#x27;administration n&#x27;a pas finalisé.</li></ol>
+    <div class="shot"><img src="img/fr-46-personnel-portail-candidatures.webp" alt="Démonstration — le portail d&#x27;inscription" width="1440" height="900" loading="lazy" decoding="async"></div>
+  </div>
+</section><section class="slide exercise">
+  <div class="head">
+    <div class="eyebrow">Module 5 · À vous de jouer</div>
+    <h2>À vous — recruter en deux temps</h2>
+    <div class="chip time">⏱ 12 min</div>
+  </div>
+  <div class="body split">
+    <div><div class="lbl">Consigne</div><ol class="steps"><li>Créez un <b>département</b> puis un <b>enseignant</b> rattaché, avec deux rôles.</li><li>Activez le <b>portail d&#x27;inscription</b> et déposez une candidature de test depuis le lien public.</li><li>Acceptez-la, puis <b>finalisez-la</b> en fixant un salaire et un rôle.</li></ol></div>
+    <div class="success"><div class="lbl ok">C'est réussi si…</div><ul><li>L&#x27;enseignant figure à l&#x27;annuaire avec ses rôles et son département.</li><li>La candidature est passée de « En attente » à « Finalisée ».</li><li>Une fiche employé a été créée à partir de la candidature.</li></ul></div>
+  </div>
+</section><section class="slide section-open">
+  <div class="body">
+    <div class="mod-badge">Module 6</div>
+    <h2 class="big">Présence</h2>
+    <div class="chips">
+      <span class="chip time">⏱ 15 min</span>
+      <span class="chip">Vie scolaire</span>
+    </div>
+    <p class="goal"><span>Objectif</span>Lire le tableau du jour, filtrer, remonter dans l&#x27;historique.</p>
+    <ul class="plan"><li>Démo : tableau et journal (6 min)</li><li>Exercice : filtrer et remonter (7 min)</li><li>Contrôle (2 min)</li></ul>
+  </div>
+</section><section class="slide">
+  <div class="head">
+    <div class="eyebrow">Module 6 · Démonstration animateur</div>
+    <h2>Démonstration — le tableau du jour</h2>
+  </div>
+  <div class="body split">
+    <ol class="steps"><li>Les pointages remontent <b>en direct</b> : aucune saisie quotidienne.</li><li>Le <b>retard</b> se calcule sur l&#x27;heure de début des cours réglée au module 3.</li><li>Week-ends et jours fériés ne produisent jamais de retard.</li><li>Le journal se filtre par classe puis par statut.</li></ol>
+    <div class="shot"><img src="img/fr-50-presence-tableau.webp" alt="Démonstration — le tableau du jour" width="1440" height="900" loading="lazy" decoding="async"></div>
+  </div>
+</section><section class="slide exercise">
+  <div class="head">
+    <div class="eyebrow">Module 6 · À vous de jouer</div>
+    <h2>À vous — lire une journée</h2>
+    <div class="chip time">⏱ 7 min</div>
+  </div>
+  <div class="body split">
+    <div><div class="lbl">Consigne</div><ol class="steps"><li>Relevez le <b>taux de présence</b> et le nombre de retards du jour.</li><li>Filtrez le journal sur une classe, puis sur « Retards ».</li><li>Affichez la journée d&#x27;<b>hier</b>.</li></ol></div>
+    <div class="success"><div class="lbl ok">C'est réussi si…</div><ul><li>Vous savez répondre à « qui était absent en 4ème hier ? » en moins de trente secondes.</li></ul></div>
+  </div>
+</section><section class="slide section-open">
+  <div class="body">
+    <div class="mod-badge">Module 7</div>
+    <h2 class="big">Académique — bulletins &amp; PV</h2>
+    <div class="chips">
+      <span class="chip time">⏱ 25 min</span>
+      <span class="chip">Enseignants et direction</span>
+    </div>
+    <p class="goal"><span>Objectif</span>Éditer un bulletin, le valider, sortir le procès-verbal d&#x27;une classe.</p>
+    <ul class="plan"><li>Démo : bulletin, blocage, PV (10 min)</li><li>Exercice : valider et imprimer (12 min)</li><li>Contrôle (3 min)</li></ul>
+  </div>
+</section><section class="slide">
+  <div class="head">
+    <div class="eyebrow">Module 7 · Démonstration animateur</div>
+    <h2>Démonstration — le bulletin</h2>
+  </div>
+  <div class="body split">
+    <ol class="steps"><li>Choisir la <b>classe</b> et la <b>séquence</b>, cliquer un élève.</li><li>Lire le bulletin : coefficients, moyenne pondérée, rang, moyenne de classe.</li><li>Saisir l&#x27;<b>appréciation générale</b>, puis <span class="ui">Valider le bulletin</span>.</li><li><span class="ui">Tous les bulletins de la classe</span> : une seule impression pour tout le monde.</li></ol>
+    <div class="shot"><img src="img/fr-62-academique-bulletin.webp" alt="Démonstration — le bulletin" width="1440" height="1355" loading="lazy" decoding="async"></div>
+  </div>
+</section><section class="slide">
+  <div class="head">
+    <div class="eyebrow">Module 7 · Démonstration animateur</div>
+    <h2>Démonstration — bulletin bloqué</h2>
+  </div>
+  <div class="body split">
+    <ol class="steps"><li>Ouvrir un élève débiteur : bandeau rouge, validation et impression désactivées.</li><li>Expliquer le lien direct avec la Finance : le blocage tombe dès le versement enregistré.</li><li>Onglet <span class="ui">Procès-verbal</span> → <span class="ui">Charger le PV</span> : le classement de la classe.</li></ol>
+    <div class="shot"><img src="img/fr-64-academique-bulletin-bloque.webp" alt="Démonstration — bulletin bloqué" width="1440" height="1377" loading="lazy" decoding="async"></div>
+  </div>
+</section><section class="slide exercise">
+  <div class="head">
+    <div class="eyebrow">Module 7 · À vous de jouer</div>
+    <h2>À vous — valider un bulletin</h2>
+    <div class="chip time">⏱ 12 min</div>
+  </div>
+  <div class="body split">
+    <div><div class="lbl">Consigne</div><ol class="steps"><li>Ouvrez le bulletin d&#x27;un élève de 4ème, séquence 1.</li><li>Rédigez une appréciation et <b>validez</b>.</li><li>Chargez le <b>procès-verbal</b> de la classe et vérifiez que le rang concorde.</li><li>Repérez un élève dont le bulletin est <b>bloqué</b> et expliquez pourquoi.</li></ol></div>
+    <div class="success"><div class="lbl ok">C'est réussi si…</div><ul><li>Le bulletin porte le badge « Validé ».</li><li>Le PV affiche le même rang que le bulletin.</li><li>Vous savez dire ce qu&#x27;il faut faire pour débloquer un bulletin.</li></ul></div>
+  </div>
+</section><section class="slide">
+  <div class="head">
+    <div class="eyebrow">Honnêteté</div>
+    <h2>Ce que le module ne fait pas encore</h2>
+  </div>
+  <div class="body"><ul class="points"><li>Il n&#x27;y a <b>pas encore d&#x27;écran de saisie des notes</b> : elles sont alimentées par l&#x27;intégration technique.</li><li>Le module sert à <b>restituer</b> : bulletin, procès-verbal, validation, impression.</li><li>Pour la maternelle et le primaire, le bulletin <b>par compétences</b> est une feuille imprimable conforme, à remplir à la main.</li></ul></div>
+</section><section class="slide pause">
+  <div class="body">
+    <div class="pause-time">⏱ 60 min</div>
+    <h2 class="big">Déjeuner</h2>
+    <p class="lead">Au retour : la vie scolaire, puis l&#x27;argent.</p>
+  </div>
+</section><section class="slide section-open">
+  <div class="body">
+    <div class="mod-badge">Module 8</div>
+    <h2 class="big">Discipline</h2>
+    <div class="chips">
+      <span class="chip time">⏱ 15 min</span>
+      <span class="chip">Vie scolaire</span>
+    </div>
+    <p class="goal"><span>Objectif</span>Consigner un incident et prévenir la famille dans la foulée.</p>
+    <ul class="plan"><li>Démo : incident + notification (6 min)</li><li>Exercice (7 min)</li><li>Contrôle (2 min)</li></ul>
+  </div>
+</section><section class="slide">
+  <div class="head">
+    <div class="eyebrow">Module 8 · Démonstration animateur</div>
+    <h2>Démonstration — incident et SMS</h2>
+  </div>
+  <div class="body split">
+    <ol class="steps"><li><span class="ui">Nouvel incident</span> : classe → élève ; la fiche s&#x27;affiche pour confirmer.</li><li>Motif et sanction viennent du <b>catalogue</b> réglé dans Paramètres.</li><li>Cliquer la <b>cloche</b> sur l&#x27;incident : le message se pré-remplit avec le nom de l&#x27;élève.</li><li>Envoyer par SMS : le résultat s&#x27;affiche immédiatement, succès ou motif d&#x27;échec.</li></ol>
+    <div class="shot"><img src="img/fr-71-discipline-formulaire.webp" alt="Démonstration — incident et SMS" width="1440" height="900" loading="lazy" decoding="async"></div>
+  </div>
+</section><section class="slide exercise">
+  <div class="head">
+    <div class="eyebrow">Module 8 · À vous de jouer</div>
+    <h2>À vous — consigner et notifier</h2>
+    <div class="chip time">⏱ 7 min</div>
+  </div>
+  <div class="body split">
+    <div><div class="lbl">Consigne</div><ol class="steps"><li>Enregistrez un incident avec un motif du catalogue et une sanction.</li><li>Notifiez le parent depuis l&#x27;incident.</li><li>Lisez le message de résultat et interprétez-le.</li></ol></div>
+    <div class="success"><div class="lbl ok">C'est réussi si…</div><ul><li>L&#x27;incident est dans la liste et vous savez lire le retour d&#x27;envoi.</li></ul></div>
+  </div>
+</section><section class="slide section-open">
+  <div class="body">
+    <div class="mod-badge">Module 9</div>
+    <h2 class="big">Cahier de textes</h2>
+    <div class="chips">
+      <span class="chip time">⏱ 10 min</span>
+      <span class="chip">Enseignants</span>
+    </div>
+    <p class="goal"><span>Objectif</span>Tenir le journal de classe et les devoirs, séance après séance.</p>
+    <ul class="plan"><li>Démo (4 min)</li><li>Exercice (5 min)</li><li>Contrôle (1 min)</li></ul>
+  </div>
+</section><section class="slide">
+  <div class="head">
+    <div class="eyebrow">Module 9 · Démonstration animateur</div>
+    <h2>Démonstration — une entrée</h2>
+  </div>
+  <div class="body split">
+    <ol class="steps"><li>Choisir la classe : les entrées sont groupées par jour, la plus récente en haut.</li><li><span class="ui">Nouvelle entrée</span> : matière, date, contenu traité.</li><li>Ajouter le <b>devoir</b> et sa <b>date de remise</b> — il apparaît en encadré.</li></ol>
+    <div class="shot"><img src="img/fr-81-cahier-textes-formulaire.webp" alt="Démonstration — une entrée" width="1440" height="900" loading="lazy" decoding="async"></div>
+  </div>
+</section><section class="slide exercise">
+  <div class="head">
+    <div class="eyebrow">Module 9 · À vous de jouer</div>
+    <h2>À vous — deux séances</h2>
+    <div class="chip time">⏱ 5 min</div>
+  </div>
+  <div class="body split">
+    <div><div class="lbl">Consigne</div><ol class="steps"><li>Saisissez deux séances dans votre classe, dont une avec un devoir daté.</li><li>Corrigez ensuite l&#x27;une des deux.</li></ol></div>
+    <div class="success"><div class="lbl ok">C'est réussi si…</div><ul><li>Les deux séances apparaissent au bon jour, le devoir est visible.</li></ul></div>
+  </div>
+</section><section class="slide section-open">
+  <div class="body">
+    <div class="mod-badge">Module 10</div>
+    <h2 class="big">Emploi du temps</h2>
+    <div class="chips">
+      <span class="chip time">⏱ 20 min</span>
+      <span class="chip">Direction</span>
+    </div>
+    <p class="goal"><span>Objectif</span>Construire une grille de classe et repérer les conflits d&#x27;enseignant.</p>
+    <ul class="plan"><li>Démo (7 min)</li><li>Exercice (10 min)</li><li>Contrôle (3 min)</li></ul>
+  </div>
+</section><section class="slide">
+  <div class="head">
+    <div class="eyebrow">Module 10 · Démonstration animateur</div>
+    <h2>Démonstration — la grille</h2>
+  </div>
+  <div class="body split">
+    <ol class="steps"><li>Choisir la classe : six jours, neuf créneaux de 07h30 à 15h30.</li><li>Cliquer une case vide : matière, enseignant, salle.</li><li>Programmer volontairement le même enseignant ailleurs à la même heure.</li><li>Montrer le bandeau orange <b>Conflits détectés</b> : un avertissement, pas un blocage.</li></ol>
+    <div class="shot"><img src="img/fr-101-emploi-du-temps-creneau.webp" alt="Démonstration — la grille" width="1440" height="900" loading="lazy" decoding="async"></div>
+  </div>
+</section><section class="slide exercise">
+  <div class="head">
+    <div class="eyebrow">Module 10 · À vous de jouer</div>
+    <h2>À vous — une matinée complète</h2>
+    <div class="chip time">⏱ 10 min</div>
+  </div>
+  <div class="body split">
+    <div><div class="lbl">Consigne</div><ol class="steps"><li>Remplissez la matinée du lundi d&#x27;une classe (trois créneaux).</li><li>Provoquez un <b>conflit d&#x27;enseignant</b> et lisez l&#x27;avertissement.</li><li>Supprimez un créneau.</li></ol></div>
+    <div class="success"><div class="lbl ok">C'est réussi si…</div><ul><li>Trois créneaux posés, un conflit compris, une case libérée.</li></ul></div>
+  </div>
+</section><section class="slide section-open">
+  <div class="body">
+    <div class="mod-badge">Module 11</div>
+    <h2 class="big">Finance &amp; moyens de paiement</h2>
+    <div class="chips">
+      <span class="chip time">⏱ 40 min</span>
+      <span class="chip">Économat (direction en observation)</span>
+    </div>
+    <p class="goal"><span>Objectif</span>Configurer Orange Money, MoMo et MPGS, définir les frais par classe, encaisser une tranche.</p>
+    <ul class="plan"><li>Démo : canaux, grille, encaissement (14 min)</li><li>Exercice : la chaîne complète (20 min)</li><li>Contrôle (6 min)</li></ul>
+  </div>
+</section><section class="slide">
+  <div class="head">
+    <div class="eyebrow">À dire d&#x27;emblée</div>
+    <h2>Ce que le système fait — et ne fait pas</h2>
+  </div>
+  <div class="body"><ul class="points"><li>L&#x27;application <b>n&#x27;initie aucun débit</b>. Le parent paie depuis son téléphone ou à la banque.</li><li>Elle <b>enregistre et trace</b> le versement : canal, montant, tranche, <b>référence de transaction</b>.</li><li>Le parent, lui, voit dans son espace ce qu&#x27;il doit, à quelle date, et par quel moyen payer.</li></ul></div>
+</section><section class="slide">
+  <div class="head">
+    <div class="eyebrow">Module 11 · Démonstration animateur</div>
+    <h2>Démonstration — les moyens de paiement</h2>
+  </div>
+  <div class="body split">
+    <ol class="steps"><li>Onglet <span class="ui">Moyens de paiement</span> : Espèces, Orange Money, MTN MoMo, carte MPGS, virement.</li><li>Trois interrupteurs : <b>actif</b>, <b>visible des parents</b>, <b>référence obligatoire</b>.</li><li><span class="ui">Coordonnées</span> : saisir le numéro à créditer, l&#x27;intitulé du compte, les instructions.</li><li>Ces instructions s&#x27;afficheront <b>telles quelles</b> dans l&#x27;espace du parent.</li></ol>
+    <div class="shot"><img src="img/fr-98-finance-moyens-paiement.webp" alt="Démonstration — les moyens de paiement" width="1440" height="975" loading="lazy" decoding="async"></div>
+  </div>
+</section><section class="slide">
+  <div class="head">
+    <div class="eyebrow">Module 11 · Démonstration animateur</div>
+    <h2>Démonstration — les frais par classe</h2>
+  </div>
+  <div class="body split">
+    <ol class="steps"><li>Onglet <span class="ui">Frais</span> : une grille par <b>niveau</b>, surchargeable par <b>classe</b>.</li><li>Créer une surcharge : total annuel, puis les tranches — <b>libellé, montant, échéance</b>.</li><li>Autant de tranches que nécessaire : « Inscription », « Tranche 2 »…</li><li>La somme des tranches doit égaler le total : le serveur refuse tout écart.</li></ol>
+    <div class="shot"><img src="img/fr-97-finance-grille-classe.webp" alt="Démonstration — les frais par classe" width="1440" height="1127" loading="lazy" decoding="async"></div>
+  </div>
+</section><section class="slide">
+  <div class="head">
+    <div class="eyebrow">Module 11 · Démonstration animateur</div>
+    <h2>Démonstration — encaisser une tranche</h2>
+  </div>
+  <div class="body split">
+    <ol class="steps"><li><span class="ui">Nouveau paiement</span> : classe → élève. La <b>situation</b> s&#x27;affiche aussitôt.</li><li>La première tranche non soldée est présélectionnée, le montant restant pré-rempli.</li><li>Choisir <b>Orange Money</b> : le champ <b>référence</b> devient obligatoire.</li><li>Valider sans référence → refus. Avec la référence → reçu numéroté, imprimable.</li></ol>
+    <div class="shot"><img src="img/fr-91-finance-nouveau-paiement.webp" alt="Démonstration — encaisser une tranche" width="1440" height="900" loading="lazy" decoding="async"></div>
+  </div>
+</section><section class="slide exercise">
+  <div class="head">
+    <div class="eyebrow">Module 11 · À vous de jouer</div>
+    <h2>À vous — de la configuration au reçu</h2>
+    <div class="chip time">⏱ 20 min</div>
+  </div>
+  <div class="body split">
+    <div><div class="lbl">Consigne</div><ol class="steps"><li>Renseignez le <b>numéro Orange Money</b> de l&#x27;école et rendez le canal visible des parents.</li><li>Créez une <b>surcharge de frais</b> pour une classe : 180 000 FCFA en quatre tranches datées.</li><li>Encaissez la première tranche d&#x27;un élève <b>par Orange Money</b>, avec une référence.</li><li>Essayez d&#x27;abord <b>sans</b> référence pour voir le refus.</li><li>Imprimez le reçu, puis vérifiez l&#x27;élève dans l&#x27;onglet <span class="ui">Débiteurs</span>.</li></ol></div>
+    <div class="success"><div class="lbl ok">C'est réussi si…</div><ul><li>Le canal Orange Money porte un numéro et est visible des parents.</li><li>La classe suit sa propre grille (pastille « classe » dans le tableau).</li><li>Le reçu porte le canal et la référence ; le solde de l&#x27;élève a diminué d&#x27;autant.</li></ul></div>
+  </div>
+</section><section class="slide">
+  <div class="head">
+    <div class="eyebrow">Module 11 · Pièges fréquents</div>
+    <h2>Pièges — finance</h2>
+  </div>
+  <div class="body"><table class="pitfalls"><tr><td class="q">Encaissement refusé</td><td>Référence de transaction manquante, ou canal désactivé.</td></tr><tr><td class="q">Montant des frais inattendu</td><td>L&#x27;élève suit la grille de sa classe si elle existe, sinon celle de son niveau.</td></tr><tr><td class="q">Le parent ne voit pas comment payer</td><td>Canal non coché « visible des parents », ou coordonnées vides.</td></tr><tr><td class="q">Somme des tranches refusée</td><td>Elle doit être exactement égale au total annuel.</td></tr></table></div>
+</section><section class="slide pause">
+  <div class="body">
+    <div class="pause-time">⏱ 10 min</div>
+    <h2 class="big">Pause</h2>
+    <p class="lead">Au retour : la communication avec les familles.</p>
+  </div>
+</section><section class="slide section-open">
+  <div class="body">
+    <div class="mod-badge">Module 12</div>
+    <h2 class="big">Événements &amp; correspondance</h2>
+    <div class="chips">
+      <span class="chip time">⏱ 20 min</span>
+      <span class="chip">Secrétariat, direction</span>
+    </div>
+    <p class="goal"><span>Objectif</span>Annoncer à un groupe, écrire à une famille, obtenir l&#x27;accusé de lecture.</p>
+    <ul class="plan"><li>Démo (8 min)</li><li>Exercice (10 min)</li><li>Contrôle (2 min)</li></ul>
+  </div>
+</section><section class="slide">
+  <div class="head">
+    <div class="eyebrow">Module 12 · Démonstration animateur</div>
+    <h2>Démonstration — annoncer et écrire</h2>
+  </div>
+  <div class="body split">
+    <ol class="steps"><li><span class="ui">Événements</span> : titre, type, date, puis <b>toute l&#x27;école</b> ou <b>classes ciblées</b>.</li><li><span class="ui">Notifier les parents</span> : le compteur indique combien de familles ont été touchées.</li><li><span class="ui">Correspondance</span> : classe → élève, catégorie, objet, message.</li><li>Cocher <b>accusé de lecture requis</b> : la note reste « en attente » jusqu&#x27;à signature.</li></ol>
+    <div class="shot"><img src="img/fr-111-evenements-formulaire.webp" alt="Démonstration — annoncer et écrire" width="1440" height="900" loading="lazy" decoding="async"></div>
+  </div>
+</section><section class="slide exercise">
+  <div class="head">
+    <div class="eyebrow">Module 12 · À vous de jouer</div>
+    <h2>À vous — informer les familles</h2>
+    <div class="chip time">⏱ 10 min</div>
+  </div>
+  <div class="body split">
+    <div><div class="lbl">Consigne</div><ol class="steps"><li>Créez une <b>réunion parents-professeurs</b> pour toute l&#x27;école et notifiez-la.</li><li>Créez un <b>devoir surveillé</b> ciblé sur deux classes.</li><li>Envoyez une <b>convocation</b> à un élève, avec accusé de lecture.</li><li>Marquez-la comme lue au nom du parent.</li></ol></div>
+    <div class="success"><div class="lbl ok">C'est réussi si…</div><ul><li>L&#x27;événement porte le badge « Notifié » ; la note affiche « Lu / signé par … ».</li></ul></div>
+  </div>
+</section><section class="slide section-open">
+  <div class="body">
+    <div class="mod-badge">Module 13</div>
+    <h2 class="big">Fournitures &amp; manuels</h2>
+    <div class="chips">
+      <span class="chip time">⏱ 10 min</span>
+      <span class="chip">Économat, professeurs principaux</span>
+    </div>
+    <p class="goal"><span>Objectif</span>Préparer les listes de rentrée et les publier aux familles.</p>
+    <ul class="plan"><li>Démo (4 min)</li><li>Exercice (5 min)</li><li>Contrôle (1 min)</li></ul>
+  </div>
+</section><section class="slide">
+  <div class="head">
+    <div class="eyebrow">Module 13 · Démonstration animateur</div>
+    <h2>Démonstration — préparer puis publier</h2>
+  </div>
+  <div class="body split">
+    <ol class="steps"><li>Deux listes par classe : <b>fournitures</b> (quantités) et <b>manuels</b> (prix, auteur, obligatoire).</li><li>Le total du coût des manuels se calcule tout seul.</li><li>Tant que la liste est en <b>brouillon</b>, les parents ne la voient pas.</li><li><span class="ui">Publier</span> : elle apparaît immédiatement dans l&#x27;espace famille.</li></ol>
+    <div class="shot"><img src="img/fr-131-manuels.webp" alt="Démonstration — préparer puis publier" width="1440" height="900" loading="lazy" decoding="async"></div>
+  </div>
+</section><section class="slide exercise">
+  <div class="head">
+    <div class="eyebrow">Module 13 · À vous de jouer</div>
+    <h2>À vous — la liste de rentrée</h2>
+    <div class="chip time">⏱ 5 min</div>
+  </div>
+  <div class="body split">
+    <div><div class="lbl">Consigne</div><ol class="steps"><li>Composez la liste de fournitures d&#x27;une classe (trois articles) et publiez-la.</li><li>Ajoutez deux manuels avec leur prix et vérifiez le total.</li></ol></div>
+    <div class="success"><div class="lbl ok">C'est réussi si…</div><ul><li>Le bandeau indique « Publié — visible par les parents ».</li></ul></div>
+  </div>
+</section><section class="slide section-open">
+  <div class="body">
+    <div class="mod-badge">Module 14</div>
+    <h2 class="big">Parcours, santé, documents</h2>
+    <div class="chips">
+      <span class="chip time">⏱ 15 min</span>
+      <span class="chip">Secrétariat, infirmerie</span>
+    </div>
+    <p class="goal"><span>Objectif</span>Tenir le dossier de l&#x27;élève au-delà de l&#x27;année en cours.</p>
+    <ul class="plan"><li>Démo (6 min)</li><li>Exercice (7 min)</li><li>Contrôle (2 min)</li></ul>
+  </div>
+</section><section class="slide">
+  <div class="head">
+    <div class="eyebrow">Module 14 · Démonstration animateur</div>
+    <h2>Démonstration — le dossier de l&#x27;élève</h2>
+  </div>
+  <div class="body split">
+    <ol class="steps"><li><span class="ui">Parcours</span> : une ligne par année — classe, résultat, moyenne, décision du conseil.</li><li><span class="ui">Santé</span> : dossier médical, passages à l&#x27;infirmerie, activités extrascolaires.</li><li><span class="ui">Documents</span> : registre des pièces et décisions d&#x27;orientation.</li><li>Rappeler que les données de santé sont <b>confidentielles</b> : restreindre les droits.</li></ol>
+    <div class="shot"><img src="img/fr-141-sante.webp" alt="Démonstration — le dossier de l&#x27;élève" width="1440" height="1953" loading="lazy" decoding="async"></div>
+  </div>
+</section><section class="slide exercise">
+  <div class="head">
+    <div class="eyebrow">Module 14 · À vous de jouer</div>
+    <h2>À vous — compléter un dossier</h2>
+    <div class="chip time">⏱ 7 min</div>
+  </div>
+  <div class="body split">
+    <div><div class="lbl">Consigne</div><ol class="steps"><li>Ajoutez une <b>année antérieure</b> au parcours d&#x27;un élève, avec moyenne et rang.</li><li>Complétez son <b>dossier médical</b> et enregistrez un passage à l&#x27;infirmerie.</li><li>Enregistrez une <b>pièce</b> au dossier documentaire.</li></ol></div>
+    <div class="success"><div class="lbl ok">C'est réussi si…</div><ul><li>La chronologie affiche l&#x27;année ajoutée ; les compteurs santé et documents ont bougé.</li></ul></div>
+  </div>
+</section><section class="slide section-open">
+  <div class="body">
+    <div class="mod-badge">Module 15</div>
+    <h2 class="big">Pilotage</h2>
+    <div class="chips">
+      <span class="chip time">⏱ 15 min</span>
+      <span class="chip">Direction</span>
+    </div>
+    <p class="goal"><span>Objectif</span>Lire la journée, traiter les alertes, sortir les chiffres de l&#x27;école.</p>
+    <ul class="plan"><li>Démo (6 min)</li><li>Exercice (7 min)</li><li>Contrôle (2 min)</li></ul>
+  </div>
+</section><section class="slide">
+  <div class="head">
+    <div class="eyebrow">Module 15 · Démonstration animateur</div>
+    <h2>Démonstration — les trois écrans</h2>
+  </div>
+  <div class="body split">
+    <ol class="steps"><li><span class="ui">Tableau de bord</span> : la journée en un écran, recomposé selon vos droits.</li><li><span class="ui">Alertes</span> : chute de résultats, absences, discipline, impayés — avec une gravité.</li><li><span class="ui">Relancer le scan</span> après un import de notes ou une campagne d&#x27;encaissement.</li><li><span class="ui">Rapports</span> : bilan financier, démographie, présence mensuelle, exportables.</li></ol>
+    <div class="shot"><img src="img/fr-151-alertes.webp" alt="Démonstration — les trois écrans" width="1440" height="900" loading="lazy" decoding="async"></div>
+  </div>
+</section><section class="slide exercise">
+  <div class="head">
+    <div class="eyebrow">Module 15 · À vous de jouer</div>
+    <h2>À vous — piloter</h2>
+    <div class="chip time">⏱ 7 min</div>
+  </div>
+  <div class="body split">
+    <div><div class="lbl">Consigne</div><ol class="steps"><li>Relancez un scan d&#x27;alertes et traitez-en une (Vu, puis Résoudre).</li><li>Chargez la <b>présence mensuelle</b> du mois en cours et exportez-la.</li></ol></div>
+    <div class="success"><div class="lbl ok">C'est réussi si…</div><ul><li>L&#x27;alerte a quitté la file ; le CSV est téléchargé.</li></ul></div>
+  </div>
+</section><section class="slide section-open">
+  <div class="body">
+    <div class="mod-badge">Module 16</div>
+    <h2 class="big">Portail parent</h2>
+    <div class="chips">
+      <span class="chip time">⏱ 15 min</span>
+      <span class="chip">Tous — c&#x27;est ce que voient les familles</span>
+    </div>
+    <p class="goal"><span>Objectif</span>Voir l&#x27;école du point de vue d&#x27;une famille, et savoir ce qu&#x27;elle peut faire seule.</p>
+    <ul class="plan"><li>Démo (7 min)</li><li>Exercice (6 min)</li><li>Contrôle (2 min)</li></ul>
+  </div>
+</section><section class="slide">
+  <div class="head">
+    <div class="eyebrow">Module 16 · Démonstration animateur</div>
+    <h2>Démonstration — l&#x27;espace famille</h2>
+  </div>
+  <div class="body split">
+    <ol class="steps"><li>Se connecter avec <code>parent1</code> : ni menu latéral, ni parcours — un espace dédié.</li><li><span class="ui">Frais &amp; paiements</span> : frais de la classe, part réglée, <b>échéancier</b> tranche par tranche.</li><li><b>Comment payer</b> : les numéros Orange Money et MoMo saisis au module 11.</li><li><span class="ui">Notes</span>, <span class="ui">Fournitures &amp; manuels</span>, <span class="ui">Boîte à suggestions</span>.</li><li>Saisir à la main une adresse du personnel : accès refusé, retour au portail.</li></ol>
+    <div class="shot"><img src="img/fr-164-parent-frais.webp" alt="Démonstration — l&#x27;espace famille" width="1440" height="1785" loading="lazy" decoding="async"></div>
+  </div>
+</section><section class="slide exercise">
+  <div class="head">
+    <div class="eyebrow">Module 16 · À vous de jouer</div>
+    <h2>À vous — dans la peau d&#x27;un parent</h2>
+    <div class="chip time">⏱ 6 min</div>
+  </div>
+  <div class="body split">
+    <div><div class="lbl">Consigne</div><ol class="steps"><li>Connectez-vous avec le compte parent et ouvrez <span class="ui">Frais &amp; paiements</span>.</li><li>Retrouvez la tranche que vous avez encaissée au module 11 et sa référence.</li><li>Basculez d&#x27;un enfant à l&#x27;autre.</li><li>Envoyez un message par la boîte à suggestions.</li></ol></div>
+    <div class="success"><div class="lbl ok">C'est réussi si…</div><ul><li>Le versement du module 11 apparaît dans « Mes versements ».</li><li>Le solde affiché correspond à celui vu côté économat.</li></ul></div>
+  </div>
+</section><section class="slide">
+  <div class="head">
+    <div class="eyebrow">Synthèse</div>
+    <h2>Les cinq réflexes à retenir</h2>
+  </div>
+  <div class="body"><ul class="points"><li><b>Le parcours d&#x27;abord</b> : une donnée « disparue » est presque toujours un parcours mal choisi.</li><li><b>Section → classe → élève</b> : l&#x27;ordre de la rentrée ne se contourne pas.</li><li><b>Le rôle décide de l&#x27;écran</b> : un module absent, c&#x27;est la matrice des permissions.</li><li><b>La grille de frais commande le solde</b>, le blocage du bulletin et ce que voit le parent.</li><li><b>Le guide est dans l&#x27;application</b> : bouton <span class="ui">Aide</span>, chapitre par module, captures à l&#x27;appui.</li></ul></div>
+</section><section class="slide">
+  <div class="head"><div class="eyebrow">Clôture</div><h2>Et maintenant ?</h2></div>
+  <div class="body">
+    <ul class="roadmap"><li><span class="when">Cette semaine</span><span class="what">Paramétrer l&#x27;établissement réel : identité, horaires, calendrier, sections, classes, matières.</span></li><li><span class="when">Semaine suivante</span><span class="what">Importer le personnel et les élèves, ouvrir les comptes parents.</span></li><li><span class="when">Avant la rentrée</span><span class="what">Grille des frais et moyens de paiement, emplois du temps, listes de fournitures.</span></li><li><span class="when">Au quotidien</span><span class="what">Présence, discipline, cahier de textes, encaissements — au fil de l&#x27;eau.</span></li></ul>
+    <p class="closing-note">Le guide utilisateur reste accessible à tout moment depuis le bouton <span class="ui">Aide</span> de l&#x27;application. Chaque chapitre se termine par une fiche de test : c&#x27;est votre auto-évaluation après l&#x27;atelier.</p>
+  </div>
+</section></div>
+
+<nav class="bar">
+  <button id="prev" title="Précédent (←)">←</button>
+  <button id="next" title="Suivant (→)">→</button>
+  <button id="menu" title="Sommaire (S)">Sommaire</button>
+  <div class="count"><span id="pos">1</span> / 71</div>
+  <a class="guide-link" href="/guide/" target="_blank" rel="noopener">Guide</a>
+</nav>
+<div class="progress"><div id="bar"></div></div>
+
+<div class="overlay" id="overlay">
+  <div class="outline">
+    <h3>Sommaire de la journée</h3>
+    <ul><li><button data-go="5"><span class="n">1</span>Prise en main<span class="t">25 min</span></button></li><li><button data-go="10"><span class="n">2</span>Rôles &amp; permissions<span class="t">20 min</span></button></li><li><button data-go="13"><span class="n">3</span>Paramètres — la fondation<span class="t">35 min</span></button></li><li class="brk"><button data-go="19">Pause<span class="t">15 min</span></button></li><li><button data-go="20"><span class="n">4</span>Élèves<span class="t">30 min</span></button></li><li><button data-go="24"><span class="n">5</span>Personnel &amp; RH<span class="t">25 min</span></button></li><li><button data-go="28"><span class="n">6</span>Présence<span class="t">15 min</span></button></li><li><button data-go="31"><span class="n">7</span>Académique — bulletins &amp; PV<span class="t">25 min</span></button></li><li class="brk"><button data-go="36">Déjeuner<span class="t">60 min</span></button></li><li><button data-go="37"><span class="n">8</span>Discipline<span class="t">15 min</span></button></li><li><button data-go="40"><span class="n">9</span>Cahier de textes<span class="t">10 min</span></button></li><li><button data-go="43"><span class="n">10</span>Emploi du temps<span class="t">20 min</span></button></li><li><button data-go="46"><span class="n">11</span>Finance &amp; moyens de paiement<span class="t">40 min</span></button></li><li class="brk"><button data-go="53">Pause<span class="t">10 min</span></button></li><li><button data-go="54"><span class="n">12</span>Événements &amp; correspondance<span class="t">20 min</span></button></li><li><button data-go="57"><span class="n">13</span>Fournitures &amp; manuels<span class="t">10 min</span></button></li><li><button data-go="60"><span class="n">14</span>Parcours, santé, documents<span class="t">15 min</span></button></li><li><button data-go="63"><span class="n">15</span>Pilotage<span class="t">15 min</span></button></li><li><button data-go="66"><span class="n">16</span>Portail parent<span class="t">15 min</span></button></li></ul>
+  </div>
+</div>
+
+<script>/* Atelier pratique BBC SMS — navigation du support projeté. */
+(function () {
+  var slides = [].slice.call(document.querySelectorAll('.slide'));
+  var pos = document.getElementById('pos');
+  var bar = document.getElementById('bar');
+  var overlay = document.getElementById('overlay');
+  var index = 0;
+
+  /** La diapositive courante vit dans l'URL : rafraîchir ne perd pas sa place. */
+  function show(i, push) {
+    index = Math.max(0, Math.min(slides.length - 1, i));
+    slides.forEach(function (s, n) { s.classList.toggle('on', n === index); });
+    pos.textContent = String(index + 1);
+    bar.style.width = ((index + 1) / slides.length * 100) + '%';
+    if (push !== false) history.replaceState(null, '', '#' + (index + 1));
+    overlay.classList.remove('on');
+  }
+
+  function fromHash() {
+    var n = parseInt((location.hash || '').replace('#', ''), 10);
+    return isNaN(n) ? 0 : n - 1;
+  }
+
+  document.getElementById('next').addEventListener('click', function () { show(index + 1); });
+  document.getElementById('prev').addEventListener('click', function () { show(index - 1); });
+  document.getElementById('menu').addEventListener('click', function () { overlay.classList.toggle('on'); });
+
+  overlay.addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-go]');
+    if (b) show(parseInt(b.dataset.go, 10));
+    else if (e.target === overlay) overlay.classList.remove('on');
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') { e.preventDefault(); show(index + 1); }
+    else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); show(index - 1); }
+    else if (e.key === 'Home') show(0);
+    else if (e.key === 'End') show(slides.length - 1);
+    else if (e.key === 'Escape') overlay.classList.remove('on');
+    else if (e.key === 's' || e.key === 'S') overlay.classList.toggle('on');
+    else if (e.key === 'p' || e.key === 'P') window.print();
+  });
+
+  // Balayage tactile, pour animer depuis une tablette.
+  var x0 = null;
+  document.addEventListener('touchstart', function (e) { x0 = e.changedTouches[0].clientX; }, { passive: true });
+  document.addEventListener('touchend', function (e) {
+    if (x0 === null) return;
+    var dx = e.changedTouches[0].clientX - x0;
+    if (Math.abs(dx) > 60) show(index + (dx < 0 ? 1 : -1));
+    x0 = null;
+  }, { passive: true });
+
+  // Lien profond : #12 ouvre la douzième diapositive, y compris après coup.
+  window.addEventListener('hashchange', function () { show(fromHash(), false); });
+
+  show(fromHash(), false);
+})();
+</script>
+</body>
+</html>

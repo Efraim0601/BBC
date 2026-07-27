@@ -1,0 +1,198 @@
+/* Atelier pratique BBC SMS — support projetable (injecté dans atelier.html). */
+:root{
+  --brand-900:#0B1B2E; --brand-800:#12293F; --brand-700:#1B3A5C; --brand-600:#2D5586;
+  --brand-100:#DCE6F1; --brand-50:#F1F5FA;
+  --gold-500:#B98B25; --gold-400:#D4A843; --gold-50:#FBF6E8;
+  --ink:#0F2238; --mute:#5B6B82; --faint:#93A3B8;
+  --line:#E3E9F1; --ok:#16A34A; --ok-bg:#ECFDF5; --warn:#B45309; --warn-bg:#FFFBEB;
+  --bar:56px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;height:100%}
+body{
+  font-family:'Manrope',ui-sans-serif,system-ui,sans-serif; color:var(--ink); background:#0B1B2E;
+  -webkit-font-smoothing:antialiased; overflow:hidden;
+}
+code{
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.9em;
+  background:#EEF2F7; border:1px solid var(--line); border-radius:6px; padding:1px 7px;
+}
+b{font-weight:800}
+.ui{
+  font-weight:700;color:var(--brand-700);background:var(--brand-50);
+  border:1px solid var(--brand-100);border-radius:7px;padding:1px 8px;white-space:nowrap;
+}
+
+/* ------------------------------------------------------------------ diapos */
+.deck{height:100vh;width:100vw}
+.slide{
+  position:absolute; inset:0 0 var(--bar); display:none;
+  padding:52px 64px 30px; background:#fff; overflow:hidden;
+  flex-direction:column; gap:22px;
+}
+.slide.on{display:flex}
+.head{flex:0 0 auto}
+.eyebrow{
+  font-size:14px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;color:var(--gold-500);
+  margin-bottom:8px;
+}
+h1{font-family:'Fraunces',Georgia,serif;font-size:66px;line-height:1.05;margin:0 0 14px;font-weight:700;letter-spacing:-.02em}
+h2{font-family:'Fraunces',Georgia,serif;font-size:42px;line-height:1.1;margin:0;font-weight:700;letter-spacing:-.015em}
+h2.big{font-size:60px;margin:10px 0 18px}
+.lead{font-size:22px;color:var(--mute);margin:0;max-width:60ch}
+.body{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:18px;overflow:auto;
+      justify-content:safe center}
+.body.split{flex-direction:row;gap:34px;align-items:flex-start}
+.body.split > *{flex:1 1 0;min-width:0}
+
+/* ---------------------------------------------------------------- couverture */
+.slide.cover{background:linear-gradient(135deg,var(--brand-800),var(--brand-900) 60%);color:#fff;justify-content:center}
+.slide.cover::after{
+  content:"";position:absolute;right:-140px;top:-140px;width:520px;height:520px;border-radius:50%;
+  background:rgba(212,168,67,.14);filter:blur(30px);
+}
+.cover-inner{position:relative;z-index:1;max-width:60ch}
+.cover .eyebrow{color:var(--gold-400)}
+.cover .lead{color:#B7CADC;font-size:24px}
+.cover-meta{display:flex;gap:44px;margin:38px 0 30px}
+.cover-meta div{font-size:20px;font-weight:700;white-space:nowrap}
+.cover-meta span{display:block;font-size:12px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:var(--gold-400);margin-bottom:6px}
+.cover-hint{font-size:14px;color:#8FA8C0}
+
+/* ------------------------------------------------------- ouverture de module */
+.slide.section-open{background:linear-gradient(135deg,#fff, var(--brand-50));justify-content:center}
+.mod-badge{
+  /* align-self : dans une colonne flex, un inline-block s'étirerait sur toute la largeur. */
+  align-self:flex-start;
+  font-size:13px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;
+  color:#fff;background:var(--brand-700);border-radius:999px;padding:7px 18px;
+}
+.chips{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px}
+.chip{
+  font-size:15px;font-weight:700;color:var(--brand-700);background:#fff;
+  border:1px solid var(--brand-100);border-radius:999px;padding:6px 16px;
+}
+.chip.time{background:var(--gold-50);border-color:#F0E3BE;color:var(--gold-500)}
+.goal{font-size:24px;margin:0 0 22px;max-width:64ch;line-height:1.45}
+.goal span{
+  display:block;font-size:12px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--faint);margin-bottom:6px;
+}
+.plan{margin:0;padding-left:24px;font-size:19px;color:var(--mute);line-height:1.7}
+
+/* ------------------------------------------------------------------- listes */
+ol.steps{margin:0;padding-left:0;list-style:none;counter-reset:s;font-size:20px;line-height:1.5}
+ol.steps li{
+  counter-increment:s;position:relative;padding:0 0 16px 46px;
+}
+ol.steps li::before{
+  content:counter(s);position:absolute;left:0;top:-2px;width:30px;height:30px;border-radius:50%;
+  background:var(--brand-700);color:#fff;font-size:15px;font-weight:800;
+  display:flex;align-items:center;justify-content:center;
+}
+ul.points{margin:0;padding-left:0;list-style:none;font-size:21px;line-height:1.55}
+ul.points li{position:relative;padding:0 0 16px 30px}
+ul.points li::before{content:"";position:absolute;left:6px;top:11px;width:9px;height:9px;border-radius:50%;background:var(--gold-400)}
+.lbl{font-size:12px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);margin-bottom:12px}
+.lbl.ok{color:var(--ok)}
+
+/* --------------------------------------------------------------- exercices */
+.slide.exercise{background:linear-gradient(160deg,#fff 60%,var(--gold-50))}
+.slide.exercise .head{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}
+.slide.exercise .head .eyebrow{width:100%}
+.success{background:var(--ok-bg);border:1px solid #BBF7D0;border-radius:16px;padding:22px 26px}
+.success ul{margin:0;padding-left:22px;font-size:19px;line-height:1.6;color:#14532D}
+
+/* ---------------------------------------------------------------- captures */
+.shot{display:flex;align-items:flex-start;justify-content:center}
+.shot img{
+  max-width:100%;max-height:52vh;width:auto;height:auto;border:1px solid var(--line);border-radius:14px;
+  box-shadow:0 10px 40px rgba(15,34,56,.14);background:#fff;
+}
+
+/* ---------------------------------------------------------------- tableaux */
+table{border-collapse:collapse;width:100%;font-size:19px}
+.body.agenda{justify-content:flex-start}
+.agenda table{font-size:19px}
+.agenda-hours{font-family:'Manrope',sans-serif;font-size:22px;font-weight:700;color:var(--faint);margin-left:14px}
+.agenda td{padding:11px 12px;border-bottom:1px solid var(--line)}
+.agenda td.t{font-weight:800;color:var(--brand-700);width:88px;white-space:nowrap}
+.agenda td.d{color:var(--mute);width:80px;text-align:right;white-space:nowrap}
+.agenda td.a{color:var(--faint);width:120px;font-size:15px}
+.agenda tr.is-break td{background:var(--brand-50);color:var(--mute);font-style:italic}
+table.accounts{margin-bottom:22px}
+table.accounts th{
+  text-align:left;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--mute);
+  padding:8px 12px;background:#F8FAFC;border-bottom:1px solid var(--line);
+}
+table.accounts td{padding:10px 12px;border-bottom:1px solid var(--line)}
+table.pitfalls td{padding:14px 16px;border-bottom:1px solid var(--line);vertical-align:top;font-size:20px}
+table.pitfalls td.q{width:38%;font-weight:700;color:var(--warn);background:var(--warn-bg)}
+
+/* -------------------------------------------------------------------- pause */
+.slide.pause{background:linear-gradient(135deg,var(--brand-700),var(--brand-900));color:#fff;justify-content:center;align-items:center;text-align:center}
+.slide.pause .lead{color:#B7CADC}
+.pause-time{font-size:20px;font-weight:800;letter-spacing:.14em;color:var(--gold-400);margin-bottom:10px}
+
+/* ------------------------------------------------------------------ clôture */
+ul.roadmap{margin:0 0 26px;padding:0;list-style:none}
+ul.roadmap li{display:flex;gap:22px;align-items:baseline;padding:14px 0;border-bottom:1px solid var(--line);font-size:20px}
+ul.roadmap .when{flex:0 0 190px;font-weight:800;color:var(--brand-700)}
+.closing-note{font-size:19px;color:var(--mute);max-width:72ch;line-height:1.6}
+
+/* -------------------------------------------------------- barre & sommaire */
+.bar{
+  position:fixed;left:0;right:0;bottom:0;height:var(--bar);z-index:20;
+  display:flex;align-items:center;gap:10px;padding:0 20px;
+  background:var(--brand-900);color:#fff;
+}
+.bar button{
+  font:inherit;font-size:15px;font-weight:700;color:#fff;background:rgba(255,255,255,.12);
+  border:0;border-radius:9px;padding:9px 16px;cursor:pointer;
+}
+.bar button:hover{background:rgba(255,255,255,.24)}
+.bar .count{margin-left:auto;font-size:14px;color:#8FA8C0;font-weight:700}
+.bar .guide-link{
+  color:#fff;text-decoration:none;font-size:14px;font-weight:700;background:rgba(255,255,255,.12);
+  border-radius:9px;padding:9px 16px;
+}
+.progress{position:fixed;left:0;right:0;bottom:var(--bar);height:3px;background:rgba(255,255,255,.12);z-index:21}
+.progress div{height:100%;width:0;background:var(--gold-400);transition:width .2s}
+
+.overlay{position:fixed;inset:0;z-index:30;background:rgba(11,27,46,.94);display:none;padding:40px;overflow:auto}
+.overlay.on{display:block}
+.outline{max-width:900px;margin:0 auto;color:#fff}
+.outline h3{font-family:'Fraunces',Georgia,serif;font-size:30px;margin:0 0 22px;font-weight:700}
+.outline ul{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:8px 26px}
+.outline button{
+  width:100%;display:flex;align-items:baseline;gap:14px;font:inherit;font-size:17px;color:#DCE6F1;
+  background:rgba(255,255,255,.07);border:0;border-radius:10px;padding:12px 16px;cursor:pointer;text-align:left;
+}
+.outline button:hover{background:rgba(255,255,255,.16);color:#fff}
+.outline .n{font-weight:800;color:var(--gold-400);min-width:24px}
+.outline .t{margin-left:auto;font-size:14px;color:#8FA8C0}
+.outline li.brk button{background:rgba(212,168,67,.14);color:var(--gold-400);font-style:italic}
+
+/* ---------------------------------------------------------------- adaptatif */
+@media (max-width:1100px){
+  .slide{padding:34px 30px 24px}
+  h1{font-size:44px} h2{font-size:31px} h2.big{font-size:40px}
+  .body.split{flex-direction:column}
+  .shot img{max-height:38vh}
+  ol.steps, ul.points{font-size:17px}
+  .outline ul{grid-template-columns:1fr}
+}
+
+/* --------------------------------------------------- impression : 1 diapo/page */
+@media print{
+  body{overflow:visible;background:#fff}
+  .bar,.progress,.overlay{display:none !important}
+  .deck{height:auto}
+  .slide{
+    display:flex !important; position:relative; inset:auto; page-break-after:always;
+    height:auto; min-height:auto; padding:26px 0; border-bottom:1px solid var(--line);
+  }
+  .slide.cover,.slide.pause{color:var(--ink);background:#fff}
+  .slide.cover .lead,.slide.pause .lead{color:var(--mute)}
+  .shot img{max-height:none;box-shadow:none}
+}

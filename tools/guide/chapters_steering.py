@@ -411,7 +411,19 @@ CH_ANNEXES = {
             "These accounts exist **only** in the demo profile. A production install starts with the single "
             "administrator defined in the `.env` file."},
 
-        {"type": "h", "fr": "22.3 Mettre le guide à jour", "en": "22.3 Updating the guide"},
+        {"type": "h", "fr": "22.3 Support d'atelier", "en": "22.3 Workshop deck"},
+        {"type": "p", "fr":
+            "Un **support projetable** accompagne ce guide pour les séances de formation : "
+            "`/guide/atelier.html`. Il déroule la journée module par module — objectif, démonstration "
+            "animateur, exercice participants, critères de réussite et pièges fréquents. "
+            "Flèches ← → pour naviguer, **S** pour le sommaire, **P** pour imprimer (une diapositive par page).",
+         "en":
+            "A **projectable deck** accompanies this guide for training sessions: `/guide/atelier.html`. "
+            "It runs through the day module by module — objective, trainer demo, participant exercise, success "
+            "criteria and common pitfalls. Arrows ← → to navigate, **S** for the outline, **P** to print "
+            "(one slide per page)."},
+
+        {"type": "h", "fr": "22.4 Mettre le guide à jour", "en": "22.4 Updating the guide"},
         {"type": "p", "fr":
             "Le guide est **généré**, il ne s'édite pas à la main. Tout vit dans `tools/guide/` :",
          "en":
@@ -425,6 +437,8 @@ CH_ANNEXES = {
              "en": "`seed-demo.py` — the documentation dataset (students, marks, payments…)."},
             {"fr": "`build.py` — produit `frontend/public/guide/index.html` et `GUIDE_UTILISATEUR.md`.",
              "en": "`build.py` — produces `frontend/public/guide/index.html` and `GUIDE_UTILISATEUR.md`."},
+            {"fr": "`atelier.py` et `build-atelier.py` — le support d'atelier projetable.",
+             "en": "`atelier.py` and `build-atelier.py` — the projectable workshop deck."},
             {"fr": "Le mode d'emploi complet est dans `tools/guide/README.md`.",
              "en": "The full instructions are in `tools/guide/README.md`."},
         ]},

@@ -1262,7 +1262,11 @@ La pile de démonstration (`make demo`) contient un jeu de données complet et t
 
 > **Attention** — Ces comptes n'existent **que** dans le profil de démonstration. Une installation de production démarre avec le seul administrateur défini dans le fichier `.env`.
 
-### 22.3 Mettre le guide à jour
+### 22.3 Support d'atelier
+
+Un **support projetable** accompagne ce guide pour les séances de formation : `/guide/atelier.html`. Il déroule la journée module par module — objectif, démonstration animateur, exercice participants, critères de réussite et pièges fréquents. Flèches ← → pour naviguer, **S** pour le sommaire, **P** pour imprimer (une diapositive par page).
+
+### 22.4 Mettre le guide à jour
 
 Le guide est **généré**, il ne s'édite pas à la main. Tout vit dans `tools/guide/` :
 
@@ -1270,5 +1274,6 @@ Le guide est **généré**, il ne s'édite pas à la main. Tout vit dans `tools/
 - `capture.js` — la campagne de captures d'écran, rejouée sur la pile de démonstration.
 - `seed-demo.py` — le jeu de données de documentation (élèves, notes, paiements…).
 - `build.py` — produit `frontend/public/guide/index.html` et `GUIDE_UTILISATEUR.md`.
+- `atelier.py` et `build-atelier.py` — le support d'atelier projetable.
 - Le mode d'emploi complet est dans `tools/guide/README.md`.
 

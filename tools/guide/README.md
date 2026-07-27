@@ -8,6 +8,7 @@ Sorties produites :
 | Fichier | Rôle |
 |---|---|
 | `frontend/public/guide/index.html` | guide interactif bilingue, servi par l'app (menu **Aide**, URL `/guide/`) |
+| `frontend/public/guide/atelier.html` | support d'atelier projetable (URL `/guide/atelier.html`) |
 | `frontend/public/guide/img/*.webp` | 154 captures — `fr-*` et `en-*` |
 | `GUIDE_UTILISATEUR.md` | même contenu, version française, lisible dans le dépôt |
 
@@ -25,7 +26,12 @@ Sorties produites :
 | `style.css`, `guide.js` | mise en forme et comportements du guide web |
 | `seed-demo.py` | jeu de données de documentation injecté dans la pile démo |
 | `capture.js` | campagne de captures (Puppeteer) |
+| `atelier.py` / `build-atelier.py` | déroulé et génération du support d'atelier projetable |
+| `atelier.css`, `atelier.js` | mise en forme et navigation des diapositives |
+| `smoke.py` | 48 contrôles d'API, module par module, sur la pile de démonstration |
+| `smoke-ui.js` | ouvre chaque écran des trois rôles et relève erreurs JS et appels en échec |
 | `preview.js` / `preview-http.js` | rendu du guide en images (fichier local / servi par l'app) |
+| `preview-atelier.js` | rendu de diapositives choisies, pour relecture |
 | `check-anchors.js` | vérifie que les 44 liens du sommaire (FR + EN) tombent juste |
 | `check-mobile.js` | détecte tout débordement horizontal en 420 / 768 / 1024 px |
 
@@ -87,3 +93,32 @@ Le dossier de sortie doit être accessible en écriture par le conteneur
 `frontend/public/` est copié dans l'image Nginx au moment du `docker build` : le guide
 mis à jour n'est visible dans l'application **qu'après reconstruction du frontend**
 (`make demo`, `./deploy.sh` ou `./deploy-domain.sh` selon l'environnement).
+
+## Avant un atelier ou une mise en production
+
+Deux contrôles automatisés, à lancer sur la pile de démonstration une fois
+`seed-demo.py` passé :
+
+```bash
+# 1. API : 48 vérifications, module par module (sortie non nulle si échec)
+python3 tools/guide/smoke.py http://localhost:8080
+
+# 2. Écrans : chaque module des trois rôles, erreurs JS et appels en échec
+docker run --rm --network host -e BASE=http://localhost:8081 \
+  -e NODE_PATH=/home/pptruser/node_modules -v "$PWD/tools/guide:/work:ro" \
+  -w /home/pptruser --entrypoint node \
+  ghcr.io/puppeteer/puppeteer:latest /work/smoke-ui.js
+```
+
+Le second contrôle repère notamment les écrans blancs : une erreur d'exécution
+Angular ne remonte pas côté serveur, mais laisse la zone de contenu vide.
+
+## Régénérer le support d'atelier
+
+```bash
+python3 tools/guide/build-atelier.py
+```
+
+Le déroulé (minutage, démonstrations, exercices, pièges) vit dans `atelier.py`.
+Les captures sont celles du guide : ajouter une vue au support suppose qu'elle
+existe déjà dans `img/` — sinon `build-atelier.py` la signale en fin d'exécution.
