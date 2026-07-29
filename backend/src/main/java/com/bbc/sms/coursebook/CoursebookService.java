@@ -2,6 +2,7 @@ package com.bbc.sms.coursebook;
 
 import com.bbc.sms.coursebook.dto.CoursebookDtos.*;
 import com.bbc.sms.platform.common.ApiException;
+import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.security.AppUserPrincipal;
 import com.bbc.sms.platform.tenant.TenantContext;
 import org.springframework.dao.EmptyResultDataAccessException;
@@ -20,16 +21,19 @@ import java.util.UUID;
 public class CoursebookService {
 
     private final CoursebookRepository repo;
+    private final TeacherScopeService teacherScope;
     private final JdbcTemplate jdbc;
 
-    public CoursebookService(CoursebookRepository repo, JdbcTemplate jdbc) {
+    public CoursebookService(CoursebookRepository repo, TeacherScopeService teacherScope, JdbcTemplate jdbc) {
         this.repo = repo;
+        this.teacherScope = teacherScope;
         this.jdbc = jdbc;
     }
 
     @Transactional(readOnly = true)
     public List<EntryView> forClass(String className) {
         if (className == null || className.isBlank()) return List.of();
+        teacherScope.assertClassName(className.trim());
         UUID schoolId = TenantContext.get();
         Map<String, String> labels = subjectLabels(schoolId);
         return repo.findBySchoolIdAndClassNameOrderByEntryDateDesc(schoolId, className.trim())
@@ -38,6 +42,7 @@ public class CoursebookService {
 
     @Transactional
     public EntryView create(EntryUpsert in) {
+        teacherScope.assertClassName(in.className());
         UUID schoolId = TenantContext.get();
         CoursebookEntry e = new CoursebookEntry();
         apply(e, in, schoolId);
@@ -50,6 +55,8 @@ public class CoursebookService {
         UUID schoolId = TenantContext.get();
         CoursebookEntry e = repo.findByIdAndSchoolId(id, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Entrée du cahier de textes"));
+        teacherScope.assertClassName(e.getClassName());
+        teacherScope.assertClassName(in.className());
         apply(e, in, schoolId);
         return toView(repo.save(e), subjectLabels(schoolId));
     }
@@ -58,6 +65,7 @@ public class CoursebookService {
     public void delete(UUID id) {
         CoursebookEntry e = repo.findByIdAndSchoolId(id, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Entrée du cahier de textes"));
+        teacherScope.assertClassName(e.getClassName());
         repo.delete(e);
     }
 

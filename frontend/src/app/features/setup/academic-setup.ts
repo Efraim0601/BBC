@@ -673,7 +673,9 @@ export class AcademicSetupComponent {
   protected openTeachers(c: ClassView): void {
     this.err.set(null);
     this.teacherClass.set(c);
-    this.api.assignableTeachers().subscribe((t) => this.allTeachers.set(t));
+    // Seuls les enseignants de la section de la classe sont proposés : un prof du
+    // primaire n'a rien à faire dans le sélecteur d'une classe du secondaire.
+    this.api.assignableTeachers(c.level).subscribe((t) => this.allTeachers.set(t));
     this.api.classTeachers(c.id).subscribe((t) => this.picked.set(new Set(t.map((x) => x.id))));
   }
   protected toggleTeacher(id: string): void {

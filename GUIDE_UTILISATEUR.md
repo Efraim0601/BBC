@@ -112,6 +112,8 @@ Un **parcours** est la combinaison d'un niveau (Maternelle, Primaire, Secondaire
 
 3. Les administrateurs peuvent choisir **Tous les parcours** pour voir l'école entière : aucune donnée n'est masquée, et les listes affichent des filtres Système / Niveau supplémentaires.
 
+> **À savoir** — **Un enseignant n'a rien à choisir** : sa section (Maternelle, Primaire ou Secondaire) est celle de sa fiche personnel, et les sous-systèmes proposés sont ceux de ses classes. Quand il n'en reste qu'un, l'écran est sauté et l'enseignant arrive directement dans son cycle. Il ne verra ensuite que les données de sa section **et** les classes qui lui sont assignées — les autres classes n'apparaissent dans aucune liste, et une adresse saisie à la main est refusée par le serveur.
+
 > **Astuce** — Le parcours actif est affiché en permanence dans la barre supérieure. Cliquez dessus à tout moment pour en changer — c'est le premier réflexe quand des données semblent « avoir disparu ».
 
 ### 1.4 Se repérer dans l'écran d'accueil
@@ -260,11 +262,13 @@ Une **section** regroupe les classes d'un même sous-système et d'un même nive
    ![Le nom de la classe est repris tel quel sur les bulletins et les listes.](frontend/public/guide/img/fr-13-parametres-classe-formulaire.webp)
    *Le nom de la classe est repris tel quel sur les bulletins et les listes.*
 
-3. Cliquez le **compteur d'enseignants** d'une ligne pour ouvrir le panneau d'affectation, cochez les enseignants concernés puis **Enregistrer**. Une classe peut avoir zéro, un ou plusieurs enseignants.
+3. Cliquez le **compteur d'enseignants** d'une ligne pour ouvrir le panneau d'affectation, cochez les enseignants concernés puis **Enregistrer**. Une classe peut avoir zéro, un ou plusieurs enseignants. Le panneau ne propose que les enseignants de **la section de la classe** — un professeur du primaire n'apparaît pas pour une classe du secondaire.
 
    ![Affectation des enseignants à une classe (liste issue du module Personnel).](frontend/public/guide/img/fr-14-parametres-classe-enseignants.webp)
    *Affectation des enseignants à une classe (liste issue du module Personnel).*
 
+
+> **À savoir** — Affecter une classe à un enseignant **sans section** le rattache définitivement à celle de la classe : c'est la première affectation qui fixe son cycle. Toute tentative de l'affecter ensuite à une classe d'une autre section est refusée, avec un message qui rappelle sa section actuelle.
 
 > **Attention** — Le bouton **Nouvelle classe** reste inactif tant qu'aucune section n'existe dans le parcours courant. C'est la cause n°1 de blocage en début d'année : créez la section d'abord.
 
@@ -469,19 +473,22 @@ Les badges **P** (principal) et **PP** (professeur principal) signalent les resp
 
 ### 5.2 Créer un employé
 
+> **Attention** — **Changer la section d'un enseignant le détache des classes de son ancien cycle.** C'est voulu : une mutation du primaire vers le secondaire ne doit pas laisser traîner d'anciennes affectations. Réaffectez-le ensuite à ses nouvelles classes.
+
 1. **Nouvel employé** ouvre le formulaire pleine page. **Identité & contact** : nom (obligatoire), sexe, e-mail, téléphone.
 
    ![Identité, contact et option de création du compte de connexion.](frontend/public/guide/img/fr-42-personnel-formulaire.webp)
    *Identité, contact et option de création du compte de connexion.*
 
 2. **Rôles** — cliquez autant de rôles que nécessaire ; ils proviennent du catalogue des rôles (chapitre 2). Si vous cochez « professeur principal », un champ **Classe** apparaît.
-3. **Département** — rattachement facultatif, à créer au préalable dans l'onglet Départements.
-4. **Contrat & rémunération** — choisissez **Permanent** (salaire mensuel) ou **Vacataire** (taux horaire). Le champ affiché s'adapte au choix.
+3. **Section (cycle)** — dès qu'un rôle enseignant est coché, choisissez **Maternelle**, **Primaire** ou **Secondaire**. Un enseignant n'exerce que dans **une** section : il ne verra que les classes de ce cycle qui lui sont assignées, et sera orienté dedans dès sa connexion. Laissée vide, la section sera fixée par sa première affectation de classe.
+4. **Département** — rattachement facultatif, à créer au préalable dans l'onglet Départements.
+5. **Contrat & rémunération** — choisissez **Permanent** (salaire mensuel) ou **Vacataire** (taux horaire). Le champ affiché s'adapte au choix.
 
    ![Le type de contrat détermine le mode de rémunération.](frontend/public/guide/img/fr-43-personnel-contrat.webp)
    *Le type de contrat détermine le mode de rémunération.*
 
-5. Cochez éventuellement **Créer un compte de connexion** — l'option ne s'active que si un e-mail est renseigné —, puis **Enregistrer**.
+6. Cochez éventuellement **Créer un compte de connexion** — l'option ne s'active que si un e-mail est renseigné —, puis **Enregistrer**.
 
 ### 5.3 Comptes de connexion et réinitialisation
 
@@ -497,7 +504,7 @@ Les badges **P** (principal) et **PP** (professeur principal) signalent les resp
    ![Zone de données et rappel des colonnes reconnues.](frontend/public/guide/img/fr-44-personnel-import.webp)
    *Zone de données et rappel des colonnes reconnues.*
 
-2. Colonnes reconnues : `nom`, `sexe`, `type` (Permanent/Vacataire), `email`, `telephone`, `roles` (séparés par `|`), `classe`, `departement`, `salaire_mensuel`, `taux_horaire`. Des alias sont acceptés : *surveillant* → prefect, *caissier* → econome.
+2. Colonnes reconnues : `nom`, `sexe`, `type` (Permanent/Vacataire), `email`, `telephone`, `roles` (séparés par `|`), `classe`, `section` (Maternelle/Primaire/Secondaire), `departement`, `salaire_mensuel`, `taux_horaire`. Des alias sont acceptés : *surveillant* → prefect, *caissier* → econome.
 3. L'option **Créer les comptes de connexion** est **désactivée par défaut** pour un import massif : activez-la seulement si le SMTP est prêt et que chaque ligne porte un e-mail.
 4. Vérifiez l'aperçu, puis **Importer N employé(s)**.
 

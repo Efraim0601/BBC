@@ -2,6 +2,7 @@ package com.bbc.sms.attendance;
 
 import com.bbc.sms.attendance.dto.AttendanceDtos.*;
 import com.bbc.sms.platform.common.ApiException;
+import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.realtime.RealtimeService;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.settings.SchoolProfileService;
@@ -31,15 +32,17 @@ public class AttendanceService {
     private final StudentRepository students;
     private final RealtimeService realtime;
     private final SchoolProfileService schoolProfile;
+    private final TeacherScopeService teacherScope;
 
     public AttendanceService(AttendanceRepository repo, DeviceRepository devices,
                              StudentRepository students, RealtimeService realtime,
-                             SchoolProfileService schoolProfile) {
+                             SchoolProfileService schoolProfile, TeacherScopeService teacherScope) {
         this.repo = repo;
         this.devices = devices;
         this.students = students;
         this.realtime = realtime;
         this.schoolProfile = schoolProfile;
+        this.teacherScope = teacherScope;
     }
 
     /** Reader health for the tenant — drives the Attendance and Settings status cards. */
@@ -64,7 +67,14 @@ public class AttendanceService {
         Map<UUID, Student> byId = new HashMap<>();
         students.findBySchoolIdAndActiveTrueOrderByLastNameAsc(schoolId)
                 .forEach(s -> byId.put(s.getId(), s));
+        // Un enseignant ne voit l'appel que de ses classes.
+        Set<UUID> allowed = teacherScope.allowedClassIds();
         List<AttendanceView> views = repo.findBySchoolIdAndDate(schoolId, date).stream()
+                .filter(r -> {
+                    if (allowed == null) return true;
+                    Student s = byId.get(r.getStudentId());
+                    return s != null && s.getClassId() != null && allowed.contains(s.getClassId());
+                })
                 .map(r -> toView(r, byId.get(r.getStudentId())))
                 .sorted(Comparator
                         .comparing(AttendanceView::className, Comparator.nullsLast(String::compareToIgnoreCase))
@@ -78,6 +88,7 @@ public class AttendanceService {
 
     @Transactional
     public AttendanceView mark(MarkRequest req) {
+        teacherScope.assertStudent(req.studentId());
         UUID schoolId = TenantContext.get();
         Student student = students.findByIdAndSchoolId(req.studentId(), schoolId)
                 .orElseThrow(() -> ApiException.notFound("Élève"));

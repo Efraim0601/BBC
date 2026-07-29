@@ -20,6 +20,8 @@ public class StaffDtos {
             String email,
             String phone,
             String formClass,
+            /** Section (cycle) de rattachement : maternelle|primary|secondary, null si non enseignant. */
+            String section,
             UUID departmentId,
             String departmentName,
             long monthlySalary,
@@ -36,6 +38,7 @@ public class StaffDtos {
             @Pattern(regexp = "^$|^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$", message = "Adresse e-mail invalide") String email,
             @Pattern(regexp = "^$|^[+0-9][0-9\\s().-]{5,24}$", message = "Numéro de téléphone invalide") String phone,
             String formClass,
+            String section,
             UUID departmentId,
             long monthlySalary,
             int hourlyRate,
@@ -60,6 +63,8 @@ public class StaffDtos {
             String email,
             String phone,
             String formClass,
+            /** Section (cycle) : maternelle | primary | secondary. */
+            String section,
             /** Department name — resolved case-insensitively when {@code departmentId} is null. */
             String department,
             UUID departmentId,
@@ -122,6 +127,7 @@ public class StaffDtos {
             int hourlyRate,
             Set<String> roles,
             String formClass,
+            String section,
             Boolean createLogin) {}
 
     public record StaffPortalSettingsView(

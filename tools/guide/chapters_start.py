@@ -123,6 +123,18 @@ CH_PRISE_EN_MAIN = {
              "en": "Administrators can choose __All parcours__ to see the whole school: nothing is hidden and lists "
                    "gain extra System / Level filters."},
         ]},
+        {"type": "note", "tone": "info", "fr":
+            "**Un enseignant n'a rien à choisir** : sa section (Maternelle, Primaire ou Secondaire) est celle de sa "
+            "fiche personnel, et les sous-systèmes proposés sont ceux de ses classes. Quand il n'en reste qu'un, "
+            "l'écran est sauté et l'enseignant arrive directement dans son cycle. Il ne verra ensuite que les "
+            "données de sa section **et** les classes qui lui sont assignées — les autres classes n'apparaissent "
+            "dans aucune liste, et une adresse saisie à la main est refusée par le serveur.",
+         "en":
+            "**A teacher has nothing to choose**: their section (Kindergarten, Primary or Secondary) is the one on "
+            "their staff record, and the sub-systems offered are those of their classes. When only one remains, the "
+            "screen is skipped and the teacher lands straight in their cycle. From then on they only see the data "
+            "of their section **and** the classes assigned to them — other classes appear in no list, and a "
+            "hand-typed URL is refused by the server."},
         {"type": "note", "tone": "tip", "fr":
             "Le parcours actif est affiché en permanence dans la barre supérieure. Cliquez dessus à tout moment "
             "pour en changer — c'est le premier réflexe quand des données semblent « avoir disparu ».",

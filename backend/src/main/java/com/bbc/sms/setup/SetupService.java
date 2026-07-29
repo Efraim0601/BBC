@@ -5,11 +5,13 @@ import com.bbc.sms.academic.SubjectRepository;
 import com.bbc.sms.academic.SubjectClassCoef;
 import com.bbc.sms.academic.SubjectClassCoefRepository;
 import com.bbc.sms.platform.common.ApiException;
+import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.tenant.ParcoursContext;
 import com.bbc.sms.platform.tenant.ParcoursContext.Scope;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.student.StudentService;
 import com.bbc.sms.setup.dto.SetupDtos.*;
+import com.bbc.sms.staff.Employee;
 import com.bbc.sms.staff.EmployeeRepository;
 import com.bbc.sms.student.StudentRepository;
 import com.bbc.sms.timetable.SchoolClass;
@@ -40,17 +42,20 @@ public class SetupService {
     private final SubjectClassCoefRepository coefs;
     private final StudentRepository students;
     private final EmployeeRepository employees;
+    private final TeacherScopeService teacherScope;
     private final JdbcTemplate jdbc;
 
     public SetupService(SectionRepository sections, SchoolClassRepository classes,
                         SubjectRepository subjects, SubjectClassCoefRepository coefs,
-                        StudentRepository students, EmployeeRepository employees, JdbcTemplate jdbc) {
+                        StudentRepository students, EmployeeRepository employees,
+                        TeacherScopeService teacherScope, JdbcTemplate jdbc) {
         this.sections = sections;
         this.classes = classes;
         this.subjects = subjects;
         this.coefs = coefs;
         this.students = students;
         this.employees = employees;
+        this.teacherScope = teacherScope;
         this.jdbc = jdbc;
     }
 
@@ -107,7 +112,10 @@ public class SetupService {
         Map<String, Section> byId = sections.findBySchoolIdOrderByLabel(schoolId).stream()
                 .collect(java.util.stream.Collectors.toMap(Section::getId, x -> x));
         Scope scope = ParcoursContext.get();
+        // Un enseignant ne voit que les classes qui lui sont assignées.
+        Set<UUID> allowed = teacherScope.allowedClassIds();
         return classes.findBySchoolIdOrderByName(schoolId).stream()
+                .filter(c -> allowed == null || allowed.contains(c.getId()))
                 .filter(c -> StudentService.inScope(scope, c.getLevel(), c.getSubsystem()))
                 .map(c -> toView(c, byId.get(c.getSectionId())))
                 .toList();
@@ -222,13 +230,56 @@ public class SetupService {
 
     // ---- Class ↔ teachers (N:N, 0..N teachers per class) --------------------
 
-    /** Active employees that may be assigned as teachers (picker source). */
+    /**
+     * Employés actifs assignables comme enseignants.
+     *
+     * <p>Avec {@code level}, la liste se limite à la section demandée : un
+     * enseignant du primaire n'apparaît pas dans le sélecteur d'une classe du
+     * secondaire. Les employés sans section restent proposés — la première
+     * affectation fixera la leur.
+     */
     @Transactional(readOnly = true)
-    public List<TeacherOption> assignableTeachers() {
+    public List<TeacherOption> assignableTeachers(String level) {
         UUID schoolId = TenantContext.get();
+        String wanted = blankToNull(level);
         return employees.findBySchoolIdAndActiveTrueOrderByNameAsc(schoolId).stream()
-                .map(e -> new TeacherOption(e.getId(), e.getName(), e.getCode()))
+                .filter(e -> wanted == null || e.getLevel() == null || wanted.equals(e.getLevel()))
+                .map(e -> new TeacherOption(e.getId(), e.getName(), e.getCode(), e.getLevel()))
                 .toList();
+    }
+
+    /**
+     * Verrouille la règle « un enseignant, une section » au moment de l'affectation.
+     * Sans section, l'employé prend celle de la classe : c'est la première
+     * affectation qui le rattache, pas une saisie séparée.
+     */
+    @Transactional
+    public void bindTeacherSection(UUID employeeId, String classLevel) {
+        UUID schoolId = TenantContext.get();
+        Employee e = employees.findByIdAndSchoolId(employeeId, schoolId)
+                .orElseThrow(() -> ApiException.badRequest("Enseignant inconnu"));
+        if (classLevel == null || classLevel.isBlank()) return;
+        if (e.getLevel() == null) {
+            e.setLevel(classLevel);
+            employees.save(e);
+            return;
+        }
+        if (!e.getLevel().equals(classLevel)) {
+            throw ApiException.conflict(e.getName() + " est rattaché à la section « " + sectionLabel(e.getLevel())
+                    + " » : il ne peut pas enseigner en « " + sectionLabel(classLevel) + " ». "
+                    + "Changez sa section depuis la fiche du personnel si c'est une mutation.");
+        }
+    }
+
+    /** Libellé français d'une section, pour les messages d'erreur. */
+    public static String sectionLabel(String level) {
+        if (level == null) return "non définie";
+        return switch (level) {
+            case "maternelle" -> "Maternelle";
+            case "primary" -> "Primaire";
+            case "secondary" -> "Secondaire";
+            default -> level;
+        };
     }
 
     /** Teachers currently linked to a class. */
@@ -238,11 +289,11 @@ public class SetupService {
         classes.findByIdAndSchoolId(classId, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Classe"));
         return jdbc.query(
-                "SELECT e.id, e.name, e.code FROM teacher_class tc "
+                "SELECT e.id, e.name, e.code, e.level FROM teacher_class tc "
               + "JOIN employee e ON e.id = tc.employee_id "
               + "WHERE tc.class_id = ? AND e.school_id = ? ORDER BY e.name",
-                (rs, n) -> new TeacherOption(
-                        UUID.fromString(rs.getString("id")), rs.getString("name"), rs.getString("code")),
+                (rs, n) -> new TeacherOption(UUID.fromString(rs.getString("id")),
+                        rs.getString("name"), rs.getString("code"), rs.getString("level")),
                 classId, schoolId);
     }
 
@@ -250,14 +301,16 @@ public class SetupService {
     @Transactional
     public List<TeacherOption> setClassTeachers(UUID classId, List<UUID> employeeIds) {
         UUID schoolId = TenantContext.get();
-        classes.findByIdAndSchoolId(classId, schoolId)
+        SchoolClass cls = classes.findByIdAndSchoolId(classId, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Classe"));
         jdbc.update("DELETE FROM teacher_class WHERE class_id = ?", classId);
         if (employeeIds != null) {
             for (UUID empId : employeeIds.stream().distinct().toList()) {
-                // Only link employees that belong to this tenant.
+                // Only link employees that belong to this tenant…
                 employees.findByIdAndSchoolId(empId, schoolId)
                         .orElseThrow(() -> ApiException.badRequest("Enseignant inconnu"));
+                // …et qui exercent dans la section de la classe.
+                bindTeacherSection(empId, cls.getLevel());
                 jdbc.update("INSERT INTO teacher_class (employee_id, class_id) VALUES (?, ?)", empId, classId);
             }
         }

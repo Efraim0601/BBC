@@ -29,7 +29,8 @@ public class SetupDtos {
             @NotBlank String sectionId) {}
 
     // ---- Class ↔ teachers (N:N, 0..N teachers per class) --------------------
-    public record TeacherOption(UUID id, String name, String code) {}
+    /** @param section cycle de rattachement (maternelle|primary|secondary), null si non défini. */
+    public record TeacherOption(UUID id, String name, String code, String section) {}
 
     public record SetClassTeachers(List<UUID> employeeIds) {}
 

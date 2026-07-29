@@ -306,7 +306,10 @@ const KNOWN_COLORS: Record<string, string> = {
       } @else {
         <bbc-card>
           <bbc-empty icon="calendar"
-            [label]="fr() ? 'Sélectionnez une classe pour afficher l’emploi du temps.' : 'Pick a class to display its timetable.'" />
+            [label]="classes().length
+              ? (fr() ? 'Sélectionnez une classe pour afficher l’emploi du temps.' : 'Pick a class to display its timetable.')
+              : (fr() ? 'Aucune classe ne vous est assignée — demandez à la direction de vous rattacher à vos classes.'
+                      : 'No class is assigned to you — ask the administration to link you to your classes.')" />
         </bbc-card>
       }
     </div>
@@ -367,6 +370,7 @@ export class TimetableComponent {
     this.api.rooms().subscribe((r) => this.knownRooms.set(r));
     this.setupApi.listSubjects().subscribe((s) => this.subjects.set(s));
     this.setupApi.assignableTeachers().subscribe((t) => this.teachers.set(t));
+    // La liste est ensuite rechargée par classe : voir loadTeachersForClass().
     this.loadConflicts();
   }
 
@@ -446,7 +450,17 @@ export class TimetableComponent {
     this.draft.set(null);
     this.overlapWarn.set(null);
     this.slots.set([]);
+    this.loadTeachersForClass(name);
     if (name) this.reload();
+  }
+
+  /**
+   * Le sélecteur d'enseignant ne propose que ceux de la section de la classe :
+   * on ne peut pas placer un professeur du primaire devant une classe du secondaire.
+   */
+  private loadTeachersForClass(name: string): void {
+    const level = this.classes().find((c) => c.name === name)?.level ?? null;
+    this.setupApi.assignableTeachers(level).subscribe((t) => this.teachers.set(t));
   }
 
   private reload(): void {

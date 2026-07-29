@@ -44,6 +44,12 @@ public class Employee {
     @Column(name = "form_class")
     private String formClass;
 
+    /**
+     * Section (cycle) de rattachement : maternelle | primary | secondary, ou null
+     * pour le personnel non enseignant. Un enseignant n'exerce que dans sa section.
+     */
+    private String level;
+
     @Column(name = "department_id")
     private UUID departmentId;
 

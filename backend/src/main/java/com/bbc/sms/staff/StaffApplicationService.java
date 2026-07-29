@@ -191,6 +191,7 @@ public class StaffApplicationService {
                 a.getEmail() == null ? "" : a.getEmail(),
                 a.getPhone() == null ? "" : a.getPhone(),
                 in.formClass() != null ? in.formClass() : a.getFormClass(),
+                in.section(),
                 in.departmentId(),
                 in.monthlySalary(),
                 in.hourlyRate(),

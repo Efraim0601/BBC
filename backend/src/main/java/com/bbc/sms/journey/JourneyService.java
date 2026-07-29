@@ -2,6 +2,7 @@ package com.bbc.sms.journey;
 
 import com.bbc.sms.journey.dto.JourneyDtos.*;
 import com.bbc.sms.platform.common.ApiException;
+import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.security.AppUserPrincipal;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.student.Student;
@@ -21,14 +22,18 @@ public class JourneyService {
 
     private final JourneyRepository repo;
     private final StudentRepository students;
+    private final TeacherScopeService teacherScope;
 
-    public JourneyService(JourneyRepository repo, StudentRepository students) {
+    public JourneyService(JourneyRepository repo, StudentRepository students,
+                          TeacherScopeService teacherScope) {
         this.repo = repo;
         this.students = students;
+        this.teacherScope = teacherScope;
     }
 
     @Transactional(readOnly = true)
     public StudentJourney forStudent(UUID studentId) {
+        teacherScope.assertStudent(studentId);
         UUID schoolId = TenantContext.get();
         Student student = students.findByIdAndSchoolId(studentId, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Élève"));
@@ -50,6 +55,7 @@ public class JourneyService {
 
     @Transactional
     public JourneyView upsert(JourneyUpsert in) {
+        teacherScope.assertStudent(in.studentId());
         UUID schoolId = TenantContext.get();
         students.findByIdAndSchoolId(in.studentId(), schoolId)
                 .orElseThrow(() -> ApiException.notFound("Élève"));

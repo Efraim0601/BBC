@@ -1,6 +1,7 @@
 package com.bbc.sms.student;
 
 import com.bbc.sms.platform.common.ApiException;
+import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.tenant.ParcoursContext;
 import com.bbc.sms.platform.tenant.ParcoursContext.Scope;
 import com.bbc.sms.platform.tenant.TenantContext;
@@ -24,11 +25,14 @@ public class StudentService {
     private final StudentRepository repo;
     private final SchoolClassRepository classes;
     private final SetupService setup;
+    private final TeacherScopeService teacherScope;
 
-    public StudentService(StudentRepository repo, SchoolClassRepository classes, SetupService setup) {
+    public StudentService(StudentRepository repo, SchoolClassRepository classes, SetupService setup,
+                          TeacherScopeService teacherScope) {
         this.repo = repo;
         this.classes = classes;
         this.setup = setup;
+        this.teacherScope = teacherScope;
     }
 
     @Transactional(readOnly = true)
@@ -38,7 +42,10 @@ public class StudentService {
                 ? repo.findBySchoolIdAndActiveTrueOrderByLastNameAsc(schoolId)
                 : repo.findBySchoolIdAndClassNameAndActiveTrueOrderByLastNameAsc(schoolId, className);
         Scope scope = ParcoursContext.get();
+        // Un professeur principal ne voit que les élèves de ses classes.
+        Set<UUID> allowed = teacherScope.allowedClassIds();
         return rows.stream()
+                .filter(s -> allowed == null || (s.getClassId() != null && allowed.contains(s.getClassId())))
                 .filter(s -> inScope(scope, s.getLevel(), s.getSubsystem()))
                 .map(this::toView).toList();
     }
@@ -57,6 +64,7 @@ public class StudentService {
 
     @Transactional(readOnly = true)
     public StudentView get(UUID id) {
+        teacherScope.assertStudent(id);
         return toView(find(id));
     }
 
@@ -73,6 +81,7 @@ public class StudentService {
 
     @Transactional
     public StudentView update(UUID id, StudentUpsert in) {
+        teacherScope.assertStudent(id);
         Student s = find(id);
         apply(s, in);
         return toView(repo.save(s));
@@ -80,6 +89,7 @@ public class StudentService {
 
     @Transactional
     public void delete(UUID id) {
+        teacherScope.assertStudent(id);
         Student s = find(id);
         s.setActive(false);   // soft delete — keeps financial/academic history intact
         repo.save(s);
@@ -95,6 +105,7 @@ public class StudentService {
     public StudentImportResult importForClass(StudentImportRequest in) {
         UUID schoolId = TenantContext.get();
         SchoolClass cls = resolveImportClass(in, schoolId);
+        teacherScope.assertClass(cls.getId());
 
         long seq = repo.countBySchoolIdAndActiveTrue(schoolId) + 1001;
         Set<String> usedMatricules = new HashSet<>();

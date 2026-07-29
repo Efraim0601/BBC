@@ -12,7 +12,11 @@ export interface ClassView {
 }
 export interface ClassUpsert { name: string; sectionId: string; }
 
-export interface TeacherOption { id: string; name: string; code: string; }
+export interface TeacherOption {
+  id: string; name: string; code: string;
+  /** Section (cycle) de l'enseignant : maternelle | primary | secondary, null si non définie. */
+  section: string | null;
+}
 
 export interface SubjectView { id: string; code: string; subsystem: string | null; label: Record<string, string>; coef: number; }
 export interface SubjectUpsert { code: string; subsystem: string | null; label: Record<string, string>; coef: number; }
@@ -42,7 +46,11 @@ export class SetupApi {
   deleteClass(id: string): Observable<void> { return this.http.delete<void>(`${this.base}/classes/${id}`); }
 
   // Class ↔ teachers (0..N teachers per class)
-  assignableTeachers(): Observable<TeacherOption[]> { return this.http.get<TeacherOption[]>(`${this.base}/teachers`); }
+  /** `level` limite la liste aux enseignants de cette section (+ ceux sans section). */
+  assignableTeachers(level?: string | null): Observable<TeacherOption[]> {
+    const q = level ? `?level=${encodeURIComponent(level)}` : '';
+    return this.http.get<TeacherOption[]>(`${this.base}/teachers${q}`);
+  }
   classTeachers(classId: string): Observable<TeacherOption[]> { return this.http.get<TeacherOption[]>(`${this.base}/classes/${classId}/teachers`); }
   setClassTeachers(classId: string, employeeIds: string[]): Observable<TeacherOption[]> {
     return this.http.put<TeacherOption[]>(`${this.base}/classes/${classId}/teachers`, { employeeIds });

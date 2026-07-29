@@ -2,6 +2,7 @@ package com.bbc.sms.discipline;
 
 import com.bbc.sms.discipline.dto.DisciplineDtos.*;
 import com.bbc.sms.platform.common.ApiException;
+import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.student.Student;
 import com.bbc.sms.student.StudentRepository;
@@ -13,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -22,10 +24,13 @@ public class DisciplineService {
 
     private final DisciplineRepository repo;
     private final StudentRepository students;
+    private final TeacherScopeService teacherScope;
 
-    public DisciplineService(DisciplineRepository repo, StudentRepository students) {
+    public DisciplineService(DisciplineRepository repo, StudentRepository students,
+                             TeacherScopeService teacherScope) {
         this.repo = repo;
         this.students = students;
+        this.teacherScope = teacherScope;
     }
 
     @Transactional(readOnly = true)
@@ -34,9 +39,16 @@ public class DisciplineService {
         Map<UUID, Student> byId = new HashMap<>();
         students.findBySchoolIdAndActiveTrueOrderByLastNameAsc(schoolId)
                 .forEach(s -> byId.put(s.getId(), s));
+        // Un professeur principal ne voit que les incidents de ses classes.
+        Set<UUID> allowed = teacherScope.allowedClassIds();
         return repo.findBySchoolIdOrderByIncidentDateDesc(schoolId).stream()
+                .filter(i -> allowed == null || inAllowedClass(byId.get(i.getStudentId()), allowed))
                 .map(i -> toView(i, byId.get(i.getStudentId())))
                 .toList();
+    }
+
+    private static boolean inAllowedClass(Student s, Set<UUID> allowed) {
+        return s != null && s.getClassId() != null && allowed.contains(s.getClassId());
     }
 
     /** Resolve a matricule or UUID to a student card for the incident form. */

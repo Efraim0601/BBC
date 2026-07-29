@@ -13,6 +13,8 @@ export interface EmployeeView {
   email: string;
   phone: string;
   formClass: string;
+  /** Section (cycle) : maternelle | primary | secondary ; null pour le personnel non enseignant. */
+  section: string | null;
   departmentId: string | null;
   departmentName: string | null;
   monthlySalary: number;
@@ -30,6 +32,7 @@ export interface EmployeeUpsert {
   email?: string;
   phone?: string;
   formClass?: string;
+  section?: string | null;
   departmentId?: string | null;
   monthlySalary?: number;
   hourlyRate?: number;
@@ -51,6 +54,7 @@ export interface StaffImportRow {
   email?: string;
   phone?: string;
   formClass?: string;
+  section?: string;
   department?: string;
   departmentId?: string | null;
   monthlySalary?: number | null;
@@ -120,6 +124,7 @@ export interface StaffApplicationFinalize {
   hourlyRate?: number;
   roles?: string[];
   formClass?: string;
+  section?: string | null;
   createLogin?: boolean;
 }
 

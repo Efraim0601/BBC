@@ -2,6 +2,7 @@ package com.bbc.sms.academic;
 
 import com.bbc.sms.academic.dto.BulletinDtos.*;
 import com.bbc.sms.platform.common.ApiException;
+import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.student.Student;
 import com.bbc.sms.student.StudentRepository;
@@ -30,6 +31,7 @@ public class BulletinService {
     private final GradeRepository gradeRepo;
     private final StudentRepository studentRepo;
     private final BulletinValidationRepository validationRepo;
+    private final TeacherScopeService teacherScope;
     private final JdbcTemplate jdbc;
 
     public BulletinService(SubjectRepository subjectRepo,
@@ -38,6 +40,7 @@ public class BulletinService {
                            GradeRepository gradeRepo,
                            StudentRepository studentRepo,
                            BulletinValidationRepository validationRepo,
+                           TeacherScopeService teacherScope,
                            JdbcTemplate jdbc) {
         this.subjectRepo = subjectRepo;
         this.coefRepo = coefRepo;
@@ -45,6 +48,7 @@ public class BulletinService {
         this.gradeRepo = gradeRepo;
         this.studentRepo = studentRepo;
         this.validationRepo = validationRepo;
+        this.teacherScope = teacherScope;
         this.jdbc = jdbc;
     }
 
@@ -121,6 +125,7 @@ public class BulletinService {
 
     @Transactional(readOnly = true)
     public BulletinView bulletin(UUID studentId, int sequence) {
+        teacherScope.assertStudent(studentId);
         UUID schoolId = TenantContext.get();
 
         Student student = studentRepo.findByIdAndSchoolId(studentId, schoolId)
@@ -195,6 +200,7 @@ public class BulletinService {
 
     @Transactional(readOnly = true)
     public PvView pv(String className, int sequence) {
+        teacherScope.assertClassName(className);
         UUID schoolId = TenantContext.get();
         List<Subject> subjects = subjectRepo.findBySchoolIdOrderByCode(schoolId);
         Map<String, Integer> coefs = coefsForClass(schoolId, subjects, className);
@@ -223,6 +229,7 @@ public class BulletinService {
 
     @Transactional
     public BulletinView validate(UUID studentId, ValidateRequest req) {
+        teacherScope.assertStudent(studentId);
         UUID schoolId = TenantContext.get();
 
         BulletinValidation v = validationRepo

@@ -111,27 +111,28 @@ def seed_departments(staff):
     return {x["name"]: x["id"] for x in (call("GET", "/hr/departments") or [])}
 
 
+# (nom, sexe, type, email, rôles, classe PP, section, département, salaire, taux horaire)
 STAFF = [
-    ("NGONO Mireille", "F", "Permanent", "m.ngono@bbc.cm", ["form_teacher", "teacher"], "4ème", "Sciences", 340000, 0),
-    ("TCHOUPO Landry", "M", "Permanent", "l.tchoupo@bbc.cm", ["teacher"], "", "Sciences", 300000, 0),
-    ("BELLO Fadimatou", "F", "Permanent", "f.bello@bbc.cm", ["form_teacher", "teacher"], "3ème", "Lettres & Langues", 315000, 0),
-    ("KAMGA Patrick", "M", "Vacataire", "p.kamga@bbc.cm", ["teacher"], "", "Lettres & Langues", 0, 4500),
-    ("ESSOMBA Carine", "F", "Permanent", "c.essomba@bbc.cm", ["prefect"], "", "Vie scolaire", 260000, 0),
-    ("SADJO Ibrahim", "M", "Vacataire", "i.sadjo@bbc.cm", ["teacher"], "", "Sciences", 0, 4000),
-    ("NANA Josiane", "F", "Permanent", "j.nana@bbc.cm", ["teacher"], "", "Administration", 280000, 0),
+    ("NGONO Mireille", "F", "Permanent", "m.ngono@bbc.cm", ["form_teacher", "teacher"], "4ème", "secondary", "Sciences", 340000, 0),
+    ("TCHOUPO Landry", "M", "Permanent", "l.tchoupo@bbc.cm", ["teacher"], "", "secondary", "Sciences", 300000, 0),
+    ("BELLO Fadimatou", "F", "Permanent", "f.bello@bbc.cm", ["form_teacher", "teacher"], "3ème", "secondary", "Lettres & Langues", 315000, 0),
+    ("KAMGA Patrick", "M", "Vacataire", "p.kamga@bbc.cm", ["teacher"], "", "secondary", "Lettres & Langues", 0, 4500),
+    ("ESSOMBA Carine", "F", "Permanent", "c.essomba@bbc.cm", ["prefect"], "", None, "Vie scolaire", 260000, 0),
+    ("SADJO Ibrahim", "M", "Vacataire", "i.sadjo@bbc.cm", ["teacher"], "", "secondary", "Sciences", 0, 4000),
+    ("NANA Josiane", "F", "Permanent", "j.nana@bbc.cm", ["teacher"], "", "primary", "Administration", 280000, 0),
 ]
 
 
 def seed_staff(depts):
     print("· personnel")
     existing = {e["name"] for e in (call("GET", "/staff") or [])}
-    for name, sex, typ, mail, roles, form_class, dept, sal, hourly in STAFF:
+    for name, sex, typ, mail, roles, form_class, section, dept, sal, hourly in STAFF:
         if name in existing:
             continue
         call("POST", "/staff", {
             "name": name, "sex": sex, "type": typ, "email": mail,
             "phone": f"+237 6{random.randint(70, 99)} {random.randint(10, 99)} {random.randint(10, 99)} {random.randint(10, 99)}",
-            "roles": roles, "formClass": form_class,
+            "roles": roles, "formClass": form_class, "section": section,
             "departmentId": depts.get(dept),
             "monthlySalary": sal, "hourlyRate": hourly,
             "createLogin": False,
@@ -172,10 +173,13 @@ def seed_students(classes):
 def seed_class_teachers(classes, staff):
     print("· enseignants par classe")
     by_name = {e["name"]: e["id"] for e in staff}
+    # Chaque enseignant reste dans SA section : NANA Josiane (primaire) tient CM2,
+    # les autres restent au secondaire — sinon le serveur refuse l'affectation.
     mapping = {
         "4ème": ["NGONO Mireille", "TCHOUPO Landry", "KAMGA Patrick"],
         "3ème": ["BELLO Fadimatou", "SADJO Ibrahim"],
-        "6ème": ["NANA Josiane", "TCHOUPO Landry"],
+        "6ème": ["TCHOUPO Landry", "KAMGA Patrick"],
+        "CM2": ["NANA Josiane"],
     }
     for cls, names in mapping.items():
         cid = classes.get(cls)

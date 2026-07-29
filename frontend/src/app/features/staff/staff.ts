@@ -872,6 +872,23 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                   {{ fr() ? 'Aucun rôle chargé — créez des rôles dans Paramètres → Rôles.' : 'No roles loaded — create roles in Settings → Roles.' }}
                 </div>
               }
+              @if (teachingRole()) {
+                <label class="block mt-3 max-w-xs">
+                  <span class="text-xs font-semibold text-ink">{{ fr() ? 'Section (cycle)' : 'Section (cycle)' }} *</span>
+                  <select [(ngModel)]="draft.section" name="section"
+                    class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400">
+                    <option [ngValue]="null">{{ fr() ? '— À définir —' : '— To be set —' }}</option>
+                    <option value="maternelle">{{ fr() ? 'Maternelle' : 'Kindergarten' }}</option>
+                    <option value="primary">{{ fr() ? 'Primaire' : 'Primary' }}</option>
+                    <option value="secondary">{{ fr() ? 'Secondaire' : 'Secondary' }}</option>
+                  </select>
+                  <span class="text-[11px] text-mute mt-1 block">
+                    {{ fr()
+                      ? 'Un enseignant n’exerce que dans une section : il ne verra que les classes de ce cycle qui lui sont assignées. Laissé vide, le cycle sera fixé par sa première affectation de classe.'
+                      : 'A teacher works in one section only: they will only see the classes of that cycle assigned to them. Left empty, the cycle is set by their first class assignment.' }}
+                  </span>
+                </label>
+              }
               @if (draftRoles().includes('form_teacher')) {
                 <label class="block mt-3 max-w-xs">
                   <span class="text-xs font-semibold text-ink">{{ fr() ? 'Classe (Prof. Principal)' : 'Form class' }}</span>
@@ -994,6 +1011,9 @@ export class StaffComponent {
   protected canWrite = this.auth.can('hr', 'write');
   protected draft: EmployeeUpsert = this.blank();
   protected draftRoles = signal<string[]>([]);
+  /** Les rôles cloisonnés par section : eux seuls portent un cycle de rattachement. */
+  protected teachingRole = computed(() =>
+    this.draftRoles().some((r) => r === 'teacher' || r === 'form_teacher'));
   protected createLogin = signal(true);
   protected accountMsg = signal<{ text: string; ok: boolean } | null>(null);
   protected resetting = signal(false);
@@ -1365,6 +1385,7 @@ export class StaffComponent {
       email: e.email,
       phone: e.phone,
       formClass: e.formClass,
+      section: e.section,
       departmentId: e.departmentId,
       monthlySalary: e.monthlySalary,
       hourlyRate: e.hourlyRate,
@@ -1440,23 +1461,23 @@ export class StaffComponent {
   protected exportList(): void {
     const rows = this.filtered().map((e) => [
       e.code, e.name, e.sex, e.type, e.email, e.phone,
-      (e.roles || []).join('|'), e.formClass, e.departmentName,
+      (e.roles || []).join('|'), e.formClass, e.section ?? '', e.departmentName,
       e.monthlySalary, e.hourlyRate,
     ]);
     downloadCsv(stampedName('personnel'),
-      ['code', 'nom', 'sexe', 'type', 'email', 'telephone', 'roles', 'classe', 'departement', 'salaire_mensuel', 'taux_horaire'],
+      ['code', 'nom', 'sexe', 'type', 'email', 'telephone', 'roles', 'classe', 'section', 'departement', 'salaire_mensuel', 'taux_horaire'],
       rows);
   }
 
   protected downloadStaffTemplate(): void {
     downloadCsv('modele-personnel.csv',
-      ['nom', 'sexe', 'type', 'email', 'telephone', 'roles', 'classe', 'departement', 'salaire_mensuel', 'taux_horaire'],
+      ['nom', 'sexe', 'type', 'email', 'telephone', 'roles', 'classe', 'section', 'departement', 'salaire_mensuel', 'taux_horaire'],
       [[
         'NGONO Jean Paul', 'M', 'Permanent', 'j.ngono@bbc.cm', '+237 6XX XX XX XX',
-        'teacher|form_teacher', '6ème A', 'Sciences', '350000', '',
+        'teacher|form_teacher', '6ème A', 'Secondaire', 'Sciences', '350000', '',
       ], [
         'MBAH Alice', 'F', 'Vacataire', 'a.mbah@bbc.cm', '+237 6YY YY YY YY',
-        'teacher', '', '', '', '5000',
+        'teacher', '', 'Primaire', '', '', '5000',
       ]]);
   }
 
@@ -1563,7 +1584,7 @@ export class StaffComponent {
     const dataRows = map ? cells.slice(1) : cells;
     const idx = map ?? {
       name: 0, sex: 1, type: 2, email: 3, phone: 4, roles: 5,
-      formClass: 6, department: 7, monthlySalary: 8, hourlyRate: 9,
+      formClass: 6, section: 7, department: 8, monthlySalary: 9, hourlyRate: 10,
     };
     const at = (r: string[], i: number) => (i >= 0 ? (r[i] ?? '').trim() : '');
     return dataRows.map((r) => ({
@@ -1574,6 +1595,7 @@ export class StaffComponent {
       phone: at(r, idx.phone) || undefined,
       roles: this.normRoles(at(r, idx.roles)),
       formClass: at(r, idx.formClass) || undefined,
+      section: at(r, idx.section) || undefined,
       department: at(r, idx.department) || undefined,
       monthlySalary: this.normNum(at(r, idx.monthlySalary)),
       hourlyRate: this.normNum(at(r, idx.hourlyRate)),
@@ -1582,7 +1604,8 @@ export class StaffComponent {
 
   private mapStaffHeader(cells: string[]): {
     name: number; sex: number; type: number; email: number; phone: number;
-    roles: number; formClass: number; department: number; monthlySalary: number; hourlyRate: number;
+    roles: number; formClass: number; section: number; department: number;
+    monthlySalary: number; hourlyRate: number;
   } | null {
     const idx: Record<string, number> = {};
     cells.forEach((raw, i) => {
@@ -1593,6 +1616,7 @@ export class StaffComponent {
       else if (idx['email'] === undefined && /(e-?mail|courriel)/.test(c)) idx['email'] = i;
       else if (idx['phone'] === undefined && /(tel|phone|contact|numero)/.test(c)) idx['phone'] = i;
       else if (idx['roles'] === undefined && /(role|roles|fonction)/.test(c)) idx['roles'] = i;
+      else if (idx['section'] === undefined && /(section|cycle)/.test(c)) idx['section'] = i;
       else if (idx['formClass'] === undefined && /(classe|form.?class|pp)/.test(c) && !/salaire/.test(c)) idx['formClass'] = i;
       else if (idx['department'] === undefined && /(depart|dept|service)/.test(c)) idx['department'] = i;
       else if (idx['monthlySalary'] === undefined && /(salaire|salary|mensuel|monthly)/.test(c)) idx['monthlySalary'] = i;
@@ -1607,6 +1631,7 @@ export class StaffComponent {
       phone: idx['phone'] ?? -1,
       roles: idx['roles'] ?? -1,
       formClass: idx['formClass'] ?? -1,
+      section: idx['section'] ?? -1,
       department: idx['department'] ?? -1,
       monthlySalary: idx['monthlySalary'] ?? -1,
       hourlyRate: idx['hourlyRate'] ?? -1,
@@ -1653,6 +1678,7 @@ export class StaffComponent {
   }
 
   private blank(): EmployeeUpsert {
-    return { name: '', sex: 'M', type: 'Permanent', email: '', phone: '', formClass: '', departmentId: null, monthlySalary: 350000, hourlyRate: 0, roles: [] };
+    return { name: '', sex: 'M', type: 'Permanent', email: '', phone: '', formClass: '', section: null,
+             departmentId: null, monthlySalary: 350000, hourlyRate: 0, roles: [] };
   }
 }

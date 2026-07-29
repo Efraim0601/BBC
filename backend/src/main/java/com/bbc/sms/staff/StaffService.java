@@ -206,6 +206,7 @@ public class StaffService {
                 e.setEmail(email);
                 e.setPhone(phone);
                 e.setFormClass(blankToNull(row.formClass()));
+                e.setLevel(normSection(blankToNull(row.section())));
                 e.setDepartmentId(departmentId);
                 e.setMonthlySalary(row.monthlySalary() == null ? 0L : Math.max(0L, row.monthlySalary()));
                 e.setHourlyRate(row.hourlyRate() == null ? 0 : Math.max(0, row.hourlyRate()));
@@ -269,6 +270,7 @@ public class StaffService {
         e.setEmail(blankToNull(in.email()));
         e.setPhone(blankToNull(in.phone()));
         e.setFormClass(blankToNull(in.formClass()));
+        applySection(e, blankToNull(in.section()));
         if (in.departmentId() != null
                 && departments.findByIdAndSchoolId(in.departmentId(), TenantContext.get()).isEmpty()) {
             throw ApiException.badRequest("Département inconnu");
@@ -282,6 +284,36 @@ public class StaffService {
         } catch (IllegalArgumentException ex) {
             throw ApiException.badRequest(ex.getMessage());
         }
+    }
+
+    /**
+     * Change de section. Un enseignant n'exerce que dans un cycle : muter quelqu'un
+     * vers une autre section le détacherait de ses classes actuelles, on l'exige donc
+     * explicitement — les affectations de l'ancienne section sont retirées.
+     */
+    private void applySection(Employee e, String section) {
+        if (section != null && !SECTIONS.contains(section)) {
+            throw ApiException.badRequest("Section inconnue (attendu maternelle, primary ou secondary)");
+        }
+        String previous = e.getLevel();
+        e.setLevel(section);
+        if (e.getId() != null && previous != null && !previous.equals(section)) {
+            jdbc.update("DELETE FROM teacher_class tc USING school_class c "
+                      + "WHERE tc.class_id = c.id AND tc.employee_id = ? AND c.level = ?",
+                    e.getId(), previous);
+        }
+    }
+
+    private static final Set<String> SECTIONS = Set.of("maternelle", "primary", "secondary");
+
+    /** Accepte « Primaire », « primary », « Secondaire »… et renvoie le code interne. */
+    private static String normSection(String raw) {
+        if (raw == null) return null;
+        String c = raw.trim().toLowerCase();
+        if (c.startsWith("mat") || c.startsWith("kind") || c.startsWith("nurs")) return "maternelle";
+        if (c.startsWith("pri")) return "primary";
+        if (c.startsWith("sec")) return "secondary";
+        return SECTIONS.contains(c) ? c : null;
     }
 
     /** Turn empty/blank input into null so optional, CHECK-constrained columns stay valid. */
@@ -361,7 +393,7 @@ public class StaffService {
         Set<String> roles = e.getRoles() == null ? Set.of() : new HashSet<>(e.getRoles());
         return new EmployeeView(e.getId(), e.getCode(), e.getName(), e.getInitials(),
                 e.getSex(), e.getType(), e.getEmail(), e.getPhone(), e.getFormClass(),
-                e.getDepartmentId(), deptName,
+                e.getLevel(), e.getDepartmentId(), deptName,
                 e.getMonthlySalary(), e.getHourlyRate(), roles, e.isActive(),
                 username != null, username);
     }

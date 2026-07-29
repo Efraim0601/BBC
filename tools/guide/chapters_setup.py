@@ -92,13 +92,23 @@ CH_PARAMETRES = {
                          "en": "The class name is reused as-is on report cards and lists."}},
             {"fr": "Cliquez le **compteur d'enseignants** d'une ligne pour ouvrir le panneau d'affectation, "
                    "cochez les enseignants concernés puis __Enregistrer__. Une classe peut avoir zéro, un ou "
-                   "plusieurs enseignants.",
+                   "plusieurs enseignants. Le panneau ne propose que les enseignants de **la section de la "
+                   "classe** — un professeur du primaire n'apparaît pas pour une classe du secondaire.",
              "en": "Click the **teacher counter** on a row to open the assignment panel, tick the relevant teachers "
-                   "and __Save__. A class may have zero, one or several teachers.",
+                   "and __Save__. A class may have zero, one or several teachers. The panel only lists teachers of "
+                   "**the class's section** — a primary teacher never shows up for a secondary class.",
              "img": "14-parametres-classe-enseignants",
              "caption": {"fr": "Affectation des enseignants à une classe (liste issue du module Personnel).",
                          "en": "Assigning teachers to a class (list comes from the Staff module)."}},
         ]},
+        {"type": "note", "tone": "info", "fr":
+            "Affecter une classe à un enseignant **sans section** le rattache définitivement à celle de la classe : "
+            "c'est la première affectation qui fixe son cycle. Toute tentative de l'affecter ensuite à une classe "
+            "d'une autre section est refusée, avec un message qui rappelle sa section actuelle.",
+         "en":
+            "Assigning a class to a teacher who has **no section** binds them to that class's cycle: the first "
+            "assignment is what fixes it. Any later attempt to assign them to a class of another section is "
+            "refused, with a message recalling their current section."},
         {"type": "note", "tone": "warn", "fr":
             "Le bouton __Nouvelle classe__ reste inactif tant qu'aucune section n'existe dans le parcours courant. "
             "C'est la cause n°1 de blocage en début d'année : créez la section d'abord.",
@@ -503,6 +513,14 @@ CH_PERSONNEL = {
                      "en": "Employee record: contact, login account and compensation."}},
 
         {"type": "h", "fr": "5.2 Créer un employé", "en": "5.2 Create an employee"},
+        {"type": "note", "tone": "warn", "fr":
+            "**Changer la section d'un enseignant le détache des classes de son ancien cycle.** C'est voulu : "
+            "une mutation du primaire vers le secondaire ne doit pas laisser traîner d'anciennes affectations. "
+            "Réaffectez-le ensuite à ses nouvelles classes.",
+         "en":
+            "**Changing a teacher's section detaches them from the classes of their previous cycle.** That is "
+            "deliberate: a move from primary to secondary must not leave stale assignments behind. Assign them to "
+            "their new classes afterwards."},
         {"type": "steps", "items": [
             {"fr": "__Nouvel employé__ ouvre le formulaire pleine page. **Identité & contact** : nom (obligatoire), "
                    "sexe, e-mail, téléphone.",
@@ -515,6 +533,14 @@ CH_PERSONNEL = {
                    "(chapitre 2). Si vous cochez « professeur principal », un champ __Classe__ apparaît.",
              "en": "**Roles** — click as many roles as needed; they come from the role catalogue (chapter 2). If you "
                    "select “form teacher”, a __Form class__ field appears."},
+            {"fr": "**Section (cycle)** — dès qu'un rôle enseignant est coché, choisissez __Maternelle__, "
+                   "__Primaire__ ou __Secondaire__. Un enseignant n'exerce que dans **une** section : il ne verra "
+                   "que les classes de ce cycle qui lui sont assignées, et sera orienté dedans dès sa connexion. "
+                   "Laissée vide, la section sera fixée par sa première affectation de classe.",
+             "en": "**Section (cycle)** — as soon as a teaching role is ticked, pick __Kindergarten__, __Primary__ "
+                   "or __Secondary__. A teacher works in **one** section only: they will see just the classes of "
+                   "that cycle assigned to them, and land in it at sign-in. Left empty, the section is fixed by "
+                   "their first class assignment."},
             {"fr": "**Département** — rattachement facultatif, à créer au préalable dans l'onglet Départements.",
              "en": "**Department** — optional, to be created beforehand in the Departments tab."},
             {"fr": "**Contrat & rémunération** — choisissez __Permanent__ (salaire mensuel) ou __Vacataire__ "
@@ -556,11 +582,13 @@ CH_PERSONNEL = {
              "caption": {"fr": "Zone de données et rappel des colonnes reconnues.",
                          "en": "Data area and reminder of the recognised columns."}},
             {"fr": "Colonnes reconnues : `nom`, `sexe`, `type` (Permanent/Vacataire), `email`, `telephone`, "
-                   "`roles` (séparés par `|`), `classe`, `departement`, `salaire_mensuel`, `taux_horaire`. "
+                   "`roles` (séparés par `|`), `classe`, `section` (Maternelle/Primaire/Secondaire), "
+                   "`departement`, `salaire_mensuel`, `taux_horaire`. "
                    "Des alias sont acceptés : *surveillant* → prefect, *caissier* → econome.",
              "en": "Recognised columns: `name`, `sex`, `type` (Permanent/Contractor), `email`, `phone`, `roles` "
-                   "(separated by `|`), `class`, `department`, `monthly_salary`, `hourly_rate`. Aliases are "
-                   "accepted: *surveillant* → prefect, *cashier* → econome."},
+                   "(separated by `|`), `class`, `section` (Kindergarten/Primary/Secondary), `department`, "
+                   "`monthly_salary`, `hourly_rate`. Aliases are accepted: *surveillant* → prefect, "
+                   "*cashier* → econome."},
             {"fr": "L'option __Créer les comptes de connexion__ est **désactivée par défaut** pour un import massif : "
                    "activez-la seulement si le SMTP est prêt et que chaque ligne porte un e-mail.",
              "en": "The __Create login accounts__ option is **off by default** for a bulk import: switch it on only "

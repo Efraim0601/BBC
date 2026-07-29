@@ -73,7 +73,9 @@ public class SetupController {
     // ---- Class ↔ teachers ---------------------------------------------------
     @GetMapping("/teachers")
     @PreAuthorize(READ)
-    public List<TeacherOption> assignableTeachers() { return service.assignableTeachers(); }
+    public List<TeacherOption> assignableTeachers(@RequestParam(required = false) String level) {
+        return service.assignableTeachers(level);
+    }
 
     @GetMapping("/classes/{id}/teachers")
     @PreAuthorize(READ)
