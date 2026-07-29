@@ -40,6 +40,16 @@ export interface EmployeeUpsert {
   createLogin?: boolean;
 }
 
+/** Une classe assignée à un enseignant. */
+export interface TeacherClassView {
+  id: string;
+  name: string;
+  level: string;
+  subsystem: string;
+  sectionLabel: string | null;
+  studentCount: number;
+}
+
 export interface AccountResult {
   hasAccount: boolean;
   username: string;
@@ -196,6 +206,16 @@ export class StaffApi {
   rejectApplication(id: string, reason: string): Observable<StaffApplicationView> {
     return this.http.post<StaffApplicationView>(`${this.base}/applications/${id}/reject`, { reason });
   }
+  /** Classes actuellement assignées à l'enseignant. */
+  classesOf(id: string): Observable<TeacherClassView[]> {
+    return this.http.get<TeacherClassView[]>(`${this.base}/${id}/classes`);
+  }
+
+  /** Remplace la liste ; une liste vide détache l'enseignant de toutes ses classes. */
+  setClasses(id: string, classIds: string[]): Observable<TeacherClassView[]> {
+    return this.http.put<TeacherClassView[]>(`${this.base}/${id}/classes`, { classIds });
+  }
+
   finalizeApplication(id: string, body: StaffApplicationFinalize): Observable<StaffApplicationView> {
     return this.http.post<StaffApplicationView>(`${this.base}/applications/${id}/finalize`, body);
   }

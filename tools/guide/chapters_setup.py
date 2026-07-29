@@ -521,6 +521,16 @@ CH_PERSONNEL = {
                      "en": "Employee record: contact, login account and compensation."}},
 
         {"type": "h", "fr": "5.2 Créer un employé", "en": "5.2 Create an employee"},
+        {"type": "note", "tone": "tip", "fr":
+            "Les classes d'un enseignant se règlent **dans les deux sens**, sur le même lien : depuis sa fiche "
+            "(__Classes enseignées__) ou depuis __Paramètres → Scolarité → Classes__, en cochant les enseignants "
+            "d'une classe. La fiche de l'employé affiche en permanence ses classes et leurs effectifs — et signale "
+            "quand il n'en a aucune, cas où il ne voit rien du tout.",
+         "en":
+            "A teacher's classes can be set **both ways**, on the same link: from their record (__Classes taught__) "
+            "or from __Settings → Academics → Classes__, ticking a class's teachers. The employee record always "
+            "shows their classes and enrolments — and flags when they have none, in which case they see nothing at "
+            "all."},
         {"type": "note", "tone": "info", "fr":
             "Les photos sont stockées **dans la base**, pas dans un dossier : elles suivent donc vos sauvegardes. "
             "Comptez quelques dizaines de kilo-octets par personne. Le selfie exige une connexion **https** et "
@@ -556,6 +566,15 @@ CH_PERSONNEL = {
                    "(chapitre 2). Si vous cochez « professeur principal », un champ __Classe__ apparaît.",
              "en": "**Roles** — click as many roles as needed; they come from the role catalogue (chapter 2). If you "
                    "select “form teacher”, a __Form class__ field appears."},
+            {"fr": "**Classes enseignées** — juste après la section, la liste des classes de ce cycle s'affiche : "
+                   "cliquez une classe pour l'assigner, recliquez pour la retirer. C'est exactement ce que "
+                   "l'enseignant verra une fois connecté. Tant qu'aucune section n'est choisie, la liste reste "
+                   "masquée — et changer de section vide la sélection, les classes de l'ancien cycle n'étant plus "
+                   "valables.",
+             "en": "**Classes taught** — right after the section, the classes of that cycle appear: click one to "
+                   "assign it, click again to remove it. This is exactly what the teacher will see once signed in. "
+                   "While no section is picked the list stays hidden — and changing section clears the selection, "
+                   "since the previous cycle's classes no longer apply."},
             {"fr": "**Section (cycle)** — dès qu'un rôle enseignant est coché, choisissez __Maternelle__, "
                    "__Primaire__ ou __Secondaire__. Un enseignant n'exerce que dans **une** section : il ne verra "
                    "que les classes de ce cycle qui lui sont assignées, et sera orienté dedans dès sa connexion. "

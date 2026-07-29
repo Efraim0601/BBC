@@ -27,6 +27,21 @@ public class StaffController {
         this.photos = photos;
     }
 
+    // ---- Classes d'un enseignant --------------------------------------------
+
+    @GetMapping("/{id}/classes")
+    @PreAuthorize("@perm.can('hr','read')")
+    public List<TeacherClassView> classes(@PathVariable UUID id) {
+        return service.classesOf(id);
+    }
+
+    /** Remplace la totalité des classes de l'enseignant ; une liste vide le détache de toutes. */
+    @PutMapping("/{id}/classes")
+    @PreAuthorize("@perm.can('hr','write')")
+    public List<TeacherClassView> setClasses(@PathVariable UUID id, @RequestBody SetTeacherClasses in) {
+        return service.setClasses(id, in.classIds());
+    }
+
     // ---- Photo de profil ----------------------------------------------------
 
     @GetMapping("/{id}/photo")

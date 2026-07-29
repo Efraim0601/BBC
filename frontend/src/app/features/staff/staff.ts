@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
 import {
   StaffApi, EmployeeUpsert, EmployeeView, AccountResult, StaffImportRow, StaffImportResult,
-  StaffApplicationView, StaffPortalSettingsView, StaffApplicationFinalize,
+  StaffApplicationView, StaffPortalSettingsView, StaffApplicationFinalize, TeacherClassView,
 } from './staff.api';
 import { HrApi, DepartmentView, DepartmentUpsert, LeaveView, LeaveCreate } from './hr.api';
 import { SettingsApi, RoleView } from '../settings/settings.api';
@@ -168,6 +168,33 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                 </div>
 
                 <div class="p-6 space-y-5">
+                  <!-- Classes assignées : ce que l'enseignant voit réellement -->
+                  @if (isTeacher(e)) {
+                    <div class="rounded-lg border border-slate-100 p-3">
+                      <div class="text-[11px] uppercase tracking-wider text-mute font-bold mb-2">
+                        {{ fr() ? 'Classes enseignées' : 'Classes taught' }}
+                        @if (e.section) {
+                          <span class="ml-1 font-normal normal-case">· {{ sectionLabel(e.section) }}</span>
+                        }
+                      </div>
+                      @if (selectedClasses().length) {
+                        <div class="flex flex-wrap gap-1.5">
+                          @for (c of selectedClasses(); track c.id) {
+                            <span class="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg bg-brand-50 text-brand-700 border border-brand-100">
+                              {{ c.name }}
+                              <span class="font-normal opacity-70">{{ c.studentCount }} {{ fr() ? 'él.' : 'st.' }}</span>
+                            </span>
+                          }
+                        </div>
+                      } @else {
+                        <div class="text-xs text-mute">
+                          {{ fr() ? 'Aucune classe assignée — cet enseignant ne voit rien tant qu’il n’en a pas. Utilisez « Modifier ».'
+                                  : 'No class assigned — this teacher sees nothing until they have one. Use “Edit”.' }}
+                        </div>
+                      }
+                    </div>
+                  }
+
                   <!-- Contact -->
                   <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
                     <div class="flex items-center gap-2.5 p-2 rounded-lg bg-slate-50">
@@ -882,7 +909,7 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
               @if (teachingRole()) {
                 <label class="block mt-3 max-w-xs">
                   <span class="text-xs font-semibold text-ink">{{ fr() ? 'Section (cycle)' : 'Section (cycle)' }} *</span>
-                  <select [(ngModel)]="draft.section" name="section"
+                  <select [(ngModel)]="draft.section" name="section" (ngModelChange)="onSectionChange()"
                     class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400">
                     <option [ngValue]="null">{{ fr() ? '— À définir —' : '— To be set —' }}</option>
                     <option value="maternelle">{{ fr() ? 'Maternelle' : 'Kindergarten' }}</option>
@@ -895,6 +922,46 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                       : 'A teacher works in one section only: they will only see the classes of that cycle assigned to them. Left empty, the cycle is set by their first class assignment.' }}
                   </span>
                 </label>
+              }
+              @if (teachingRole()) {
+                <div class="mt-4">
+                  <div class="text-xs font-semibold text-ink mb-1.5">
+                    {{ fr() ? 'Classes enseignées' : 'Classes taught' }}
+                    @if (pickedClasses().size) {
+                      <span class="ml-1 text-[11px] font-normal text-mute">
+                        ({{ pickedClasses().size }} {{ fr() ? 'sélectionnée(s)' : 'selected' }})
+                      </span>
+                    }
+                  </div>
+                  @if (!draft.section) {
+                    <div class="text-xs text-mute p-3 rounded-lg bg-amber-50 border border-amber-100">
+                      {{ fr() ? 'Choisissez d’abord la section : seules ses classes pourront lui être assignées.'
+                              : 'Pick the section first: only its classes can be assigned to them.' }}
+                    </div>
+                  } @else if (!classesOfSection().length) {
+                    <div class="text-xs text-mute p-3 rounded-lg bg-slate-50 border border-slate-100">
+                      {{ fr() ? 'Aucune classe dans cette section — créez-les dans Paramètres → Scolarité.'
+                              : 'No class in this section — create them in Settings → Academics.' }}
+                    </div>
+                  } @else {
+                    <div class="flex flex-wrap gap-1.5">
+                      @for (c of classesOfSection(); track c.id) {
+                        <button type="button" (click)="toggleClass(c.id)"
+                          class="h-8 px-3 text-xs font-semibold rounded-lg border transition"
+                          [class]="pickedClasses().has(c.id)
+                            ? 'bg-brand-600 text-white border-brand-600'
+                            : 'bg-white text-ink border-slate-200 hover:bg-slate-50'">
+                          {{ c.name }}
+                          @if (pickedClasses().has(c.id)) { <span class="ml-1 opacity-80">✕</span> }
+                        </button>
+                      }
+                    </div>
+                    <div class="text-[11px] text-mute mt-1.5">
+                      {{ fr() ? 'Cliquez pour assigner, recliquez pour retirer. Ces classes sont les seules que l’enseignant verra.'
+                              : 'Click to assign, click again to remove. These classes are the only ones the teacher will see.' }}
+                    </div>
+                  }
+                </div>
               }
               @if (draftRoles().includes('form_teacher')) {
                 <label class="block mt-3 max-w-xs">
@@ -1022,8 +1089,17 @@ export class StaffComponent {
   /** Photo saisie au formulaire (data URL), envoyée après l'enregistrement. */
   protected photoDraft = signal<string | null>(null);
   private photoWasSet = false;
+  /** Classes cochées dans le formulaire ; envoyées après l'enregistrement de la fiche. */
+  protected pickedClasses = signal<Set<string>>(new Set());
+  /** Classes de la section choisie — un enseignant n'exerce que dans la sienne. */
+  protected classesOfSection = computed(() => {
+    const section = this.draft.section;
+    return section ? this.setupClasses().filter((c) => c.level === section) : [];
+  });
   /** Photo de l'employé sélectionné, chargée en blob (l'API exige le jeton). */
   protected selectedPhoto = signal<string | null>(null);
+  /** Classes de l'employé sélectionné, affichées sur sa fiche. */
+  protected selectedClasses = signal<TeacherClassView[]>([]);
   /** Les rôles cloisonnés par section : eux seuls portent un cycle de rattachement. */
   protected teachingRole = computed(() =>
     this.draftRoles().some((r) => r === 'teacher' || r === 'form_teacher'));
@@ -1099,15 +1175,33 @@ export class StaffComponent {
     return this.rows().find((e) => e.id === id) ?? this.filtered()[0] ?? null;
   });
 
-  /** Charge (et libère) la photo de la fiche ouverte. */
+  /** Charge (et libère) la photo et les classes de la fiche ouverte. */
   private readonly photoLoader = effect(() => {
     const emp = this.selected();
     const previous = this.selectedPhoto();
     if (previous?.startsWith('blob:')) URL.revokeObjectURL(previous);
     this.selectedPhoto.set(null);
+    this.selectedClasses.set([]);
     if (!emp) return;
     this.photoApi.load('staff', emp.id).subscribe((url) => this.selectedPhoto.set(url));
+    if (this.isTeacher(emp)) {
+      this.api.classesOf(emp.id).subscribe((cs) => this.selectedClasses.set(cs));
+    }
   }, { allowSignalWrites: true });
+
+  /** Un employé porte-t-il un rôle enseignant ? */
+  protected isTeacher(e: EmployeeView): boolean {
+    return (e.roles || []).some((r) => r === 'teacher' || r === 'form_teacher');
+  }
+
+  protected sectionLabel(section: string | null): string {
+    switch (section) {
+      case 'maternelle': return this.fr() ? 'Maternelle' : 'Kindergarten';
+      case 'primary': return this.fr() ? 'Primaire' : 'Primary';
+      case 'secondary': return this.fr() ? 'Secondaire' : 'Secondary';
+      default: return this.fr() ? 'section non définie' : 'section not set';
+    }
+  }
 
   protected teacherCount = computed(() => this.rows().filter((e) => e.roles.includes('teacher') || e.roles.includes('form_teacher')).length);
   protected permCount = computed(() => this.rows().filter((e) => e.type === 'Permanent').length);
@@ -1379,7 +1473,24 @@ export class StaffComponent {
     this.editId.set(null);
     this.photoDraft.set(null);
     this.photoWasSet = false;
+    this.pickedClasses.set(new Set());
     this.mode.set('edit');
+  }
+
+  /**
+   * Envoie les classes après l'enregistrement (une création n'a pas encore
+   * d'identifiant). Le serveur refuse en bloc une classe hors de la section de
+   * l'enseignant — le message est alors remonté tel quel.
+   */
+  private saveClasses(employeeId: string): void {
+    if (!this.teachingRole()) return;
+    this.api.setClasses(employeeId, [...this.pickedClasses()]).subscribe({
+      next: () => this.reload(),
+      error: (err) => this.accountMsg.set({
+        text: err?.error?.message ?? (this.fr() ? 'Classes non enregistrées.' : 'Classes not saved.'),
+        ok: false,
+      }),
+    });
   }
 
   /**
@@ -1419,6 +1530,8 @@ export class StaffComponent {
   protected openEdit(e: EmployeeView): void {
     this.photoDraft.set(null);
     this.photoWasSet = false;
+    this.pickedClasses.set(new Set());
+    this.api.classesOf(e.id).subscribe((cs) => this.pickedClasses.set(new Set(cs.map((c) => c.id))));
     this.photoApi.load('staff', e.id).subscribe((url) => {
       if (url) { this.photoDraft.set(url); this.photoWasSet = true; }
     });
@@ -1440,6 +1553,19 @@ export class StaffComponent {
     this.mode.set('edit');
   }
 
+  /** Changer de section vide les classes de l'ancien cycle : elles seraient refusées. */
+  protected onSectionChange(): void {
+    const allowed = new Set(this.classesOfSection().map((c) => c.id));
+    this.pickedClasses.update((picked) => new Set([...picked].filter((id) => allowed.has(id))));
+  }
+
+  /** Assigne ou retire une classe (le formulaire n'écrit rien avant l'enregistrement). */
+  protected toggleClass(classId: string): void {
+    const next = new Set(this.pickedClasses());
+    next.has(classId) ? next.delete(classId) : next.add(classId);
+    this.pickedClasses.set(next);
+  }
+
   protected toggleRole(role: string): void {
     this.draftRoles.update((rs) => (rs.includes(role) ? rs.filter((r) => r !== role) : [...rs, role]));
   }
@@ -1448,6 +1574,7 @@ export class StaffComponent {
     this.mode.set('list');
     this.photoDraft.set(null);
     this.photoWasSet = false;
+    this.pickedClasses.set(new Set());
   }
 
   save(): void {
@@ -1478,7 +1605,10 @@ export class StaffComponent {
         this.mode.set('list');
         this.selectedId.set(res?.id ?? id);
         this.accountMsg.set(null);
-        if (res?.id) this.savePhoto(res.id);
+        if (res?.id) {
+          this.savePhoto(res.id);
+          this.saveClasses(res.id);
+        }
         if (wantsLogin && res?.id) {
           this.api.resetCredentials(res.id).subscribe({
             next: (r: AccountResult) => { this.accountMsg.set({ text: r.message, ok: r.emailSent }); this.reload(); },

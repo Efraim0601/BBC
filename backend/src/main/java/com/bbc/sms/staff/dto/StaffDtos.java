@@ -48,6 +48,18 @@ public class StaffDtos {
             // the employee doesn't receive two e-mails.
             Boolean createLogin) {}
 
+    /** Une classe assignée à un enseignant, telle qu'affichée sur sa fiche. */
+    public record TeacherClassView(
+            UUID id,
+            String name,
+            String level,
+            String subsystem,
+            String sectionLabel,
+            int studentCount) {}
+
+    /** Remplace la totalité des classes d'un enseignant (liste vide = plus aucune). */
+    public record SetTeacherClasses(List<UUID> classIds) {}
+
     /** Outcome of provisioning/resetting a staff login — never carries the password. */
     public record AccountResult(
             boolean hasAccount,

@@ -474,6 +474,8 @@ Les badges **P** (principal) et **PP** (professeur principal) signalent les resp
 
 ### 5.2 Créer un employé
 
+> **Astuce** — Les classes d'un enseignant se règlent **dans les deux sens**, sur le même lien : depuis sa fiche (**Classes enseignées**) ou depuis **Paramètres → Scolarité → Classes**, en cochant les enseignants d'une classe. La fiche de l'employé affiche en permanence ses classes et leurs effectifs — et signale quand il n'en a aucune, cas où il ne voit rien du tout.
+
 > **À savoir** — Les photos sont stockées **dans la base**, pas dans un dossier : elles suivent donc vos sauvegardes. Comptez quelques dizaines de kilo-octets par personne. Le selfie exige une connexion **https** et l'autorisation de la caméra ; à défaut, l'import de fichier reste disponible. Poser ou retirer une photo d'élève demande le droit **Élèves : Complet** — un enseignant voit la photo de ses élèves mais ne la modifie pas.
 
 > **Attention** — **Changer la section d'un enseignant le détache des classes de son ancien cycle.** C'est voulu : une mutation du primaire vers le secondaire ne doit pas laisser traîner d'anciennes affectations. Réaffectez-le ensuite à ses nouvelles classes.
@@ -485,14 +487,15 @@ Les badges **P** (principal) et **PP** (professeur principal) signalent les resp
    *Identité, contact et option de création du compte de connexion.*
 
 3. **Rôles** — cliquez autant de rôles que nécessaire ; ils proviennent du catalogue des rôles (chapitre 2). Si vous cochez « professeur principal », un champ **Classe** apparaît.
-4. **Section (cycle)** — dès qu'un rôle enseignant est coché, choisissez **Maternelle**, **Primaire** ou **Secondaire**. Un enseignant n'exerce que dans **une** section : il ne verra que les classes de ce cycle qui lui sont assignées, et sera orienté dedans dès sa connexion. Laissée vide, la section sera fixée par sa première affectation de classe.
-5. **Département** — rattachement facultatif, à créer au préalable dans l'onglet Départements.
-6. **Contrat & rémunération** — choisissez **Permanent** (salaire mensuel) ou **Vacataire** (taux horaire). Le champ affiché s'adapte au choix.
+4. **Classes enseignées** — juste après la section, la liste des classes de ce cycle s'affiche : cliquez une classe pour l'assigner, recliquez pour la retirer. C'est exactement ce que l'enseignant verra une fois connecté. Tant qu'aucune section n'est choisie, la liste reste masquée — et changer de section vide la sélection, les classes de l'ancien cycle n'étant plus valables.
+5. **Section (cycle)** — dès qu'un rôle enseignant est coché, choisissez **Maternelle**, **Primaire** ou **Secondaire**. Un enseignant n'exerce que dans **une** section : il ne verra que les classes de ce cycle qui lui sont assignées, et sera orienté dedans dès sa connexion. Laissée vide, la section sera fixée par sa première affectation de classe.
+6. **Département** — rattachement facultatif, à créer au préalable dans l'onglet Départements.
+7. **Contrat & rémunération** — choisissez **Permanent** (salaire mensuel) ou **Vacataire** (taux horaire). Le champ affiché s'adapte au choix.
 
    ![Le type de contrat détermine le mode de rémunération.](frontend/public/guide/img/fr-43-personnel-contrat.webp)
    *Le type de contrat détermine le mode de rémunération.*
 
-7. Cochez éventuellement **Créer un compte de connexion** — l'option ne s'active que si un e-mail est renseigné —, puis **Enregistrer**.
+8. Cochez éventuellement **Créer un compte de connexion** — l'option ne s'active que si un e-mail est renseigné —, puis **Enregistrer**.
 
 ### 5.3 Comptes de connexion et réinitialisation
 

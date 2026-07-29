@@ -7,7 +7,10 @@ import com.bbc.sms.identity.AppUserRepository;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.mail.MailService;
 import com.bbc.sms.platform.tenant.TenantContext;
+import com.bbc.sms.setup.SetupService;
 import com.bbc.sms.staff.dto.StaffDtos.*;
+import com.bbc.sms.timetable.SchoolClass;
+import com.bbc.sms.timetable.SchoolClassRepository;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,16 +47,70 @@ public class StaffService {
     private final MailService mail;
     private final StaffAccountService accounts;
     private final AppUserRepository users;
+    private final SchoolClassRepository classes;
+    private final SetupService setup;
     private final JdbcTemplate jdbc;
 
     public StaffService(EmployeeRepository repo, DepartmentRepository departments, MailService mail,
-                        StaffAccountService accounts, AppUserRepository users, JdbcTemplate jdbc) {
+                        StaffAccountService accounts, AppUserRepository users,
+                        SchoolClassRepository classes, SetupService setup, JdbcTemplate jdbc) {
         this.repo = repo;
         this.departments = departments;
         this.mail = mail;
         this.accounts = accounts;
         this.users = users;
+        this.classes = classes;
+        this.setup = setup;
         this.jdbc = jdbc;
+    }
+
+    // ---- Classes d'un enseignant ------------------------------------------
+    // Le même lien qu'à l'écran des classes (teacher_class), pris par l'autre
+    // bout : depuis la fiche de l'employé plutôt que classe par classe.
+
+    @Transactional(readOnly = true)
+    public List<TeacherClassView> classesOf(UUID employeeId) {
+        UUID schoolId = TenantContext.get();
+        find(employeeId);
+        return jdbc.query("""
+                SELECT c.id, c.name, c.level, c.subsystem, s.label AS section_label,
+                       (SELECT count(*) FROM student st WHERE st.class_id = c.id AND st.active) AS students
+                  FROM teacher_class tc
+                  JOIN school_class c ON c.id = tc.class_id
+                  LEFT JOIN section s ON s.id = c.section_id
+                 WHERE tc.employee_id = ? AND c.school_id = ?
+                 ORDER BY c.name
+                """,
+                (rs, n) -> new TeacherClassView(UUID.fromString(rs.getString("id")), rs.getString("name"),
+                        rs.getString("level"), rs.getString("subsystem"), rs.getString("section_label"),
+                        rs.getInt("students")),
+                employeeId, schoolId);
+    }
+
+    /**
+     * Remplace la liste des classes de l'enseignant. Une classe décochée est
+     * retirée, une liste vide le détache de toutes. Chaque classe doit relever
+     * de sa section — sinon l'appel échoue en bloc, sans rien modifier.
+     */
+    @Transactional
+    public List<TeacherClassView> setClasses(UUID employeeId, List<UUID> classIds) {
+        UUID schoolId = TenantContext.get();
+        Employee e = find(employeeId);
+        List<UUID> wanted = classIds == null ? List.of() : classIds.stream().distinct().toList();
+
+        // Tout valider AVANT d'écrire : pas de suppression suivie d'un refus.
+        for (UUID classId : wanted) {
+            SchoolClass c = classes.findByIdAndSchoolId(classId, schoolId)
+                    .orElseThrow(() -> ApiException.badRequest("Classe inconnue"));
+            setup.bindTeacherSection(e.getId(), c.getLevel());
+        }
+        jdbc.update("DELETE FROM teacher_class tc USING school_class c "
+                  + "WHERE tc.class_id = c.id AND tc.employee_id = ? AND c.school_id = ?",
+                employeeId, schoolId);
+        for (UUID classId : wanted) {
+            jdbc.update("INSERT INTO teacher_class (employee_id, class_id) VALUES (?, ?)", employeeId, classId);
+        }
+        return classesOf(employeeId);
     }
 
     @Transactional(readOnly = true)
