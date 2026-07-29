@@ -151,6 +151,18 @@ public class StudentService {
                 s.setLevel(cls.getLevel());
                 s.setParentName(blankToNull(row.parentName()));
                 s.setParentPhone(blankToNull(row.parentPhone()));
+                s.setFatherName(blankToNull(row.fatherName()));
+                s.setFatherPhone(blankToNull(row.fatherPhone()));
+                s.setFatherEmail(blankToNull(row.fatherEmail()));
+                s.setMotherName(blankToNull(row.motherName()));
+                s.setMotherPhone(blankToNull(row.motherPhone()));
+                s.setMotherEmail(blankToNull(row.motherEmail()));
+                s.setGuardianName(blankToNull(row.guardianName()));
+                s.setGuardianPhone(blankToNull(row.guardianPhone()));
+                s.setGuardianEmail(blankToNull(row.guardianEmail()));
+                s.setGuardianRelation(blankToNull(row.guardianRelation()));
+                // Same legacy contact rule as manual creation: père → mère → tuteur.
+                syncPrimaryContact(s);
                 repo.save(s);
                 created++;
             } catch (RuntimeException ex) {

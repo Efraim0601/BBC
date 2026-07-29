@@ -280,10 +280,14 @@ CH_ELEVES = {
             {"fr": "La liste est triée par classe puis par nom ; le compteur au-dessus du tableau indique le "
                    "nombre de résultats.",
              "en": "The list is sorted by class then name; the counter above the table shows how many results match."},
-            {"fr": "__Exporter liste__ produit un CSV des lignes affichées (matricule, nom, prénom, sexe, classe, "
-                   "sous-système, niveau, parent, téléphone).",
-             "en": "__Export list__ produces a CSV of the displayed rows (ID, last name, first name, sex, class, "
-                   "sub-system, level, parent, phone)."},
+            {"fr": "__Exporter liste__ produit un CSV des lignes affichées, avec **toutes les colonnes de la fiche "
+                   "élève** (matricule, nom, prénom, sexe, naissance, lieu, NIU, redouble, classe, sous-système, "
+                   "niveau, père, mère, tuteur). Ses en-têtes sont ceux du modèle d'import : un export corrigé dans "
+                   "un tableur se réimporte tel quel.",
+             "en": "__Export list__ produces a CSV of the displayed rows with **every column of the student record** "
+                   "(ID, last name, first name, sex, birth date, birthplace, NIU, repeats, class, sub-system, level, "
+                   "father, mother, guardian). Its headers match the import template, so an export fixed up in a "
+                   "spreadsheet can be imported straight back."},
         ]},
 
         {"type": "h", "fr": "4.2 La fiche élève", "en": "4.2 The student record"},
@@ -384,9 +388,12 @@ CH_ELEVES = {
              "caption": {"fr": "Écran d'import : classe cible en haut, zone de données au milieu.",
                          "en": "Import screen: target class at the top, data area in the middle."}},
             {"fr": "Alimentez la zone de données : bouton __Fichier Excel / CSV__, collage direct, ou __Exemple__ "
-                   "pour voir le format attendu. __Modèle CSV__ télécharge un gabarit vierge.",
+                   "pour voir le format attendu. __Modèle CSV__ télécharge un gabarit dont les colonnes sont "
+                   "**exactement les champs du formulaire de création** (identité puis père / mère / tuteur), avec "
+                   "une ligne d'exemple à remplacer.",
              "en": "Feed the data area: __Excel / CSV file__ button, direct paste, or __Sample__ to see the expected "
-                   "format. __CSV template__ downloads a blank template."},
+                   "format. __CSV template__ downloads a template whose columns are **exactly the fields of the "
+                   "creation form** (identity, then father / mother / guardian), with one example row to replace."},
             {"fr": "Vérifiez l'**aperçu** : chaque ligne reçoit une coche verte (importable) ou une croix rouge "
                    "(nom manquant). Le compteur indique « valides / total ».",
              "en": "Check the **preview**: each row gets a green tick (importable) or a red cross (missing name). "
@@ -400,26 +407,46 @@ CH_ELEVES = {
                    "the others were skipped."},
         ]},
         {"type": "table",
-         "caption": {"fr": "Colonnes reconnues (l'en-tête est détecté automatiquement ; l'ordre importe peu).",
-                     "en": "Recognised columns (the header row is auto-detected; order does not matter)."},
-         "head": {"fr": ["Colonne", "Formats acceptés"], "en": ["Column", "Accepted formats"]},
+         "caption": {"fr": "Colonnes reconnues — les mêmes champs que la fiche élève (l'en-tête est détecté "
+                           "automatiquement ; l'ordre importe peu ; toute colonne absente reste vide).",
+                     "en": "Recognised columns — the same fields as the student record (the header row is "
+                           "auto-detected; order does not matter; a missing column simply stays empty)."},
+         "head": {"fr": ["Colonne du modèle", "Champ de la fiche", "Formats acceptés"],
+                  "en": ["Template column", "Record field", "Accepted formats"]},
          "rows": {"fr": [
-             ["NIU", "Texte libre — identifiant unique national."],
-             ["Nom et Prénom", "Nom complet dans une seule colonne, ou colonnes « Nom » et « Prénom » séparées."],
-             ["Sexe", "M, F, Masculin, Féminin, Male, Female, garçon, fille."],
-             ["Date de naissance", "`06 janvier 2011`, `2011-01-06` ou `06/01/2011`."],
-             ["Lieu de naissance", "Texte libre."],
-             ["Redouble", "OUI / NON, YES / NO, 1 / 0, VRAI / FAUX."],
-             ["Parent / Téléphone", "Facultatifs — nom et numéro du responsable."],
+             ["`nom`", "Identité → Nom", "Obligatoire. Ou une seule colonne « Nom et Prénom » : le 1ᵉʳ mot devient le nom."],
+             ["`prenom`", "Identité → Prénom", "Obligatoire (sauf colonne « Nom et Prénom »)."],
+             ["`sexe`", "Identité → Sexe", "M, F, Masculin, Féminin, Male, Female, garçon, fille."],
+             ["`date_naissance`", "Identité → Date de naissance", "`06 janvier 2011`, `2011-01-06` ou `06/01/2011`."],
+             ["`lieu_naissance`", "Identité → Lieu de naissance", "Texte libre."],
+             ["`niu`", "Identité → NIU", "Texte libre — identifiant unique national, facultatif."],
+             ["`redouble`", "Identité → Redouble cette année", "OUI / NON, YES / NO, 1 / 0, VRAI / FAUX."],
+             ["`pere_nom`, `pere_telephone`, `pere_email`", "Famille / tuteur → Père", "Texte libre."],
+             ["`mere_nom`, `mere_telephone`, `mere_email`", "Famille / tuteur → Mère", "Texte libre."],
+             ["`tuteur_nom`, `tuteur_lien`, `tuteur_telephone`, `tuteur_email`", "Famille / tuteur → Tuteur",
+              "Texte libre — `tuteur_lien` = oncle, grand-mère…"],
          ], "en": [
-             ["NIU", "Free text — national unique ID."],
-             ["Full name", "Full name in one column, or separate “Last name” / “First name” columns."],
-             ["Sex", "M, F, Masculin, Féminin, Male, Female, boy, girl."],
-             ["Date of birth", "`06 janvier 2011`, `2011-01-06` or `06/01/2011`."],
-             ["Birthplace", "Free text."],
-             ["Repeats", "OUI / NON, YES / NO, 1 / 0, TRUE / FALSE."],
-             ["Parent / Phone", "Optional — name and number of the responsible adult."],
+             ["`nom`", "Identity → Last name", "Mandatory. Or a single “Full name” column: the 1st word becomes the last name."],
+             ["`prenom`", "Identity → First name", "Mandatory (unless a “Full name” column is used)."],
+             ["`sexe`", "Identity → Sex", "M, F, Masculin, Féminin, Male, Female, boy, girl."],
+             ["`date_naissance`", "Identity → Date of birth", "`06 janvier 2011`, `2011-01-06` or `06/01/2011`."],
+             ["`lieu_naissance`", "Identity → Birthplace", "Free text."],
+             ["`niu`", "Identity → NIU", "Free text — national unique ID, optional."],
+             ["`redouble`", "Identity → Repeating this year", "OUI / NON, YES / NO, 1 / 0, TRUE / FALSE."],
+             ["`pere_nom`, `pere_telephone`, `pere_email`", "Family / guardian → Father", "Free text."],
+             ["`mere_nom`, `mere_telephone`, `mere_email`", "Family / guardian → Mother", "Free text."],
+             ["`tuteur_nom`, `tuteur_lien`, `tuteur_telephone`, `tuteur_email`", "Family / guardian → Guardian",
+              "Free text — `tuteur_lien` = uncle, grandmother…"],
          ]}},
+        {"type": "note", "tone": "info", "fr":
+            "La **classe** n'est pas une colonne : elle est choisie une fois pour tout le lot, en haut de l'écran "
+            "d'import. Les en-têtes en anglais (`last name`, `first name`, `father phone`…) sont également reconnus, "
+            "de même que les registres officiels intitulés « NIU / Nom et Prénom / Sexe / Date de naissance / "
+            "Lieu de naissance / Redouble ».",
+         "en":
+            "The **class** is not a column: it is picked once for the whole batch, at the top of the import screen. "
+            "English headers (`last name`, `first name`, `father phone`…) are recognised too, as are the official "
+            "registers headed “NIU / Nom et Prénom / Sexe / Date de naissance / Lieu de naissance / Redouble”."},
         {"type": "note", "tone": "tip", "fr":
             "Si aucun en-tête n'est reconnu, le système suppose l'ordre du registre officiel : NIU, Nom et Prénom, "
             "Sexe, Date de naissance, Lieu de naissance, Redouble. Vérifiez toujours l'aperçu avant de valider.",

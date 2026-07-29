@@ -44,6 +44,7 @@ export interface ParentLinkRequest {
   password?: string;
 }
 
+/** One imported row — mirrors the fields asked for when creating a student by hand. */
 export interface StudentImportRow {
   name?: string;
   firstName: string;
@@ -55,6 +56,16 @@ export interface StudentImportRow {
   repeats?: boolean;
   parentName?: string;
   parentPhone?: string;
+  fatherName?: string;
+  fatherPhone?: string;
+  fatherEmail?: string;
+  motherName?: string;
+  motherPhone?: string;
+  motherEmail?: string;
+  guardianName?: string;
+  guardianPhone?: string;
+  guardianEmail?: string;
+  guardianRelation?: string;
 }
 
 /** A class to find-or-create on the fly during import (the "5e A" format). */

@@ -14,6 +14,16 @@ import {
   DataTableComponent, CellTemplateDirective, Column,
 } from '../../core/ui';
 
+/** Column index per field of an import file; -1 when the column is absent. */
+interface HeaderMap {
+  niu: number; name: number; lastName: number; firstName: number; sex: number;
+  dob: number; birthplace: number; repeats: number;
+  parentName: number; parentPhone: number;
+  fatherName: number; fatherPhone: number; fatherEmail: number;
+  motherName: number; motherPhone: number; motherEmail: number;
+  guardianName: number; guardianRelation: number; guardianPhone: number; guardianEmail: number;
+}
+
 @Component({
   selector: 'bbc-students',
   standalone: true,
@@ -631,11 +641,11 @@ import {
                   </div>
                 </div>
                 <textarea [ngModel]="importText()" (ngModelChange)="onText($event)" name="importText" rows="7"
-                  [placeholder]="fr() ? 'Collez le registre ici — NIU, Nom et Prénom, Sexe, Date de naissance, Lieu de naissance, Redouble' : 'Paste the register here — NIU, Full name, Sex, DOB, Birthplace, Repeats'"
+                  [placeholder]="fr() ? 'Collez le registre ici — Nom, Prénom, Sexe, Date de naissance, Lieu de naissance, NIU, Redouble, Père / Mère / Tuteur' : 'Paste the register here — Last name, First name, Sex, DOB, Birthplace, NIU, Repeats, Father / Mother / Guardian'"
                   class="w-full px-3 py-2 rounded-lg border border-slate-200 font-mono text-xs focus:outline-none focus:border-brand-400"></textarea>
                 <div class="text-[11px] text-mute mt-1">
-                  {{ fr() ? 'Colonnes reconnues : NIU, Nom et Prénom (ou Nom + Prénom séparés), Sexe (M/F), Date de naissance (JJ mois AAAA, AAAA-MM-JJ ou JJ/MM/AAAA), Lieu de naissance, Redouble (OUI/NON). L’en-tête est détecté automatiquement.'
-                          : 'Recognised columns: NIU, Full name (or separate Last + First), Sex (M/F), DOB (DD month YYYY, YYYY-MM-DD or DD/MM/YYYY), Birthplace, Repeats (YES/NO). The header row is auto-detected.' }}
+                  {{ fr() ? 'Colonnes reconnues — les mêmes champs que la fiche élève : Nom, Prénom (ou une seule colonne « Nom et Prénom »), Sexe (M/F), Date de naissance (JJ mois AAAA, AAAA-MM-JJ ou JJ/MM/AAAA), Lieu de naissance, NIU, Redouble (OUI/NON), pere_nom / pere_telephone / pere_email, mere_nom / mere_telephone / mere_email, tuteur_nom / tuteur_lien / tuteur_telephone / tuteur_email. L’en-tête est détecté automatiquement ; la classe est celle choisie ci-dessus.'
+                          : 'Recognised columns — the same fields as the student record: Last name, First name (or a single “Full name” column), Sex (M/F), DOB (DD month YYYY, YYYY-MM-DD or DD/MM/YYYY), Birthplace, NIU, Repeats (YES/NO), pere_nom / pere_telephone / pere_email, mere_nom / mere_telephone / mere_email, tuteur_nom / tuteur_lien / tuteur_telephone / tuteur_email. The header row is auto-detected; the class is the one picked above.' }}
                 </div>
               </section>
 
@@ -656,6 +666,7 @@ import {
                           <th class="px-3 py-2 font-semibold">{{ fr() ? 'Naissance' : 'DOB' }}</th>
                           <th class="px-3 py-2 font-semibold">{{ fr() ? 'Lieu' : 'Birthplace' }}</th>
                           <th class="px-3 py-2 font-semibold">{{ fr() ? 'Redouble' : 'Repeats' }}</th>
+                          <th class="px-3 py-2 font-semibold">{{ fr() ? 'Famille / tuteur' : 'Family / guardian' }}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -671,6 +682,7 @@ import {
                             <td class="px-3 py-1.5 font-mono text-xs">{{ r.dob || '—' }}</td>
                             <td class="px-3 py-1.5">{{ r.birthplace || '—' }}</td>
                             <td class="px-3 py-1.5">{{ r.repeats ? (fr() ? 'Oui' : 'Yes') : '—' }}</td>
+                            <td class="px-3 py-1.5 text-xs text-mute">{{ rowContacts(r) || '—' }}</td>
                           </tr>
                         }
                       </tbody>
@@ -1000,19 +1012,44 @@ export class StudentsComponent {
     };
   }
 
+  /**
+   * Columns of the import template, in the order of the creation form: identity
+   * first, then the family block. The class is not a column — the import screen
+   * asks for the target class once, for the whole batch.
+   */
+  private static readonly TEMPLATE_HEADERS = [
+    'nom', 'prenom', 'sexe', 'date_naissance', 'lieu_naissance', 'niu', 'redouble',
+    'pere_nom', 'pere_telephone', 'pere_email',
+    'mere_nom', 'mere_telephone', 'mere_email',
+    'tuteur_nom', 'tuteur_lien', 'tuteur_telephone', 'tuteur_email',
+  ];
+
   protected exportList(): void {
+    // Same column names as the import template (plus matricule / class) so an
+    // exported list can be corrected in a spreadsheet and imported straight back.
     const rows = this.filtered().map((s) => [
-      s.matricule, s.lastName, s.firstName, s.sex, s.className, s.subsystem, s.level, s.parentName, s.parentPhone,
+      s.matricule, s.lastName, s.firstName, s.sex, s.dob ?? '', s.birthplace ?? '', s.niu ?? '', s.repeats ? 'oui' : 'non',
+      s.className, s.subsystem, s.level,
+      s.fatherName ?? '', s.fatherPhone ?? '', s.fatherEmail ?? '',
+      s.motherName ?? '', s.motherPhone ?? '', s.motherEmail ?? '',
+      s.guardianName ?? '', s.guardianRelation ?? '', s.guardianPhone ?? '', s.guardianEmail ?? '',
     ]);
     downloadCsv(stampedName('eleves'),
-      ['matricule', 'nom', 'prenom', 'sexe', 'classe', 'sous_systeme', 'niveau', 'parent', 'telephone'],
+      ['matricule', 'nom', 'prenom', 'sexe', 'date_naissance', 'lieu_naissance', 'niu', 'redouble',
+       'classe', 'sous_systeme', 'niveau',
+       'pere_nom', 'pere_telephone', 'pere_email',
+       'mere_nom', 'mere_telephone', 'mere_email',
+       'tuteur_nom', 'tuteur_lien', 'tuteur_telephone', 'tuteur_email'],
       rows);
   }
 
   protected downloadStudentTemplate(): void {
-    downloadCsv('modele-eleves.csv',
-      ['niu', 'nom_prenom', 'sexe', 'date_naissance', 'lieu_naissance', 'redouble', 'parent', 'telephone'],
-      [['', 'DUPONT Jean', 'M', '2015-03-12', 'Douala', 'non', 'DUPONT Marie', '+237 6XX XX XX XX']]);
+    downloadCsv('modele-eleves.csv', StudentsComponent.TEMPLATE_HEADERS, [[
+      'DUPONT', 'Jean', 'M', '2015-03-12', 'Douala', '', 'non',
+      'DUPONT Paul', '+237 6XX XX XX XX', 'paul.dupont@example.cm',
+      'NGO Marie', '+237 6XX XX XX XX', 'marie.ngo@example.cm',
+      '', '', '', '',
+    ]]);
   }
 
   // ---- Bulk import ---------------------------------------------------------
@@ -1027,6 +1064,18 @@ export class StudentsComponent {
   protected rowName(r: StudentImportRow): string {
     if (r.name?.trim()) return r.name.trim().replace(/(\s+-)+\s*$/, '').trim();
     return `${r.lastName ?? ''} ${r.firstName ?? ''}`.trim();
+  }
+
+  /** Compact "Père · Mère · Tuteur" summary for the preview — names only, phones would overflow. */
+  protected rowContacts(r: StudentImportRow): string {
+    const fr = this.fr();
+    const parts = [
+      r.fatherName?.trim() ? `${fr ? 'Père' : 'Father'} : ${r.fatherName.trim()}` : '',
+      r.motherName?.trim() ? `${fr ? 'Mère' : 'Mother'} : ${r.motherName.trim()}` : '',
+      r.guardianName?.trim() ? `${fr ? 'Tuteur' : 'Guardian'} : ${r.guardianName.trim()}` : '',
+    ].filter(Boolean);
+    if (parts.length) return parts.join(' · ');
+    return r.parentName?.trim() ?? '';
   }
 
   /** True once a target class is chosen (existing id or a new class name). */
@@ -1235,7 +1284,7 @@ export class StudentsComponent {
     const dataRows = map ? cells.slice(1) : cells;
     // Default layout when no header is recognised: assume the official register
     // order (NIU, Nom et Prénom, Sexe, Naissance, Lieu, Redouble).
-    const idx = map ?? { niu: 0, name: 1, lastName: -1, firstName: -1, sex: 2, dob: 3, birthplace: 4, repeats: 5, parentName: -1, parentPhone: -1 };
+    const idx: HeaderMap = map ?? { ...StudentsComponent.EMPTY_MAP, niu: 0, name: 1, sex: 2, dob: 3, birthplace: 4, repeats: 5 };
     const at = (r: string[], i: number) => (i >= 0 ? (r[i] ?? '').trim() : '');
     return dataRows.map((r) => ({
       name: at(r, idx.name),
@@ -1248,6 +1297,16 @@ export class StudentsComponent {
       repeats: this.normYesNo(r[idx.repeats]),
       parentName: at(r, idx.parentName),
       parentPhone: at(r, idx.parentPhone),
+      fatherName: at(r, idx.fatherName),
+      fatherPhone: at(r, idx.fatherPhone),
+      fatherEmail: at(r, idx.fatherEmail),
+      motherName: at(r, idx.motherName),
+      motherPhone: at(r, idx.motherPhone),
+      motherEmail: at(r, idx.motherEmail),
+      guardianName: at(r, idx.guardianName),
+      guardianPhone: at(r, idx.guardianPhone),
+      guardianEmail: at(r, idx.guardianEmail),
+      guardianRelation: at(r, idx.guardianRelation),
     }));
   }
 
@@ -1267,43 +1326,65 @@ export class StudentsComponent {
     return line.split(delim).map((c) => c.replace(/^"|"$/g, '').trim());
   }
 
+  /** Every column index unknown — the starting point of a header map. */
+  private static readonly EMPTY_MAP: HeaderMap = {
+    niu: -1, name: -1, lastName: -1, firstName: -1, sex: -1, dob: -1, birthplace: -1, repeats: -1,
+    parentName: -1, parentPhone: -1,
+    fatherName: -1, fatherPhone: -1, fatherEmail: -1,
+    motherName: -1, motherPhone: -1, motherEmail: -1,
+    guardianName: -1, guardianRelation: -1, guardianPhone: -1, guardianEmail: -1,
+  };
+
   /**
    * Map a header row to column indices; null when the first row is data, not a header.
-   * Understands both the official register ("NIU, Nom et Prénom, Sexe, Date de
-   * naissance, Lieu de naissance, Redouble") and a split Nom/Prénom layout.
+   * Understands the official register ("NIU, Nom et Prénom, Sexe, Date de naissance,
+   * Lieu de naissance, Redouble"), a split Nom/Prénom layout, and the downloadable
+   * template, whose columns mirror the creation form (père / mère / tuteur included).
    */
-  private mapHeader(cells: string[]): {
-    niu: number; name: number; lastName: number; firstName: number; sex: number;
-    dob: number; birthplace: number; repeats: number; parentName: number; parentPhone: number;
-  } | null {
-    const idx: any = {};
+  private mapHeader(cells: string[]): HeaderMap | null {
+    const idx: HeaderMap = { ...StudentsComponent.EMPTY_MAP };
     cells.forEach((raw, i) => {
-      const c = raw.toLowerCase();
-      if (idx.niu === undefined && /\bniu\b|identifiant/.test(c)) idx.niu = i;
-      else if (idx.firstName === undefined && /(pr[ée]nom|first)/.test(c) && !/nom et/.test(c)) idx.firstName = i;
-      else if (idx.name === undefined && /(nom et pr[ée]nom|nom.*pr[ée]nom|full name|nom complet)/.test(c)) idx.name = i;
-      else if (idx.lastName === undefined && /(^nom|last|surname|famille)/.test(c)) idx.lastName = i;
-      else if (idx.sex === undefined && /(sexe|sex|genre|gender)/.test(c)) idx.sex = i;
-      else if (idx.dob === undefined && /(naiss|dob|birth|date)/.test(c) && !/lieu/.test(c)) idx.dob = i;
-      else if (idx.birthplace === undefined && /(lieu|birthplace|place)/.test(c)) idx.birthplace = i;
-      else if (idx.repeats === undefined && /(redouble|repeat|redoublant)/.test(c)) idx.repeats = i;
-      else if (idx.parentPhone === undefined && /(t[ée]l|phone|contact|num[ée]ro)/.test(c)) idx.parentPhone = i;
-      else if (idx.parentName === undefined && /(parent|tuteur|guardian|responsable)/.test(c)) idx.parentName = i;
+      const key = this.headerKey(raw);
+      if (key && idx[key] < 0) idx[key] = i;
     });
     // A header must carry at least one recognisable name column.
-    if (idx.name === undefined && (idx.lastName === undefined || idx.firstName === undefined)) return null;
-    return {
-      niu: idx.niu ?? -1,
-      name: idx.name ?? -1,
-      lastName: idx.lastName ?? -1,
-      firstName: idx.firstName ?? -1,
-      sex: idx.sex ?? -1,
-      dob: idx.dob ?? -1,
-      birthplace: idx.birthplace ?? -1,
-      repeats: idx.repeats ?? -1,
-      parentName: idx.parentName ?? -1,
-      parentPhone: idx.parentPhone ?? -1,
-    };
+    if (idx.name < 0 && idx.lastName < 0) return null;
+    // A lone "Nom" column (no "Prénom" beside it) holds the full name — treat it as
+    // combined so "DUPONT Jean" is split, instead of importing a pupil with no first name.
+    if (idx.name < 0 && idx.firstName < 0) { idx.name = idx.lastName; idx.lastName = -1; }
+    return idx;
+  }
+
+  /**
+   * Classify one header cell. Family columns are tested first: "pere_nom" must not
+   * be read as the pupil's own name, nor "mere_telephone" as a bare phone column.
+   */
+  private headerKey(raw: string): keyof HeaderMap | null {
+    const c = raw.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+    if (!c) return null;
+    const mail = /(mail|courriel)/.test(c);
+    const phone = /(tel|phone|contact|numero|mobile|whatsapp|portable)/.test(c);
+
+    if (/(pere|father|papa)/.test(c)) return mail ? 'fatherEmail' : phone ? 'fatherPhone' : 'fatherName';
+    if (/(mere|mother|maman)/.test(c)) return mail ? 'motherEmail' : phone ? 'motherPhone' : 'motherName';
+    if (/(tuteur|tutrice|guardian)/.test(c)) {
+      if (mail) return 'guardianEmail';
+      if (phone) return 'guardianPhone';
+      return /(lien|relation|parente)/.test(c) ? 'guardianRelation' : 'guardianName';
+    }
+
+    if (/\bniu\b|identifiant/.test(c)) return 'niu';
+    if (/(nom et prenom|nom.*prenom|full name|nom complet)/.test(c)) return 'name';
+    if (/(prenom|first)/.test(c)) return 'firstName';
+    if (/(^nom|last|surname|famille)/.test(c)) return 'lastName';
+    if (/(sexe|sex|genre|gender)/.test(c)) return 'sex';
+    if (/(naiss|dob|birth|date)/.test(c) && !/(lieu|place)/.test(c)) return 'dob';
+    if (/(lieu|birthplace|place)/.test(c)) return 'birthplace';
+    if (/(redouble|repeat|redoublant)/.test(c)) return 'repeats';
+    if (/(lien|relation)/.test(c)) return 'guardianRelation';
+    if (phone) return 'parentPhone';
+    if (/(parent|responsable)/.test(c)) return 'parentName';
+    return null;
   }
 
   private normSex(v: string | undefined): string {

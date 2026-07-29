@@ -75,6 +75,7 @@ public class StudentDtos {
             @NotBlank String username,
             String password) {}
 
+    /** One imported row — same fields as StudentUpsert, minus the class (set for the whole batch). */
     public record StudentImportRow(
             String name,
             String firstName,
@@ -85,7 +86,17 @@ public class StudentDtos {
             String birthplace,
             boolean repeats,
             String parentName,
-            String parentPhone) {}
+            String parentPhone,
+            String fatherName,
+            String fatherPhone,
+            String fatherEmail,
+            String motherName,
+            String motherPhone,
+            String motherEmail,
+            String guardianName,
+            String guardianPhone,
+            String guardianEmail,
+            String guardianRelation) {}
 
     public record NewClassSpec(
             @NotBlank String name,

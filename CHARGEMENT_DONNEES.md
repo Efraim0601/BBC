@@ -91,9 +91,29 @@ Les registres `.xls` sont importables **tels quels** — pas besoin de les conve
 5. **Importer N élève(s)**.
 
 ### Colonnes reconnues automatiquement
-`NIU` · `Nom et Prénom` (fusionné) · `Sexe` (M/F) · `Date de naissance`
-(« 06 janvier 2011 », `2011-01-06` ou `06/01/2011`) · `Lieu de naissance` · `Redouble` (OUI/NON).
-L'en-tête est détecté tout seul.
+
+Ce sont **exactement les champs de la fiche élève**. L'en-tête est détecté tout seul,
+l'ordre n'a pas d'importance et une colonne absente reste simplement vide.
+
+| Colonne (modèle CSV) | Champ de la fiche | Formats acceptés |
+|---|---|---|
+| `nom` | Identité → Nom | Obligatoire. Ou une colonne unique `Nom et Prénom` (1er mot = nom). |
+| `prenom` | Identité → Prénom | Obligatoire (sauf colonne `Nom et Prénom`). |
+| `sexe` | Identité → Sexe | M / F (Masculin, Féminin, Male, Female, garçon, fille). |
+| `date_naissance` | Identité → Date de naissance | « 06 janvier 2011 », `2011-01-06` ou `06/01/2011`. |
+| `lieu_naissance` | Identité → Lieu de naissance | Texte libre. |
+| `niu` | Identité → NIU | Facultatif — identifiant unique national. |
+| `redouble` | Identité → Redouble cette année | OUI / NON, 1 / 0, VRAI / FAUX. |
+| `pere_nom`, `pere_telephone`, `pere_email` | Famille / tuteur → Père | Texte libre. |
+| `mere_nom`, `mere_telephone`, `mere_email` | Famille / tuteur → Mère | Texte libre. |
+| `tuteur_nom`, `tuteur_lien`, `tuteur_telephone`, `tuteur_email` | Famille / tuteur → Tuteur | `tuteur_lien` = oncle, grand-mère… |
+
+La **classe** n'est pas une colonne : elle est choisie une fois pour tout le lot (étape 2).
+Le bouton **Modèle CSV** (écran d'import) télécharge ce gabarit prérempli d'une ligne d'exemple,
+et **Exporter liste** produit les mêmes colonnes — un export corrigé dans un tableur se réimporte tel quel.
+
+Les registres officiels (`NIU`, `Nom et Prénom`, `Sexe`, `Date de naissance`,
+`Lieu de naissance`, `Redouble`) restent reconnus tels quels.
 
 ### Correspondance des trois registres fournis
 
