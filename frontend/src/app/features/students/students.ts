@@ -11,8 +11,9 @@ import { downloadCsv, stampedName } from '../../core/csv';
 import {
   IconComponent, CardComponent, PageHeaderComponent,
   AvatarComponent, ChipFilterComponent, StatusPillComponent,
-  DataTableComponent, CellTemplateDirective, Column,
+  DataTableComponent, CellTemplateDirective, Column, PhotoCaptureComponent,
 } from '../../core/ui';
+import { PhotoApi } from '../../core/photo.api';
 
 /** Column index per field of an import file; -1 when the column is absent. */
 interface HeaderMap {
@@ -31,7 +32,7 @@ interface HeaderMap {
   imports: [
     FormsModule, IconComponent, CardComponent, PageHeaderComponent,
     AvatarComponent, ChipFilterComponent, StatusPillComponent,
-    DataTableComponent, CellTemplateDirective,
+    DataTableComponent, CellTemplateDirective, PhotoCaptureComponent,
   ],
   template: `
     <div class="fade-in max-w-7xl mx-auto">
@@ -155,7 +156,7 @@ interface HeaderMap {
            <div class="-m-5">
             <div class="p-6 bg-gradient-to-br from-brand-700 to-brand-800 text-white rounded-t-xl2">
               <div class="flex items-start gap-4">
-                <bbc-avatar [name]="sel.name" [hue]="sel.photoHue" [size]="64" />
+                <bbc-avatar [name]="sel.name" [hue]="sel.photoHue" [size]="64" [photoUrl]="selectedPhoto()" />
                 <div class="flex-1 min-w-0">
                   <div class="text-[10px] uppercase tracking-wider text-gold-200 font-semibold">{{ sel.matricule }}</div>
                   <div class="text-xl font-bold leading-tight">{{ sel.name }}</div>
@@ -309,6 +310,13 @@ interface HeaderMap {
             </div>
 
             <div class="space-y-8 max-w-3xl">
+              <!-- Photo : selfie ou fichier, envoyée après l'enregistrement de la fiche -->
+              <section>
+                <div class="text-[11px] uppercase tracking-wider text-mute font-bold mb-3">{{ fr() ? 'Photo' : 'Photo' }}</div>
+                <bbc-photo-capture [(photo)]="photoDraft"
+                  [label]="fr() ? 'Photo de l’élève' : 'Student photo'" />
+              </section>
+
               <!-- Identity -->
               <section>
                 <div class="text-[11px] uppercase tracking-wider text-mute font-bold mb-3">{{ fr() ? 'Identité' : 'Identity' }}</div>
@@ -736,6 +744,7 @@ interface HeaderMap {
 export class StudentsComponent {
   protected i18n = inject(I18nService);
   private api = inject(StudentApi);
+  private photoApi = inject(PhotoApi);
   private setupApi = inject(SetupApi);
   private auth = inject(AuthService);
   private scopeSvc = inject(ScopeService);
@@ -783,6 +792,15 @@ export class StudentsComponent {
 
   protected canWrite = this.auth.can('students', 'write');
   protected draft: StudentUpsert = this.blank();
+  /**
+   * Photo saisie dans le formulaire (data URL) ; envoyée APRÈS l'enregistrement,
+   * une création n'ayant pas encore d'identifiant. `null` = aucune photo,
+   * `''` = photo retirée par l'utilisateur (à supprimer côté serveur).
+   */
+  protected photoDraft = signal<string | null>(null);
+  private photoWasSet = false;
+  /** Photo de l'élève sélectionné, chargée en blob (l'API exige le jeton). */
+  protected selectedPhoto = signal<string | null>(null);
   protected trackId = (s: Student) => s.id;
 
   protected subOptions = computed(() => [
@@ -861,6 +879,16 @@ export class StudentsComponent {
     return this.rows().find((s) => s.id === id) ?? null;
   });
 
+  /** Charge (et libère) la photo de la fiche ouverte. */
+  private readonly photoLoader = effect(() => {
+    const id = this.selectedId();
+    const previous = this.selectedPhoto();
+    if (previous?.startsWith('blob:')) URL.revokeObjectURL(previous);
+    this.selectedPhoto.set(null);
+    if (!id) return;
+    this.photoApi.load('students', id).subscribe((url) => this.selectedPhoto.set(url));
+  }, { allowSignalWrites: true });
+
   protected headerSub = computed(() => {
     const n = this.rows().length;
     return this.fr() ? `${n} élèves inscrits · 2 sous-systèmes` : `${n} enrolled students · 2 subsystems`;
@@ -924,11 +952,19 @@ export class StudentsComponent {
   openCreate(): void {
     this.editId.set(null);
     this.draft = this.blank();
+    this.photoDraft.set(null);
+    this.photoWasSet = false;
     this.mode.set('edit');
   }
 
   openEdit(s: Student): void {
     this.editId.set(s.id);
+    this.photoDraft.set(null);
+    this.photoWasSet = false;
+    // Photo existante : affichée dans le composant de capture pour pouvoir la remplacer.
+    this.photoApi.load('students', s.id).subscribe((url) => {
+      if (url) { this.photoDraft.set(url); this.photoWasSet = true; }
+    });
     this.draft = {
       firstName: s.firstName,
       lastName: s.lastName,
@@ -959,6 +995,8 @@ export class StudentsComponent {
     this.mode.set('list');
     this.editId.set(null);
     this.draft = this.blank();
+    this.photoDraft.set(null);
+    this.photoWasSet = false;
   }
 
   save(): void {
@@ -967,10 +1005,29 @@ export class StudentsComponent {
     const id = this.editId();
     const req = id ? this.api.update(id, this.draft) : this.api.create(this.draft);
     req.subscribe((s) => {
-      this.closeEditor();
-      this.selectedId.set(s.id);
-      this.reload();
+      this.savePhoto(s.id, () => {
+        this.closeEditor();
+        this.selectedId.set(s.id);
+        this.reload();
+      });
     });
+  }
+
+  /**
+   * Envoie la photo une fois la fiche enregistrée. Une URL d'objet (blob:) est
+   * la photo déjà en base rechargée à l'ouverture : rien à renvoyer.
+   */
+  private savePhoto(studentId: string, done: () => void): void {
+    const photo = this.photoDraft();
+    if (photo && photo.startsWith('data:')) {
+      this.photoApi.save('students', studentId, photo).subscribe({ next: done, error: done });
+      return;
+    }
+    if (!photo && this.photoWasSet) {
+      this.photoApi.remove('students', studentId).subscribe({ next: done, error: done });
+      return;
+    }
+    done();
   }
 
   /** Prefer father → mother → guardian for legacy parentName / parentPhone display fields. */

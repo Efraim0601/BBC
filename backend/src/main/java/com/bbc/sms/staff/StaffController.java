@@ -1,8 +1,14 @@
 package com.bbc.sms.staff;
 
+import com.bbc.sms.media.PhotoService;
+import com.bbc.sms.media.PhotoUpload;
+import com.bbc.sms.media.ProfilePhoto;
 import com.bbc.sms.staff.dto.StaffDtos.*;
 import jakarta.validation.Valid;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
@@ -14,8 +20,42 @@ import java.util.UUID;
 public class StaffController {
 
     private final StaffService service;
+    private final PhotoService photos;
 
-    public StaffController(StaffService service) { this.service = service; }
+    public StaffController(StaffService service, PhotoService photos) {
+        this.service = service;
+        this.photos = photos;
+    }
+
+    // ---- Photo de profil ----------------------------------------------------
+
+    @GetMapping("/{id}/photo")
+    @PreAuthorize("@perm.can('hr','read')")
+    public ResponseEntity<byte[]> photo(@PathVariable UUID id) {
+        service.get(id);   // vérifie l'appartenance à l'établissement
+        ProfilePhoto p = photos.find(PhotoService.EMPLOYEE, id);
+        if (p == null) return ResponseEntity.notFound().build();
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(p.getContentType()))
+                .cacheControl(CacheControl.noCache())
+                .eTag(String.valueOf(p.getUpdatedAt().toInstant().toEpochMilli()))
+                .body(p.getBytes());
+    }
+
+    @PutMapping("/{id}/photo")
+    @PreAuthorize("@perm.can('hr','write')")
+    public void savePhoto(@PathVariable UUID id, @RequestBody PhotoUpload in) {
+        service.get(id);
+        photos.save(PhotoService.EMPLOYEE, id, in.dataUrl());
+    }
+
+    @DeleteMapping("/{id}/photo")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("@perm.can('hr','write')")
+    public void deletePhoto(@PathVariable UUID id) {
+        service.get(id);
+        photos.delete(PhotoService.EMPLOYEE, id);
+    }
 
     @GetMapping
     @PreAuthorize("@perm.can('hr','read')")

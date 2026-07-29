@@ -377,19 +377,20 @@ Cliquez une ligne : la fiche s'ouvre sous le tableau avec l'en-tête d'identité
 
 ### 4.3 Créer ou modifier un élève
 
-1. Cliquez **Nouvel élève** (ou **Modifier** sur une fiche ouverte). Le formulaire occupe toute la page et se referme par la flèche en haut à gauche.
+1. **Photo** — en haut du formulaire, **Prendre un selfie** ouvre la caméra de l'appareil (tablette, portable, webcam) : cadrez, cliquez **Prendre la photo**. **Importer une image** sélectionne un fichier existant. L'image est recadrée en carré et compressée automatiquement ; elle est enregistrée avec la fiche, et remplaçable à tout moment par **Reprendre un selfie**.
+2. Cliquez **Nouvel élève** (ou **Modifier** sur une fiche ouverte). Le formulaire occupe toute la page et se referme par la flèche en haut à gauche.
 
    ![Bloc Identité : nom, prénom, sexe, naissance, NIU et case « Redouble ».](frontend/public/guide/img/fr-33-eleves-formulaire.webp)
    *Bloc Identité : nom, prénom, sexe, naissance, NIU et case « Redouble ».*
 
-2. **Identité** — nom et prénom sont obligatoires. Le NIU (identifiant unique national) est facultatif. Cochez **Redouble cette année** le cas échéant.
-3. **Scolarité** — choisissez la classe dans la liste déroulante. Le sous-système et le niveau en sont déduits : il n'y a pas de saisie libre possible, donc pas de classe fantôme. « — Non affecté — » reste valable pour une préinscription.
-4. **Famille / tuteur** — trois blocs séparés (père, mère, tuteur) avec nom, téléphone et e-mail. Le tuteur porte en plus un champ « lien / relation ».
+3. **Identité** — nom et prénom sont obligatoires. Le NIU (identifiant unique national) est facultatif. Cochez **Redouble cette année** le cas échéant.
+4. **Scolarité** — choisissez la classe dans la liste déroulante. Le sous-système et le niveau en sont déduits : il n'y a pas de saisie libre possible, donc pas de classe fantôme. « — Non affecté — » reste valable pour une préinscription.
+5. **Famille / tuteur** — trois blocs séparés (père, mère, tuteur) avec nom, téléphone et e-mail. Le tuteur porte en plus un champ « lien / relation ».
 
    ![Coordonnées familiales : la ligne la plus complète devient le contact principal.](frontend/public/guide/img/fr-34-eleves-formulaire-famille.webp)
    *Coordonnées familiales : la ligne la plus complète devient le contact principal.*
 
-5. **Enregistrer**. La fiche créée est immédiatement sélectionnée dans la liste.
+6. **Enregistrer**. La fiche créée est immédiatement sélectionnée dans la liste.
 
 > **Attention** — La suppression d'un élève (**Supprimer** sur la fiche, avec confirmation) retire l'élève **et ses données associées** du registre. Les paiements déjà encaissés restent visibles en finance, mais sans nom d'élève.
 
@@ -473,22 +474,25 @@ Les badges **P** (principal) et **PP** (professeur principal) signalent les resp
 
 ### 5.2 Créer un employé
 
+> **À savoir** — Les photos sont stockées **dans la base**, pas dans un dossier : elles suivent donc vos sauvegardes. Comptez quelques dizaines de kilo-octets par personne. Le selfie exige une connexion **https** et l'autorisation de la caméra ; à défaut, l'import de fichier reste disponible. Poser ou retirer une photo d'élève demande le droit **Élèves : Complet** — un enseignant voit la photo de ses élèves mais ne la modifie pas.
+
 > **Attention** — **Changer la section d'un enseignant le détache des classes de son ancien cycle.** C'est voulu : une mutation du primaire vers le secondaire ne doit pas laisser traîner d'anciennes affectations. Réaffectez-le ensuite à ses nouvelles classes.
 
-1. **Nouvel employé** ouvre le formulaire pleine page. **Identité & contact** : nom (obligatoire), sexe, e-mail, téléphone.
+1. **Photo** — même dispositif que pour un élève : **Prendre un selfie** avec la caméra de l'appareil, ou **Importer une image**. Elle s'affiche ensuite sur la fiche de l'employé.
+2. **Nouvel employé** ouvre le formulaire pleine page. **Identité & contact** : nom (obligatoire), sexe, e-mail, téléphone.
 
    ![Identité, contact et option de création du compte de connexion.](frontend/public/guide/img/fr-42-personnel-formulaire.webp)
    *Identité, contact et option de création du compte de connexion.*
 
-2. **Rôles** — cliquez autant de rôles que nécessaire ; ils proviennent du catalogue des rôles (chapitre 2). Si vous cochez « professeur principal », un champ **Classe** apparaît.
-3. **Section (cycle)** — dès qu'un rôle enseignant est coché, choisissez **Maternelle**, **Primaire** ou **Secondaire**. Un enseignant n'exerce que dans **une** section : il ne verra que les classes de ce cycle qui lui sont assignées, et sera orienté dedans dès sa connexion. Laissée vide, la section sera fixée par sa première affectation de classe.
-4. **Département** — rattachement facultatif, à créer au préalable dans l'onglet Départements.
-5. **Contrat & rémunération** — choisissez **Permanent** (salaire mensuel) ou **Vacataire** (taux horaire). Le champ affiché s'adapte au choix.
+3. **Rôles** — cliquez autant de rôles que nécessaire ; ils proviennent du catalogue des rôles (chapitre 2). Si vous cochez « professeur principal », un champ **Classe** apparaît.
+4. **Section (cycle)** — dès qu'un rôle enseignant est coché, choisissez **Maternelle**, **Primaire** ou **Secondaire**. Un enseignant n'exerce que dans **une** section : il ne verra que les classes de ce cycle qui lui sont assignées, et sera orienté dedans dès sa connexion. Laissée vide, la section sera fixée par sa première affectation de classe.
+5. **Département** — rattachement facultatif, à créer au préalable dans l'onglet Départements.
+6. **Contrat & rémunération** — choisissez **Permanent** (salaire mensuel) ou **Vacataire** (taux horaire). Le champ affiché s'adapte au choix.
 
    ![Le type de contrat détermine le mode de rémunération.](frontend/public/guide/img/fr-43-personnel-contrat.webp)
    *Le type de contrat détermine le mode de rémunération.*
 
-6. Cochez éventuellement **Créer un compte de connexion** — l'option ne s'active que si un e-mail est renseigné —, puis **Enregistrer**.
+7. Cochez éventuellement **Créer un compte de connexion** — l'option ne s'active que si un e-mail est renseigné —, puis **Enregistrer**.
 
 ### 5.3 Comptes de connexion et réinitialisation
 

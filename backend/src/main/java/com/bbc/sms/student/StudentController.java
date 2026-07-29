@@ -1,8 +1,14 @@
 package com.bbc.sms.student;
 
+import com.bbc.sms.media.PhotoService;
+import com.bbc.sms.media.PhotoUpload;
+import com.bbc.sms.media.ProfilePhoto;
 import com.bbc.sms.student.dto.StudentDtos.*;
 import jakarta.validation.Valid;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
@@ -15,10 +21,44 @@ public class StudentController {
 
     private final StudentService service;
     private final ParentLinkService parentLinks;
+    private final PhotoService photos;
 
-    public StudentController(StudentService service, ParentLinkService parentLinks) {
+    public StudentController(StudentService service, ParentLinkService parentLinks, PhotoService photos) {
         this.service = service;
         this.parentLinks = parentLinks;
+        this.photos = photos;
+    }
+
+    // ---- Photo de profil ----------------------------------------------------
+
+    /** Les octets de la photo. 404 quand l'élève n'en a pas — l'interface retombe sur les initiales. */
+    @GetMapping("/{id}/photo")
+    @PreAuthorize("@perm.can('students','read') and @perm.staffOnly()")
+    public ResponseEntity<byte[]> photo(@PathVariable UUID id) {
+        service.get(id);   // portée enseignant : 403 si l'élève n'est pas dans ses classes
+        ProfilePhoto p = photos.find(PhotoService.STUDENT, id);
+        if (p == null) return ResponseEntity.notFound().build();
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(p.getContentType()))
+                .cacheControl(CacheControl.noCache())
+                .eTag(String.valueOf(p.getUpdatedAt().toInstant().toEpochMilli()))
+                .body(p.getBytes());
+    }
+
+    /** Selfie ou fichier importé, déjà recadré et compressé par le navigateur. */
+    @PutMapping("/{id}/photo")
+    @PreAuthorize("@perm.can('students','write') and @perm.staffOnly()")
+    public void savePhoto(@PathVariable UUID id, @RequestBody PhotoUpload in) {
+        service.get(id);
+        photos.save(PhotoService.STUDENT, id, in.dataUrl());
+    }
+
+    @DeleteMapping("/{id}/photo")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("@perm.can('students','write') and @perm.staffOnly()")
+    public void deletePhoto(@PathVariable UUID id) {
+        service.get(id);
+        photos.delete(PhotoService.STUDENT, id);
     }
 
     @GetMapping

@@ -7,6 +7,8 @@ const PATHS: Record<string, string> = {
   home: '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/>',
   fingerprint: '<path d="M12 11v2a9 9 0 0 1-1.5 5"/><path d="M16 11.5c0-2.5-1.8-4.5-4-4.5s-4 2-4 4.5c0 1.5.2 3-.5 5"/><path d="M19 12a7 7 0 0 0-7-7 7 7 0 0 0-3 .6"/><path d="M5 14c.3-1 .5-2 .5-3a6 6 0 0 1 .6-2.6"/><path d="M19.5 16c.3-1 .5-2 .5-3"/><path d="M13.5 21a13 13 0 0 0 .9-3"/>',
   users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  camera: '<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>',
   wallet: '<path d="M21 7H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16v-4"/><path d="M21 12h-5a2 2 0 0 0 0 4h5"/><path d="M5 7V5a2 2 0 0 1 2-2h11"/>',
   book: '<path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v18H6.5a2.5 2.5 0 0 0 0 5H20"/>',
   calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18"/><path d="M8 3v4"/><path d="M16 3v4"/>',

@@ -319,6 +319,14 @@ CH_ELEVES = {
 
         {"type": "h", "fr": "4.3 Créer ou modifier un élève", "en": "4.3 Create or edit a student"},
         {"type": "steps", "items": [
+            {"fr": "**Photo** — en haut du formulaire, __Prendre un selfie__ ouvre la caméra de l'appareil "
+                   "(tablette, portable, webcam) : cadrez, cliquez __Prendre la photo__. __Importer une image__ "
+                   "sélectionne un fichier existant. L'image est recadrée en carré et compressée automatiquement ; "
+                   "elle est enregistrée avec la fiche, et remplaçable à tout moment par __Reprendre un selfie__.",
+             "en": "**Photo** — at the top of the form, __Take a selfie__ opens the device camera (tablet, phone, "
+                   "webcam): frame the shot and click __Take the photo__. __Upload an image__ picks an existing "
+                   "file. The image is cropped square and compressed automatically; it is saved with the record and "
+                   "can be replaced any time with __Retake selfie__."},
             {"fr": "Cliquez __Nouvel élève__ (ou __Modifier__ sur une fiche ouverte). Le formulaire occupe toute "
                    "la page et se referme par la flèche en haut à gauche.",
              "en": "Click __New student__ (or __Edit__ on an open record). The form takes the whole page and closes "
@@ -513,6 +521,17 @@ CH_PERSONNEL = {
                      "en": "Employee record: contact, login account and compensation."}},
 
         {"type": "h", "fr": "5.2 Créer un employé", "en": "5.2 Create an employee"},
+        {"type": "note", "tone": "info", "fr":
+            "Les photos sont stockées **dans la base**, pas dans un dossier : elles suivent donc vos sauvegardes. "
+            "Comptez quelques dizaines de kilo-octets par personne. Le selfie exige une connexion **https** et "
+            "l'autorisation de la caméra ; à défaut, l'import de fichier reste disponible. Poser ou retirer une "
+            "photo d'élève demande le droit __Élèves : Complet__ — un enseignant voit la photo de ses élèves mais "
+            "ne la modifie pas.",
+         "en":
+            "Photos are stored **in the database**, not in a folder: they follow your backups. Expect a few tens of "
+            "kilobytes per person. The selfie needs an **https** connection and camera permission; otherwise the "
+            "file upload stays available. Setting or removing a student photo requires __Students: Write__ — a "
+            "teacher sees their students' photos but cannot change them."},
         {"type": "note", "tone": "warn", "fr":
             "**Changer la section d'un enseignant le détache des classes de son ancien cycle.** C'est voulu : "
             "une mutation du primaire vers le secondaire ne doit pas laisser traîner d'anciennes affectations. "
@@ -522,6 +541,10 @@ CH_PERSONNEL = {
             "deliberate: a move from primary to secondary must not leave stale assignments behind. Assign them to "
             "their new classes afterwards."},
         {"type": "steps", "items": [
+            {"fr": "**Photo** — même dispositif que pour un élève : __Prendre un selfie__ avec la caméra de "
+                   "l'appareil, ou __Importer une image__. Elle s'affiche ensuite sur la fiche de l'employé.",
+             "en": "**Photo** — same as for a student: __Take a selfie__ with the device camera, or __Upload an "
+                   "image__. It then appears on the employee record."},
             {"fr": "__Nouvel employé__ ouvre le formulaire pleine page. **Identité & contact** : nom (obligatoire), "
                    "sexe, e-mail, téléphone.",
              "en": "__New employee__ opens the full-page form. **Identity & contact**: name (mandatory), sex, "

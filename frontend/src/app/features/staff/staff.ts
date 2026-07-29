@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, signal, computed, effect } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
@@ -15,8 +15,9 @@ import { downloadCsv, stampedName } from '../../core/csv';
 import {
   IconComponent, CardComponent, KpiComponent, PageHeaderComponent, EmptyComponent,
   AvatarComponent, TabsComponent, ChipFilterComponent,
-  DataTableComponent, CellTemplateDirective, Column,
+  DataTableComponent, CellTemplateDirective, Column, PhotoCaptureComponent,
 } from '../../core/ui';
+import { PhotoApi } from '../../core/photo.api';
 
 const fmtMoney = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} FCFA`;
 const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? Math.round(n / 1e3) + 'k' : '' + n);
@@ -28,7 +29,7 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
   imports: [
     FormsModule, DatePipe, IconComponent, CardComponent, KpiComponent, PageHeaderComponent,
     EmptyComponent, AvatarComponent, TabsComponent, ChipFilterComponent,
-    DataTableComponent, CellTemplateDirective,
+    DataTableComponent, CellTemplateDirective, PhotoCaptureComponent,
   ],
   template: `
     <div class="fade-in max-w-7xl mx-auto">
@@ -140,7 +141,7 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                 <div class="p-6 bg-gradient-to-br from-brand-700 to-brand-800 text-white relative overflow-hidden">
                   <div class="absolute -top-12 -right-8 w-40 h-40 rounded-full bg-gold-400/15 blur-2xl"></div>
                   <div class="flex items-start gap-4 relative">
-                    <bbc-avatar [name]="e.name" [hue]="hue(e.id)" [size]="64" />
+                    <bbc-avatar [name]="e.name" [hue]="hue(e.id)" [size]="64" [photoUrl]="selectedPhoto()" />
                     <div class="flex-1 min-w-0">
                       <div class="text-[10px] uppercase tracking-wider text-gold-200 font-semibold font-mono">{{ e.code }}</div>
                       <div class="text-xl font-bold leading-tight font-display">{{ e.name }}</div>
@@ -803,6 +804,12 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
 
           <div class="space-y-8 max-w-3xl">
             <section>
+              <div class="text-[11px] uppercase tracking-wider text-mute font-bold mb-3">{{ fr() ? 'Photo' : 'Photo' }}</div>
+              <bbc-photo-capture [(photo)]="photoDraft"
+                [label]="fr() ? 'Photo de l’employé' : 'Employee photo'" />
+            </section>
+
+            <section>
               <div class="text-[11px] uppercase tracking-wider text-mute font-bold mb-3">{{ fr() ? 'Identité & contact' : 'Identity & contact' }}</div>
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <label class="block">
@@ -970,6 +977,7 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
 })
 export class StaffComponent {
   protected i18n = inject(I18nService);
+  private photoApi = inject(PhotoApi);
   private api = inject(StaffApi);
   private hrApi = inject(HrApi);
   private settingsApi = inject(SettingsApi);
@@ -1011,6 +1019,11 @@ export class StaffComponent {
   protected canWrite = this.auth.can('hr', 'write');
   protected draft: EmployeeUpsert = this.blank();
   protected draftRoles = signal<string[]>([]);
+  /** Photo saisie au formulaire (data URL), envoyée après l'enregistrement. */
+  protected photoDraft = signal<string | null>(null);
+  private photoWasSet = false;
+  /** Photo de l'employé sélectionné, chargée en blob (l'API exige le jeton). */
+  protected selectedPhoto = signal<string | null>(null);
   /** Les rôles cloisonnés par section : eux seuls portent un cycle de rattachement. */
   protected teachingRole = computed(() =>
     this.draftRoles().some((r) => r === 'teacher' || r === 'form_teacher'));
@@ -1085,6 +1098,16 @@ export class StaffComponent {
     const id = this.selectedId();
     return this.rows().find((e) => e.id === id) ?? this.filtered()[0] ?? null;
   });
+
+  /** Charge (et libère) la photo de la fiche ouverte. */
+  private readonly photoLoader = effect(() => {
+    const emp = this.selected();
+    const previous = this.selectedPhoto();
+    if (previous?.startsWith('blob:')) URL.revokeObjectURL(previous);
+    this.selectedPhoto.set(null);
+    if (!emp) return;
+    this.photoApi.load('staff', emp.id).subscribe((url) => this.selectedPhoto.set(url));
+  }, { allowSignalWrites: true });
 
   protected teacherCount = computed(() => this.rows().filter((e) => e.roles.includes('teacher') || e.roles.includes('form_teacher')).length);
   protected permCount = computed(() => this.rows().filter((e) => e.type === 'Permanent').length);
@@ -1354,7 +1377,23 @@ export class StaffComponent {
     this.draftRoles.set(['teacher']);
     this.createLogin.set(true);
     this.editId.set(null);
+    this.photoDraft.set(null);
+    this.photoWasSet = false;
     this.mode.set('edit');
+  }
+
+  /**
+   * Envoie la photo après l'enregistrement de la fiche (une création n'a pas
+   * encore d'identifiant). Une URL blob: est la photo déjà stockée, rechargée à
+   * l'ouverture : il n'y a rien à renvoyer.
+   */
+  private savePhoto(employeeId: string): void {
+    const photo = this.photoDraft();
+    if (photo && photo.startsWith('data:')) {
+      this.photoApi.save('staff', employeeId, photo).subscribe({ error: () => {} });
+    } else if (!photo && this.photoWasSet) {
+      this.photoApi.remove('staff', employeeId).subscribe({ error: () => {} });
+    }
   }
 
   protected resetCredentials(e: EmployeeView): void {
@@ -1378,6 +1417,11 @@ export class StaffComponent {
   }
 
   protected openEdit(e: EmployeeView): void {
+    this.photoDraft.set(null);
+    this.photoWasSet = false;
+    this.photoApi.load('staff', e.id).subscribe((url) => {
+      if (url) { this.photoDraft.set(url); this.photoWasSet = true; }
+    });
     this.draft = {
       name: e.name,
       sex: e.sex,
@@ -1402,6 +1446,8 @@ export class StaffComponent {
 
   protected closeEditor(): void {
     this.mode.set('list');
+    this.photoDraft.set(null);
+    this.photoWasSet = false;
   }
 
   save(): void {
@@ -1432,6 +1478,7 @@ export class StaffComponent {
         this.mode.set('list');
         this.selectedId.set(res?.id ?? id);
         this.accountMsg.set(null);
+        if (res?.id) this.savePhoto(res.id);
         if (wantsLogin && res?.id) {
           this.api.resetCredentials(res.id).subscribe({
             next: (r: AccountResult) => { this.accountMsg.set({ text: r.message, ok: r.emailSent }); this.reload(); },

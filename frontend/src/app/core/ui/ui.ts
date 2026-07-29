@@ -197,15 +197,22 @@ export class EmptyComponent {
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="rounded-full font-semibold flex items-center justify-center shrink-0 text-white"
-      [style.width.px]="size()" [style.height.px]="size()" [style.font-size.px]="size() * 0.36"
-      [style.background]="bg()">{{ initials() }}</div>
+    @if (photoUrl()) {
+      <img [src]="photoUrl()" alt="" class="rounded-full object-cover shrink-0 bg-slate-100"
+        [style.width.px]="size()" [style.height.px]="size()" />
+    } @else {
+      <div class="rounded-full font-semibold flex items-center justify-center shrink-0 text-white"
+        [style.width.px]="size()" [style.height.px]="size()" [style.font-size.px]="size() * 0.36"
+        [style.background]="bg()">{{ initials() }}</div>
+    }
   `,
 })
 export class AvatarComponent {
   name = input('');
   hue = input(210);
   size = input(36);
+  /** URL d'objet d'une photo de profil ; à défaut, les initiales colorées. */
+  photoUrl = input<string | null>(null);
   protected initials = () => this.name().split(' ').slice(0, 2).map((s) => s[0]).join('').toUpperCase();
   protected bg = () => `linear-gradient(135deg, hsl(${this.hue()} 50% 45%), hsl(${(this.hue() + 30) % 360} 55% 35%))`;
 }
