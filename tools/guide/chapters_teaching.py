@@ -374,8 +374,8 @@ CH_EMPLOI = {
     "id": "emploi-du-temps",
     "num": "10",
     "title": {"fr": "Emploi du temps", "en": "Timetable"},
-    "subtitle": {"fr": "Grille hebdomadaire par classe, avec détection des conflits d'enseignant.",
-                 "en": "Weekly grid per class, with teacher clash detection."},
+    "subtitle": {"fr": "Grille hebdomadaire par classe ; un enseignant ne peut pas être dans deux salles à la même heure.",
+                 "en": "Weekly grid per class; a teacher cannot be in two rooms at the same time."},
     "who": {"fr": "Direction, censeur ; lecture pour les enseignants.",
             "en": "Management, dean of studies; read-only for teachers."},
     "blocks": [
@@ -404,18 +404,33 @@ CH_EMPLOI = {
              "en": "__Save__. On an existing slot, __Delete__ frees it."},
         ]},
         {"type": "note", "tone": "warn", "fr":
-            "Si l'enseignant choisi est déjà programmé ailleurs au même moment, un bandeau orange **Conflits "
-            "d'enseignant détectés** liste les créneaux fautifs (classe, jour, heure) et les cases concernées sont "
-            "marquées d'un triangle. Le créneau est tout de même enregistré : c'est un avertissement, pas un blocage.",
+            "**Un enseignant ne peut pas être dans deux salles à la même heure.** Si le professeur choisi assure "
+            "déjà un cours sur ce créneau dans une autre classe, l'enregistrement est **refusé** : l'éditeur reste "
+            "ouvert et affiche la classe, la matière et la salle qui l'occupent déjà. Corrigez l'enseignant ou "
+            "l'heure — ou, si les deux classes sont réellement regroupées, cliquez __Forcer l'enregistrement__.",
          "en":
-            "If the chosen teacher is already booked elsewhere at the same time, an amber **Teacher clashes "
-            "detected** banner lists the offending slots (class, day, time) and the cells are flagged with a "
-            "triangle. The slot is still saved: this is a warning, not a hard block."},
+            "**A teacher cannot be in two rooms at the same time.** If the chosen teacher already has a class in "
+            "that slot, the save is **refused**: the editor stays open and names the class, subject and room that "
+            "already hold them. Change the teacher or the hour — or, if the two classes are genuinely merged, "
+            "click __Force the save__."},
+        {"type": "p", "fr":
+            "Les chevauchements **déjà présents** dans la grille (import, saisie antérieure, enregistrement forcé) "
+            "sont recalculés à chaque ouverture du module : un bandeau rouge en haut de page les liste tous — "
+            "jour, heure, enseignant, puis les cours qui se chevauchent avec leur salle — et les cases concernées "
+            "de la classe affichée sont cerclées de rouge avec un triangle d'alerte. Le bandeau disparaît de "
+            "lui-même dès que le dernier chevauchement est résolu.",
+         "en":
+            "Clashes **already present** in the grid (import, earlier entry, forced save) are recomputed every time "
+            "the module opens: a red banner at the top lists them all — day, hour, teacher, then the overlapping "
+            "lessons with their rooms — and the affected cells of the displayed class are ringed in red with a "
+            "warning triangle. The banner clears itself as soon as the last clash is resolved."},
         {"type": "check", "items": [
             {"fr": "Créer un créneau avec matière, enseignant et salle.",
              "en": "Create a slot with subject, teacher and room."},
-            {"fr": "Provoquer volontairement un conflit d'enseignant et lire l'avertissement.",
-             "en": "Deliberately create a teacher clash and read the warning."},
+            {"fr": "Tenter de placer un enseignant déjà occupé sur ce créneau et lire le refus.",
+             "en": "Try to book a teacher who is already busy in that slot and read the refusal."},
+            {"fr": "Forcer un regroupement de classes, puis retrouver le chevauchement dans le bandeau rouge.",
+             "en": "Force a merged-class slot, then find the clash listed in the red banner."},
             {"fr": "Supprimer un créneau puis vérifier la case libérée.",
              "en": "Delete a slot then check the cell is free."},
         ]},

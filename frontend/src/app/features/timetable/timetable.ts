@@ -1,6 +1,7 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { TimetableApi, ClassRef, SlotView, Conflict } from './timetable.api';
+import { HttpErrorResponse } from '@angular/common/http';
+import { TimetableApi, ClassRef, SlotView, TeacherConflict } from './timetable.api';
 import { SetupApi, SubjectView, TeacherOption } from '../../core/setup.api';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
@@ -73,8 +74,8 @@ const KNOWN_COLORS: Record<string, string> = {
           </div>
           <div class="flex-1 text-sm text-cyan-800">
             {{ fr()
-              ? 'Vous pouvez créer et modifier l’emploi du temps de toutes les classes. Le système vous alerte si un enseignant est programmé dans deux salles à la même heure.'
-              : 'You can create and edit every class timetable. The system alerts you if a teacher is booked in two rooms at the same time.' }}
+              ? 'Vous pouvez créer et modifier l’emploi du temps de toutes les classes. Le système refuse de placer un enseignant dans deux salles à la même heure, et signale en rouge les chevauchements existants.'
+              : 'You can create and edit every class timetable. The system refuses to book a teacher into two rooms at the same time, and flags existing clashes in red.' }}
           </div>
         </div>
       }
@@ -103,20 +104,28 @@ const KNOWN_COLORS: Record<string, string> = {
         </div>
       </bbc-card>
 
-      <!-- Conflict banner -->
+      <!-- Conflict banner — every teacher booked in two classes at the same hour -->
       @if (conflicts().length > 0) {
         <div class="bg-rose-50 border border-rose-200 rounded-xl2 p-4 mb-5 fade-in">
           <div class="flex items-center gap-2 text-rose-700 font-semibold text-sm mb-2">
             <bbc-icon name="alertTri" [s]="18" />
-            {{ fr() ? 'Conflits d’enseignant détectés' : 'Teacher clashes detected' }}
+            {{ conflicts().length }}
+            {{ fr()
+              ? (conflicts().length > 1 ? 'chevauchements d’enseignant' : 'chevauchement d’enseignant')
+              : (conflicts().length > 1 ? 'teacher clashes' : 'teacher clash') }}
+            <span class="font-normal text-rose-600">
+              {{ fr() ? '— un même professeur est dans deux salles à la même heure.'
+                      : '— the same teacher is in two rooms at the same time.' }}
+            </span>
           </div>
           <div class="space-y-1.5">
             @for (cf of conflicts(); track $index) {
               <div class="flex items-start gap-2 text-sm text-rose-700">
                 <bbc-icon name="alertTri" [s]="14" />
                 <span>
-                  {{ cf.className }} — {{ dayName(cf.dayIdx) }} · {{ slotTime(cf.slotIdx) }}
-                  ({{ fr() ? 'enseignant' : 'teacher' }} {{ teacherLabel(cf.teacherId) }})
+                  <span class="font-semibold">{{ dayName(cf.dayIdx) }} · {{ slotTime(cf.slotIdx) }}</span>
+                  — {{ cf.teacherName || teacherLabel(cf.teacherId) }} :
+                  {{ conflictWhere(cf) }}
                 </span>
               </div>
             }
@@ -251,6 +260,28 @@ const KNOWN_COLORS: Record<string, string> = {
                   </div>
                 </div>
 
+                <!-- Save refused: the teacher already has a class at this hour -->
+                @if (overlapWarn(); as warn) {
+                  <div class="rounded-lg border border-rose-200 bg-rose-50 p-3 space-y-2">
+                    <div class="flex items-start gap-2 text-sm text-rose-700">
+                      <bbc-icon name="alertTri" [s]="16" />
+                      <span>{{ warn.message }}</span>
+                    </div>
+                    @if (warn.canForce) {
+                      <div class="text-xs text-rose-600">
+                        {{ fr()
+                          ? 'Changez d’enseignant ou d’heure. Si les deux classes sont réellement regroupées, forcez l’enregistrement : le chevauchement restera signalé en rouge.'
+                          : 'Change the teacher or the hour. If the two classes are genuinely merged, force the save: the clash stays flagged in red.' }}
+                      </div>
+                      <button (click)="save(true)"
+                        class="inline-flex items-center gap-2 h-9 px-3.5 text-xs font-semibold rounded-lg bg-white border border-rose-300 text-rose-700 hover:bg-rose-100">
+                        <bbc-icon name="alertTri" [s]="14" />
+                        {{ fr() ? 'Forcer l’enregistrement' : 'Force the save' }}
+                      </button>
+                    }
+                  </div>
+                }
+
                 <div class="flex items-center gap-2">
                   @if (d.existing) {
                     <button (click)="remove()"
@@ -263,7 +294,7 @@ const KNOWN_COLORS: Record<string, string> = {
                     class="inline-flex items-center gap-2 h-10 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
                     {{ i18n.t('cancel') }}
                   </button>
-                  <button (click)="save()"
+                  <button (click)="save(false)"
                     class="inline-flex items-center gap-2 h-10 px-3.5 text-sm font-semibold rounded-lg bg-brand-600 text-white hover:bg-brand-700">
                     <bbc-icon name="check" [s]="16" [sw]="2.5" /> {{ i18n.t('save') }}
                   </button>
@@ -298,7 +329,12 @@ export class TimetableComponent {
   protected slots = signal<SlotView[]>([]);
   protected selectedClass = signal<string>('');
   protected draft = signal<SlotDraft | null>(null);
-  protected conflicts = signal<Conflict[]>([]);
+  protected conflicts = signal<TeacherConflict[]>([]);
+  /**
+   * Refus renvoyé par le serveur à l'enregistrement. `canForce` n'est vrai que pour
+   * un chevauchement d'enseignant (409) — le seul cas qu'on peut passer outre.
+   */
+  protected overlapWarn = signal<{ message: string; canForce: boolean } | null>(null);
 
   protected canWrite = this.auth.can('timetable', 'write');
 
@@ -331,6 +367,27 @@ export class TimetableComponent {
     this.api.rooms().subscribe((r) => this.knownRooms.set(r));
     this.setupApi.listSubjects().subscribe((s) => this.subjects.set(s));
     this.setupApi.assignableTeachers().subscribe((t) => this.teachers.set(t));
+    this.loadConflicts();
+  }
+
+  /**
+   * Les chevauchements sont recalculés côté serveur sur toute la grille : ils
+   * restent visibles à l'ouverture du module, même s'ils datent d'une autre session.
+   */
+  private loadConflicts(): void {
+    this.api.conflicts().subscribe({ next: (c) => this.conflicts.set(c), error: () => this.conflicts.set([]) });
+  }
+
+  /** « 4ème (SVT, salle S2) ↔ 3ème (PC, salle Lab) » — les cours qui se chevauchent. */
+  protected conflictWhere(cf: TeacherConflict): string {
+    return cf.slots
+      .map((s) => {
+        const detail = [s.subjectCode, s.room ? (this.fr() ? 'salle ' : 'room ') + s.room : '']
+          .filter(Boolean).join(', ');
+        const name = s.className ?? (this.fr() ? 'classe supprimée' : 'deleted class');
+        return detail ? `${name} (${detail})` : name;
+      })
+      .join(' ↔ ');
   }
 
   protected dayName(idx: number): string {
@@ -376,17 +433,18 @@ export class TimetableComponent {
     return SUBJECT_COLORS[h % SUBJECT_COLORS.length];
   }
 
+  /** Vrai quand la case affichée fait partie d'un chevauchement (la classe y est impliquée). */
   protected isConflict(dayIdx: number, slotIdx: number): boolean {
     const name = this.selectedClass();
     return this.conflicts().some(
-      (c) => c.className === name && c.dayIdx === dayIdx && c.slotIdx === slotIdx,
+      (c) => c.dayIdx === dayIdx && c.slotIdx === slotIdx && c.slots.some((s) => s.className === name),
     );
   }
 
   protected onClassChange(name: string): void {
     this.selectedClass.set(name);
     this.draft.set(null);
-    this.conflicts.set([]);
+    this.overlapWarn.set(null);
     this.slots.set([]);
     if (name) this.reload();
   }
@@ -410,6 +468,7 @@ export class TimetableComponent {
 
   protected onCellClick(dayIdx: number, slotIdx: number): void {
     if (!this.canWrite) return;
+    this.overlapWarn.set(null);
     const existing = this.slotAt(dayIdx, slotIdx);
     this.draft.set({
       dayIdx,
@@ -421,10 +480,16 @@ export class TimetableComponent {
     });
   }
 
-  protected save(): void {
+  /**
+   * Enregistre le créneau. Le serveur refuse (409) de placer un enseignant déjà
+   * occupé ailleurs à cette heure ; `allowOverlap` force le cas légitime des
+   * classes regroupées, et le chevauchement reste signalé dans la grille.
+   */
+  protected save(allowOverlap: boolean): void {
     const d = this.draft();
     const name = this.selectedClass();
     if (!d || !name) return;
+    this.overlapWarn.set(null);
     this.api
       .saveSlot({
         className: name,
@@ -433,12 +498,29 @@ export class TimetableComponent {
         subjectCode: d.subjectCode || undefined,
         room: d.room || undefined,
         teacherId: d.teacherId || undefined,
+        allowOverlap,
       })
-      .subscribe((res) => {
-        this.conflicts.set(res.conflicts);
-        this.draft.set(null);
-        this.reload();
+      .subscribe({
+        next: () => {
+          this.draft.set(null);
+          this.reload();
+          this.loadConflicts();
+        },
+        error: (e: HttpErrorResponse) => {
+          // Le brouillon reste ouvert : l'utilisateur corrige l'enseignant, l'heure — ou force.
+          const clash = e.status === 409;
+          const fallback = clash
+            ? (this.fr() ? 'Cet enseignant est déjà en cours sur ce créneau.'
+                         : 'This teacher already has a class at this hour.')
+            : (this.fr() ? 'Enregistrement impossible.' : 'Save failed.');
+          this.overlapWarn.set({ message: this.serverMessage(e) ?? fallback, canForce: clash });
+        },
       });
+  }
+
+  private serverMessage(e: HttpErrorResponse): string | null {
+    const msg = e.error?.message;
+    return typeof msg === 'string' && msg ? msg : null;
   }
 
   protected remove(): void {
@@ -447,11 +529,14 @@ export class TimetableComponent {
     if (!d || !name) return;
     this.api.deleteSlot(name, d.dayIdx, d.slotIdx).subscribe(() => {
       this.draft.set(null);
+      this.overlapWarn.set(null);
       this.reload();
+      this.loadConflicts();
     });
   }
 
   protected cancel(): void {
     this.draft.set(null);
+    this.overlapWarn.set(null);
   }
 }

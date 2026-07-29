@@ -2,23 +2,33 @@ package com.bbc.sms.timetable;
 
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.tenant.TenantContext;
+import com.bbc.sms.staff.Employee;
+import com.bbc.sms.staff.EmployeeRepository;
 import com.bbc.sms.timetable.dto.TimetableDtos.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Service
 public class TimetableService {
 
     private final SchoolClassRepository classRepo;
     private final TimetableSlotRepository slotRepo;
+    private final EmployeeRepository employees;
 
-    public TimetableService(SchoolClassRepository classRepo, TimetableSlotRepository slotRepo) {
+    public TimetableService(SchoolClassRepository classRepo, TimetableSlotRepository slotRepo,
+                            EmployeeRepository employees) {
         this.classRepo = classRepo;
         this.slotRepo = slotRepo;
+        this.employees = employees;
     }
 
     @Transactional(readOnly = true)
@@ -43,25 +53,29 @@ public class TimetableService {
         return slotRepo.findDistinctRooms(TenantContext.get());
     }
 
+    /**
+     * Tous les chevauchements d'enseignant de l'établissement : un même professeur
+     * placé dans plusieurs classes — donc plusieurs salles — au même jour/heure.
+     *
+     * <p>Recalculé à la demande plutôt que stocké : la grille tient en quelques
+     * centaines de créneaux, et le résultat ne peut pas se désynchroniser.
+     */
+    @Transactional(readOnly = true)
+    public List<TeacherConflict> conflicts() {
+        UUID schoolId = TenantContext.get();
+        return buildConflicts(schoolId, slotRepo.findBySchoolIdAndTeacherIdIsNotNull(schoolId));
+    }
+
     @Transactional
     public SlotSaveResult upsertSlot(SlotUpsert in) {
         UUID schoolId = TenantContext.get();
         SchoolClass cls = findClass(schoolId, in.className());
 
-        // Conflict detection: a teacher booked elsewhere at the same day/slot.
-        List<Conflict> conflicts = new ArrayList<>();
-        if (in.teacherId() != null) {
-            List<TimetableSlot> clashing = slotRepo.findBySchoolIdAndDayIdxAndSlotIdxAndTeacherId(
-                    schoolId, in.dayIdx(), in.slotIdx(), in.teacherId());
-            for (TimetableSlot other : clashing) {
-                if (other.getClassId().equals(cls.getId())) {
-                    continue; // same class — this is the slot being edited, not a conflict
-                }
-                String otherName = classRepo.findById(other.getClassId())
-                        .map(SchoolClass::getName)
-                        .orElse(null);
-                conflicts.add(new Conflict(otherName, other.getDayIdx(), other.getSlotIdx(), in.teacherId()));
-            }
+        // Un enseignant ne peut pas être placé dans deux classes à la même heure :
+        // l'enregistrement est refusé, sauf demande explicite (classes regroupées).
+        List<TimetableSlot> clashing = clashingSlots(schoolId, cls.getId(), in.dayIdx(), in.slotIdx(), in.teacherId());
+        if (!clashing.isEmpty() && !in.allowOverlap()) {
+            throw ApiException.conflict(overlapMessage(schoolId, in.teacherId(), clashing));
         }
 
         // Upsert: reuse the existing slot for this cell, else create a new one.
@@ -80,8 +94,72 @@ public class TimetableService {
         slot.setRoom(in.room());
 
         SlotView saved = toView(slotRepo.save(slot));
-        // Slot is saved regardless; conflicts are returned as warnings, not rejections.
+        // Chevauchement forcé : on le renvoie pour qu'il reste affiché dans la grille.
+        List<TeacherConflict> conflicts = clashing.isEmpty()
+                ? List.of()
+                : buildConflicts(schoolId, slotRepo.findBySchoolIdAndDayIdxAndSlotIdxAndTeacherId(
+                        schoolId, in.dayIdx(), in.slotIdx(), in.teacherId()));
         return new SlotSaveResult(saved, conflicts);
+    }
+
+    /** Créneaux d'AUTRES classes occupant déjà cet enseignant à ce jour/heure. */
+    private List<TimetableSlot> clashingSlots(UUID schoolId, UUID classId, int dayIdx, int slotIdx, UUID teacherId) {
+        if (teacherId == null) return List.of();
+        return slotRepo.findBySchoolIdAndDayIdxAndSlotIdxAndTeacherId(schoolId, dayIdx, slotIdx, teacherId).stream()
+                .filter(s -> !s.getClassId().equals(classId))   // même classe = le créneau édité
+                .toList();
+    }
+
+    /** Message d'erreur nommant l'enseignant et les cours qu'il assure déjà sur ce créneau. */
+    private String overlapMessage(UUID schoolId, UUID teacherId, List<TimetableSlot> clashing) {
+        Map<UUID, String> classNames = classNames(schoolId);
+        String teacher = employees.findByIdAndSchoolId(teacherId, schoolId)
+                .map(Employee::getName)
+                .orElse("Cet enseignant");
+        String where = clashing.stream().map(s -> {
+            String cls = classNames.getOrDefault(s.getClassId(), "une autre classe");
+            String detail = Stream.of(s.getSubjectCode(), s.getRoom() == null ? null : "salle " + s.getRoom())
+                    .filter(x -> x != null && !x.isBlank())
+                    .collect(Collectors.joining(", "));
+            return detail.isEmpty() ? cls : cls + " (" + detail + ")";
+        }).collect(Collectors.joining(" ; "));
+        return teacher + " est déjà en cours sur ce créneau : " + where
+                + ". Un enseignant ne peut pas être dans deux salles à la même heure.";
+    }
+
+    /** Regroupe des créneaux par (jour, heure, enseignant) et ne garde que les groupes à plusieurs classes. */
+    private List<TeacherConflict> buildConflicts(UUID schoolId, List<TimetableSlot> slots) {
+        Map<String, List<TimetableSlot>> groups = new LinkedHashMap<>();
+        for (TimetableSlot s : slots) {
+            if (s.getTeacherId() == null) continue;
+            groups.computeIfAbsent(s.getDayIdx() + "|" + s.getSlotIdx() + "|" + s.getTeacherId(),
+                    k -> new ArrayList<>()).add(s);
+        }
+        List<TeacherConflict> out = new ArrayList<>();
+        if (groups.isEmpty()) return out;
+
+        Map<UUID, String> classNames = classNames(schoolId);
+        Map<UUID, String> teacherNames = employees.findBySchoolId(schoolId).stream()
+                .collect(Collectors.toMap(Employee::getId, Employee::getName, (a, b) -> a));
+
+        for (List<TimetableSlot> group : groups.values()) {
+            if (group.stream().map(TimetableSlot::getClassId).distinct().count() < 2) continue;
+            TimetableSlot first = group.get(0);
+            List<ConflictSlot> involved = group.stream()
+                    .map(s -> new ConflictSlot(s.getClassId(), classNames.get(s.getClassId()),
+                            s.getSubjectCode(), s.getRoom()))
+                    .sorted(Comparator.comparing(c -> c.className() == null ? "" : c.className()))
+                    .toList();
+            out.add(new TeacherConflict(first.getDayIdx(), first.getSlotIdx(), first.getTeacherId(),
+                    teacherNames.get(first.getTeacherId()), involved));
+        }
+        out.sort(Comparator.comparingInt(TeacherConflict::dayIdx).thenComparingInt(TeacherConflict::slotIdx));
+        return out;
+    }
+
+    private Map<UUID, String> classNames(UUID schoolId) {
+        return classRepo.findBySchoolIdOrderByName(schoolId).stream()
+                .collect(Collectors.toMap(SchoolClass::getId, SchoolClass::getName, (a, b) -> a));
     }
 
     @Transactional

@@ -20,16 +20,26 @@ export interface SlotView {
   room: string | null;
 }
 
-export interface Conflict {
-  className: string;
+/** Un cours impliqué dans un chevauchement. */
+export interface ConflictSlot {
+  classId: string;
+  className: string | null;
+  subjectCode: string | null;
+  room: string | null;
+}
+
+/** Un enseignant placé dans plusieurs classes — donc plusieurs salles — au même créneau. */
+export interface TeacherConflict {
   dayIdx: number;
   slotIdx: number;
   teacherId: string;
+  teacherName: string | null;
+  slots: ConflictSlot[];
 }
 
 export interface SlotSaveResult {
   slot: SlotView;
-  conflicts: Conflict[];
+  conflicts: TeacherConflict[];
 }
 
 export interface SlotSaveBody {
@@ -39,6 +49,8 @@ export interface SlotSaveBody {
   subjectCode?: string;
   teacherId?: string;
   room?: string;
+  /** Enregistrer malgré un chevauchement d'enseignant (classes regroupées). */
+  allowOverlap?: boolean;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -56,6 +68,11 @@ export class TimetableApi {
 
   grid(className: string): Observable<SlotView[]> {
     return this.http.get<SlotView[]>(`${this.base}?className=${encodeURIComponent(className)}`);
+  }
+
+  /** Tous les chevauchements d'enseignant de l'établissement. */
+  conflicts(): Observable<TeacherConflict[]> {
+    return this.http.get<TeacherConflict[]>(`${this.base}/conflicts`);
   }
 
   saveSlot(body: SlotSaveBody): Observable<SlotSaveResult> {

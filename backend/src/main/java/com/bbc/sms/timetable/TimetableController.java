@@ -35,6 +35,13 @@ public class TimetableController {
         return service.grid(className);
     }
 
+    /** Chevauchements d'enseignant sur toute la grille : un professeur, deux classes, la même heure. */
+    @GetMapping("/conflicts")
+    @PreAuthorize("@perm.can('timetable','read')")
+    public List<TeacherConflict> conflicts() {
+        return service.conflicts();
+    }
+
     @PutMapping("/slot")
     @PreAuthorize("@perm.can('timetable','write')")
     public SlotSaveResult upsertSlot(@Valid @RequestBody SlotUpsert in) {

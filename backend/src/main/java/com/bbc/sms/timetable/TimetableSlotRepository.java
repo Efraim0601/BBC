@@ -12,6 +12,8 @@ public interface TimetableSlotRepository extends JpaRepository<TimetableSlot, UU
     List<TimetableSlot> findBySchoolIdAndClassId(UUID schoolId, UUID classId);
     Optional<TimetableSlot> findBySchoolIdAndClassIdAndDayIdxAndSlotIdx(UUID schoolId, UUID classId, int dayIdx, int slotIdx);
     List<TimetableSlot> findBySchoolIdAndDayIdxAndSlotIdxAndTeacherId(UUID schoolId, int dayIdx, int slotIdx, UUID teacherId);
+    /** Tous les créneaux affectés à un enseignant — base du calcul des chevauchements. */
+    List<TimetableSlot> findBySchoolIdAndTeacherIdIsNotNull(UUID schoolId);
 
     @Query("""
         select distinct s.room from TimetableSlot s
