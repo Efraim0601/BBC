@@ -360,7 +360,7 @@ Les listes déroulantes du module Discipline (chapitre 8) sont alimentées ici :
 - Le filtre **Classe** est groupé par série (toutes les « 4ème » ensemble) et affiche l'effectif de chaque sous-classe.
 - En mode « Tous les parcours », deux filtres supplémentaires apparaissent : **Système** (Francophone / Anglophone) et **Niveau**.
 - La liste est triée par classe puis par nom ; le compteur au-dessus du tableau indique le nombre de résultats.
-- **Exporter liste** produit un CSV des lignes affichées (matricule, nom, prénom, sexe, classe, sous-système, niveau, parent, téléphone).
+- **Exporter liste** produit un CSV des lignes affichées, avec **toutes les colonnes de la fiche élève** (matricule, nom, prénom, sexe, naissance, lieu, NIU, redouble, classe, sous-système, niveau, père, mère, tuteur). Ses en-têtes sont ceux du modèle d'import : un export corrigé dans un tableur se réimporte tel quel.
 
 ### 4.2 La fiche élève
 
@@ -411,7 +411,7 @@ L'import traite une classe à la fois et accepte le registre officiel tel quel :
    ![Écran d'import : classe cible en haut, zone de données au milieu.](frontend/public/guide/img/fr-35-eleves-import.webp)
    *Écran d'import : classe cible en haut, zone de données au milieu.*
 
-2. Alimentez la zone de données : bouton **Fichier Excel / CSV**, collage direct, ou **Exemple** pour voir le format attendu. **Modèle CSV** télécharge un gabarit vierge.
+2. Alimentez la zone de données : bouton **Fichier Excel / CSV**, collage direct, ou **Exemple** pour voir le format attendu. **Modèle CSV** télécharge un gabarit dont les colonnes sont **exactement les champs du formulaire de création** (identité puis père / mère / tuteur), avec une ligne d'exemple à remplacer.
 3. Vérifiez l'**aperçu** : chaque ligne reçoit une coche verte (importable) ou une croix rouge (nom manquant). Le compteur indique « valides / total ».
 
    ![Aperçu avant import — les lignes en rouge seront ignorées.](frontend/public/guide/img/fr-36-eleves-import-apercu.webp)
@@ -419,17 +419,22 @@ L'import traite une classe à la fois et accepte le registre officiel tel quel :
 
 4. Cliquez **Importer N élève(s)**. Le rapport final indique le nombre de créations et, ligne par ligne, le motif des lignes ignorées.
 
-*Colonnes reconnues (l'en-tête est détecté automatiquement ; l'ordre importe peu).*
+*Colonnes reconnues — les mêmes champs que la fiche élève (l'en-tête est détecté automatiquement ; l'ordre importe peu ; toute colonne absente reste vide).*
 
-| Colonne | Formats acceptés |
-|---|---|
-| NIU | Texte libre — identifiant unique national. |
-| Nom et Prénom | Nom complet dans une seule colonne, ou colonnes « Nom » et « Prénom » séparées. |
-| Sexe | M, F, Masculin, Féminin, Male, Female, garçon, fille. |
-| Date de naissance | `06 janvier 2011`, `2011-01-06` ou `06/01/2011`. |
-| Lieu de naissance | Texte libre. |
-| Redouble | OUI / NON, YES / NO, 1 / 0, VRAI / FAUX. |
-| Parent / Téléphone | Facultatifs — nom et numéro du responsable. |
+| Colonne du modèle | Champ de la fiche | Formats acceptés |
+|---|---|---|
+| `nom` | Identité → Nom | Obligatoire. Ou une seule colonne « Nom et Prénom » : le 1ᵉʳ mot devient le nom. |
+| `prenom` | Identité → Prénom | Obligatoire (sauf colonne « Nom et Prénom »). |
+| `sexe` | Identité → Sexe | M, F, Masculin, Féminin, Male, Female, garçon, fille. |
+| `date_naissance` | Identité → Date de naissance | `06 janvier 2011`, `2011-01-06` ou `06/01/2011`. |
+| `lieu_naissance` | Identité → Lieu de naissance | Texte libre. |
+| `niu` | Identité → NIU | Texte libre — identifiant unique national, facultatif. |
+| `redouble` | Identité → Redouble cette année | OUI / NON, YES / NO, 1 / 0, VRAI / FAUX. |
+| `pere_nom`, `pere_telephone`, `pere_email` | Famille / tuteur → Père | Texte libre. |
+| `mere_nom`, `mere_telephone`, `mere_email` | Famille / tuteur → Mère | Texte libre. |
+| `tuteur_nom`, `tuteur_lien`, `tuteur_telephone`, `tuteur_email` | Famille / tuteur → Tuteur | Texte libre — `tuteur_lien` = oncle, grand-mère… |
+
+> **À savoir** — La **classe** n'est pas une colonne : elle est choisie une fois pour tout le lot, en haut de l'écran d'import. Les en-têtes en anglais (`last name`, `first name`, `father phone`…) sont également reconnus, de même que les registres officiels intitulés « NIU / Nom et Prénom / Sexe / Date de naissance / Lieu de naissance / Redouble ».
 
 > **Astuce** — Si aucun en-tête n'est reconnu, le système suppose l'ordre du registre officiel : NIU, Nom et Prénom, Sexe, Date de naissance, Lieu de naissance, Redouble. Vérifiez toujours l'aperçu avant de valider.
 
@@ -758,7 +763,7 @@ Chaque incident enregistré affiche l'élève, sa classe, un badge coloré selon
 
 ## 10 Emploi du temps
 
-*Grille hebdomadaire par classe, avec détection des conflits d'enseignant.*
+*Grille hebdomadaire par classe ; un enseignant ne peut pas être dans deux salles à la même heure.*
 
 **Pour qui :** Direction, censeur ; lecture pour les enseignants.
 
@@ -777,12 +782,15 @@ La grille couvre **six jours** (lundi → samedi) et **neuf créneaux** horaires
 3. Renseignez la **matière** (liste filtrée sur le sous-système de la classe), l'**enseignant** et la **salle** — le champ salle propose les salles déjà utilisées.
 4. **Enregistrer**. Sur un créneau existant, **Supprimer** le libère.
 
-> **Attention** — Si l'enseignant choisi est déjà programmé ailleurs au même moment, un bandeau orange **Conflits d'enseignant détectés** liste les créneaux fautifs (classe, jour, heure) et les cases concernées sont marquées d'un triangle. Le créneau est tout de même enregistré : c'est un avertissement, pas un blocage.
+> **Attention** — **Un enseignant ne peut pas être dans deux salles à la même heure.** Si le professeur choisi assure déjà un cours sur ce créneau dans une autre classe, l'enregistrement est **refusé** : l'éditeur reste ouvert et affiche la classe, la matière et la salle qui l'occupent déjà. Corrigez l'enseignant ou l'heure — ou, si les deux classes sont réellement regroupées, cliquez **Forcer l'enregistrement**.
+
+Les chevauchements **déjà présents** dans la grille (import, saisie antérieure, enregistrement forcé) sont recalculés à chaque ouverture du module : un bandeau rouge en haut de page les liste tous — jour, heure, enseignant, puis les cours qui se chevauchent avec leur salle — et les cases concernées de la classe affichée sont cerclées de rouge avec un triangle d'alerte. Le bandeau disparaît de lui-même dès que le dernier chevauchement est résolu.
 
 **Fiche de test — je sais faire**
 
 - [ ] Créer un créneau avec matière, enseignant et salle.
-- [ ] Provoquer volontairement un conflit d'enseignant et lire l'avertissement.
+- [ ] Tenter de placer un enseignant déjà occupé sur ce créneau et lire le refus.
+- [ ] Forcer un regroupement de classes, puis retrouver le chevauchement dans le bandeau rouge.
 - [ ] Supprimer un créneau puis vérifier la case libérée.
 
 
@@ -800,15 +808,15 @@ Cinq onglets : **Encaissements**, **Débiteurs**, **Dépenses**, **Frais** et **
 
 ### 11.1 Configurer les moyens de paiement
 
-L'école encaisse par **espèces**, **Orange Money**, **MTN Mobile Money**, **carte bancaire (MPGS)** et **virement**. Chaque canal porte les coordonnées que les familles utiliseront pour payer : c'est cette configuration qui rend le paiement progressif possible depuis la maison.
+L'école encaisse par **espèces**, **Orange Money**, **MTN Mobile Money**, **SARA**, **carte bancaire (MPGS)** et **virement**. Chaque canal porte les coordonnées que les familles utiliseront pour payer : c'est cette configuration qui rend le paiement progressif possible depuis la maison.
 
-1. Ouvrez l'onglet **Moyens de paiement**. Les cinq canaux sont livrés préconfigurés ; trois interrupteurs les pilotent.
+1. Ouvrez l'onglet **Moyens de paiement**. Les six canaux sont livrés préconfigurés ; trois interrupteurs les pilotent.
 
    ![Chaque canal : actif, visible des parents, référence obligatoire, et ses coordonnées.](frontend/public/guide/img/fr-98-finance-moyens-paiement.webp)
    *Chaque canal : actif, visible des parents, référence obligatoire, et ses coordonnées.*
 
-2. **Actif** autorise l'encaissement par ce canal. **Visible des parents** le publie dans le portail parent avec ses coordonnées. **Référence obligatoire** impose la saisie de l'identifiant de transaction : laissez-la cochée pour OM, MoMo, MPGS et virement — c'est la preuve du versement.
-3. Cliquez **Coordonnées** pour saisir le **numéro à créditer** (Orange Money, MoMo), l'**identifiant marchand** (MPGS) ou le **RIB** (virement), l'intitulé du compte et les instructions affichées au parent, en français et en anglais.
+2. **Actif** autorise l'encaissement par ce canal. **Visible des parents** le publie dans le portail parent avec ses coordonnées. **Référence obligatoire** impose la saisie de l'identifiant de transaction : laissez-la cochée pour OM, MoMo, SARA, MPGS et virement — c'est la preuve du versement.
+3. Cliquez **Coordonnées** pour saisir le **numéro à créditer** (Orange Money, MoMo, SARA), l'**identifiant marchand** (MPGS) ou le **RIB** (virement), l'intitulé du compte et les instructions affichées au parent, en français et en anglais.
 
    ![Coordonnées et instructions : elles s'affichent telles quelles dans le portail parent.](frontend/public/guide/img/fr-99-finance-canal-coordonnees.webp)
    *Coordonnées et instructions : elles s'affichent telles quelles dans le portail parent.*
@@ -1147,7 +1155,7 @@ Un compte parent se connecte à la **même adresse** que le personnel, avec le m
    *Boîte à suggestions : rédaction à gauche, historique et statuts à droite.*
 
 
-> **À savoir** — Le parent **ne paie pas depuis l'application** : il règle par Orange Money, MTN MoMo, carte ou virement avec les coordonnées affichées, puis transmet la **référence de transaction** à l'économat, qui enregistre le versement. La situation se met à jour dès l'enregistrement.
+> **À savoir** — Le parent **ne paie pas depuis l'application** : il règle par Orange Money, MTN MoMo, SARA, carte ou virement avec les coordonnées affichées, puis transmet la **référence de transaction** à l'économat, qui enregistre le versement. La situation se met à jour dès l'enregistrement.
 
 > **À savoir** — Quand plusieurs enfants sont rattachés au même compte, une barre de sélection apparaît en haut : changer d'enfant recharge notes, listes et soldes.
 
@@ -1243,7 +1251,7 @@ Chaque étape dépend de la précédente. Suivre cet ordre évite les blocages c
 | PV | Procès-verbal : classement d'une classe par moyenne pour une séquence. |
 | APC | Approche par compétences — format de bulletin de la maternelle et du primaire. |
 | Tranche | Fraction du montant annuel des frais, avec son libellé et son échéance. |
-| Canal de paiement | Moyen accepté par l'école : espèces, Orange Money (OM), MTN Mobile Money (MOMO), carte bancaire (MPGS), virement. |
+| Canal de paiement | Moyen accepté par l'école : espèces, Orange Money (OM), MTN Mobile Money (MOMO), SARA, carte bancaire (MPGS), virement. |
 | Référence de transaction | Identifiant fourni par l'opérateur (ID Orange Money, ID MoMo, n° d'autorisation MPGS) : la preuve du versement. |
 | Matricule | Identifiant interne de l'élève, attribué par le système. |
 | NIU | Identifiant unique national, saisi depuis le registre officiel. |

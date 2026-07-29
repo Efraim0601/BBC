@@ -87,9 +87,18 @@ def eleve_row(i: int) -> dict:
         "dob": f"{random.randint(2008, 2014)}-{random.randint(1, 12):02d}-{random.randint(1, 28):02d}",
         "birthplace": random.choice(["MAROUA", "GAROUA", "YAOUNDÉ", "DOUALA", "KOUSSERI"]),
         "repeats": i % 9 == 0,
-        "parentName": f"{nom} {random.choice(PRENOMS_M)}",
-        "parentPhone": f"+237 6{random.randint(70, 99)} {random.randint(10, 99)} {random.randint(10, 99)} {random.randint(10, 99)}",
+        # Même découpage que la fiche élève : père / mère (le contact principal en
+        # est déduit côté serveur).
+        "fatherName": f"{nom} {random.choice(PRENOMS_M)}",
+        "fatherPhone": tel(),
+        "fatherEmail": f"{nom.lower()}.pere{i}@example.cm",
+        "motherName": f"{nom} {random.choice(PRENOMS_F)}",
+        "motherPhone": tel(),
     }
+
+
+def tel() -> str:
+    return f"+237 6{random.randint(70, 99)} {random.randint(10, 99)} {random.randint(10, 99)} {random.randint(10, 99)}"
 
 
 # --------------------------------------------------------------------------- steps
@@ -261,6 +270,11 @@ CHANNELS = [
                                 "puis transmettez l'ID de transaction à l'économat.",
               "instructionsEn": "Dial *126#, choose “Transfer” to the school number, then give the "
                                 "transaction ID to the bursary."}),
+    ("SARA", {"accountRef": "+237 690 12 34 56", "accountName": "Bayo Bilingual Complex",
+              "instructionsFr": "Depuis votre compte SARA, effectuez le transfert vers le numéro de l'école, "
+                                "puis transmettez l'ID de transaction à l'économat.",
+              "instructionsEn": "From your SARA account, transfer to the school number, then give the "
+                                "transaction ID to the bursary."}),
     ("MPGS", {"accountRef": "MERCHANT-BBC-4471", "accountName": "Afriland First Bank",
               "instructionsFr": "Paiement par carte au guichet de la banque partenaire ; "
                                 "présentez le numéro d'autorisation à l'économat.",
@@ -273,7 +287,7 @@ CHANNELS = [
 
 
 def seed_payment_channels(tok):
-    """Coordonnées Orange Money / MoMo / MPGS publiées aux familles."""
+    """Coordonnées Orange Money / MoMo / SARA / MPGS publiées aux familles."""
     print("· moyens de paiement")
     for code, body in CHANNELS:
         call("PUT", f"/finance/channels/{code}", body, quiet=True, token=tok)
@@ -306,7 +320,7 @@ def seed_finance():
     seed_payment_channels(tok)
     seed_class_fee_grid({c["name"]: c["id"] for c in (call("GET", "/setup/classes") or [])}, tok)
     students = call("GET", "/students") or []
-    methods = ["CASH", "OM", "MOMO", "MPGS"]
+    methods = ["CASH", "OM", "MOMO", "SARA", "MPGS"]
     if len(call("GET", "/finance/payments", token=tok) or []) < 5:
         for i, st in enumerate(students):
             if i % 5 == 4:            # 20 % d'élèves sans aucun versement (débiteurs)
@@ -318,6 +332,7 @@ def seed_finance():
                 reference = None if method == "CASH" else {
                     "OM": f"OM{random.randint(10**9, 10**10 - 1)}",
                     "MOMO": f"MP{random.randint(10**9, 10**10 - 1)}",
+                    "SARA": f"SR{random.randint(10**9, 10**10 - 1)}",
                     "MPGS": f"AUTH-{random.randint(100000, 999999)}",
                 }[method]
                 call("POST", "/finance/payments", {
