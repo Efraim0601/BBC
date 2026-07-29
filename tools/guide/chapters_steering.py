@@ -145,11 +145,11 @@ CH_PARENT = {
                          "en": "Suggestion box: composer on the left, history and statuses on the right."}},
         ]},
         {"type": "note", "tone": "info", "fr":
-            "Le parent **ne paie pas depuis l'application** : il règle par Orange Money, MTN MoMo, carte ou "
+            "Le parent **ne paie pas depuis l'application** : il règle par Orange Money, MTN MoMo, SARA, carte ou "
             "virement avec les coordonnées affichées, puis transmet la **référence de transaction** à l'économat, "
             "qui enregistre le versement. La situation se met à jour dès l'enregistrement.",
          "en":
-            "The parent **does not pay inside the application**: they settle by Orange Money, MTN MoMo, card or "
+            "The parent **does not pay inside the application**: they settle by Orange Money, MTN MoMo, SARA, card or "
             "transfer using the details shown, then pass the **transaction reference** to the bursary, who records "
             "it. The position updates as soon as the payment is recorded."},
         {"type": "note", "tone": "info", "fr":
@@ -365,7 +365,7 @@ CH_ANNEXES = {
              ["PV", "Procès-verbal : classement d'une classe par moyenne pour une séquence."],
              ["APC", "Approche par compétences — format de bulletin de la maternelle et du primaire."],
              ["Tranche", "Fraction du montant annuel des frais, avec son libellé et son échéance."],
-             ["Canal de paiement", "Moyen accepté par l'école : espèces, Orange Money (OM), MTN Mobile Money (MOMO), carte bancaire (MPGS), virement."],
+             ["Canal de paiement", "Moyen accepté par l'école : espèces, Orange Money (OM), MTN Mobile Money (MOMO), SARA, carte bancaire (MPGS), virement."],
              ["Référence de transaction", "Identifiant fourni par l'opérateur (ID Orange Money, ID MoMo, n° d'autorisation MPGS) : la preuve du versement."],
              ["Matricule", "Identifiant interne de l'élève, attribué par le système."],
              ["NIU", "Identifiant unique national, saisi depuis le registre officiel."],
@@ -378,7 +378,7 @@ CH_ANNEXES = {
              ["Master sheet", "Class ranking by average for one sequence."],
              ["APC", "Competency-based approach — the report card format for kindergarten and primary."],
              ["Installment", "A fraction of the annual fee amount, with its label and due date."],
-             ["Payment channel", "A method the school accepts: cash, Orange Money (OM), MTN Mobile Money (MOMO), bank card (MPGS), transfer."],
+             ["Payment channel", "A method the school accepts: cash, Orange Money (OM), MTN Mobile Money (MOMO), SARA, bank card (MPGS), transfer."],
              ["Transaction reference", "The identifier issued by the operator (Orange Money ID, MoMo ID, MPGS authorisation number): the proof of payment."],
              ["Student ID", "Internal student identifier, assigned by the system."],
              ["NIU", "National unique identifier, taken from the official register."],

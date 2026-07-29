@@ -1148,7 +1148,7 @@ export class FinanceComponent {
   }
 
   protected channelIcon(code: string): string {
-    return { CASH: 'cash', OM: 'phone', MOMO: 'phone', MPGS: 'receipt', TRANSFER: 'wallet' }[code] ?? 'wallet';
+    return { CASH: 'cash', OM: 'phone', MOMO: 'phone', SARA: 'phone', MPGS: 'receipt', TRANSFER: 'wallet' }[code] ?? 'wallet';
   }
 
   protected channelTone(code: string): string {
@@ -1156,6 +1156,7 @@ export class FinanceComponent {
       CASH: 'bg-emerald-50 text-emerald-700',
       OM: 'bg-orange-50 text-orange-700',
       MOMO: 'bg-gold-50 text-gold-600',
+      SARA: 'bg-sky-50 text-sky-700',
       MPGS: 'bg-brand-50 text-brand-700',
       TRANSFER: 'bg-slate-100 text-slate-700',
     }[code] ?? 'bg-slate-100 text-slate-700';

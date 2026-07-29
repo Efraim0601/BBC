@@ -100,6 +100,8 @@ public class ProductionBootstrap implements ApplicationRunner {
         grants(schoolId, "teacher", "read", "dashboard", "presence", "timetable", "events", "messages");
         grant(schoolId, "parent", "parent", "read");
 
+        seedPaymentChannels(schoolId);
+
         jdbc.update("INSERT INTO app_user (school_id, username, password_hash, display_name, initials, role_code) "
                   + "VALUES (?,?,?,?,?, 'principal')",
             schoolId, adminUsername, encoder.encode(adminPassword), adminName, initialsOf(adminName));
@@ -109,6 +111,46 @@ public class ProductionBootstrap implements ApplicationRunner {
             schoolName, adminUsername);
         log.info(" Connectez-vous puis configurez tout depuis le module Parametres.");
         log.info("=================================================================");
+    }
+
+    /**
+     * Catalogue des moyens de paiement du nouvel établissement. Les migrations
+     * ne peuvent pas s'en charger : elles s'exécutent avant que cet amorçage ne
+     * crée l'établissement. Sans cela, l'onglet « Moyens de paiement » resterait
+     * vide et aucun encaissement ne serait possible.
+     *
+     * <p>Coordonnées et instructions définitives se saisissent ensuite depuis
+     * Finance → Moyens de paiement → Coordonnées.
+     */
+    private void seedPaymentChannels(UUID schoolId) {
+        insertChannel(schoolId, "CASH", "Espèces", "Cash", false, false, 1,
+            "Versement au guichet de l'économat, contre reçu.",
+            "Payment at the bursary desk, against a receipt.");
+        insertChannel(schoolId, "OM", "Orange Money", "Orange Money", true, true, 2,
+            "Composez #150*1# puis suivez « Transfert d'argent » vers le numéro de l'école. Conservez l'ID de transaction et communiquez-le à l'économat.",
+            "Dial #150*1#, choose “Money transfer” to the school number. Keep the transaction ID and give it to the bursary.");
+        insertChannel(schoolId, "MOMO", "MTN Mobile Money", "MTN Mobile Money", true, true, 3,
+            "Composez *126# puis « Transfert » vers le numéro de l'école. Conservez l'ID de transaction et communiquez-le à l'économat.",
+            "Dial *126#, choose “Transfer” to the school number. Keep the transaction ID and give it to the bursary.");
+        insertChannel(schoolId, "MPGS", "Carte bancaire (MPGS)", "Bank card (MPGS)", true, true, 4,
+            "Paiement par carte auprès de la banque partenaire. Présentez le numéro d'autorisation à l'économat.",
+            "Card payment through the partner bank. Show the authorisation number to the bursary.");
+        insertChannel(schoolId, "TRANSFER", "Virement bancaire", "Bank transfer", true, true, 5,
+            "Virement sur le compte de l'établissement, en précisant le matricule de l'élève.",
+            "Transfer to the school account, quoting the student ID.");
+        insertChannel(schoolId, "SARA", "SARA", "SARA", true, true, 6,
+            "Depuis votre compte SARA, effectuez le transfert vers le numéro de l'école. Conservez l'ID de transaction et communiquez-le à l'économat.",
+            "From your SARA account, transfer to the school number. Keep the transaction ID and give it to the bursary.");
+    }
+
+    private void insertChannel(UUID schoolId, String code, String labelFr, String labelEn,
+                               boolean requiresReference, boolean visibleToParents, int sortOrder,
+                               String instructionsFr, String instructionsEn) {
+        jdbc.update("INSERT INTO payment_channel (school_id, code, label_fr, label_en, requires_reference, "
+                  + "visible_to_parents, sort_order, instructions_fr, instructions_en) "
+                  + "VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT (school_id, code) DO NOTHING",
+            schoolId, code, labelFr, labelEn, requiresReference, visibleToParents, sortOrder,
+            instructionsFr, instructionsEn);
     }
 
     private void insertRole(String code, String fr, String en) {

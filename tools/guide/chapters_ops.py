@@ -29,30 +29,32 @@ CH_FINANCE = {
         {"type": "h", "fr": "11.1 Configurer les moyens de paiement",
          "en": "11.1 Configure the payment methods"},
         {"type": "p", "fr":
-            "L'école encaisse par **espèces**, **Orange Money**, **MTN Mobile Money**, **carte bancaire (MPGS)** "
-            "et **virement**. Chaque canal porte les coordonnées que les familles utiliseront pour payer : c'est "
-            "cette configuration qui rend le paiement progressif possible depuis la maison.",
+            "L'école encaisse par **espèces**, **Orange Money**, **MTN Mobile Money**, **SARA**, "
+            "**carte bancaire (MPGS)** et **virement**. Chaque canal porte les coordonnées que les familles "
+            "utiliseront pour payer : c'est cette configuration qui rend le paiement progressif possible depuis "
+            "la maison.",
          "en":
-            "The school collects by **cash**, **Orange Money**, **MTN Mobile Money**, **bank card (MPGS)** and "
-            "**transfer**. Each channel carries the details families will use to pay: this configuration is what "
-            "makes progressive payment from home possible."},
+            "The school collects by **cash**, **Orange Money**, **MTN Mobile Money**, **SARA**, "
+            "**bank card (MPGS)** and **transfer**. Each channel carries the details families will use to pay: "
+            "this configuration is what makes progressive payment from home possible."},
         {"type": "steps", "items": [
-            {"fr": "Ouvrez l'onglet __Moyens de paiement__. Les cinq canaux sont livrés préconfigurés ; trois "
+            {"fr": "Ouvrez l'onglet __Moyens de paiement__. Les six canaux sont livrés préconfigurés ; trois "
                    "interrupteurs les pilotent.",
-             "en": "Open the __Payment methods__ tab. The five channels ship preconfigured; three switches drive them.",
+             "en": "Open the __Payment methods__ tab. The six channels ship preconfigured; three switches drive them.",
              "img": "98-finance-moyens-paiement",
              "caption": {"fr": "Chaque canal : actif, visible des parents, référence obligatoire, et ses coordonnées.",
                          "en": "Each channel: enabled, shown to parents, reference required, and its account details."}},
             {"fr": "__Actif__ autorise l'encaissement par ce canal. __Visible des parents__ le publie dans le "
                    "portail parent avec ses coordonnées. __Référence obligatoire__ impose la saisie de l'identifiant "
-                   "de transaction : laissez-la cochée pour OM, MoMo, MPGS et virement — c'est la preuve du versement.",
+                   "de transaction : laissez-la cochée pour OM, MoMo, SARA, MPGS et virement — c'est la preuve "
+                   "du versement.",
              "en": "__Enabled__ allows collection through this channel. __Shown to parents__ publishes it in the "
                    "parent portal with its details. __Reference required__ forces the transaction ID to be entered: "
-                   "keep it ticked for OM, MoMo, MPGS and transfers — it is the proof of payment."},
-            {"fr": "Cliquez __Coordonnées__ pour saisir le **numéro à créditer** (Orange Money, MoMo), "
+                   "keep it ticked for OM, MoMo, SARA, MPGS and transfers — it is the proof of payment."},
+            {"fr": "Cliquez __Coordonnées__ pour saisir le **numéro à créditer** (Orange Money, MoMo, SARA), "
                    "l'**identifiant marchand** (MPGS) ou le **RIB** (virement), l'intitulé du compte et les "
                    "instructions affichées au parent, en français et en anglais.",
-             "en": "Click __Details__ to enter the **number to credit** (Orange Money, MoMo), the **merchant ID** "
+             "en": "Click __Details__ to enter the **number to credit** (Orange Money, MoMo, SARA), the **merchant ID** "
                    "(MPGS) or the **bank account** (transfer), the account name and the instructions shown to the "
                    "parent, in French and English.",
              "img": "99-finance-canal-coordonnees",
