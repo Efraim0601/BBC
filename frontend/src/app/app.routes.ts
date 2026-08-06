@@ -11,6 +11,16 @@ export const routes: Routes = [
     loadComponent: () => import('./features/staff-portal/staff-portal').then((m) => m.StaffPortalComponent),
   },
   {
+    path: 'parent-invite',
+    loadComponent: () => import('./features/parent/parent-account-action').then((m) => m.ParentAccountActionComponent),
+    data: { mode: 'invite' },
+  },
+  {
+    path: 'parent-reset',
+    loadComponent: () => import('./features/parent/parent-account-action').then((m) => m.ParentAccountActionComponent),
+    data: { mode: 'reset' },
+  },
+  {
     path: 'parcours',
     canActivate: [authGuard],
     loadComponent: () => import('./features/parcours/parcours-picker').then((m) => m.ParcoursPickerComponent),
@@ -33,6 +43,21 @@ export const routes: Routes = [
         path: 'students',
         canActivate: [permissionGuard('students')],
         loadComponent: () => import('./features/students/students').then((m) => m.StudentsComponent),
+      },
+      {
+        path: 'students/new',
+        canActivate: [permissionGuard('students')],
+        loadComponent: () => import('./features/students/student-registration').then((m) => m.StudentRegistrationComponent),
+      },
+      {
+        path: 'students/import-family',
+        canActivate: [permissionGuard('students')],
+        loadComponent: () => import('./features/students/family-import').then((m) => m.FamilyImportComponent),
+      },
+      {
+        path: 'students/:id',
+        canActivate: [permissionGuard('students')],
+        loadComponent: () => import('./features/students/student-detail').then((m) => m.StudentDetailComponent),
       },
       {
         path: 'journey',

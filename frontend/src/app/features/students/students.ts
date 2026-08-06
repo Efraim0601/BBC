@@ -1,6 +1,7 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed, effect } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
+import { Router } from '@angular/router';
 import { StudentApi, StudentUpsert, ParentAccountView, ParentLinkRequest, StudentImportRow, StudentImportRequest, StudentImportResult } from './students.api';
 import { SetupApi, ClassView } from '../../core/setup.api';
 import { AuthService } from '../../core/auth.service';
@@ -108,7 +109,7 @@ interface HeaderMap {
             <bbc-data-table [columns]="columns()" [rows]="filtered()"
               [trackBy]="trackId" [activeId]="selectedId()"
               [emptyLabel]="fr() ? 'Aucun résultat' : 'No results'"
-              (rowClick)="selectedId.set($event.id)">
+              (rowClick)="openDetails($event)">
 
               <ng-template bbcCell="name" let-s>
                 <div class="flex items-center gap-3">
@@ -751,6 +752,7 @@ export class StudentsComponent {
   private setupApi = inject(SetupApi);
   private auth = inject(AuthService);
   private scopeSvc = inject(ScopeService);
+  private router = inject(Router);
 
   protected fr = () => this.i18n.lang() === 'fr';
   protected activeScope = computed(() => this.scopeSvc.scope());
@@ -914,7 +916,6 @@ export class StudentsComponent {
   private reload(): void {
     this.api.list().subscribe((r) => {
       this.rows.set(r);
-      if (!this.selectedId() && r.length) this.selectedId.set(r[0].id);
     });
   }
 
@@ -953,11 +954,7 @@ export class StudentsComponent {
   }
 
   openCreate(): void {
-    this.editId.set(null);
-    this.draft = this.blank();
-    this.photoDraft.set(null);
-    this.photoWasSet = false;
-    this.mode.set('edit');
+    this.router.navigate(['/students/new']);
   }
 
   openEdit(s: Student): void {
@@ -1143,13 +1140,10 @@ export class StudentsComponent {
     this.importTarget() === 'existing' ? !!this.importClassId() : !!this.newClassName().trim());
 
   protected openImport(): void {
-    this.resetImport();
-    // Carry list filters into the import picker and pre-select the filtered class.
-    this.importSubFilter.set(this.subFilter());
-    this.importLevelFilter.set(this.levelFilter());
-    if (this.classFilter()) this.importClassId.set(this.classFilter());
-    this.mode.set('import');
+    this.router.navigate(['/students/import-family']);
   }
+
+  protected openDetails(student: Student): void { this.router.navigate(['/students', student.id]); }
 
   protected closeImport(): void {
     this.mode.set('list');
