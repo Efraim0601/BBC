@@ -20,8 +20,8 @@ import { FamilyImportRow, FamilyImportView, StudentApi } from './students.api';
       </bbc-page-header>
       <bbc-card>
         <div class="grid md:grid-cols-3 gap-4 mb-5">
-          <label><span class="label">{{fr()?'Classe cible':'Target class'}}</span><select class="input w-full" [(ngModel)]="classId"><option value="">—</option>@for(c of classes();track c.id){<option [value]="c.id">{{c.name}}</option>}</select></label>
-          <label><span class="label">{{fr()?'Relation par défaut':'Default relationship'}}</span><input class="input w-full" [(ngModel)]="relationship"/></label>
+          <label><span class="label">{{fr()?'Classe cible':'Target class'}}<span class="required-mark">*</span><span class="required-hint">{{fr()?'Obligatoire':'Required'}}</span></span><select class="input w-full" [(ngModel)]="classId" [class.input-error]="attempted()&&!classId" [attr.aria-invalid]="attempted()&&!classId"><option value="">{{fr()?'Sélectionner une classe':'Select a class'}}</option>@for(c of classes();track c.id){<option [value]="c.id">{{c.name}}</option>}</select>@if(attempted()&&!classId){<span class="field-error">{{fr()?'Sélectionnez la classe cible.':'Select the target class.'}}</span>}</label>
+          <label><span class="label">{{fr()?'Relation par défaut':'Default relationship'}}<span class="required-mark">*</span></span><input class="input w-full" [(ngModel)]="relationship" [class.input-error]="attempted()&&!relationship.trim()" [attr.aria-invalid]="attempted()&&!relationship.trim()"/>@if(attempted()&&!relationship.trim()){<span class="field-error">{{fr()?'La relation par défaut est obligatoire.':'Default relationship is required.'}}</span>}</label>
           <label><span class="label">{{fr()?'Mode d’accès':'Access mode'}}</span><select class="input w-full" [(ngModel)]="accessMode"><option value="SEND_INVITE">Invitation</option><option value="NO_PORTAL">{{fr()?'Sans portail':'No portal'}}</option></select></label>
         </div>
 
@@ -34,9 +34,11 @@ import { FamilyImportRow, FamilyImportView, StudentApi } from './students.api';
           <p class="text-xs text-mute mt-2">external_key;first_name;last_name;sex;guardian_name;guardian_email;guardian_phone</p>
         </div>
 
-        <label class="label">{{fr()?'Aperçu modifiable':'Editable preview'}}</label>
-        <textarea class="input w-full font-mono" rows="10" [(ngModel)]="text" placeholder="EXT-001;Amina;NANA;F;Mme Nana;parent@example.com;+237..."></textarea>
-        <div class="flex justify-end mt-4"><button class="btn-primary" [disabled]="!classId||!text.trim()||working()" (click)="dryRun()">{{fr()?'Prévisualiser l’import':'Preview import'}}</button></div>
+        <label class="label">{{fr()?'Aperçu modifiable':'Editable preview'}}<span class="required-mark">*</span><span class="required-hint">{{fr()?'Au moins une ligne':'At least one row'}}</span></label>
+        <textarea class="input w-full font-mono" rows="10" [(ngModel)]="text" [class.input-error]="attempted()&&!text.trim()" [attr.aria-invalid]="attempted()&&!text.trim()" placeholder="EXT-001;Amina;NANA;F;Mme Nana;parent@example.com;+237..."></textarea>
+        @if(attempted()&&!text.trim()){<span class="field-error">{{fr()?'Ajoutez au moins une ligne ou sélectionnez un fichier.':'Add at least one row or choose a file.'}}</span>}
+        @if(attempted()&&!importValid()){<div role="alert" class="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700">{{fr()?'Corrigez les champs en rouge avant de prévisualiser.':'Correct the fields in red before previewing.'}}</div>}
+        <div class="flex justify-end mt-4"><button class="btn-primary" [disabled]="working()" (click)="dryRun()">{{fr()?'Prévisualiser l’import':'Preview import'}}</button></div>
 
         @if(result();as r){
           <div class="mt-6 space-y-3">
@@ -62,6 +64,7 @@ export class FamilyImportComponent {
   protected result = signal<FamilyImportView | null>(null);
   protected working = signal(false);
   protected error = signal<string | null>(null);
+  protected attempted = signal(false);
   protected fileName = signal('');
   protected classId = '';
   protected relationship = 'GUARDIAN';
@@ -109,11 +112,15 @@ export class FamilyImportComponent {
   }
 
   protected dryRun(): void {
+    this.attempted.set(true);
+    if (!this.importValid()) return;
     const rows = this.rows();
     if (!rows.length) { this.error.set(this.fr() ? 'Aucune ligne exploitable.' : 'No usable row.'); return; }
     this.working.set(true); this.error.set(null);
     this.api.familyImportDryRun(rows, this.fileName() || 'family-import.csv').subscribe({ next: result => { this.working.set(false); this.result.set(result); }, error: e => { this.working.set(false); this.error.set(e.error?.message || 'Import impossible'); } });
   }
+
+  protected importValid(): boolean { return !!this.classId && !!this.relationship.trim() && !!this.text.trim(); }
 
   protected commit(): void {
     const id = this.result()?.jobId;
