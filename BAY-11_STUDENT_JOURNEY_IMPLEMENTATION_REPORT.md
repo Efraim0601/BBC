@@ -140,6 +140,14 @@ The Docker demo database contains:
 
 Demo data is operational data in the local Docker volume; it is not embedded in the production migration.
 
+An isolated live-verification student is also available:
+
+- matricule: `TEST-PROMO-001`;
+- source: `Class 1`, session `2026-2027`, final average `14.50/20`;
+- committed destination: `Class 2`, session `2027-2028`.
+
+Use this student in **Journey** to inspect a committed promotion without changing the CE1 attendance demonstration roster.
+
 ## Verification
 
 - Backend Docker image compiles on Java 21.
@@ -147,8 +155,10 @@ Demo data is operational data in the local Docker volume; it is not embedded in 
 - Angular production build passes.
 - Angular test suite passes: 4 files, 7 tests.
 - API tests verify preview/commit separation, override reason, and optimistic version payloads.
-- Live browser verification confirmed session loading, rule display, persisted class mapping, mixed recommendation preview, mandatory manual-override fields, and non-destructive draft behavior.
-- A backend integration test covers mapping, automatic recommendation, manual Hold override, transactional commit, target enrollment creation, and immutable Journey history.
+- Backend integration suite passes: 6 tests, 0 failures, 0 errors. It covers mapping, automatic recommendation, manual Hold override, transactional commit, target enrollment creation, and immutable Journey history.
+- Live browser verification confirmed session loading, rule display, persisted class mapping, readable recommendation explanations, mixed recommendation preview, mandatory manual-override fields, and non-destructive draft behavior.
+- The manual override was exercised live for `SONE Aminatou`: recommendation **Needs review** was changed to **Hold**, target `CE1`, with a mandatory council reason. The draft was deliberately not committed so the CE1 attendance demo remains intact.
+- A separate one-student live batch was committed for `TEST-PROMO-001`. Database verification confirmed the source enrollment is `COMPLETED`, the target `Class 2` enrollment is `ACTIVE`, and the Journey timeline displays `PROMOTE -> Class 2` with locked promotion evidence.
 
 ## Safety and audit behavior
 
