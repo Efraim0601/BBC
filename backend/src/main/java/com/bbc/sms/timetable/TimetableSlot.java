@@ -22,6 +22,9 @@ public class TimetableSlot {
     @Column(name = "class_id", nullable = false)
     private UUID classId;
 
+    @Column(name = "academic_session_id")
+    private UUID academicSessionId;
+
     @Column(name = "day_idx", nullable = false)
     private int dayIdx;
 

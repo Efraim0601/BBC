@@ -443,7 +443,13 @@ public class AttendanceWorkflowService {
         if (!isTeachingDay(date)) return List.of();
         if (model.equals("DAILY")) return List.of(new SessionKey("DAILY", null));
         int dayIdx = date.getDayOfWeek().getValue() - 1;
-        return slots.findBySchoolIdAndClassId(TenantContext.get(), schoolClass.getId()).stream()
+        AcademicSession academic = requireAcademicSession(date);
+        Boolean published = jdbc.queryForObject("""
+            SELECT status='PUBLISHED' FROM timetable_class_config
+             WHERE school_id=? AND academic_session_id=? AND class_id=?
+            """, Boolean.class, TenantContext.get(), academic.getId(), schoolClass.getId());
+        if (!Boolean.TRUE.equals(published)) return List.of();
+        return slots.findBySchoolIdAndAcademicSessionIdAndClassId(TenantContext.get(), academic.getId(), schoolClass.getId()).stream()
             .filter(s -> s.getDayIdx() == dayIdx && s.getSubjectCode() != null && !s.getSubjectCode().isBlank())
             .sorted(Comparator.comparingInt(TimetableSlot::getSlotIdx))
             .map(s -> new SessionKey("P" + (s.getSlotIdx() + 1), s.getSubjectCode()))
