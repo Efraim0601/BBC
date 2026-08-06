@@ -9,6 +9,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
@@ -45,6 +46,11 @@ public class GlobalExceptionHandler {
             .body(new ApiError(OffsetDateTime.now(), 400, "Validation", fields));
     }
 
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiError> handleUnreadable(HttpMessageNotReadableException ex) {
+        return body(HttpStatus.BAD_REQUEST, "Le format de la requête est invalide. Vérifiez les champs et les dates envoyés.");
+    }
+
     @ExceptionHandler(NoResourceFoundException.class)
     public ResponseEntity<ApiError> handleNotFound(NoResourceFoundException ex) {
         return body(HttpStatus.NOT_FOUND, "Ressource introuvable.");
@@ -62,6 +68,10 @@ public class GlobalExceptionHandler {
         String msg = "Données invalides ou en conflit (une contrainte n'est pas respectée).";
         if (detail != null && detail.toLowerCase().contains("value too long")) {
             msg = "Texte trop long pour un des champs (vérifiez le nom / libellé).";
+        } else if (detail != null && detail.contains("chk_student_enrollment_dates")) {
+            msg = "La date de sortie ou de transfert ne peut pas précéder la date d’inscription de l’élève.";
+        } else if (detail != null && detail.contains("uq_student_enrollment_active_session")) {
+            msg = "Cet élève possède déjà une inscription active pour cette session académique.";
         } else if (detail != null && detail.toLowerCase().contains("unique")) {
             msg = "Une entrée avec ces valeurs existe déjà.";
         }

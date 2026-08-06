@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.UUID;
+import java.time.LocalDate;
 
 /**
  * First-run bootstrap for a PRODUCTION database (no demo seed).
@@ -76,8 +77,16 @@ public class ProductionBootstrap implements ApplicationRunner {
         UUID schoolId = UUID.randomUUID();
         jdbc.update("INSERT INTO school (id, code, name) VALUES (?,?,?)",
             schoolId, schoolCode, schoolName);
-        jdbc.update("INSERT INTO academic_year (school_id, label, start_year, is_current) VALUES (?,?,?,true)",
-            schoolId, yearLabel, parseStartYear(yearLabel));
+        UUID sessionId = UUID.randomUUID();
+        int startYear = parseStartYear(yearLabel);
+        jdbc.update("INSERT INTO academic_year (id, school_id, label, start_year, is_current) VALUES (?,?,?,?,true)",
+            sessionId, schoolId, yearLabel, startYear);
+        jdbc.update("""
+            INSERT INTO academic_session
+            (id,school_id,code,label,start_date,end_date,status,is_current)
+            VALUES (?,?,?,?,?,?,'OPEN',true)
+            """, sessionId, schoolId, yearLabel, yearLabel,
+            LocalDate.of(startYear, 9, 1), LocalDate.of(startYear + 1, 7, 31));
 
         // Reference roles (idempotent — they may already exist globally).
         insertRole("principal", "Principal", "Principal");
@@ -100,6 +109,8 @@ public class ProductionBootstrap implements ApplicationRunner {
         grants(schoolId, "teacher", "read", "dashboard", "presence", "timetable", "events", "messages");
         grant(schoolId, "parent", "parent", "read");
 
+        seedFoundation(schoolId, sessionId);
+
         seedPaymentChannels(schoolId);
 
         jdbc.update("INSERT INTO app_user (school_id, username, password_hash, display_name, initials, role_code) "
@@ -111,6 +122,41 @@ public class ProductionBootstrap implements ApplicationRunner {
             schoolName, adminUsername);
         log.info(" Connectez-vous puis configurez tout depuis le module Parametres.");
         log.info("=================================================================");
+    }
+
+    private void seedFoundation(UUID schoolId, UUID sessionId) {
+        for (int day = 1; day <= 7; day++) {
+            jdbc.update("""
+                INSERT INTO school_calendar_day
+                (school_id,academic_session_id,day_of_week,teaching_day,start_time,end_time)
+                VALUES (?,?,?,?,?::time,?::time) ON CONFLICT DO NOTHING
+                """, schoolId, sessionId, day, day <= 5, "07:30", "17:00");
+        }
+        String[][] actions = {
+            {"settings","write","SESSION_MANAGE"}, {"settings","read","SESSION_VIEW"},
+            {"students","write","ENROLLMENT_MANAGE"}, {"students","read","ENROLLMENT_VIEW"},
+            {"settings","write","CALENDAR_MANAGE"}, {"settings","read","CALENDAR_VIEW"},
+            {"settings","read","AUDIT_VIEW"}, {"documents","write","DOCUMENT_GENERATE"},
+            {"documents","write","DOCUMENT_REVOKE"}, {"documents","read","DOCUMENT_VIEW"}
+        };
+        for (String[] action : actions) {
+            jdbc.update("""
+                INSERT INTO permission_action_grant (school_id,role_code,action_code,allowed)
+                SELECT school_id,role_code,?,CASE WHEN ?='read' THEN level IN ('read','write') ELSE level='write' END
+                FROM permission_grant WHERE school_id=? AND module=? ON CONFLICT DO NOTHING
+                """, action[2], action[1], schoolId, action[0]);
+        }
+        jdbc.update("""
+            INSERT INTO document_template (school_id,type,locale,name,body_template)
+            VALUES
+            (?,'ENROLLMENT_CERTIFICATE','fr','Certificat de scolarité',
+             'Certifie que {{studentName}} ({{matricule}}) est inscrit(e) en {{className}} pour l''année {{sessionLabel}}.'),
+            (?,'ENROLLMENT_CERTIFICATE','en','Enrollment certificate',
+             'This certifies that {{studentName}} ({{matricule}}) is enrolled in {{className}} for {{sessionLabel}}.'),
+            (?,'GENERIC','fr','Document officiel','{{content}}'),
+            (?,'GENERIC','en','Official document','{{content}}')
+            ON CONFLICT DO NOTHING
+            """, schoolId, schoolId, schoolId, schoolId);
     }
 
     /**

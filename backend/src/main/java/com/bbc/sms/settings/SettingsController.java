@@ -9,6 +9,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -20,15 +21,23 @@ public class SettingsController {
     private final MailService mailService;
     private final SchoolProfileService schoolProfile;
     private final DisciplineCatalogService catalogs;
+    private final com.bbc.sms.platform.security.PermissionService permissionService;
 
     public SettingsController(PermissionAdminService service, MailAdminService mailAdmin,
                               MailService mailService, SchoolProfileService schoolProfile,
-                              DisciplineCatalogService catalogs) {
+                              DisciplineCatalogService catalogs,
+                              com.bbc.sms.platform.security.PermissionService permissionService) {
         this.service = service;
         this.mailAdmin = mailAdmin;
         this.mailService = mailService;
         this.schoolProfile = schoolProfile;
         this.catalogs = catalogs;
+        this.permissionService = permissionService;
+    }
+
+    @GetMapping("/permission-actions")
+    public Map<String, Boolean> permissionActions() {
+        return permissionService.currentActions();
     }
 
     // ---- School profile ------------------------------------------------------

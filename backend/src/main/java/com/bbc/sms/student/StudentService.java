@@ -1,6 +1,7 @@
 package com.bbc.sms.student;
 
 import com.bbc.sms.platform.common.ApiException;
+import com.bbc.sms.foundation.enrollment.EnrollmentService;
 import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.tenant.ParcoursContext;
 import com.bbc.sms.platform.tenant.ParcoursContext.Scope;
@@ -26,13 +27,15 @@ public class StudentService {
     private final SchoolClassRepository classes;
     private final SetupService setup;
     private final TeacherScopeService teacherScope;
+    private final EnrollmentService enrollmentService;
 
     public StudentService(StudentRepository repo, SchoolClassRepository classes, SetupService setup,
-                          TeacherScopeService teacherScope) {
+                          TeacherScopeService teacherScope, EnrollmentService enrollmentService) {
         this.repo = repo;
         this.classes = classes;
         this.setup = setup;
         this.teacherScope = teacherScope;
+        this.enrollmentService = enrollmentService;
     }
 
     @Transactional(readOnly = true)
@@ -76,7 +79,9 @@ public class StudentService {
         s.setMatricule(nextMatricule(schoolId));
         s.setPhotoHue(ThreadLocalRandom.current().nextInt(0, 360));
         apply(s, in);
-        return toView(repo.save(s));
+        s = repo.saveAndFlush(s);
+        enrollmentService.syncCurrent(s);
+        return toView(s);
     }
 
     @Transactional
@@ -84,7 +89,9 @@ public class StudentService {
         teacherScope.assertStudent(id);
         Student s = find(id);
         apply(s, in);
-        return toView(repo.save(s));
+        s = repo.saveAndFlush(s);
+        enrollmentService.syncCurrent(s);
+        return toView(s);
     }
 
     @Transactional
@@ -174,7 +181,8 @@ public class StudentService {
                 s.setGuardianRelation(blankToNull(row.guardianRelation()));
                 // Same legacy contact rule as manual creation: père → mère → tuteur.
                 syncPrimaryContact(s);
-                repo.save(s);
+                s = repo.saveAndFlush(s);
+                enrollmentService.syncCurrent(s);
                 created++;
             } catch (RuntimeException ex) {
                 errors.add(new StudentImportError(lineNo, label.isBlank() ? "?" : label, ex.getMessage()));

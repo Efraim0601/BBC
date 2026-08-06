@@ -47,6 +47,13 @@
           },
           "options": { "proxyConfig": "proxy.conf.json" },
           "defaultConfiguration": "development"
+        },
+        "test": {
+          "builder": "@angular/build:unit-test",
+          "options": {
+            "tsConfig": "tsconfig.spec.json",
+            "buildTarget": "bbc-sms:build:development"
+          }
         }
       }
     }

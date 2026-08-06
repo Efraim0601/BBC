@@ -1,13 +1,7 @@
-# Base stack = PRODUCTION (clean schema, NO demo data).
-#   Production : docker compose up -d --build           (or: make prod)
-#   Demo       : add the override file docker-compose.demo.yml  (or: make demo)
-# See README.md → "Démarrage rapide".
+# Base stack = production (clean schema, no demo data).
 services:
   db:
     image: postgres:16-alpine
-    # snap-packaged dockerd (profile snap.docker.dockerd) cannot signal the
-    # default container profile on recent kernels -> `docker stop` fails with
-    # "permission denied". Running unconfined restores the container lifecycle.
     security_opt:
       - apparmor=unconfined
     environment:
@@ -36,15 +30,15 @@ services:
       DB_USER: bbc
       DB_PASSWORD: bbc
       BBC_CORS_ORIGINS: http://localhost:4200,http://localhost:8081
-      # Override in real deployments:
       BBC_JWT_SECRET: ${BBC_JWT_SECRET:-Y2hhbmdlLW1lLXRoaXMtaXMtYS1kZXYtb25seS1zZWNyZXQtMzJieXRlcyE=}
-      # Production first-run admin bootstrap — set these in .env (see .env.example).
-      # Ignored in demo mode and once a user already exists.
+      BBC_DOCUMENT_STORAGE: /data/documents
       BBC_ADMIN_USERNAME: ${BBC_ADMIN_USERNAME:-admin}
       BBC_ADMIN_PASSWORD: ${BBC_ADMIN_PASSWORD:-}
       BBC_ADMIN_NAME: ${BBC_ADMIN_NAME:-Administrateur}
       BBC_SCHOOL_NAME: ${BBC_SCHOOL_NAME:-Mon établissement}
       BBC_SCHOOL_CODE: ${BBC_SCHOOL_CODE:-SCHOOL}
+    volumes:
+      - bbc_documents:/data/documents
     ports:
       - "8080:8080"
 
@@ -59,3 +53,4 @@ services:
 
 volumes:
   bbc_pgdata:
+  bbc_documents:

@@ -14,6 +14,7 @@ import {
   DataTableComponent, CellTemplateDirective, Column, PhotoCaptureComponent,
 } from '../../core/ui';
 import { PhotoApi } from '../../core/photo.api';
+import { StudentEnrollmentPanelComponent } from './student-enrollment-panel';
 
 /** Column index per field of an import file; -1 when the column is absent. */
 interface HeaderMap {
@@ -32,7 +33,7 @@ interface HeaderMap {
   imports: [
     FormsModule, IconComponent, CardComponent, PageHeaderComponent,
     AvatarComponent, ChipFilterComponent, StatusPillComponent,
-    DataTableComponent, CellTemplateDirective, PhotoCaptureComponent,
+    DataTableComponent, CellTemplateDirective, PhotoCaptureComponent, StudentEnrollmentPanelComponent,
   ],
   template: `
     <div class="fade-in max-w-7xl mx-auto">
@@ -177,6 +178,8 @@ interface HeaderMap {
             </div>
 
             <div class="p-6 space-y-5">
+              <bbc-student-enrollment-panel [student]="sel" [classes]="classes()" />
+
               <!-- Parent -->
               <div>
                 <div class="text-[11px] uppercase tracking-wider text-mute font-semibold mb-2">{{ fr() ? 'Informations parent' : 'Parent info' }}</div>

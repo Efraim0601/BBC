@@ -6,6 +6,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * RBAC gate used from controllers via SpEL: @PreAuthorize("@perm.can('finance','write')").
@@ -29,6 +30,28 @@ public class PermissionService {
                 rs -> rs.next() ? rs.getString(1) : "none",
                 TenantContext.get(), p.roleCode(), module);
         return RANK.indexOf(level) >= RANK.indexOf(requiredLevel);
+    }
+
+    /**
+     * Fine-grained command authorization. An explicit action grant wins; schools
+     * upgraded from older versions safely inherit the corresponding module level.
+     */
+    public boolean canAction(String actionCode) {
+        AppUserPrincipal p = currentPrincipal();
+        if (p == null || actionCode == null) return false;
+        String code = actionCode.trim().toUpperCase();
+        List<Boolean> overrides = jdbc.query(
+                "SELECT allowed FROM permission_action_grant WHERE school_id=? AND role_code=? AND action_code=?",
+                (rs, i) -> rs.getBoolean(1), TenantContext.get(), p.roleCode(), code);
+        if (!overrides.isEmpty()) return overrides.get(0);
+        PermissionActions.Requirement fallback = PermissionActions.CATALOG.get(code);
+        return fallback != null && can(fallback.module(), fallback.level());
+    }
+
+    public Map<String, Boolean> currentActions() {
+        return PermissionActions.CATALOG.keySet().stream().sorted()
+                .collect(java.util.stream.Collectors.toMap(a -> a, this::canAction,
+                        (a, b) -> a, java.util.LinkedHashMap::new));
     }
 
     public boolean isParent() {
