@@ -22,7 +22,16 @@ public class JourneyDtos {
             Integer rank,
             Integer classSize,
             String decision,
-            String note) {}
+            String note,
+            UUID sourceSessionId,
+            UUID targetSessionId,
+            UUID promotionBatchId,
+            String recommendation,
+            String finalDecision,
+            String targetClassName,
+            String overrideReason,
+            UUID decisionBy,
+            java.time.Instant decisionAt) {}
 
     /**
      * Full parcours for one student: identity header + ordered timeline.

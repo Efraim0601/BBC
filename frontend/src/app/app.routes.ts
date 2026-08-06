@@ -65,6 +65,11 @@ export const routes: Routes = [
         loadComponent: () => import('./features/journey/journey').then((m) => m.JourneyComponent),
       },
       {
+        path: 'journey/promotions',
+        canActivate: [permissionGuard('journey')],
+        loadComponent: () => import('./features/journey/promotion-workspace').then((m) => m.PromotionWorkspaceComponent),
+      },
+      {
         path: 'alerts',
         canActivate: [permissionGuard('alerts')],
         loadComponent: () => import('./features/alerts/alerts').then((m) => m.AlertsComponent),

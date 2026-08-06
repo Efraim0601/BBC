@@ -1,5 +1,6 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { JourneyApi, StudentJourney, JourneyView, JourneyUpsert } from './journey.api';
 import { Student } from '../../core/models';
 import { AuthService } from '../../core/auth.service';
@@ -17,13 +18,20 @@ interface ResultMeta { fr: string; en: string; badge: string; }
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
-    FormsModule, IconComponent, CardComponent, PageHeaderComponent, EmptyComponent,
+    FormsModule, RouterLink, IconComponent, CardComponent, PageHeaderComponent, EmptyComponent,
     AvatarComponent, KpiComponent, AreaChartComponent, StudentClassPickerComponent,
   ],
   template: `
     <div class="fade-in max-w-6xl mx-auto">
       <bbc-page-header [title]="i18n.t('journey')"
-        [subtitle]="fr() ? 'Parcours scolaire complet — année par année' : 'Full school journey — year by year'" />
+        [subtitle]="fr() ? 'Parcours scolaire complet — année par année' : 'Full school journey — year by year'">
+        @if (canWrite) {
+          <a action routerLink="/journey/promotions"
+            class="inline-flex items-center gap-2 h-9 px-4 text-sm font-semibold rounded-lg bg-brand-600 text-white hover:bg-brand-700">
+            <bbc-icon name="route" [s]="16" /> {{ fr() ? 'Promotions de fin d’année' : 'End-of-year promotions' }}
+          </a>
+        }
+      </bbc-page-header>
 
       <div class="grid grid-cols-12 gap-4">
         <!-- Student picker -->
@@ -142,8 +150,19 @@ interface ResultMeta { fr: string; en: string; badge: string; }
                             }
                           </div>
                           @if (e.decision) { <div class="text-sm text-ink mt-1">{{ e.decision }}</div> }
+                          @if (e.promotionBatchId) {
+                            <div class="mt-2 rounded-lg border border-teal-200 bg-teal-50 p-2.5 text-xs">
+                              <div class="font-semibold text-teal-900">
+                                {{ fr() ? 'Recommandation' : 'Recommendation' }}: {{ promotionLabel(e.recommendation) }}
+                                <span class="mx-1">→</span>
+                                {{ fr() ? 'Décision finale' : 'Final decision' }}: {{ promotionLabel(e.finalDecision) }}
+                              </div>
+                              @if (e.targetClassName) { <div class="text-teal-800 mt-1">{{ fr() ? 'Classe cible' : 'Target class' }}: {{ e.targetClassName }}</div> }
+                              @if (e.overrideReason) { <div class="text-teal-800 mt-1">{{ fr() ? 'Motif' : 'Reason' }}: {{ e.overrideReason }}</div> }
+                            </div>
+                          }
                         </div>
-                        @if (canWrite) {
+                        @if (canWrite && !e.promotionBatchId) {
                           <div class="flex items-center gap-1 self-center opacity-0 group-hover:opacity-100 transition">
                             <button (click)="edit(e)"
                               class="w-7 h-7 rounded text-mute hover:text-brand-600 hover:bg-brand-50 flex items-center justify-center"
@@ -264,6 +283,12 @@ export class JourneyComponent {
       transferred_in: '#0EA5E9', transferred_out: '#94A3B8', graduated: '#8B5CF6', excluded: '#F43F5E',
     };
     return map[result] ?? '#94A3B8';
+  }
+
+  protected promotionLabel(value: string | null): string {
+    const fr: Record<string, string> = { PROMOTE: 'Promouvoir', REPEAT: 'Redoubler', REVIEW: 'À réviser', GRADUATE: 'Diplômer', HOLD: 'Maintenir' };
+    const en: Record<string, string> = { PROMOTE: 'Promote', REPEAT: 'Repeat', REVIEW: 'Review', GRADUATE: 'Graduate', HOLD: 'Hold back' };
+    return value ? ((this.fr() ? fr : en)[value] ?? value) : '—';
   }
 
   private blank(): JourneyUpsert {

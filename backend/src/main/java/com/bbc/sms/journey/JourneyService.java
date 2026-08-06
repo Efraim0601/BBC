@@ -64,6 +64,9 @@ public class JourneyService {
         JourneyEntry e = repo
                 .findBySchoolIdAndStudentIdAndAcademicYear(schoolId, in.studentId(), in.academicYear())
                 .orElseGet(JourneyEntry::new);
+        if (e.getPromotionBatchId() != null) {
+            throw ApiException.conflict("Cette année provient d’un lot de promotion validé et ne peut pas être modifiée manuellement");
+        }
         e.setSchoolId(schoolId);
         e.setStudentId(in.studentId());
         e.setAcademicYear(in.academicYear().trim());
@@ -84,6 +87,9 @@ public class JourneyService {
     public void delete(UUID id) {
         JourneyEntry e = repo.findByIdAndSchoolId(id, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Entrée de parcours"));
+        if (e.getPromotionBatchId() != null) {
+            throw ApiException.conflict("Une décision de promotion validée est immuable et ne peut pas être supprimée");
+        }
         repo.delete(e);
     }
 
@@ -106,6 +112,9 @@ public class JourneyService {
     private JourneyView toView(JourneyEntry e) {
         return new JourneyView(e.getId(), e.getStudentId(), e.getAcademicYear(), e.getClassName(),
                 e.getLevel(), e.getSubsystem(), e.getResult(), e.getGeneralAverage(),
-                e.getRank(), e.getClassSize(), e.getDecision(), e.getNote());
+                e.getRank(), e.getClassSize(), e.getDecision(), e.getNote(),
+                e.getSourceSessionId(), e.getTargetSessionId(), e.getPromotionBatchId(),
+                e.getRecommendation(), e.getFinalDecision(), e.getTargetClassName(),
+                e.getOverrideReason(), e.getDecisionBy(), e.getDecisionAt());
     }
 }

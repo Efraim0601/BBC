@@ -10,6 +10,12 @@ import com.bbc.sms.foundation.idempotency.IdempotencyService;
 import com.bbc.sms.foundation.session.AcademicSessionService;
 import com.bbc.sms.foundation.session.SessionDtos.SessionUpsert;
 import com.bbc.sms.foundation.session.SessionDtos.TermUpsert;
+import com.bbc.sms.journey.JourneyPromotionService;
+import com.bbc.sms.journey.dto.JourneyPromotionDtos.ProgressionPathUpsert;
+import com.bbc.sms.journey.dto.JourneyPromotionDtos.PromotionCommitRequest;
+import com.bbc.sms.journey.dto.JourneyPromotionDtos.PromotionOverrideRequest;
+import com.bbc.sms.journey.dto.JourneyPromotionDtos.PromotionPreviewRequest;
+import com.bbc.sms.journey.dto.JourneyPromotionDtos.PromotionRuleUpsert;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.tenant.TenantContext;
 import org.junit.jupiter.api.*;
@@ -53,6 +59,7 @@ class SharedFoundationIntegrationTest {
     @Autowired IdempotencyService idempotency;
     @Autowired OfficialDocumentService documents;
     @Autowired AttendanceWorkflowService attendance;
+    @Autowired JourneyPromotionService promotions;
 
     @BeforeEach
     void tenant() {
@@ -175,5 +182,39 @@ class SharedFoundationIntegrationTest {
         jdbc.update("INSERT INTO audit_event(id,school_id,action,aggregate_type) VALUES (?,?,?,?)", id, schoolId, "TEST", "Test");
         assertThatThrownBy(() -> jdbc.update("DELETE FROM audit_event WHERE id=?", id))
                 .hasMessageContaining("append-only");
+    }
+
+    @Test
+    void promotionPreviewExplainsRecommendationAndManualOverrideCommitsNextEnrollment() {
+        UUID sourceSession = UUID.randomUUID(), targetSession = UUID.randomUUID();
+        UUID sourceClass = UUID.randomUUID(), targetClass = UUID.randomUUID(), student = UUID.randomUUID();
+        String section = "j" + schoolId.toString().substring(0, 8);
+        jdbc.update("INSERT INTO section(id,school_id,label,subsystem,level) VALUES (?,?,?,'FR','secondary')", section, schoolId, "Secondary");
+        jdbc.update("INSERT INTO school_class(id,school_id,section_id,name,subsystem,level) VALUES (?,?,?,'6e Test','FR','secondary')", sourceClass, schoolId, section);
+        jdbc.update("INSERT INTO school_class(id,school_id,section_id,name,subsystem,level) VALUES (?,?,?,'5e Test','FR','secondary')", targetClass, schoolId, section);
+        jdbc.update("INSERT INTO academic_session(id,school_id,code,label,start_date,end_date,status,is_current) VALUES (?,?, '2025-2026','2025-2026','2025-09-01','2026-07-31','CLOSED',false)", sourceSession, schoolId);
+        jdbc.update("INSERT INTO academic_session(id,school_id,code,label,start_date,end_date,status,is_current) VALUES (?,?, '2026-2027','2026-2027','2026-09-01','2027-07-31','DRAFT',false)", targetSession, schoolId);
+        jdbc.update("INSERT INTO student(id,school_id,matricule,first_name,last_name,class_id,class_name,subsystem,level) VALUES (?,?, 'PROMO-1','Awa','Test',?,'6e Test','FR','secondary')", student, schoolId, sourceClass);
+        jdbc.update("INSERT INTO student_enrollment(school_id,student_id,academic_session_id,school_class_id,class_name_snapshot,level_snapshot,subsystem_snapshot,status,enrolled_on,source) VALUES (?,?,?,?,'6e Test','secondary','FR','ACTIVE','2025-09-01','TEST')", schoolId, student, sourceSession, sourceClass);
+        jdbc.update("INSERT INTO journey_entry(school_id,student_id,academic_year,class_name,level,subsystem,result,general_average) VALUES (?,?, '2025-2026','6e Test','secondary','FR','in_progress',12.50)", schoolId, student);
+
+        promotions.savePath(new ProgressionPathUpsert(sourceSession, sourceClass, targetSession, targetClass, false, null));
+        promotions.saveRule(new PromotionRuleUpsert(sourceSession, null, null,
+                new java.math.BigDecimal("10"), new java.math.BigDecimal("8"), true, null));
+        var preview = promotions.preview(new PromotionPreviewRequest(sourceSession, targetSession, "Promotion test", java.util.List.of(sourceClass), "promo-key"));
+        assertThat(preview.candidates()).singleElement().satisfies(c -> {
+            assertThat(c.recommendation()).isEqualTo("PROMOTE");
+            assertThat(c.targetClassId()).isEqualTo(targetClass);
+            assertThat(c.explanation()).contains("seuil de promotion");
+        });
+
+        var candidate = preview.candidates().getFirst();
+        promotions.override(candidate.id(), new PromotionOverrideRequest("HOLD", sourceClass, "Décision du conseil", candidate.version()));
+        var refreshed = promotions.batch(preview.id());
+        var committed = promotions.commit(preview.id(), new PromotionCommitRequest("Conseil validé", refreshed.version()));
+        assertThat(committed.status()).isEqualTo("COMMITTED");
+        assertThat(committed.repeatCount()).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM student_enrollment WHERE school_id=? AND student_id=? AND academic_session_id=? AND school_class_id=? AND status='ACTIVE'", Integer.class, schoolId, student, targetSession, sourceClass)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT final_decision FROM journey_entry WHERE school_id=? AND student_id=? AND academic_year='2025-2026'", String.class, schoolId, student)).isEqualTo("HOLD");
     }
 }
