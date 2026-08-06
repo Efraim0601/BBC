@@ -31,16 +31,25 @@ import { IconComponent } from '../../core/ui';
 
       @if (transferOpen() && active(); as current) {
         <div class="p-4 bg-brand-50/50 border-b border-brand-100">
+          <div class="mb-3 text-xs text-slate-700 rounded-lg bg-white border border-brand-100 px-3 py-2">
+            <strong>{{ fr() ? 'Ce que fera le transfert :' : 'What the transfer will do:' }}</strong>
+            {{ fr()
+              ? ' clôturer l’inscription active dans ' + (current.className || 'Sans classe') + ' à la date choisie, puis créer une nouvelle inscription active dans la classe cible. L’historique sera conservé.'
+              : ' close the active enrollment in ' + (current.className || 'Unassigned') + ' on the selected date, then create a new active enrollment in the target class. History will be preserved.' }}
+          </div>
           <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
             <label><span class="meta">{{ fr() ? 'Classe cible' : 'Target class' }}</span>
               <select [(ngModel)]="transferDraft.classId" class="field"><option [ngValue]="null">{{ fr() ? 'Sans classe' : 'Unassigned' }}</option>@for (c of classes; track c.id) { <option [value]="c.id">{{ c.name }}</option> }</select>
             </label>
-            <label><span class="meta">{{ fr() ? 'Date effective' : 'Effective date' }}</span><input type="date" [(ngModel)]="transferDraft.effectiveDate" class="field" /></label>
+            <label><span class="meta">{{ fr() ? 'Date effective' : 'Effective date' }}</span><input type="date" [(ngModel)]="transferDraft.effectiveDate" [min]="current.enrolledOn" [max]="sessionEnd(current.academicSessionId)" class="field" /></label>
             <label><span class="meta">{{ fr() ? 'Motif obligatoire' : 'Required reason' }}</span><input [(ngModel)]="transferDraft.reason" class="field" /></label>
           </div>
+          @if (transferValidation(current); as validation) {
+            <div class="mt-2 text-xs text-rose-700">{{ validation }}</div>
+          }
           <div class="flex justify-end gap-2 mt-3">
             <button (click)="transferOpen.set(false)" class="btn-secondary">{{ fr() ? 'Annuler' : 'Cancel' }}</button>
-            <button (click)="transfer(current)" [disabled]="!transferDraft.reason.trim() || transferDraft.classId === current.classId" class="btn-primary">{{ fr() ? 'Confirmer le transfert' : 'Confirm transfer' }}</button>
+            <button (click)="transfer(current)" [disabled]="!transferDraft.reason.trim() || transferDraft.classId === current.classId || !!transferValidation(current)" class="btn-primary">{{ fr() ? 'Confirmer le transfert' : 'Confirm transfer' }}</button>
           </div>
         </div>
       }
@@ -125,6 +134,19 @@ export class StudentEnrollmentPanelComponent implements OnChanges {
     this.api.transfer(this.student.id, { academicSessionId: current.academicSessionId, classId: this.transferDraft.classId, effectiveDate: this.transferDraft.effectiveDate, reason: this.transferDraft.reason.trim(), version: current.version })
       .subscribe({ next: () => { this.transferOpen.set(false); this.transferDraft.reason = ''; this.reload(); }, error: (e) => this.setError(e) });
   }
+  protected sessionEnd(sessionId: string): string | null { return this.context.sessions().find((s) => s.id === sessionId)?.endDate ?? null; }
+  protected transferValidation(current: EnrollmentView): string | null {
+    const date = this.transferDraft.effectiveDate;
+    const end = this.sessionEnd(current.academicSessionId);
+    if (!date) return this.fr() ? 'Choisissez une date effective.' : 'Select an effective date.';
+    if (date < current.enrolledOn) return this.fr()
+      ? `La date doit être le ${current.enrolledOn} ou après (date de l’inscription active).`
+      : `The date must be ${current.enrolledOn} or later (active enrollment date).`;
+    if (end && date > end) return this.fr()
+      ? `La date doit être le ${end} ou avant (fin de la session).`
+      : `The date must be ${end} or earlier (session end).`;
+    return null;
+  }
   protected withdraw(e: EnrollmentView): void {
     const reason = prompt(this.fr() ? 'Motif du retrait' : 'Reason for withdrawal'); if (!reason) return;
     const date = prompt(this.fr() ? 'Date effective (AAAA-MM-JJ)' : 'Effective date (YYYY-MM-DD)', this.transferDraft.effectiveDate) ?? '';
@@ -152,7 +174,15 @@ export class StudentEnrollmentPanelComponent implements OnChanges {
     this.loadDocuments(); this.api.actionPermissions().subscribe((p) => this.permissions.set(p));
   }
   private loadDocuments(): void { this.api.listDocuments('Student', this.student.id).subscribe({ next: (d) => this.documents.set(d), error: () => this.documents.set([]) }); }
-  private setError(e: any): void { this.error.set(typeof e?.error?.message === 'string' ? e.error.message : (this.fr() ? 'Opération impossible.' : 'Operation failed.')); }
+  private setError(e: any): void {
+    const message = e?.error?.message;
+    if (typeof message === 'string') { this.error.set(message); return; }
+    if (message && typeof message === 'object') {
+      const details = Object.entries(message).map(([field, value]) => `${field}: ${String(value)}`).join(' · ');
+      if (details) { this.error.set(details); return; }
+    }
+    this.error.set(this.fr() ? 'Opération impossible. Vérifiez les données saisies puis réessayez.' : 'Operation failed. Check the entered data and try again.');
+  }
   private today(): string { return new Date().toISOString().slice(0, 10); }
   private clampedToday(start?: string, end?: string): string { const today = this.today(); if (start && today < start) return start; if (end && today > end) return end; return today; }
 }

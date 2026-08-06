@@ -89,6 +89,10 @@ public class EnrollmentService {
                 .orElseThrow(() -> ApiException.conflict("Aucune inscription active dans cette session"));
         if (in.version() != null && in.version() != old.getVersion()) throw ApiException.conflict("Inscription modifiée par un autre utilisateur");
         if (java.util.Objects.equals(old.getSchoolClassId(), in.classId())) throw ApiException.conflict("La classe cible est déjà la classe active");
+        if (in.effectiveDate().isBefore(old.getEnrolledOn())) {
+            throw ApiException.badRequest("La date effective du transfert (" + in.effectiveDate()
+                    + ") ne peut pas précéder la date d’inscription active (" + old.getEnrolledOn() + ")");
+        }
         EnrollmentView before = view(old);
         old.setStatus("TRANSFERRED");
         old.setExitedOn(in.effectiveDate());

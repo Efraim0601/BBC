@@ -73,6 +73,9 @@ public class SchoolCalendarService {
     @Transactional
     public GenerationResult generate(GenerateRequest in) {
         AcademicSession session = findSession(in.academicSessionId());
+        if (!in.dryRun() && List.of("CLOSED", "ARCHIVED").contains(session.getStatus())) {
+            throw ApiException.conflict("Cette session est en lecture seule : utilisez la prévisualisation sans régénérer les données");
+        }
         LocalDate start = in.startDate() == null ? session.getStartDate() : in.startDate();
         LocalDate end = in.endDate() == null ? session.getEndDate() : in.endDate();
         if (start.isBefore(session.getStartDate()) || end.isAfter(session.getEndDate()) || start.isAfter(end)) {
