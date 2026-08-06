@@ -10,15 +10,16 @@ import {
   IconComponent, CardComponent, PageHeaderComponent, EmptyComponent, TabsComponent,
 } from '../../core/ui';
 import { AcademicSetupComponent } from '../setup/academic-setup';
+import { FoundationSettingsComponent } from './foundation-settings';
 
 type Level = 'none' | 'read' | 'write';
-type SettingsTab = 'academic' | 'general' | 'perms' | 'roles' | 'mail' | 'calendar' | 'discipline';
+type SettingsTab = 'academic' | 'sessions' | 'general' | 'perms' | 'roles' | 'mail' | 'calendar' | 'discipline';
 
 @Component({
   selector: 'bbc-settings',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, IconComponent, CardComponent, PageHeaderComponent, EmptyComponent, TabsComponent, AcademicSetupComponent],
+  imports: [FormsModule, IconComponent, CardComponent, PageHeaderComponent, EmptyComponent, TabsComponent, AcademicSetupComponent, FoundationSettingsComponent],
   template: `
     <div class="fade-in max-w-6xl mx-auto">
       <bbc-page-header [title]="i18n.t('settings')"
@@ -38,6 +39,10 @@ type SettingsTab = 'academic' | 'general' | 'perms' | 'roles' | 'mail' | 'calend
         <!-- ===================== ACADEMIC SETUP ===================== -->
         @case ('academic') {
           <bbc-academic-setup />
+        }
+
+        @case ('sessions') {
+          <bbc-foundation-settings />
         }
 
         <!-- ===================== GENERAL ===================== -->
@@ -641,6 +646,7 @@ export class SettingsComponent {
 
   protected tabs = computed(() => [
     { id: 'academic', label: this.fr() ? 'Scolarité' : 'Academics' },
+    { id: 'sessions', label: this.fr() ? 'Années & périodes' : 'Sessions & terms' },
     { id: 'general', label: this.fr() ? 'Général' : 'General' },
     { id: 'calendar', label: this.fr() ? 'Calendrier' : 'Calendar' },
     { id: 'discipline', label: this.fr() ? 'Discipline' : 'Discipline' },

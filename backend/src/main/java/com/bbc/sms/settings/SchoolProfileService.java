@@ -112,7 +112,7 @@ public class SchoolProfileService {
 
     private String academicYear(UUID schoolId) {
         List<String> rows = jdbc.query(
-                "SELECT label FROM academic_year WHERE school_id = ? AND is_current = true LIMIT 1",
+                "SELECT label FROM academic_session WHERE school_id = ? AND is_current = true LIMIT 1",
                 (rs, i) -> rs.getString("label"),
                 schoolId);
         return rows.isEmpty() ? null : rows.get(0);

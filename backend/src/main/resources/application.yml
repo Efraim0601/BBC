@@ -18,6 +18,10 @@ spring:
     enabled: true
     locations: classpath:db/migration
     baseline-on-migrate: true
+    # Existing deployments contain retired early migrations (V4/V5/etc.) that
+    # are no longer in the repository. Tolerate only missing history entries;
+    # checksum mismatches and failed migrations still stop startup.
+    ignore-migration-patterns: "*:missing"
 
 server:
   port: ${SERVER_PORT:8080}
@@ -43,6 +47,8 @@ bbc:
     school-name: ${BBC_SCHOOL_NAME:Mon établissement}
     school-code: ${BBC_SCHOOL_CODE:SCHOOL}
     year-label: ${BBC_YEAR_LABEL:2025-2026}
+  documents:
+    storage-path: ${BBC_DOCUMENT_STORAGE:/data/documents}
 
 springdoc:
   swagger-ui:
