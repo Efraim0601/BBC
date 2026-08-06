@@ -108,6 +108,23 @@ public class MailService {
         }
     }
 
+    /** Sends a one-time parent invitation/reset token. The token is never persisted in plaintext. */
+    @Async
+    public void sendParentAction(UUID schoolId, String displayName, String toEmail,
+                                 String subject, String token, String actionLabel) {
+        if (toEmail == null || toEmail.isBlank()) return;
+        MailConfig c = repo.findById(schoolId).orElse(null);
+        if (c == null || !c.isEnabled() || c.getHost() == null || c.getHost().isBlank()) {
+            log.warn("SMTP indisponible : {} parent non envoyé à {}", actionLabel, toEmail);
+            return;
+        }
+        String body = "Bonjour " + (displayName == null ? "" : displayName) + ",\n\n"
+                + "Utilisez ce code à usage unique dans BBC SMS pour votre " + actionLabel + " :\n\n"
+                + token + "\n\nCe code expire rapidement et ne peut être utilisé qu’une fois.\n\n— BBC SMS";
+        try { send(c, toEmail, subject, body); }
+        catch (Exception e) { log.error("Échec d’envoi {} à {} : {}", actionLabel, toEmail, e.getMessage()); }
+    }
+
     /** Synchronous test send — surfaces SMTP errors to the caller (admin UI). */
     public void sendTest(UUID schoolId, String to) {
         MailConfig c = repo.findById(schoolId)

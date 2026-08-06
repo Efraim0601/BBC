@@ -9,6 +9,7 @@ import com.bbc.sms.classkit.dto.ClassKitDtos.ClassResourceView;
 import com.bbc.sms.finance.FeeService;
 import com.bbc.sms.finance.dto.FeeDtos.PaymentChannelView;
 import com.bbc.sms.finance.dto.FeeDtos.StudentFeeStatementView;
+import com.bbc.sms.guardian.GuardianAccessService;
 import com.bbc.sms.parentportal.dto.ParentDtos.*;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AppUserPrincipal;
@@ -39,6 +40,7 @@ public class ParentService {
     private final SuggestionRepository suggestions;
     private final ClassKitService classKit;
     private final FeeService fees;
+    private final GuardianAccessService guardianAccess;
 
     public ParentService(JdbcTemplate jdbc,
                          StudentRepository students,
@@ -46,7 +48,8 @@ public class ParentService {
                          SubjectRepository subjects,
                          SuggestionRepository suggestions,
                          ClassKitService classKit,
-                         FeeService fees) {
+                         FeeService fees,
+                         GuardianAccessService guardianAccess) {
         this.jdbc = jdbc;
         this.students = students;
         this.grades = grades;
@@ -54,21 +57,17 @@ public class ParentService {
         this.suggestions = suggestions;
         this.classKit = classKit;
         this.fees = fees;
+        this.guardianAccess = guardianAccess;
     }
 
     /** Student ids linked to the given parent account. */
     List<UUID> childIds(UUID schoolId, UUID parentUserId) {
-        return jdbc.query(
-                "SELECT student_id FROM parent_student WHERE parent_user_id = ?",
-                (rs, i) -> (UUID) rs.getObject("student_id"),
-                parentUserId);
+        return guardianAccess.childIds(schoolId, parentUserId);
     }
 
     /** Guard: a parent may only ever touch one of its own children. */
     void assertOwnership(UUID schoolId, UUID parentUserId, UUID studentId) {
-        if (!childIds(schoolId, parentUserId).contains(studentId)) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "Accès refusé");
-        }
+        guardianAccess.assertAccess(schoolId, parentUserId, studentId, "academic");
     }
 
     public List<ChildView> children(AppUserPrincipal p) {
@@ -140,7 +139,7 @@ public class ParentService {
      * suivre un paiement progressif sans passer par le secrétariat.
      */
     public StudentFeeStatementView feeStatement(AppUserPrincipal p, UUID studentId) {
-        assertOwnership(p.schoolId(), p.userId(), studentId);
+        guardianAccess.assertAccess(p.schoolId(), p.userId(), studentId, "finance");
         return fees.statement(p.schoolId(), studentId);
     }
 

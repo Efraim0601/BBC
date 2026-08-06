@@ -5,6 +5,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 import java.util.UUID;
+import java.time.OffsetDateTime;
 
 @Entity
 @Table(name = "app_user")
@@ -41,4 +42,20 @@ public class AppUser {
 
     @Column(nullable = false)
     private boolean active = true;
+
+    private String email;
+    @Column(name = "normalized_email")
+    private String normalizedEmail;
+    @Column(name = "email_verified_at")
+    private OffsetDateTime emailVerifiedAt;
+    @Column(name = "last_login_at")
+    private OffsetDateTime lastLoginAt;
+    @Column(name = "failed_attempts", nullable = false)
+    private int failedAttempts;
+    @Column(name = "locked_until")
+    private OffsetDateTime lockedUntil;
+    @Column(name = "must_change_password", nullable = false)
+    private boolean mustChangePassword;
+    @Column(name = "credentials_version", nullable = false)
+    private int credentialsVersion;
 }
