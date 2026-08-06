@@ -86,10 +86,19 @@ public class AttendanceWorkflowService {
         Set<UUID> allowed = teacherScope.allowedClassIds();
         Map<String, String> policy = policies().stream().collect(
             java.util.stream.Collectors.toMap(PolicyView::level, PolicyView::model));
+        UUID currentSessionId = sessions.findBySchoolIdOrderByStartDateDesc(TenantContext.get()).stream()
+            .filter(AcademicSession::isCurrent).map(AcademicSession::getId).findFirst().orElse(null);
+        Map<UUID, Integer> enrollmentCounts = currentSessionId == null ? Map.of() : jdbc.query("""
+            SELECT school_class_id, count(*) FROM student_enrollment
+             WHERE school_id=? AND academic_session_id=? AND status='ACTIVE'
+             GROUP BY school_class_id
+            """, rs -> { Map<UUID, Integer> counts = new HashMap<>(); while (rs.next())
+                counts.put(rs.getObject(1, UUID.class), rs.getInt(2)); return counts; }, TenantContext.get(), currentSessionId);
         return classes.findBySchoolIdOrderByName(TenantContext.get()).stream()
             .filter(c -> allowed == null || allowed.contains(c.getId()))
             .map(c -> new AttendanceClass(c.getId(), c.getName(), c.getLevel(), c.getSubsystem(),
-                policy.getOrDefault(normalizeLevel(c.getLevel()), defaultModel(c.getLevel()))))
+                policy.getOrDefault(normalizeLevel(c.getLevel()), defaultModel(c.getLevel())),
+                enrollmentCounts.getOrDefault(c.getId(), 0)))
             .toList();
     }
 

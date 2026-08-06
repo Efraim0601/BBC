@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { AttendanceApi } from './attendance.api';
 import { I18nService } from '../../core/i18n.service';
 import { AuthService } from '../../core/auth.service';
+import { FoundationApi, AcademicSessionView } from '../../core/foundation.api';
 import { AttendanceAnalytics, AttendanceClass, AttendanceDevice, AttendancePolicy,
   AttendanceRoster, AttendanceRosterMark, AttendanceSessionSummary, DeviceReconciliation, RollStatus } from '../../core/models';
 import { CardComponent, EmptyComponent, PageHeaderComponent } from '../../core/ui';
@@ -62,7 +63,7 @@ type Tab = 'roll' | 'analytics' | 'devices' | 'settings';
             <label><span class="label">{{ fr() ? 'Classe' : 'Class' }} <b class="text-rose-600">*</b></span>
               <select class="field" [value]="classId()" (change)="selectClass($any($event.target).value)">
                 <option value="">{{ fr() ? 'Sélectionner une classe' : 'Select a class' }}</option>
-                @for (c of classes(); track c.id) { <option [value]="c.id">{{ c.name }} · {{ c.model }}</option> }
+                @for (c of classes(); track c.id) { <option [value]="c.id">{{ c.name }} · {{ c.model }} · {{ c.enrolledCount }} {{ fr() ? 'élève(s)' : 'student(s)' }}</option> }
               </select>
             </label>
             @if (selectedClass()?.model === 'PERIOD') {
@@ -76,6 +77,21 @@ type Tab = 'roll' | 'analytics' | 'devices' | 'settings';
               </label>
             }
           </div>
+          @if (activeSession(); as session) {
+            <div class="mt-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+              {{ fr() ? 'Année active' : 'Active session' }}: <b>{{ session.label }}</b> ({{ session.startDate }} → {{ session.endDate }}).
+              @if (!dateInActiveSession()) { {{ fr() ? ' La date choisie est hors de cette année : choisissez une date comprise dans cette plage.' : ' The selected date is outside this session: choose a date within this range.' }} }
+            </div>
+          }
+          @if (selectedClass(); as selected) {
+            <div class="mt-3 text-sm" [class.text-amber-700]="selected.enrolledCount === 0" [class.text-slate-600]="selected.enrolledCount > 0">
+              @if (selected.enrolledCount === 0) { {{ fr() ? 'Cette classe ne compte aucun élève activement inscrit dans l’année active.' : 'This class has no actively enrolled students in the active session.' }} }
+              @else { {{ selected.enrolledCount }} {{ fr() ? 'élève(s) actif(s) dans cette classe.' : 'active student(s) in this class.' }} }
+            </div>
+          }
+          @if (selectedClass()?.model === 'PERIOD' && sessionOptions().length === 0 && dateInActiveSession()) {
+            <div class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">{{ fr() ? 'Aucune période publiée pour cette classe et cette date. Créez et publiez un créneau dans Emploi du temps avant de faire l’appel.' : 'No published period exists for this class and date. Create and publish a timetable slot before taking attendance.' }}</div>
+          }
         </bbc-card>
 
         @if (roster(); as r) {
@@ -138,7 +154,7 @@ type Tab = 'roll' | 'analytics' | 'devices' | 'settings';
             </bbc-card>
           </div>
         } @else if (classId() && !busy()) {
-          <div class="mt-5"><bbc-card><bbc-empty icon="users" [label]="selectedClass()?.model === 'PERIOD' ? (fr() ? 'Sélectionnez une période.' : 'Select a period.') : (fr() ? 'Aucune séance disponible pour cette date.' : 'No session available for this date.')" /></bbc-card></div>
+          <div class="mt-5"><bbc-card><bbc-empty icon="users" [label]="!dateInActiveSession() ? (fr() ? 'Choisissez une date dans l’année scolaire active.' : 'Choose a date within the active academic session.') : selectedClass()?.enrolledCount === 0 ? (fr() ? 'Cette classe ne compte aucun élève actif pour cette année.' : 'This class has no active student for this session.') : selectedClass()?.model === 'PERIOD' ? (fr() ? 'Sélectionnez une période publiée dans l’emploi du temps.' : 'Select a published timetable period.') : (fr() ? 'Aucune séance disponible pour cette date.' : 'No session available for this date.')" /></bbc-card></div>
         }
       }
 
@@ -206,6 +222,7 @@ type Tab = 'roll' | 'analytics' | 'devices' | 'settings';
 export class AttendanceComponent {
   private api = inject(AttendanceApi);
   private auth = inject(AuthService);
+  private foundation = inject(FoundationApi);
   protected i18n = inject(I18nService);
   protected fr = () => this.i18n.lang() === 'fr';
   protected canConfigure = this.auth.can('settings', 'write');
@@ -228,15 +245,18 @@ export class AttendanceComponent {
   protected generateFrom = signal(this.today); protected generateTo = signal(this.today); protected generationResult = signal<any>(null);
   protected modal = signal<'reopen'|'generate'|null>(null); protected modalReason = signal(''); protected modalAttempted = signal(false);
   protected selectedClass = computed(() => this.classes().find(c => c.id === this.classId()) || null);
+  protected activeSession = signal<AcademicSessionView|null>(null);
+  protected dateInActiveSession = computed(() => { const s=this.activeSession(); return !!s && this.date() >= s.startDate && this.date() <= s.endDate; });
   protected currentPolicy = computed(() => this.policies().find(p => p.level === this.selectedClass()?.level));
 
   constructor() {
     this.api.classes().subscribe({next:v=>this.classes.set(v),error:e=>this.fail(e)});
     this.api.policies().subscribe({next:v=>this.policies.set(v),error:e=>this.fail(e)});
+    this.foundation.currentSession().subscribe({next:s=>{ this.activeSession.set(s); if (!this.dateInRange(this.date(), s)) this.applySuggestedDate(s); },error:e=>this.fail(e)});
   }
   protected selectTab(tab: Tab): void { this.tab.set(tab); this.clearNotice(); if(tab==='analytics') this.loadAnalytics(); if(tab==='devices') this.loadDevices(); }
-  protected setDate(v:string):void { if(!v)return; this.date.set(v); this.periodKey.set(''); this.roster.set(null); if(this.classId()) this.loadSessionOptions(); }
-  protected selectClass(id:string):void { this.classId.set(id); this.periodKey.set(''); this.roster.set(null); if(id) this.loadSessionOptions(); else this.sessionOptions.set([]); }
+  protected setDate(v:string):void { if(!v)return; this.date.set(v); this.periodKey.set(''); this.roster.set(null); if(this.classId() && this.dateInActiveSession()) this.loadSessionOptions(); }
+  protected selectClass(id:string):void { this.classId.set(id); this.periodKey.set(''); this.roster.set(null); if(id && this.dateInActiveSession()) this.loadSessionOptions(); else this.sessionOptions.set([]); }
   private loadSessionOptions():void { this.busy.set(true); this.api.sessions(this.classId(),this.date()).subscribe({next:s=>{this.sessionOptions.set(s);this.busy.set(false);if(this.selectedClass()?.model==='DAILY')this.loadRoster();},error:e=>{this.busy.set(false);this.fail(e);}}); }
   protected selectPeriod(key:string):void { this.periodKey.set(key); if(key)this.loadRoster(); else this.roster.set(null); }
   private loadRoster():void { this.busy.set(true);this.api.roster(this.classId(),this.date(),this.periodKey()||undefined).subscribe({next:r=>{this.roster.set(r);this.busy.set(false);this.attempted.set(false);},error:e=>{this.busy.set(false);this.fail(e);}}); }
@@ -263,6 +283,9 @@ export class AttendanceComponent {
   protected policyBoolean(i:number,v:boolean):void { this.policies.update(p=>p.map((x,n)=>n===i?({...x,requireAbsenceReason:v}):x)); }
   protected savePolicy(p:AttendancePolicy):void { this.api.updatePolicy(p.level,p).subscribe({next:v=>{this.policies.update(all=>all.map(x=>x.level===v.level?v:x));this.ok(this.fr()?'Politique enregistrée.':'Policy saved.');},error:e=>this.fail(e)}); }
   protected generate(preview:boolean):void { if(!this.generateFrom()||!this.generateTo()){this.error(this.fr()?'Les deux dates sont obligatoires.':'Both dates are required.');return;}this.api.generate(this.generateFrom(),this.generateTo(),preview).subscribe({next:v=>{this.generationResult.set(v);this.ok(preview?(this.fr()?'Prévisualisation terminée : aucune donnée modifiée.':'Preview complete: no data changed.'):(this.fr()?'Séances synchronisées. Aucun élève n’a été marqué automatiquement.':'Sessions synchronized. No student was marked automatically.'));},error:e=>this.fail(e)}); }
+  private dateInRange(value:string, session:AcademicSessionView):boolean { return value >= session.startDate && value <= session.endDate; }
+  private applySuggestedDate(session:AcademicSessionView):void { const today=this.today; let suggested=this.dateInRange(today,session) ? today : session.startDate; const day=new Date(suggested+'T12:00:00').getDay(); if(day===0) suggested=this.addDays(suggested,1); else if(day===6) suggested=this.addDays(suggested,2); if(suggested > session.endDate) suggested=session.endDate; this.date.set(suggested); this.from.set(session.startDate); this.to.set(session.endDate); this.generateFrom.set(session.startDate); this.generateTo.set(session.endDate); }
+  private addDays(value:string, days:number):string { const d=new Date(value+'T12:00:00'); d.setDate(d.getDate()+days); return d.toISOString().slice(0,10); }
   private fail(e:any):void { this.error(e?.error?.message||e?.error?.detail||e?.message||(this.fr()?'Une erreur est survenue.':'An error occurred.')); }
   private ok(m:string):void { this.noticeType.set('ok');this.notice.set(m); }
   private error(m:string):void { this.noticeType.set('error');this.notice.set(m); }

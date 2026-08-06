@@ -62,7 +62,7 @@ public class AttendanceDtos {
     public record PolicyRequest(@NotBlank String model, int lateAfterMinutes,
                                 BigDecimal chronicAbsencePercent, boolean requireAbsenceReason) {}
 
-    public record AttendanceClass(UUID id, String name, String level, String subsystem, String model) {}
+    public record AttendanceClass(UUID id, String name, String level, String subsystem, String model, int enrolledCount) {}
     public record SessionSummary(UUID id, UUID classId, String className, LocalDate date,
                                  String model, String periodKey, String subjectCode, String status,
                                  long version, int total, int marked) {}

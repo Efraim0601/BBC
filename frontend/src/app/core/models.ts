@@ -84,7 +84,7 @@ export interface AttendancePolicy {
   chronicAbsencePercent: number; requireAbsenceReason: boolean;
 }
 export interface AttendanceClass {
-  id: string; name: string; level: string; subsystem: string; model: 'DAILY' | 'PERIOD';
+  id: string; name: string; level: string; subsystem: string; model: 'DAILY' | 'PERIOD'; enrolledCount: number;
 }
 export interface AttendanceSessionSummary {
   id: string; classId: string; className: string; date: string; model: 'DAILY' | 'PERIOD';
