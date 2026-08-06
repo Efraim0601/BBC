@@ -60,7 +60,7 @@ export interface GuardianRelationshipView extends GuardianInput {
 }
 export interface RegistrationRequest { student: StudentUpsert; guardians: GuardianInput[]; }
 export interface RegistrationView { student:Student; guardians:GuardianRelationshipView[]; message:string; }
-export interface FamilyImportRow { externalKey:string; firstName:string; lastName:string; sex?:string; dob?:string|null; classId:string; guardians:Array<{displayName:string;email:string;phone?:string;relationshipType:string;accessMode:string}>; }
+export interface FamilyImportRow { externalKey:string; firstName:string; lastName:string; niu?:string|null; sex?:string; dob?:string|null; birthplace?:string|null; repeats?:boolean; classId:string; guardians:Array<{displayName:string;email?:string|null;phone?:string|null;relationshipType:string;accessMode:string}>; }
 export interface FamilyImportView { jobId:string;status:string;totalRows:number;validRows:number;createdRows:number;linkedGuardians:number;failedRows:number;rows:Array<{rowNumber:number;externalKey:string;studentName:string;outcome:string;message:string}>; }
 
 /** One imported row — mirrors the fields asked for when creating a student by hand. */

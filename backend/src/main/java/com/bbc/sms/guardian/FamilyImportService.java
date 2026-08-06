@@ -27,7 +27,7 @@ public class FamilyImportService {
             if(!keys.add(row.externalKey())){outcome="ERROR";message="Clé de ligne dupliquée dans le fichier";}
             else if(row.classId()==null){outcome="ERROR";message="Classe obligatoire";}
             else if(row.guardians()==null||row.guardians().isEmpty()){outcome="ERROR";message="Au moins un parent ou tuteur est obligatoire";}
-            else if(row.guardians().stream().anyMatch(g->g.email()==null||g.email().isBlank())){outcome="ERROR";message="E-mail du parent obligatoire pour l’import sécurisé";}
+            else if(row.guardians().stream().anyMatch(g->!"NO_PORTAL".equalsIgnoreCase(g.accessMode())&&(g.email()==null||g.email().isBlank()))){outcome="ERROR";message="E-mail obligatoire pour chaque parent qui doit accéder au portail";}
             if("VALID".equals(outcome))valid++;
             try{jdbc.update("INSERT INTO family_import_row(id,school_id,job_id,row_number,external_key,payload,status,message) VALUES (?,?,?,?,?,?::jsonb,?,?)",UUID.randomUUID(),school,job,rowNo,row.externalKey(),json.writeValueAsString(row),outcome,message);}catch(Exception e){throw ApiException.badRequest("Ligne d’import illisible");}
             views.add(new FamilyImportRowView(rowNo,row.externalKey(),row.lastName()+" "+row.firstName(),outcome,message));
@@ -49,7 +49,7 @@ public class FamilyImportService {
                 FamilyImportRow row=json.readValue(rp.payload(),FamilyImportRow.class);
                 List<GuardianInput> gs=row.guardians().stream().map(g->new GuardianInput(null,g.displayName(),g.email(),g.phone(),g.relationshipType()==null?"GUARDIAN":g.relationshipType(),g.accessMode()==null?"SEND_INVITE":g.accessMode(),null,true,false,null,true,false,true,true,false,true,false,true,"Import "+rp.externalKey())).toList();
                 StudentUpsert s=new StudentUpsert(
-                    row.firstName(), row.lastName(), null, row.sex(), row.dob(), null, false, row.classId(),
+                    row.firstName(), row.lastName(), row.niu(), row.sex(), row.dob(), row.birthplace(), Boolean.TRUE.equals(row.repeats()), row.classId(),
                     null, null, null, null, null,
                     null, null, null, null, null, null, null, null, null, null);
                 RegistrationView result=registrations.register(new RegistrationRequest(s,gs));created++;linked+=result.guardians().size();

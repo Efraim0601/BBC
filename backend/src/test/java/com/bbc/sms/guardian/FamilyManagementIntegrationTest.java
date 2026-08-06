@@ -45,12 +45,17 @@ class FamilyManagementIntegrationTest {
  }
 
  @Test void familyImportDryRunDoesNotMutateAndCommitIsRetrySafe(){
-  var row=new FamilyImportRow("ROW-1","Lina","Toko","F",null,classId,List.of(new FamilyImportGuardian("Mme Toko","toko@example.test","6002","MOTHER","SEND_INVITE")));
+  var row=new FamilyImportRow("ROW-1","Lina","Toko","NIU-1","F",LocalDate.of(2015,2,3),"Douala",true,classId,List.of(new FamilyImportGuardian("M. Toko","father@example.test","6001","FATHER","SEND_INVITE"),new FamilyImportGuardian("Mme Toko","toko@example.test","6002","MOTHER","SEND_INVITE")));
   var preview=imports.dryRun(new FamilyImportRequest("test.csv",List.of(row)));
   assertThat(preview.validRows()).isEqualTo(1);assertThat(jdbc.queryForObject("SELECT count(*) FROM student WHERE school_id=?",Integer.class,school)).isZero();
   var committed=imports.commit(preview.jobId());assertThat(committed.createdRows()).isEqualTo(1);
+  UUID studentId=jdbc.queryForObject("SELECT id FROM student WHERE school_id=?",UUID.class,school);
+  assertThat(jdbc.queryForObject("SELECT niu FROM student WHERE id=?",String.class,studentId)).isEqualTo("NIU-1");
+  assertThat(jdbc.queryForObject("SELECT birthplace FROM student WHERE id=?",String.class,studentId)).isEqualTo("Douala");
+  assertThat(jdbc.queryForObject("SELECT repeats FROM student WHERE id=?",Boolean.class,studentId)).isTrue();
+  assertThat(jdbc.queryForObject("SELECT count(*) FROM student_guardian WHERE student_id=?",Integer.class,studentId)).isEqualTo(2);
   assertThatThrownBy(()->imports.commit(preview.jobId())).hasMessageContaining("état");
-  String hash=jdbc.queryForObject("SELECT token_hash FROM guardian_account_token WHERE school_id=?",String.class,school);assertThat(hash).hasSize(64).doesNotContain("toko@example");
+  List<String> hashes=jdbc.query("SELECT token_hash FROM guardian_account_token WHERE school_id=?",(rs,i)->rs.getString(1),school);assertThat(hashes).hasSize(2).allMatch(hash->hash.length()==64&&!hash.contains("toko@example"));
  }
  private StudentUpsert student(String first,String last){return new StudentUpsert(first,last,null,"F",LocalDate.of(2015,1,1),null,false,classId,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null);}
 }

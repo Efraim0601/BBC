@@ -44,7 +44,8 @@ public final class GuardianDtos {
     public record FamilyImportGuardian(String displayName, String email, String phone,
         String relationshipType, String accessMode) {}
     public record FamilyImportRow(@NotBlank String externalKey, @NotBlank String firstName,
-        @NotBlank String lastName, String sex, LocalDate dob, UUID classId,
+        @NotBlank String lastName, String niu, String sex, LocalDate dob, String birthplace,
+        Boolean repeats, UUID classId,
         List<FamilyImportGuardian> guardians) {}
     public record FamilyImportRequest(String sourceName, @NotEmpty List<FamilyImportRow> rows) {}
     public record FamilyImportRowView(int rowNumber, String externalKey, String studentName,
