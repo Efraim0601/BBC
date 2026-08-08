@@ -503,7 +503,16 @@ interface HeaderMap {
                   <bbc-icon name="check" [s]="20" />
                 </div>
                 <div>
-                  <div class="font-semibold text-ink">{{ res.created }} {{ fr() ? 'élève(s) importé(s)' : 'student(s) imported' }}</div>
+                  <div class="font-semibold text-ink">{{ res.created }} {{ fr() ? 'élève(s) ajouté(s)' : 'student(s) added' }}</div>
+                  @if (res.updated) {
+                    <div class="text-sm text-ink">
+                      {{ res.updated }} {{ fr() ? 'fiche(s) complétée(s)' : 'record(s) completed' }}
+                      <span class="text-mute">({{ res.fieldsFilled }} {{ fr() ? 'champ(s) rempli(s)' : 'field(s) filled' }})</span>
+                    </div>
+                  }
+                  @if (res.unchanged) {
+                    <div class="text-sm text-mute">{{ res.unchanged }} {{ fr() ? 'fiche(s) déjà complète(s) — rien à ajouter' : 'record(s) already complete — nothing to add' }}</div>
+                  }
                   @if (res.failed) { <div class="text-sm text-amber-700">{{ res.failed }} {{ fr() ? 'ligne(s) ignorée(s)' : 'row(s) skipped' }}</div> }
                 </div>
               </div>
@@ -706,7 +715,15 @@ interface HeaderMap {
                 <button (click)="doImport()" [disabled]="!importReady() || !validCount() || importing()"
                   class="inline-flex items-center gap-1.5 h-10 px-6 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-semibold">
                   <bbc-icon name="plus" [s]="16" />
-                  {{ importing() ? (fr() ? 'Import…' : 'Importing…') : (fr() ? 'Importer ' + validCount() + ' élève(s)' : 'Import ' + validCount() + ' student(s)') }}
+                  @if (importing()) {
+                    @if (importProgress(); as p) {
+                      {{ fr() ? 'Import… ' : 'Importing… ' }}{{ p.done }}/{{ p.total }}
+                    } @else {
+                      {{ fr() ? 'Import…' : 'Importing…' }}
+                    }
+                  } @else {
+                    {{ fr() ? 'Importer ' + validCount() + ' élève(s)' : 'Import ' + validCount() + ' student(s)' }}
+                  }
                 </button>
               </div>
             </div>
@@ -789,6 +806,7 @@ export class StudentsComponent {
   protected importResult = signal<StudentImportResult | null>(null);
   protected importing = signal(false);
   protected importError = signal<string | null>(null);
+  protected importProgress = signal<{ done: number; total: number } | null>(null);
 
   protected canWrite = this.auth.can('students', 'write');
   protected draft: StudentUpsert = this.blank();
@@ -1296,27 +1314,90 @@ export class StudentsComponent {
     this.onText(sample);
   }
 
+  /**
+   * A register goes up in slices rather than as one long request. Sending a whole
+   * class in a single call meant any hiccup on a slow line — a proxy giving up, a
+   * NAT dropping an idle connection — lost the entire import with nothing to show
+   * for it. Each slice is a short request, and because the server now completes
+   * pupils already on file instead of duplicating them, re-running an interrupted
+   * import simply picks up where it stopped.
+   */
+  private static readonly IMPORT_CHUNK = 200;
+
   protected doImport(): void {
     const rows = this.importRows().filter((r) => this.rowValid(r));
     if (!this.importReady() || !rows.length) return;
-    const req: StudentImportRequest =
-      this.importTarget() === 'existing'
-        ? { classId: this.importClassId(), rows }
-        : { newClass: { name: this.newClassName().trim(), subsystem: this.newClassSubsystem(), level: this.newClassLevel() }, rows };
+
+    const chunks: StudentImportRow[][] = [];
+    for (let i = 0; i < rows.length; i += StudentsComponent.IMPORT_CHUNK) {
+      chunks.push(rows.slice(i, i + StudentsComponent.IMPORT_CHUNK));
+    }
+
     this.importing.set(true);
     this.importError.set(null);
-    this.api.importStudents(req).subscribe({
-      next: (res) => { this.importing.set(false); this.importResult.set(res); this.reload(); this.setupApi.listClasses().subscribe((c) => this.classes.set(c)); },
-      error: (e) => { this.importing.set(false); this.importError.set(this.importErrorMessage(e)); },
-    });
+    this.importResult.set(null);
+    this.importProgress.set({ done: 0, total: rows.length });
+
+    const merged: StudentImportResult = { created: 0, updated: 0, unchanged: 0, fieldsFilled: 0, failed: 0, errors: [] };
+    let sent = 0;
+
+    const sendFrom = (index: number): void => {
+      if (index >= chunks.length) {
+        this.importing.set(false);
+        this.importProgress.set(null);
+        this.importResult.set(merged);
+        this.reload();
+        this.setupApi.listClasses().subscribe((c) => this.classes.set(c));
+        return;
+      }
+      const slice = chunks[index];
+      const base = sent;
+      const req: StudentImportRequest =
+        this.importTarget() === 'existing'
+          ? { classId: this.importClassId(), rows: slice }
+          : { newClass: { name: this.newClassName().trim(), subsystem: this.newClassSubsystem(), level: this.newClassLevel() }, rows: slice };
+      this.api.importStudents(req).subscribe({
+        next: (res) => {
+          merged.created += res.created;
+          merged.updated += res.updated;
+          merged.unchanged += res.unchanged;
+          merged.fieldsFilled += res.fieldsFilled;
+          merged.failed += res.failed;
+          // Row numbers come back per-request; shift them onto the file's numbering.
+          merged.errors.push(...res.errors.map((e) => ({ ...e, row: e.row + base })));
+          sent += slice.length;
+          this.importProgress.set({ done: sent, total: rows.length });
+          sendFrom(index + 1);
+        },
+        error: (e) => {
+          this.importing.set(false);
+          this.importProgress.set(null);
+          // Whatever already landed is real and keeps its place — show it, then say
+          // plainly that relaunching finishes the job without duplicating anyone.
+          if (sent > 0) {
+            this.importResult.set(merged);
+            this.reload();
+          }
+          this.importError.set(this.importErrorMessage(e, sent, rows.length));
+        },
+      });
+    };
+
+    sendFrom(0);
   }
 
   /** Turn any import failure into a message the user can act on, not a bare "Import impossible.". */
-  private importErrorMessage(e: unknown): string {
+  private importErrorMessage(e: unknown, sent = 0, total = 0): string {
     const fr = this.fr();
+    // Rows already accepted are committed and will not be duplicated on a retry,
+    // so the message says where the import stopped rather than just "try again".
+    const resume = sent > 0
+      ? (fr ? ` ${sent} ligne(s) sur ${total} sont déjà enregistrées — relancez le même fichier, les élèves déjà présents seront complétés, pas dupliqués.`
+            : ` ${sent} of ${total} rows are already saved — run the same file again: pupils already on file are completed, not duplicated.`)
+      : '';
     if (e instanceof HttpErrorResponse) {
       // Network down, request blocked, or CORS — no HTTP response reached us.
-      if (e.status === 0) return fr ? 'Connexion interrompue (réseau ou délai dépassé) — réessayez.' : 'Connection lost (network or timeout) — please retry.';
+      if (e.status === 0) return (fr ? 'Connexion interrompue (réseau ou délai dépassé).' : 'Connection lost (network or timeout).') + (resume || (fr ? ' Réessayez.' : ' Please retry.'));
       if (e.status === 401) return fr ? 'Session expirée — reconnectez-vous puis relancez l\'import.' : 'Session expired — sign in again then retry the import.';
       if (e.status === 403) return fr ? 'Vous n\'avez pas la permission d\'importer des élèves.' : 'You do not have permission to import students.';
       if (e.status === 413) return fr ? 'Fichier trop volumineux — importez par lots plus petits.' : 'File too large — import in smaller batches.';

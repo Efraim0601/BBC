@@ -12,12 +12,17 @@ import com.bbc.sms.timetable.SchoolClassRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.text.Normalizer;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.Consumer;
 
 @Service
 public class StudentService {
@@ -109,10 +114,24 @@ public class StudentService {
     }
 
     /**
-     * Bulk-create students into one existing class. Each row is validated on its
-     * own: a bad row is skipped and reported, the rest still import. Matricules
-     * are handed out from a local running counter so a whole batch stays unique
-     * within itself (a COUNT-based query can't see rows not yet flushed).
+     * Import a register into one class, in a way that survives being run twice.
+     *
+     * Each row is matched against the pupils already in the target class — by NIU
+     * when the row carries one, otherwise by normalised last + first name. A match
+     * is ENRICHED rather than duplicated: only the fields still empty on file are
+     * filled in, so a partial or out-of-date register can never erase what has
+     * already been captured. A row matching nobody creates the pupil, as before.
+     * Pupils created earlier in the same batch join the index immediately, so a
+     * register listing the same child twice still yields a single record.
+     *
+     * That idempotence is also what makes the endpoint safe to retry: when a slow
+     * link drops the connection mid-import, re-sending the same batch converges on
+     * the same result instead of doubling the class.
+     *
+     * Each row is validated on its own — a bad row is reported and skipped, the rest
+     * still import. Matricules come from a running counter checked against the
+     * school's existing ones, held in memory so the batch stays unique within itself
+     * (a COUNT-based query can't see rows not yet flushed).
      */
     @Transactional
     public StudentImportResult importForClass(StudentImportRequest in) {
@@ -120,11 +139,20 @@ public class StudentService {
         SchoolClass cls = resolveImportClass(in, schoolId);
         accessScope.assertClass(cls.getId());
 
+        // Everything the matching needs, read once up front (see the repository note).
+        Map<String, Student> byNiu = new HashMap<>();
+        Map<String, Student> byName = new HashMap<>();
+        for (Student s : repo.findBySchoolIdAndClassIdAndActiveTrue(schoolId, cls.getId())) {
+            String niu = blankToNull(s.getNiu());
+            if (niu != null) byNiu.merge(niu, s, StudentService::mostComplete);
+            byName.merge(nameKey(s.getLastName(), s.getFirstName()), s, StudentService::mostComplete);
+        }
+        Set<String> schoolNiu = new HashSet<>(repo.findActiveNiusBySchoolId(schoolId));
+        Set<String> usedMatricules = new HashSet<>(repo.findMatriculesBySchoolId(schoolId));
+
         long seq = repo.countBySchoolIdAndActiveTrue(schoolId) + 1001;
-        Set<String> usedMatricules = new HashSet<>();
-        Set<String> usedNiu = new HashSet<>();
         List<StudentImportError> errors = new ArrayList<>();
-        int created = 0;
+        int created = 0, updated = 0, unchanged = 0, fieldsFilled = 0;
         int lineNo = 0;
 
         for (StudentImportRow row : in.rows()) {
@@ -143,20 +171,41 @@ public class StudentService {
                         throw new IllegalArgumentException("Sexe invalide (attendu M ou F)");
                     }
                 }
-                // Skip pupils already on file for this NIU so re-importing a register
-                // is idempotent (the source NIU can even repeat within one batch).
                 String niu = blankToNull(row.niu());
-                if (niu != null) {
-                    if (usedNiu.contains(niu) || repo.existsBySchoolIdAndNiuAndActiveTrue(schoolId, niu)) {
-                        throw new IllegalArgumentException("NIU déjà présent (" + niu + ") — ignoré");
+                String key = nameKey(lastName, firstName);
+
+                // ---- Already in this class? Complete the record instead of adding one.
+                Student match = niu != null ? byNiu.get(niu) : null;
+                if (match == null) match = byName.get(key);
+                if (match != null) {
+                    int filled = fillBlanks(match, row, sex, niu);
+                    if (filled > 0) {
+                        syncPrimaryContact(match);
+                        repo.save(match);
+                        updated++;
+                        fieldsFilled += filled;
+                    } else {
+                        unchanged++;
                     }
-                    usedNiu.add(niu);
+                    // A NIU learned from this row makes the pupil findable by it next time.
+                    if (niu != null) {
+                        byNiu.putIfAbsent(niu, match);
+                        schoolNiu.add(niu);
+                    }
+                    continue;
+                }
+
+                // ---- New to this class. The NIU must still be free school-wide:
+                // otherwise the pupil is on file elsewhere and importing here would
+                // create a second record under the same official identifier.
+                if (niu != null && schoolNiu.contains(niu)) {
+                    throw new IllegalArgumentException(
+                            "NIU " + niu + " déjà attribué à un élève d'une autre classe");
                 }
 
                 String matricule;
                 do { matricule = "BBC-" + seq++; }
-                while (usedMatricules.contains(matricule) || repo.existsBySchoolIdAndMatricule(schoolId, matricule));
-                usedMatricules.add(matricule);
+                while (!usedMatricules.add(matricule));
 
                 Student s = new Student();
                 s.setSchoolId(schoolId);
@@ -189,11 +238,96 @@ public class StudentService {
                 syncPrimaryContact(s);
                 repo.save(s);
                 created++;
+
+                // Index the newcomer so a second mention of the same child later in
+                // this very batch enriches it rather than adding another record.
+                byName.putIfAbsent(key, s);
+                if (niu != null) {
+                    byNiu.putIfAbsent(niu, s);
+                    schoolNiu.add(niu);
+                }
             } catch (RuntimeException ex) {
                 errors.add(new StudentImportError(lineNo, label.isBlank() ? "?" : label, ex.getMessage()));
             }
         }
-        return new StudentImportResult(created, errors.size(), errors);
+        return new StudentImportResult(created, updated, unchanged, fieldsFilled, errors.size(), errors);
+    }
+
+    /**
+     * Matching key for a pupil's name. Registers are retyped by hand from one year
+     * to the next, so accents, capitalisation, hyphens and double spaces all drift:
+     * "MBALLA  Jean-Pierre", "Mballa Jean pierre" and "MBALLA JEAN-PIERRE" must all
+     * resolve to the same child. The NUL separator keeps last and first name apart,
+     * so "AB C" and "A BC" cannot collide.
+     */
+    private static String nameKey(String lastName, String firstName) {
+        return normalise(lastName) + '\0' + normalise(firstName);
+    }
+
+    private static String normalise(String s) {
+        if (s == null) return "";
+        String unaccented = Normalizer.normalize(s, Normalizer.Form.NFD).replaceAll("\\p{M}+", "");
+        return unaccented.replaceAll("[^\\p{Alnum}]+", " ").trim().toUpperCase(Locale.ROOT);
+    }
+
+    /**
+     * Which of two records to enrich when a class already holds duplicates (earlier
+     * imports created some): pick the fullest, so the enrichment lands on the record
+     * the school is most likely to keep.
+     */
+    private static Student mostComplete(Student a, Student b) {
+        return completeness(b) > completeness(a) ? b : a;
+    }
+
+    private static int completeness(Student s) {
+        int n = s.getDob() != null ? 1 : 0;
+        for (String v : new String[]{
+                s.getNiu(), s.getSex(), s.getBirthplace(), s.getParentName(), s.getParentPhone(),
+                s.getFatherName(), s.getFatherPhone(), s.getFatherEmail(),
+                s.getMotherName(), s.getMotherPhone(), s.getMotherEmail(),
+                s.getGuardianName(), s.getGuardianPhone(), s.getGuardianEmail(),
+                s.getGuardianRelation()}) {
+            if (blankToNull(v) != null) n++;
+        }
+        return n;
+    }
+
+    /**
+     * Copy the row onto a pupil already on file, but only where that pupil has
+     * nothing yet — an incomplete or stale register must never overwrite data the
+     * school has already captured. Returns how many fields were actually filled, so
+     * a run that changes nothing can be reported as such rather than as an update.
+     */
+    private static int fillBlanks(Student s, StudentImportRow row, String sex, String niu) {
+        int n = 0;
+        n += fill(s.getNiu(), niu, s::setNiu);
+        n += fill(s.getSex(), sex, s::setSex);
+        n += fill(s.getBirthplace(), row.birthplace(), s::setBirthplace);
+        n += fill(s.getParentName(), row.parentName(), s::setParentName);
+        n += fill(s.getParentPhone(), row.parentPhone(), s::setParentPhone);
+        n += fill(s.getFatherName(), row.fatherName(), s::setFatherName);
+        n += fill(s.getFatherPhone(), row.fatherPhone(), s::setFatherPhone);
+        n += fill(s.getFatherEmail(), row.fatherEmail(), s::setFatherEmail);
+        n += fill(s.getMotherName(), row.motherName(), s::setMotherName);
+        n += fill(s.getMotherPhone(), row.motherPhone(), s::setMotherPhone);
+        n += fill(s.getMotherEmail(), row.motherEmail(), s::setMotherEmail);
+        n += fill(s.getGuardianName(), row.guardianName(), s::setGuardianName);
+        n += fill(s.getGuardianPhone(), row.guardianPhone(), s::setGuardianPhone);
+        n += fill(s.getGuardianEmail(), row.guardianEmail(), s::setGuardianEmail);
+        n += fill(s.getGuardianRelation(), row.guardianRelation(), s::setGuardianRelation);
+        if (s.getDob() == null && row.dob() != null) { s.setDob(row.dob()); n++; }
+        // `repeats` is a boolean with no empty state: the register can raise it,
+        // never clear it — clearing would be an overwrite, not a fill.
+        if (row.repeats() && !s.isRepeats()) { s.setRepeats(true); n++; }
+        return n;
+    }
+
+    private static int fill(String current, String incoming, Consumer<String> setter) {
+        if (blankToNull(current) != null) return 0;      // already known — leave it alone
+        String value = blankToNull(incoming);
+        if (value == null) return 0;
+        setter.accept(value);
+        return 1;
     }
 
     /** Bind the batch to an existing class, or find-or-create one from the newClass spec. */

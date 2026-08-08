@@ -110,5 +110,17 @@ public class StudentDtos {
 
     public record StudentImportError(int row, String name, String message) {}
 
-    public record StudentImportResult(int created, int failed, List<StudentImportError> errors) {}
+    /**
+     * What an import actually did. `updated` counts pupils already on file whose
+     * empty fields the register filled in, `unchanged` those it had nothing to add
+     * to — telling them apart is what lets a second run be read as "nothing left to
+     * complete" rather than as a no-op failure.
+     */
+    public record StudentImportResult(
+            int created,
+            int updated,
+            int unchanged,
+            int fieldsFilled,
+            int failed,
+            List<StudentImportError> errors) {}
 }

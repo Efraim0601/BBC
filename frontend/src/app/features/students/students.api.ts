@@ -89,6 +89,11 @@ export interface StudentImportError {
 
 export interface StudentImportResult {
   created: number;
+  /** Pupils already on file whose empty fields this register filled in. */
+  updated: number;
+  /** Pupils already on file the register had nothing to add to. */
+  unchanged: number;
+  fieldsFilled: number;
   failed: number;
   errors: StudentImportError[];
 }
