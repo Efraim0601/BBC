@@ -2,7 +2,7 @@ package com.bbc.sms.academic;
 
 import com.bbc.sms.academic.dto.BulletinDtos.*;
 import com.bbc.sms.platform.common.ApiException;
-import com.bbc.sms.platform.security.TeacherScopeService;
+import com.bbc.sms.platform.security.AccessScopeService;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.student.Student;
 import com.bbc.sms.student.StudentRepository;
@@ -31,7 +31,7 @@ public class BulletinService {
     private final GradeRepository gradeRepo;
     private final StudentRepository studentRepo;
     private final BulletinValidationRepository validationRepo;
-    private final TeacherScopeService teacherScope;
+    private final AccessScopeService accessScope;
     private final JdbcTemplate jdbc;
 
     public BulletinService(SubjectRepository subjectRepo,
@@ -40,7 +40,7 @@ public class BulletinService {
                            GradeRepository gradeRepo,
                            StudentRepository studentRepo,
                            BulletinValidationRepository validationRepo,
-                           TeacherScopeService teacherScope,
+                           AccessScopeService accessScope,
                            JdbcTemplate jdbc) {
         this.subjectRepo = subjectRepo;
         this.coefRepo = coefRepo;
@@ -48,7 +48,7 @@ public class BulletinService {
         this.gradeRepo = gradeRepo;
         this.studentRepo = studentRepo;
         this.validationRepo = validationRepo;
-        this.teacherScope = teacherScope;
+        this.accessScope = accessScope;
         this.jdbc = jdbc;
     }
 
@@ -56,8 +56,11 @@ public class BulletinService {
      * Effective coefficient of each subject for a given class name: the per-class
      * override if one exists, otherwise the subject's own default. Built once per
      * bulletin/PV so all classmates (same class) reuse it.
+     *
+     * <p>Public because the end-of-year promotion computes its annual averages with
+     * exactly the same weights as the bulletins — the two must never diverge.
      */
-    private Map<String, Integer> coefsForClass(UUID schoolId, List<Subject> subjects, String className) {
+    public Map<String, Integer> coefsForClass(UUID schoolId, List<Subject> subjects, String className) {
         Map<String, Integer> byCode = new HashMap<>();
         for (Subject s : subjects) byCode.put(s.getCode(), s.getCoef());
         if (className == null || className.isBlank()) return byCode;
@@ -125,7 +128,7 @@ public class BulletinService {
 
     @Transactional(readOnly = true)
     public BulletinView bulletin(UUID studentId, int sequence) {
-        teacherScope.assertStudent(studentId);
+        accessScope.assertStudent(studentId);
         UUID schoolId = TenantContext.get();
 
         Student student = studentRepo.findByIdAndSchoolId(studentId, schoolId)
@@ -200,7 +203,7 @@ public class BulletinService {
 
     @Transactional(readOnly = true)
     public PvView pv(String className, int sequence) {
-        teacherScope.assertClassName(className);
+        accessScope.assertClassName(className);
         UUID schoolId = TenantContext.get();
         List<Subject> subjects = subjectRepo.findBySchoolIdOrderByCode(schoolId);
         Map<String, Integer> coefs = coefsForClass(schoolId, subjects, className);
@@ -229,7 +232,7 @@ public class BulletinService {
 
     @Transactional
     public BulletinView validate(UUID studentId, ValidateRequest req) {
-        teacherScope.assertStudent(studentId);
+        accessScope.assertStudent(studentId);
         UUID schoolId = TenantContext.get();
 
         BulletinValidation v = validationRepo

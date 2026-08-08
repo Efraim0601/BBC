@@ -109,6 +109,19 @@ export class AuthService {
     return rank[u.permissions[module] ?? 'none'] >= rank[level];
   }
 
+  /**
+   * Le compte décide-t-il pour l'établissement entier ?
+   *
+   * <p>Faux pour un administrateur de section, à qui les réglages école-entière
+   * — matrice des rôles, profil, SMTP, calendrier, catalogues — sont fermés.
+   * Comme {@link can}, cet indicateur ne sert qu'à ne pas montrer un écran voué
+   * au refus : le serveur reste seul juge.
+   */
+  readonly schoolWide = computed(() => this.user()?.schoolWide !== false);
+
+  /** Cycle administré (maternelle|primary|secondary), null si le compte n'est pas cloisonné. */
+  readonly section = computed(() => this.user()?.section ?? null);
+
   private persist(res: TokenResponse): void {
     localStorage.setItem(ACCESS_KEY, res.accessToken);
     localStorage.setItem(REFRESH_KEY, res.refreshToken);

@@ -18,7 +18,7 @@ from chapters_setup import CH_PARAMETRES, CH_ELEVES, CH_PERSONNEL
 from chapters_teaching import CH_PRESENCE, CH_ACADEMIQUE, CH_DISCIPLINE, CH_CAHIER, CH_EMPLOI
 from chapters_ops import (
     CH_FINANCE, CH_EVENEMENTS, CH_CORRESPONDANCE, CH_FOURNITURES,
-    CH_PARCOURS_SCOLAIRE, CH_SANTE, CH_DOCUMENTS,
+    CH_PARCOURS_SCOLAIRE, CH_PASSAGE_DE_CLASSE, CH_SANTE, CH_DOCUMENTS,
 )
 from chapters_steering import CH_PILOTAGE, CH_PARENT, CH_RENTREE, CH_FAQ, CH_ANNEXES
 
@@ -52,7 +52,7 @@ GUIDE = {
             "title": {"fr": "Opérations", "en": "Operations"},
             "chapters": [
                 CH_FINANCE, CH_EVENEMENTS, CH_CORRESPONDANCE, CH_FOURNITURES,
-                CH_PARCOURS_SCOLAIRE, CH_SANTE, CH_DOCUMENTS,
+                CH_PARCOURS_SCOLAIRE, CH_PASSAGE_DE_CLASSE, CH_SANTE, CH_DOCUMENTS,
             ],
         },
         {

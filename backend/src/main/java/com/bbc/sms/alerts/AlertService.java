@@ -3,6 +3,7 @@ package com.bbc.sms.alerts;
 import com.bbc.sms.alerts.dto.AlertDtos.*;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AppUserPrincipal;
+import com.bbc.sms.platform.tenant.ParcoursContext;
 import com.bbc.sms.platform.tenant.TenantContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
@@ -44,6 +45,9 @@ public class AlertService {
                 FROM alert a
                 JOIN student s ON s.id = a.student_id
                 WHERE a.school_id = ? AND a.status IN ('open','ack')
+                  -- Un admin de section ne suit que les élèves de son cycle ; la
+                  -- clause s'efface pour les comptes non cloisonnés.
+                  AND (CAST(? AS VARCHAR) IS NULL OR s.level = CAST(? AS VARCHAR))
                 ORDER BY a.created_at DESC
                 """,
                 (rs, i) -> new AlertView(
@@ -57,7 +61,7 @@ public class AlertService {
                         rs.getString("detail"),
                         rs.getString("status"),
                         rs.getTimestamp("created_at").toInstant()),
-                schoolId);
+                schoolId, ParcoursContext.sectionLock(), ParcoursContext.sectionLock());
     }
 
     @Transactional

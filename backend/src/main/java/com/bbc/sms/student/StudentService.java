@@ -1,7 +1,7 @@
 package com.bbc.sms.student;
 
 import com.bbc.sms.platform.common.ApiException;
-import com.bbc.sms.platform.security.TeacherScopeService;
+import com.bbc.sms.platform.security.AccessScopeService;
 import com.bbc.sms.platform.tenant.ParcoursContext;
 import com.bbc.sms.platform.tenant.ParcoursContext.Scope;
 import com.bbc.sms.platform.tenant.TenantContext;
@@ -25,14 +25,14 @@ public class StudentService {
     private final StudentRepository repo;
     private final SchoolClassRepository classes;
     private final SetupService setup;
-    private final TeacherScopeService teacherScope;
+    private final AccessScopeService accessScope;
 
     public StudentService(StudentRepository repo, SchoolClassRepository classes, SetupService setup,
-                          TeacherScopeService teacherScope) {
+                          AccessScopeService accessScope) {
         this.repo = repo;
         this.classes = classes;
         this.setup = setup;
-        this.teacherScope = teacherScope;
+        this.accessScope = accessScope;
     }
 
     @Transactional(readOnly = true)
@@ -42,12 +42,25 @@ public class StudentService {
                 ? repo.findBySchoolIdAndActiveTrueOrderByLastNameAsc(schoolId)
                 : repo.findBySchoolIdAndClassNameAndActiveTrueOrderByLastNameAsc(schoolId, className);
         Scope scope = ParcoursContext.get();
-        // Un professeur principal ne voit que les élèves de ses classes.
-        Set<UUID> allowed = teacherScope.allowedClassIds();
+        // Un professeur principal ne voit que les élèves de ses classes ; un
+        // admin de section, ceux de son cycle.
+        Set<UUID> allowed = accessScope.allowedClassIds();
         return rows.stream()
-                .filter(s -> allowed == null || (s.getClassId() != null && allowed.contains(s.getClassId())))
+                .filter(s -> visible(s, allowed))
                 .filter(s -> inScope(scope, s.getLevel(), s.getSubsystem()))
                 .map(this::toView).toList();
+    }
+
+    /**
+     * L'élève est-il dans le périmètre du compte ? Les élèves déjà affectés se
+     * jugent sur leur classe ; ceux qui ne le sont pas encore — les inscriptions
+     * du jour — restent visibles de l'admin de leur section, qui a précisément
+     * pour tâche de les placer.
+     */
+    private boolean visible(Student s, Set<UUID> allowed) {
+        if (allowed == null) return true;                        // compte non cloisonné
+        if (s.getClassId() != null) return allowed.contains(s.getClassId());
+        return accessScope.unassignedVisible(s.getLevel());
     }
 
     /**
@@ -64,7 +77,7 @@ public class StudentService {
 
     @Transactional(readOnly = true)
     public StudentView get(UUID id) {
-        teacherScope.assertStudent(id);
+        accessScope.assertStudent(id);
         return toView(find(id));
     }
 
@@ -81,7 +94,7 @@ public class StudentService {
 
     @Transactional
     public StudentView update(UUID id, StudentUpsert in) {
-        teacherScope.assertStudent(id);
+        accessScope.assertStudent(id);
         Student s = find(id);
         apply(s, in);
         return toView(repo.save(s));
@@ -89,7 +102,7 @@ public class StudentService {
 
     @Transactional
     public void delete(UUID id) {
-        teacherScope.assertStudent(id);
+        accessScope.assertStudent(id);
         Student s = find(id);
         s.setActive(false);   // soft delete — keeps financial/academic history intact
         repo.save(s);
@@ -105,7 +118,7 @@ public class StudentService {
     public StudentImportResult importForClass(StudentImportRequest in) {
         UUID schoolId = TenantContext.get();
         SchoolClass cls = resolveImportClass(in, schoolId);
-        teacherScope.assertClass(cls.getId());
+        accessScope.assertClass(cls.getId());
 
         long seq = repo.countBySchoolIdAndActiveTrue(schoolId) + 1001;
         Set<String> usedMatricules = new HashSet<>();
@@ -235,6 +248,10 @@ public class StudentService {
             // free typing can never create phantom classes (review issue #1).
             SchoolClass cls = classes.findByIdAndSchoolId(in.classId(), schoolId)
                     .orElseThrow(() -> ApiException.badRequest("Classe inconnue"));
+            // On n'affecte que dans une classe de son périmètre : sans ce contrôle,
+            // un compte cloisonné sortirait un élève de sa portée d'un simple
+            // changement de classe — et le perdrait de vue au passage.
+            accessScope.assertClass(cls.getId());
             s.setClassId(cls.getId());
             s.setClassName(cls.getName());
             s.setSubsystem(cls.getSubsystem());
@@ -248,7 +265,9 @@ public class StudentService {
             String lvl = blankToNull(in.level());
             Scope scope = ParcoursContext.get();
             if (sub == null && scope != null) sub = scope.subsystem();
-            if (lvl == null && scope != null) lvl = scope.level();
+            // Le cycle vient du parcours choisi ou, pour un admin de section, de
+            // son verrou : son inscription porte sa section même sans en-tête.
+            if (lvl == null) lvl = ParcoursContext.effectiveLevel();
             s.setSubsystem(sub);
             s.setLevel(lvl);
         }

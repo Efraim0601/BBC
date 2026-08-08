@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import {
   SettingsApi, PermissionMatrix, RoleView, RoleUpsert, MailConfigUpdate,
   SchoolProfileView, SchoolProfileUpdate, HolidayView, CatalogItemView, CatalogItemUpsert,
+  AdminView, AdminCreate, Section,
 } from './settings.api';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
@@ -12,7 +13,8 @@ import {
 import { AcademicSetupComponent } from '../setup/academic-setup';
 
 type Level = 'none' | 'read' | 'write';
-type SettingsTab = 'academic' | 'general' | 'perms' | 'roles' | 'mail' | 'calendar' | 'discipline';
+type SettingsTab =
+  | 'academic' | 'general' | 'perms' | 'roles' | 'mail' | 'calendar' | 'discipline' | 'admins';
 
 @Component({
   selector: 'bbc-settings',
@@ -476,6 +478,125 @@ type SettingsTab = 'academic' | 'general' | 'perms' | 'roles' | 'mail' | 'calend
           </div>
         }
 
+        <!-- ===================== ADMINISTRATEURS ===================== -->
+        @case ('admins') {
+          <div class="grid grid-cols-12 gap-4">
+            <bbc-card className="col-span-12 lg:col-span-7"
+              [title]="fr() ? 'Administrateurs' : 'Administrators'"
+              [subtitle]="fr() ? 'L’administrateur principal et ses relais de section' : 'The main administrator and their section deputies'">
+              <div action class="w-8 h-8 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center">
+                <bbc-icon name="shield" [s]="18" />
+              </div>
+
+              @if (admins().length === 0) {
+                <bbc-empty [label]="fr() ? 'Aucun administrateur' : 'No administrator'" />
+              } @else {
+                <div class="space-y-2">
+                  @for (a of admins(); track a.userId) {
+                    <div class="p-3 rounded-lg border border-slate-100"
+                      [class]="a.section ? 'bg-white' : 'bg-brand-50/40'">
+                      <div class="flex items-start justify-between gap-3">
+                        <div class="min-w-0">
+                          <div class="flex items-center gap-2">
+                            <span class="font-semibold text-ink truncate">{{ a.displayName }}</span>
+                            @if (!a.active) {
+                              <span class="px-1.5 py-0.5 text-[10px] font-bold rounded bg-slate-100 text-mute uppercase">
+                                {{ fr() ? 'Suspendu' : 'Suspended' }}
+                              </span>
+                            }
+                          </div>
+                          <div class="text-xs text-mute mt-0.5 truncate">
+                            {{ a.username }}@if (a.email) { · {{ a.email }} }
+                          </div>
+                          <div class="text-xs font-semibold mt-1"
+                            [class]="a.section ? 'text-brand-700' : 'text-gold-600'">
+                            {{ a.section ? sectionLabel(a.section) : (fr() ? 'Établissement entier' : 'Whole school') }}
+                          </div>
+                        </div>
+
+                        @if (a.section) {
+                          <div class="flex items-center gap-1.5 shrink-0">
+                            <select [ngModel]="a.section" (ngModelChange)="moveAdmin(a, $any($event))"
+                              class="h-9 px-2 text-xs rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400">
+                              @for (sec of SECTIONS; track sec) {
+                                <option [value]="sec">{{ sectionLabel(sec) }}</option>
+                              }
+                            </select>
+                            <button type="button" (click)="resetAdmin(a)" [disabled]="busyAdmin() === a.userId"
+                              [title]="fr() ? 'Renvoyer les identifiants' : 'Resend credentials'"
+                              class="h-9 px-3 text-xs font-semibold rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-60">
+                              {{ fr() ? 'Identifiants' : 'Credentials' }}
+                            </button>
+                            <button type="button" (click)="toggleAdmin(a)" [disabled]="busyAdmin() === a.userId"
+                              class="h-9 px-3 text-xs font-semibold rounded-lg border disabled:opacity-60"
+                              [class]="a.active ? 'border-rose-200 text-rose-600 hover:bg-rose-50' : 'border-emerald-200 text-emerald-600 hover:bg-emerald-50'">
+                              {{ a.active ? (fr() ? 'Suspendre' : 'Suspend') : (fr() ? 'Rétablir' : 'Restore') }}
+                            </button>
+                          </div>
+                        }
+                      </div>
+                    </div>
+                  }
+                </div>
+              }
+            </bbc-card>
+
+            @if (canWrite) {
+              <bbc-card className="col-span-12 lg:col-span-5"
+                [title]="fr() ? 'Nommer un administrateur de section' : 'Appoint a section administrator'"
+                [subtitle]="fr() ? 'Il administrera son cycle, et lui seul' : 'They will administer their own cycle, and nothing else'">
+                <div class="space-y-3">
+                  <label class="block">
+                    <span class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'Nom complet' : 'Full name' }}</span>
+                    <input [(ngModel)]="adminDraft.name"
+                      class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
+                  </label>
+                  <label class="block">
+                    <span class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'Section' : 'Section' }}</span>
+                    <select [(ngModel)]="adminDraft.section"
+                      class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400">
+                      @for (sec of SECTIONS; track sec) {
+                        <option [value]="sec">{{ sectionLabel(sec) }}</option>
+                      }
+                    </select>
+                  </label>
+                  <label class="block">
+                    <span class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'E-mail' : 'E-mail' }}</span>
+                    <input type="email" [(ngModel)]="adminDraft.email"
+                      class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
+                    <span class="block text-xs text-mute mt-1">
+                      {{ fr() ? 'Le mot de passe temporaire n’est transmis que par e-mail.' : 'The temporary password is only ever sent by e-mail.' }}
+                    </span>
+                  </label>
+                  <label class="block">
+                    <span class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'Téléphone' : 'Phone' }}</span>
+                    <input [(ngModel)]="adminDraft.phone"
+                      class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
+                  </label>
+
+                  <button (click)="createAdmin()"
+                    [disabled]="!adminDraft.name.trim() || creatingAdmin()"
+                    class="inline-flex items-center gap-2 h-10 px-4 text-sm font-semibold rounded-lg bg-brand-600 hover:bg-brand-700 text-white disabled:opacity-60">
+                    <bbc-icon name="plus" [s]="15" />
+                    {{ creatingAdmin() ? (fr() ? 'Création…' : 'Creating…') : (fr() ? 'Nommer' : 'Appoint') }}
+                  </button>
+
+                  @if (adminMsg(); as m) {
+                    <p class="text-sm rounded-lg px-3 py-2"
+                      [class]="m.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'">{{ m.text }}</p>
+                  }
+
+                  <p class="text-xs text-mute leading-relaxed border-t border-slate-100 pt-3">
+                    {{ fr()
+                      ? 'Un administrateur de section voit et configure les élèves, classes, notes, personnel et recettes de son seul cycle. Les réglages de l’établissement — rôles, permissions, profil, messagerie, calendrier, clôture d’année — restent les vôtres.'
+                      : 'A section administrator sees and configures the students, classes, grades, staff and revenue of their own cycle only. School-wide settings — roles, permissions, profile, e-mail, calendar, year closure — remain yours.' }}
+                  </p>
+                </div>
+              </bbc-card>
+            }
+          </div>
+        }
+
         <!-- ===================== MESSAGERIE (SMTP) ===================== -->
         @case ('mail') {
           <div class="grid grid-cols-12 gap-4">
@@ -601,6 +722,9 @@ export class SettingsComponent {
   protected matrix = signal<PermissionMatrix | null>(null);
   protected canWrite = this.auth.can('settings', 'write');
   protected currentUser = this.auth.user;
+  /** Faux pour un admin de section : masque les réglages école-entière. */
+  protected schoolWide = this.auth.schoolWide;
+  protected section = this.auth.section;
   protected tab = signal<SettingsTab>('academic');
 
   // School profile
@@ -626,6 +750,15 @@ export class SettingsComponent {
   protected typeDraft = { labelFr: '', labelEn: '' };
   protected sanctionDraft = { labelFr: '', labelEn: '' };
 
+  // Administrateurs
+  protected readonly SECTIONS: Section[] = ['maternelle', 'primary', 'secondary'];
+  protected admins = signal<AdminView[]>([]);
+  protected adminDraft: AdminCreate = { name: '', section: 'primary', email: '', phone: '' };
+  protected creatingAdmin = signal(false);
+  /** Identifiant de la ligne en cours de traitement — désarme ses seuls boutons. */
+  protected busyAdmin = signal<string | null>(null);
+  protected adminMsg = signal<{ ok: boolean; text: string } | null>(null);
+
   // SMTP / mail config
   protected mailDraft: MailConfigUpdate = {
     enabled: false, host: '', port: 587, username: '', password: '',
@@ -639,15 +772,28 @@ export class SettingsComponent {
 
   protected fr = () => this.i18n.lang() === 'fr';
 
-  protected tabs = computed(() => [
-    { id: 'academic', label: this.fr() ? 'Scolarité' : 'Academics' },
-    { id: 'general', label: this.fr() ? 'Général' : 'General' },
-    { id: 'calendar', label: this.fr() ? 'Calendrier' : 'Calendar' },
-    { id: 'discipline', label: this.fr() ? 'Discipline' : 'Discipline' },
-    { id: 'perms', label: this.fr() ? 'Permissions' : 'Permissions' },
-    { id: 'roles', label: this.fr() ? 'Rôles' : 'Roles' },
-    { id: 'mail', label: this.fr() ? 'Messagerie' : 'E-mail' },
-  ]);
+  /**
+   * La scolarité — classes, matières, coefficients — se configure par cycle :
+   * elle reste ouverte à l'admin de section, cloisonnée par le serveur. Tout le
+   * reste engage l'établissement entier et ne s'affiche que pour l'admin
+   * principal ; l'API le refuserait de toute façon.
+   */
+  protected tabs = computed(() => {
+    const f = this.fr();
+    const tabs: { id: string; label: string }[] = [
+      { id: 'academic', label: f ? 'Scolarité' : 'Academics' },
+    ];
+    if (!this.schoolWide()) return tabs;
+    return tabs.concat([
+      { id: 'general', label: f ? 'Général' : 'General' },
+      { id: 'calendar', label: f ? 'Calendrier' : 'Calendar' },
+      { id: 'discipline', label: f ? 'Discipline' : 'Discipline' },
+      { id: 'admins', label: f ? 'Administrateurs' : 'Administrators' },
+      { id: 'perms', label: f ? 'Permissions' : 'Permissions' },
+      { id: 'roles', label: f ? 'Rôles' : 'Roles' },
+      { id: 'mail', label: f ? 'Messagerie' : 'E-mail' },
+    ]);
+  });
 
   protected catalogTypes = computed(() => this.catalog().filter((c) => c.kind === 'type' && c.active));
   protected catalogSanctions = computed(() => this.catalog().filter((c) => c.kind === 'sanction' && c.active));
@@ -678,15 +824,95 @@ export class SettingsComponent {
   };
 
   constructor() {
+    // Un admin de section n'a que l'onglet Scolarité : n'appeler que ce qu'il
+    // peut lire évite une volée de 403 au chargement de l'écran.
+    this.loadSchool();
+    if (!this.schoolWide()) return;
     this.reload();
     this.loadMail();
-    this.loadSchool();
     this.loadHolidays();
     this.loadCatalog();
+    this.loadAdmins();
   }
 
   protected onTab(id: SettingsTab): void {
     this.tab.set(id);
+  }
+
+  // ---- Administrateurs ------------------------------------------------------
+
+  protected sectionLabel(section: Section): string {
+    const fr = this.fr();
+    if (section === 'maternelle') return fr ? 'Maternelle' : 'Nursery';
+    if (section === 'primary') return fr ? 'Primaire' : 'Primary';
+    return fr ? 'Secondaire' : 'Secondary';
+  }
+
+  private loadAdmins(): void {
+    this.api.listAdmins().subscribe((rows) => this.admins.set(rows));
+  }
+
+  protected createAdmin(): void {
+    if (!this.adminDraft.name.trim()) return;
+    this.creatingAdmin.set(true);
+    this.adminMsg.set(null);
+    this.api.createAdmin({ ...this.adminDraft, name: this.adminDraft.name.trim() }).subscribe({
+      next: (res) => {
+        this.creatingAdmin.set(false);
+        // Le mot de passe n'est jamais rendu ici : le message dit seulement si
+        // l'e-mail est parti, et quoi faire dans le cas contraire.
+        this.adminMsg.set({ ok: res.emailSent, text: res.message });
+        this.adminDraft = { name: '', section: this.adminDraft.section, email: '', phone: '' };
+        this.loadAdmins();
+      },
+      error: (e) => {
+        this.creatingAdmin.set(false);
+        this.adminMsg.set({ ok: false, text: this.errorText(e) });
+      },
+    });
+  }
+
+  protected moveAdmin(a: AdminView, section: Section): void {
+    if (section === a.section) return;
+    this.busyAdmin.set(a.userId);
+    this.api.changeAdminSection(a.userId, section).subscribe({
+      next: () => { this.busyAdmin.set(null); this.loadAdmins(); },
+      error: (e) => {
+        this.busyAdmin.set(null);
+        this.adminMsg.set({ ok: false, text: this.errorText(e) });
+        this.loadAdmins();   // la ligne reprend sa valeur serveur
+      },
+    });
+  }
+
+  protected toggleAdmin(a: AdminView): void {
+    this.busyAdmin.set(a.userId);
+    this.api.setAdminActive(a.userId, !a.active).subscribe({
+      next: () => { this.busyAdmin.set(null); this.loadAdmins(); },
+      error: (e) => {
+        this.busyAdmin.set(null);
+        this.adminMsg.set({ ok: false, text: this.errorText(e) });
+      },
+    });
+  }
+
+  protected resetAdmin(a: AdminView): void {
+    this.busyAdmin.set(a.userId);
+    this.api.resetAdminCredentials(a.userId).subscribe({
+      next: (res) => {
+        this.busyAdmin.set(null);
+        this.adminMsg.set({ ok: res.emailSent, text: res.message });
+      },
+      error: (e) => {
+        this.busyAdmin.set(null);
+        this.adminMsg.set({ ok: false, text: this.errorText(e) });
+      },
+    });
+  }
+
+  private errorText(e: unknown): string {
+    const message = (e as { error?: { message?: string } })?.error?.message;
+    return message ?? (this.fr() ? 'Opération refusée' : 'Operation refused');
   }
 
   private reload(): void {

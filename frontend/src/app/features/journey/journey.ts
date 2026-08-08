@@ -1,5 +1,6 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { JourneyApi, StudentJourney, JourneyView, JourneyUpsert } from './journey.api';
 import { Student } from '../../core/models';
 import { AuthService } from '../../core/auth.service';
@@ -17,13 +18,20 @@ interface ResultMeta { fr: string; en: string; badge: string; }
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
-    FormsModule, IconComponent, CardComponent, PageHeaderComponent, EmptyComponent,
+    FormsModule, RouterLink, IconComponent, CardComponent, PageHeaderComponent, EmptyComponent,
     AvatarComponent, KpiComponent, AreaChartComponent, StudentClassPickerComponent,
   ],
   template: `
     <div class="fade-in max-w-6xl mx-auto">
       <bbc-page-header [title]="i18n.t('journey')"
-        [subtitle]="fr() ? 'Parcours scolaire complet — année par année' : 'Full school journey — year by year'" />
+        [subtitle]="fr() ? 'Parcours scolaire complet — année par année' : 'Full school journey — year by year'">
+        @if (canPromote) {
+          <a right routerLink="/promotion"
+            class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-slate-100 text-ink hover:bg-slate-200">
+            <bbc-icon name="cap" [s]="16" /> {{ fr() ? 'Passage de classe' : 'Class promotion' }}
+          </a>
+        }
+      </bbc-page-header>
 
       <div class="grid grid-cols-12 gap-4">
         <!-- Student picker -->
@@ -198,6 +206,7 @@ export class JourneyComponent {
   protected draft: JourneyUpsert = this.blank();
 
   protected canWrite = this.auth.can('journey', 'write');
+  protected canPromote = this.auth.can('promotion', 'read');
   protected fr = () => this.i18n.lang() === 'fr';
 
   protected repeats = computed(() =>

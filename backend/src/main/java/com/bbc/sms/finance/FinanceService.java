@@ -2,6 +2,7 @@ package com.bbc.sms.finance;
 
 import com.bbc.sms.finance.dto.FinanceDtos.*;
 import com.bbc.sms.platform.realtime.RealtimeService;
+import com.bbc.sms.platform.security.AccessScopeService;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.student.Student;
 import com.bbc.sms.student.StudentRepository;
@@ -27,10 +28,12 @@ public class FinanceService {
     private final StudentRepository students;
     private final FeeService fees;
     private final PaymentChannelRepository channels;
+    private final AccessScopeService accessScope;
 
     public FinanceService(PaymentRepository payments, ExpenseRepository expenses, RealtimeService realtime,
                           StudentFeeRepository studentFees, FeeConfigRepository feeConfigs,
-                          StudentRepository students, FeeService fees, PaymentChannelRepository channels) {
+                          StudentRepository students, FeeService fees, PaymentChannelRepository channels,
+                          AccessScopeService accessScope) {
         this.payments = payments;
         this.expenses = expenses;
         this.realtime = realtime;
@@ -39,6 +42,7 @@ public class FinanceService {
         this.students = students;
         this.fees = fees;
         this.channels = channels;
+        this.accessScope = accessScope;
     }
 
     @Transactional(readOnly = true)
@@ -48,18 +52,42 @@ public class FinanceService {
         // Resolve student identities in one pass — a per-row lookup would be N+1.
         Map<UUID, Student> byId = students.findBySchoolIdAndActiveTrueOrderByLastNameAsc(schoolId).stream()
                 .collect(Collectors.toMap(Student::getId, s -> s, (a, b) -> a));
-        return rows.stream().map(p -> toView(p, byId.get(p.getStudentId()))).toList();
+        String section = accessScope.adminSection();
+        return rows.stream()
+                .filter(p -> inSection(byId.get(p.getStudentId()), section))
+                .map(p -> toView(p, byId.get(p.getStudentId()))).toList();
     }
 
+    /**
+     * L'encaissement relève-t-il du cycle de l'administrateur courant ?
+     *
+     * <p>Un règlement dont l'élève a disparu des effectifs n'est rattachable à
+     * aucune section : il reste au seul admin principal, qui répond des comptes
+     * de l'établissement. Le masquer à l'admin de cycle vaut mieux que le lui
+     * imputer à tort.
+     */
+    private static boolean inSection(Student s, String section) {
+        if (section == null) return true;
+        return s != null && section.equals(s.getLevel());
+    }
+
+    /**
+     * Les dépenses n'ont pas de section : un loyer, un carburant, un salaire
+     * n'appartiennent pas à un cycle. Plutôt que de les répartir au jugé, on les
+     * réserve à l'administrateur principal — seul comptable du solde de l'école.
+     */
     @Transactional(readOnly = true)
     public List<ExpenseView> listExpenses() {
         UUID schoolId = TenantContext.get();
+        if (accessScope.adminSection() != null) return List.of();
         return expenses.findBySchoolIdOrderBySpentOnDesc(schoolId).stream().map(this::toView).toList();
     }
 
     @Transactional
     public PaymentView recordPayment(PaymentRequest in) {
         UUID schoolId = TenantContext.get();
+        // On n'encaisse que pour un élève de son périmètre.
+        accessScope.assertStudent(in.studentId());
 
         // Le canal doit exister et être actif ; ceux qui l'exigent (mobile money, carte,
         // virement) imposent la référence de transaction, seule preuve opposable au parent.
@@ -165,7 +193,14 @@ public class FinanceService {
         LocalDate to = LocalDate.now();
         LocalDate from = to.minusDays(29);   // 30-day window inclusive of today
 
+        String section = accessScope.adminSection();
         List<Payment> recentPayments = payments.findBySchoolIdAndPaidOnBetween(schoolId, from, to);
+        if (section != null) {
+            Map<UUID, Student> byId = students.findBySchoolIdAndActiveTrueOrderByLastNameAsc(schoolId).stream()
+                    .collect(Collectors.toMap(Student::getId, s -> s, (a, b) -> a));
+            recentPayments = recentPayments.stream()
+                    .filter(p -> inSection(byId.get(p.getStudentId()), section)).toList();
+        }
 
         Map<LocalDate, Long> byDay = new HashMap<>();
         long totalRevenue30d = 0;
@@ -180,15 +215,19 @@ public class FinanceService {
             revenueSeries.add(new RevenuePoint(day, byDay.getOrDefault(day, 0L)));
         }
 
-        long totalExpense30d = expenses.findBySchoolIdOrderBySpentOnDesc(schoolId).stream()
-                .filter(e -> !e.getSpentOn().isBefore(from) && !e.getSpentOn().isAfter(to))
-                .mapToLong(Expense::getAmount)
-                .sum();
+        // Dépenses hors périmètre d'un admin de cycle : à zéro, et le champ
+        // `section` dit à l'écran pourquoi le solde n'est pas celui de l'école.
+        long totalExpense30d = section != null ? 0L
+                : expenses.findBySchoolIdOrderBySpentOnDesc(schoolId).stream()
+                        .filter(e -> !e.getSpentOn().isBefore(from) && !e.getSpentOn().isAfter(to))
+                        .mapToLong(Expense::getAmount)
+                        .sum();
 
         long balance30d = totalRevenue30d - totalExpense30d;
         int paymentsCount = recentPayments.size();
 
-        return new FinanceSummary(totalRevenue30d, totalExpense30d, balance30d, paymentsCount, revenueSeries);
+        return new FinanceSummary(totalRevenue30d, totalExpense30d, balance30d, paymentsCount,
+                revenueSeries, section);
     }
 
     private PaymentView toView(Payment p) {

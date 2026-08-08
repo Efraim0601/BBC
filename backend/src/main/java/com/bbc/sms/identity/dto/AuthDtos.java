@@ -37,7 +37,15 @@ public class AuthDtos {
             String locale,
             Map<String, String> permissions,   // module -> none|read|write
             List<String> modules,               // modules the role may open
-            List<Parcours> allowedParcours) {}  // empty = all parcours (admin)
+            List<Parcours> allowedParcours,     // empty = all parcours (admin)
+            /**
+             * Cycle administré (maternelle|primary|secondary), null pour un compte
+             * non cloisonné. L'écran s'en sert pour annoncer le périmètre ; le
+             * cloisonnement lui-même est appliqué côté serveur, jamais ici.
+             */
+            String section,
+            /** Faux pour un admin de section : les réglages école-entière lui sont fermés. */
+            boolean schoolWide) {}
 
     public record TokenResponse(
             String accessToken,

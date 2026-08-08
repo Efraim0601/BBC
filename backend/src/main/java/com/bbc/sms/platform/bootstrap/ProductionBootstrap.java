@@ -37,7 +37,8 @@ public class ProductionBootstrap implements ApplicationRunner {
     private static final String[] MODULES = {
         "dashboard", "presence", "students", "hr", "academic", "finance",
         "timetable", "events", "discipline", "reports", "settings", "journey",
-        "alerts", "messages", "coursebook", "health", "documents", "classkit"
+        "alerts", "messages", "coursebook", "health", "documents", "classkit",
+        "promotion"
     };
 
     private final JdbcTemplate jdbc;
@@ -86,19 +87,29 @@ public class ProductionBootstrap implements ApplicationRunner {
         insertRole("form_teacher", "Prof. Principal", "Form Teacher");
         insertRole("teacher", "Enseignant", "Teacher");
         insertRole("parent", "Parent", "Parent");
+        // Relais de l'admin principal, un par cycle (cf. V43__section_admin.sql).
+        insertRole("admin_maternelle", "Admin Maternelle", "Nursery Admin");
+        insertRole("admin_primary", "Admin Primaire", "Primary Admin");
+        insertRole("admin_secondary", "Admin Secondaire", "Secondary Admin");
 
         // Permission matrix. Admin (principal) gets full write everywhere; the
         // other roles get a sensible default the admin can refine in Settings.
         for (String m : MODULES) grant(schoolId, "principal", m, "write");
-        grants(schoolId, "prefect", "write", "presence", "timetable", "events", "discipline", "journey", "alerts", "messages", "documents");
+        grants(schoolId, "prefect", "write", "presence", "timetable", "events", "discipline", "journey", "promotion", "alerts", "messages", "documents");
         grants(schoolId, "prefect", "read", "dashboard", "students", "academic", "reports", "coursebook", "health", "classkit");
         grants(schoolId, "econome", "write", "finance");
         grants(schoolId, "econome", "read", "dashboard", "students", "reports", "alerts");
         grants(schoolId, "form_teacher", "write", "academic", "discipline", "coursebook", "messages", "classkit");
-        grants(schoolId, "form_teacher", "read", "dashboard", "presence", "students", "timetable", "events", "journey", "alerts", "health", "documents");
+        grants(schoolId, "form_teacher", "read", "dashboard", "presence", "students", "timetable", "events", "journey", "promotion", "alerts", "health", "documents");
         grants(schoolId, "teacher", "write", "academic", "coursebook");
         grants(schoolId, "teacher", "read", "dashboard", "presence", "timetable", "events", "messages");
         grant(schoolId, "parent", "parent", "read");
+        // Un admin de section administre son cycle comme l'admin principal
+        // administre l'école : mêmes modules, cloisonnés par le verrou de section
+        // (SectionRoles), et privés des réglages école-entière par schoolWide().
+        for (String role : new String[]{"admin_maternelle", "admin_primary", "admin_secondary"}) {
+            for (String m : MODULES) grant(schoolId, role, m, "write");
+        }
 
         seedPaymentChannels(schoolId);
 

@@ -3,7 +3,7 @@
 
 CH_PILOTAGE = {
     "id": "pilotage",
-    "num": "18",
+    "num": "19",
     "title": {"fr": "Pilotage — tableau de bord, alertes, rapports",
               "en": "Steering — dashboard, alerts, reports"},
     "subtitle": {"fr": "Les trois écrans de la direction : la journée, les risques, les tendances.",
@@ -88,7 +88,7 @@ CH_PILOTAGE = {
 
 CH_PARENT = {
     "id": "portail-parent",
-    "num": "19",
+    "num": "20",
     "title": {"fr": "Portail parent", "en": "Parent portal"},
     "subtitle": {"fr": "Ce que voit une famille — et ce qu'elle ne peut pas voir.",
                  "en": "What a family sees — and what it cannot see."},
@@ -189,7 +189,7 @@ CH_PARENT = {
 
 CH_RENTREE = {
     "id": "demarrer-une-annee",
-    "num": "20",
+    "num": "21",
     "title": {"fr": "Démarrer une nouvelle année", "en": "Starting a new school year"},
     "subtitle": {"fr": "L'ordre des opérations, de la base vide à la première journée de classe.",
                  "en": "The order of operations, from an empty database to the first day of school."},
@@ -249,6 +249,16 @@ CH_RENTREE = {
          "en":
             "Run the whole sequence on **one parcours** (say Secondary FR) before rolling out the others: "
             "configuration mistakes surface much faster on a small perimeter."},
+        {"type": "note", "tone": "info", "fr":
+            "Cette séquence décrit une **première** installation. Une école qui a déjà tourné une année ne "
+            "réimporte pas ses élèves : elle passe par **Passage de classe** (chapitre 16), qui reconduit les "
+            "effectifs d'une année sur l'autre — les admis dans la classe supérieure, les redoublants dans la "
+            "leur — et n'a plus qu'à reprendre à l'étape 11 (grille des frais) et à l'étape 12 (emploi du temps).",
+         "en":
+            "This sequence describes a **first** setup. A school that has already run a year does not re-import "
+            "its students: it goes through **Class promotion** (chapter 16), which carries the roster over from one "
+            "year to the next — promoted students to the class above, repeaters to their own — and only needs to "
+            "resume at step 11 (fee grid) and step 12 (timetable)."},
         {"type": "check", "items": [
             {"fr": "Dérouler les 14 étapes sur un parcours de test sans blocage.",
              "en": "Run the 14 steps on a test parcours with no blocker."},
@@ -263,7 +273,7 @@ CH_RENTREE = {
 
 CH_FAQ = {
     "id": "faq",
-    "num": "21",
+    "num": "22",
     "title": {"fr": "Questions fréquentes & dépannage", "en": "FAQ & troubleshooting"},
     "subtitle": {"fr": "Les blocages les plus courants et leur cause réelle.",
                  "en": "The most common blockers and their real cause."},
@@ -350,7 +360,7 @@ CH_FAQ = {
 
 CH_ANNEXES = {
     "id": "annexes",
-    "num": "22",
+    "num": "23",
     "title": {"fr": "Annexes", "en": "Appendices"},
     "subtitle": {"fr": "Glossaire, comptes de démonstration et mise à jour du guide.",
                  "en": "Glossary, demo accounts and updating the guide."},

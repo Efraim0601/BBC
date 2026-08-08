@@ -15,6 +15,7 @@ const DICT: Record<string, { fr: string; en: string }> = {
   presence: { fr: 'Présence', en: 'Attendance' },
   students: { fr: 'Élèves', en: 'Students' },
   journey: { fr: 'Parcours', en: 'Journey' },
+  promotion: { fr: 'Passage de classe', en: 'Class promotion' },
   alerts: { fr: 'Alertes', en: 'Alerts' },
   messages: { fr: 'Correspondance', en: 'Correspondence' },
   coursebook: { fr: 'Cahier de textes', en: 'Coursebook' },

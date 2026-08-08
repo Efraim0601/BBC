@@ -207,15 +207,68 @@ CH_ACADEMIQUE = {
         {"type": "h", "fr": "7.5 Maternelle et primaire : le bulletin APC",
          "en": "7.5 Kindergarten and primary: the competency report card"},
         {"type": "p", "fr":
-            "Quand le parcours actif est **Maternelle** ou **Primaire**, l'application affiche automatiquement le "
-            "bulletin par **compétences** (APC), conforme aux modèles officiels : six compétences, leurs "
-            "sous-compétences, les types d'évaluation (orale, écrite, pratique, savoir-être) avec leur barème, un "
-            "total général sur 280 et les trois trimestres.",
+            "Dès que la classe choisie relève de la **maternelle** ou du **primaire**, l'application affiche le "
+            "bulletin par **compétences** (APC) au lieu du bulletin par matières : six compétences, leurs "
+            "sous-compétences, et pour chacune les types d'évaluation (orale, écrite, pratique, savoir-être) avec "
+            "leur barème.",
          "en":
-            "When the active parcours is **Kindergarten** or **Primary**, the app automatically shows the "
-            "**competency-based** (APC) report card, matching the official templates: six competencies, their "
-            "sub-competencies, the evaluation types (oral, written, practical, attitude) with their scales, a grand "
-            "total out of 280 and the three terms."},
+            "As soon as the selected class belongs to **kindergarten** or **primary**, the app shows the "
+            "**competency-based** (APC) report card instead of the subject-based one: six competencies, their "
+            "sub-competencies, and for each the evaluation types (oral, written, practical, attitude) with their "
+            "scales."},
+        {"type": "p", "fr":
+            "Le barème n'est pas unique : il change de **sous-système** et de **classe**. L'application choisit le "
+            "bon d'après la classe de l'élève, sans réglage — y compris en mode « Tous les parcours », où aucun "
+            "sous-système n'est actif.",
+         "en":
+            "There is no single scale: it changes with the **sub-system** and the **class**. The app picks the right "
+            "one from the student's class, with nothing to configure — including in “All parcours” mode, where no "
+            "sub-system is active."},
+        {"type": "table",
+         "head": {"fr": ["Sous-système", "Barème", "Classes", "Total"],
+                  "en": ["Sub-system", "Scale", "Classes", "Total"]},
+         "rows": {
+            "fr": [
+                ["Francophone", "Niveau I", "SIL, CP", "280"],
+                ["Francophone", "Niveaux II et III", "CE1, CE2, CM1, CM2", "300"],
+                ["Anglophone", "Level 1", "Class 1, Class 2", "280"],
+                ["Anglophone", "Levels 2 et 3", "Class 3 à Class 6", "360"],
+            ],
+            "en": [
+                ["Francophone", "Level I", "SIL, CP", "280"],
+                ["Francophone", "Levels II and III", "CE1, CE2, CM1, CM2", "300"],
+                ["Anglophone", "Level 1", "Class 1, Class 2", "280"],
+                ["Anglophone", "Levels 2 and 3", "Class 3 to Class 6", "360"],
+            ],
+         },
+         "caption": {"fr": "Les quatre barèmes officiels transcrits des classeurs de l'établissement.",
+                     "en": "The four official scales transcribed from the school's workbooks."}},
+        {"type": "p", "fr":
+            "Les colonnes suivent elles aussi le modèle d'origine : le francophone évalue par **unité "
+            "d'apprentissage** (UA1 à UA8, réparties sur trois trimestres) avec une note et une cote pour chacune ; "
+            "l'anglophone évalue **mensuellement** (1 à 8), totalise chaque trimestre, puis porte un total annuel et "
+            "l'échelle d'appréciation officielle (C/SNA, B/SPA, A/SA, A+/Expert).",
+         "en":
+            "The columns follow the source templates too: the Francophone one evaluates by **learning unit** (UA1 to "
+            "UA8, spread over three terms) with a mark and a grade for each; the Anglophone one evaluates "
+            "**monthly** (1 to 8), totals each term, then carries an annual total and the official appreciation "
+            "scale (C/SNA, B/SPA, A/SA, A+/Expert)."},
+        {"type": "note", "tone": "info", "fr":
+            "En compétence 6, les activités sportives des apprenants **aptes** et **inaptes** sont deux lignes "
+            "alternatives : un élève relève de l'une ou de l'autre, et une seule compte dans le total — c'est ce qui "
+            "donne 40 points à la compétence et non 60. Le bulletin le signale sur la ligne concernée.",
+         "en":
+            "In competency 6, the sports activities for **able** and **physically challenged** learners are two "
+            "alternative rows: a student falls under one or the other, and only one counts towards the total — which "
+            "is why the competency is worth 40 marks and not 60. The report card flags the row accordingly."},
+        {"type": "note", "tone": "limit", "fr":
+            "La **maternelle** n'a pas de modèle propre dans les documents de l'établissement : elle reprend pour "
+            "l'instant le barème de la première année du primaire, dans son sous-système. Fournissez le modèle "
+            "maternelle pour qu'il soit transcrit à son tour.",
+         "en":
+            "**Kindergarten** has no template of its own in the school's documents: for now it reuses the "
+            "first-year primary scale of its sub-system. Provide the kindergarten template and it will be "
+            "transcribed too."},
         {"type": "note", "tone": "limit", "fr":
             "Le bulletin APC est aujourd'hui une **feuille imprimable conforme** : les cases de notes sont laissées "
             "vides pour un remplissage manuel. Les moyennes chiffrées automatiques restent réservées au secondaire.",

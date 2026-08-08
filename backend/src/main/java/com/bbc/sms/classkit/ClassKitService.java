@@ -2,7 +2,7 @@ package com.bbc.sms.classkit;
 
 import com.bbc.sms.classkit.dto.ClassKitDtos.*;
 import com.bbc.sms.platform.common.ApiException;
-import com.bbc.sms.platform.security.TeacherScopeService;
+import com.bbc.sms.platform.security.AccessScopeService;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.timetable.SchoolClass;
 import com.bbc.sms.timetable.SchoolClassRepository;
@@ -27,16 +27,16 @@ public class ClassKitService {
 
     private final ClassResourceItemRepository items;
     private final SchoolClassRepository classes;
-    private final TeacherScopeService teacherScope;
+    private final AccessScopeService accessScope;
     private final JdbcTemplate jdbc;
 
     public ClassKitService(ClassResourceItemRepository items,
                            SchoolClassRepository classes,
-                           TeacherScopeService teacherScope,
+                           AccessScopeService accessScope,
                            JdbcTemplate jdbc) {
         this.items = items;
         this.classes = classes;
-        this.teacherScope = teacherScope;
+        this.accessScope = accessScope;
         this.jdbc = jdbc;
     }
 
@@ -49,7 +49,7 @@ public class ClassKitService {
         SchoolClass cls = classes.findByIdAndSchoolId(classId, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Classe"));
         // Un enseignant n'ouvre le kit que d'une classe qui lui est assignée.
-        teacherScope.assertClass(cls.getId());
+        accessScope.assertClass(cls.getId());
         return cls;
     }
 
@@ -97,7 +97,7 @@ public class ClassKitService {
         UUID schoolId = TenantContext.get();
         ClassResourceItem it = items.findByIdAndSchoolId(itemId, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Élément"));
-        teacherScope.assertClass(it.getClassId());
+        accessScope.assertClass(it.getClassId());
         apply(it, in);
         return toView(items.save(it));
     }
@@ -107,7 +107,7 @@ public class ClassKitService {
         UUID schoolId = TenantContext.get();
         ClassResourceItem it = items.findByIdAndSchoolId(itemId, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Élément"));
-        teacherScope.assertClass(it.getClassId());
+        accessScope.assertClass(it.getClassId());
         items.delete(it);
     }
 

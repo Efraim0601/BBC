@@ -52,10 +52,18 @@ public class FinanceDtos {
             LocalDate date,
             long amount) {}
 
+    /**
+     * Synthèse à 30 jours. {@code section} est non nul pour un administrateur de
+     * cycle : les recettes ne portent alors que sur ses élèves, et les dépenses
+     * — qui n'appartiennent à aucune section — sont exclues plutôt que
+     * réparties arbitrairement. L'écran doit le dire, faute de quoi un solde
+     * amputé passerait pour le solde de l'école.
+     */
     public record FinanceSummary(
             long totalRevenue30d,
             long totalExpense30d,
             long balance30d,
             int paymentsCount,
-            List<RevenuePoint> revenueSeries) {}
+            List<RevenuePoint> revenueSeries,
+            String section) {}
 }

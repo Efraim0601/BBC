@@ -109,6 +109,35 @@ export interface MailConfigUpdate {
   notifyOnUserCreate: boolean;
 }
 
+export type Section = 'maternelle' | 'primary' | 'secondary';
+
+/** Un compte d'administration. `section` est null pour l'admin principal. */
+export interface AdminView {
+  userId: string;
+  username: string;
+  displayName: string;
+  roleCode: string;
+  section: Section | null;
+  email: string | null;
+  active: boolean;
+  employeeId: string | null;
+}
+
+export interface AdminCreate {
+  name: string;
+  section: Section;
+  email?: string | null;
+  phone?: string | null;
+}
+
+/** Résultat d'un provisionnement : le mot de passe part par e-mail, jamais ici. */
+export interface AccountResult {
+  hasAccount: boolean;
+  username: string;
+  emailSent: boolean;
+  message: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class SettingsApi {
   private http = inject(HttpClient);
@@ -185,5 +214,27 @@ export class SettingsApi {
 
   testMail(to: string): Observable<void> {
     return this.http.post<void>(`${this.base}/mail/test`, { to });
+  }
+
+  // ---- Administrateurs ----------------------------------------------------
+
+  listAdmins(): Observable<AdminView[]> {
+    return this.http.get<AdminView[]>(`${this.base}/admins`);
+  }
+
+  createAdmin(body: AdminCreate): Observable<AccountResult> {
+    return this.http.post<AccountResult>(`${this.base}/admins`, body);
+  }
+
+  changeAdminSection(userId: string, section: Section): Observable<AdminView> {
+    return this.http.put<AdminView>(`${this.base}/admins/${userId}/section`, { section });
+  }
+
+  setAdminActive(userId: string, active: boolean): Observable<AdminView> {
+    return this.http.put<AdminView>(`${this.base}/admins/${userId}/active`, { active });
+  }
+
+  resetAdminCredentials(userId: string): Observable<AccountResult> {
+    return this.http.post<AccountResult>(`${this.base}/admins/${userId}/credentials`, {});
   }
 }

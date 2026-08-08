@@ -15,4 +15,5 @@ public interface StudentRepository extends JpaRepository<Student, UUID> {
     boolean existsBySchoolIdAndNiuAndActiveTrue(UUID schoolId, String niu);
     long countBySchoolIdAndActiveTrue(UUID schoolId);
     long countBySchoolIdAndClassIdAndActiveTrue(UUID schoolId, UUID classId);
+    long countBySchoolIdAndClassNameAndActiveTrue(UUID schoolId, String className);
 }

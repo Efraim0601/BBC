@@ -113,4 +113,33 @@ public class SettingsDtos {
             String labelEn,
             Integer sortOrder,
             Boolean active) {}
+
+    // ---- Administrateurs ----------------------------------------------------
+
+    /**
+     * Un compte d'administration. {@code section} est null pour l'administrateur
+     * principal : il répond de l'établissement entier, non d'un cycle.
+     */
+    public record AdminView(
+            UUID userId,
+            String username,
+            String displayName,
+            String roleCode,
+            String section,
+            String email,
+            boolean active,
+            UUID employeeId) {}
+
+    public record AdminCreate(
+            @NotBlank String name,
+            @NotBlank @Pattern(regexp = "maternelle|primary|secondary",
+                    message = "Section attendue : maternelle, primary ou secondary")
+            String section,
+            String email,
+            String phone) {}
+
+    public record AdminSectionChange(
+            @NotBlank @Pattern(regexp = "maternelle|primary|secondary") String section) {}
+
+    public record AdminActiveChange(@NotNull Boolean active) {}
 }

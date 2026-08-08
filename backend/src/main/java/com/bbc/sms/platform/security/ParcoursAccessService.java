@@ -14,9 +14,16 @@ import java.util.UUID;
  * Enforces the {@code X-Parcours} scope against the user's allowed parcours
  * ({@code app_user_parcours}). An EMPTY allow-list means the user may access every parcours
  * (administrators); a non-empty list restricts them to exactly those (level, subsystem) pairs.
+ *
+ * <p>Trois sources, par ordre de force : le rôle d'admin de section (verrou, cf.
+ * {@link SectionRoles}), la liste explicite {@code app_user_parcours}, puis la
+ * section de l'employé pour les enseignants.
  */
 @Service("parcours")
 public class ParcoursAccessService {
+
+    /** Les deux sous-systèmes : un admin de section administre les deux. */
+    private static final List<String> SUBSYSTEMS = List.of("FR", "EN");
 
     private final JdbcTemplate jdbc;
 
@@ -32,12 +39,30 @@ public class ParcoursAccessService {
      * sont ceux de ses classes ; sans classe assignée, les deux restent ouverts.
      */
     public List<Scope> allowed(UUID userId) {
+        String adminSection = adminSection(userId);
+        if (adminSection != null) {
+            // Un admin de section règne sur les deux sous-systèmes de son cycle,
+            // et sur eux seuls. Ce verrou prime sur toute restriction saisie à la
+            // main : il découle du rôle, on ne le desserre pas par une table.
+            return SUBSYSTEMS.stream().map(sub -> new Scope(adminSection, sub)).toList();
+        }
         List<Scope> explicit = jdbc.query(
                 "SELECT level, subsystem FROM app_user_parcours WHERE user_id = ?",
                 (rs, n) -> new Scope(rs.getString("level"), rs.getString("subsystem")),
                 userId);
         if (!explicit.isEmpty()) return explicit;
         return fromEmployeeSection(userId);
+    }
+
+    /** Section administrée par ce compte, ou null s'il n'est pas un admin de section. */
+    private String adminSection(UUID userId) {
+        AppUserPrincipal p = currentPrincipal();
+        if (p != null && p.userId().equals(userId)) {
+            return SectionRoles.sectionOf(p.roleCode());     // cas courant : sans requête
+        }
+        String role = jdbc.query("SELECT role_code FROM app_user WHERE id = ?",
+                rs -> rs.next() ? rs.getString(1) : null, userId);
+        return SectionRoles.sectionOf(role);
     }
 
     /**
@@ -69,6 +94,11 @@ public class ParcoursAccessService {
     /**
      * True when the request's parcours scope is permitted for the current user.
      * No scope bound to the request is always allowed (cross-parcours views).
+     *
+     * <p>Absence d'en-tête ne vaut pas absence de borne : un admin de section
+     * garde son verrou, que les services appliquent à leurs listes
+     * ({@link ParcoursContext#sectionLock()}). Ce contrôle-ci ne juge que le
+     * parcours <em>demandé</em>.
      */
     public boolean allows() {
         Scope scope = ParcoursContext.get();

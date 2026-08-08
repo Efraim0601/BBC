@@ -96,9 +96,13 @@ Schéma relationnel classique, **chaque table porte `school_id`** (multi-tenant)
 
 - `school` (tenant), `academic_year`
 - `app_user` (login) ↔ `employee` (1:1) · `role`, `permission_grant (role_id, module, level)`
-- `section` (pri-fr, pri-en, sec-fr, sec-en) → `school_class` (SIL…Terminale, Form 1…Upper Sixth)
+- `section` (pri-fr, pri-en, sec-fr, sec-en) → `school_class` (SIL…Terminale, Form 1…Upper Sixth),
+  qui porte la progression : `grade_order`, `next_class_id`, `terminal`
 - `subject` (catalogue, libellés `jsonb {fr,en}`), `teacher_subject` (N:N), `teacher_class` (N:N)
-- `student` + `enrollment (student_id, class_id, year)` + `student_journey_entry` (parcours, redoublements)
+- `student` (classe courante) + `journey_entry` (parcours année par année, redoublements)
+- **Fin d'année** : `promotion_rule` (seuil, zone conseil, redoublements max) ·
+  `promotion_batch` + `promotion_decision` (proposition automatique, décision retenue, motif de l'arbitrage) ·
+  `year_closure` et les archives datées `grade_archive`, `bulletin_validation_archive`, `student_fee_archive`
 - `parent` ↔ `parent_student` (N:N, un parent ↔ plusieurs enfants)
 - `fee_config (level, subsystem, total, tranches jsonb)` · `invoice` · `payment (method, tranche, amount, receipt_no)`
 - `expense`
@@ -154,6 +158,33 @@ Les **rôles personnalisés** (`role.builtin = false`) se créent via `POST /api
 - La matrice refuse d’accorder aux parents les modules staff (académique, élèves, finance…).
 - Les contrôleurs staff exigent `@perm.staffOnly()` en plus de `@perm.can(...)`.
 - Le portail `/api/parent/**` filtre strictement via `parent_student` (`assertOwnership`).
+
+**Administrateurs de section** (V43) :
+
+L’admin principal (`principal`) délègue chaque cycle à un relais : `admin_maternelle`,
+`admin_primary`, `admin_secondary`. Trois rôles plutôt qu’un rôle + une colonne, parce que
+le code de rôle voyage déjà dans le JWT : la section se déduit **sans lecture en base** à
+chaque requête (`platform.security.SectionRoles`).
+
+La matrice ne sait pas exprimer un cloisonnement par cycle — elle raisonne par module. Le
+verrou tient donc à trois pièces qui se complètent :
+
+| Pièce | Rôle |
+|---|---|
+| `ParcoursContext.sectionLock()` | Section imposée à la requête, posée par `JwtAuthFilter`. Contrairement au parcours, elle ne vient pas du client : un en-tête `X-Parcours` absent n’affranchit de rien. |
+| `AccessScopeService` | Généralise l’ancien `TeacherScopeService` : « les classes que ce compte peut voir » — celles assignées pour un enseignant, celles du cycle pour un admin de section. Tous les modules déjà cloisonnés pour l’enseignant le sont donc aussi pour lui, sans modification. |
+| `@perm.schoolWide()` | Ferme les réglages école-entière : matrice, rôles, profil, SMTP, calendrier, catalogues, dépenses, clôture d’année. |
+
+Conséquences volontaires, à connaître avant d’y toucher :
+- **Élèves sans classe** : visibles de l’admin de leur section — ce sont ses inscriptions du
+  jour, et les masquer les rendrait impossibles à placer.
+- **Personnel sans section** (économat, intendance) : visible de tous les admins de section ;
+  il ne relève d’aucun cycle.
+- **Dépenses** : hors périmètre d’un admin de cycle. `FinanceSummary.section` le signale à
+  l’écran, faute de quoi un solde amputé passerait pour celui de l’établissement.
+- **Nomination** : `Paramètres → Administrateurs` (`/api/settings/admins`), réservé à l’admin
+  principal. Le module Personnel refuse d’*ajouter* un rôle privilégié — sans quoi il
+  offrirait le chemin de traverse que cet écran ferme.
 
 **Catalogues & calendrier** (V30) :
 - `discipline_catalog` — motifs / sanctions éditables par établissement.

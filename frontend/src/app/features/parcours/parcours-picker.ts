@@ -76,12 +76,8 @@ type Lvl = Parcours['level'];
           @if (canSeeAll()) {
             <button (click)="commitAll()"
               class="mt-6 w-full text-left rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-5 hover:border-brand-400 hover:bg-white transition">
-              <div class="font-display font-bold text-ink">{{ fr() ? 'Tous les parcours' : 'All parcours' }}</div>
-              <div class="text-xs text-mute mt-1">
-                {{ fr()
-                  ? 'Afficher les données de tous les niveaux et sous-systèmes (recommandé pour l’administration).'
-                  : 'Show data from every level and subsystem (recommended for administration).' }}
-              </div>
+              <div class="font-display font-bold text-ink">{{ allLabel() }}</div>
+              <div class="text-xs text-mute mt-1">{{ allHint() }}</div>
             </button>
           }
         } @else {
@@ -167,8 +163,34 @@ export class ParcoursPickerComponent {
     this.router.navigate(['/apps']);
   }
 
-  /** Admins (empty allow-list) may browse without a parcours filter. */
-  protected canSeeAll = computed(() => (this.auth.user()?.allowedParcours ?? []).length === 0);
+  /**
+   * Admins (empty allow-list) may browse without a parcours filter.
+   *
+   * <p>Un administrateur de section y a droit aussi : « tous » ne lève alors que
+   * le choix du sous-système, le serveur maintenant le verrou sur son cycle
+   * quelle que soit l'absence d'en-tête.
+   */
+  protected canSeeAll = computed(
+    () => (this.auth.user()?.allowedParcours ?? []).length === 0 || this.auth.section() !== null);
+
+  /** Le raccourci « tous » ne promet que ce que le compte peut réellement voir. */
+  protected allLabel = computed(() => {
+    const section = this.auth.section();
+    if (!section) return this.fr() ? 'Tous les parcours' : 'All parcours';
+    return this.fr() ? 'Toute ma section' : 'My whole section';
+  });
+
+  protected allHint = computed(() => {
+    const fr = this.fr();
+    if (!this.auth.section()) {
+      return fr
+        ? 'Afficher les données de tous les niveaux et sous-systèmes (recommandé pour l’administration).'
+        : 'Show data from every level and subsystem (recommended for administration).';
+    }
+    return fr
+      ? 'Afficher les deux sous-systèmes de votre section, sans filtrer davantage.'
+      : 'Show both subsystems of your section, without narrowing further.';
+  });
 
   protected commitAll(): void {
     this.scope.setAll();

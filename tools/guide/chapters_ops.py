@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-"""Chapitres 11 à 17 — finance, événements, correspondance, fournitures, parcours, santé, documents."""
+"""Chapitres 11 à 18 — finance, événements, correspondance, fournitures, parcours,
+passage de classe, santé, documents."""
 
 CH_FINANCE = {
     "id": "finance",
@@ -431,9 +432,235 @@ CH_PARCOURS_SCOLAIRE = {
 }
 
 
+CH_PASSAGE_DE_CLASSE = {
+    "id": "passage-de-classe",
+    "num": "16",
+    "title": {"fr": "Passage de classe", "en": "Class promotion"},
+    "subtitle": {"fr": "Fin d'année : proposition automatique, arbitrage du conseil, transfert réel des élèves.",
+                 "en": "End of year: automatic proposal, council override, actual transfer of students."},
+    "who": {"fr": "Direction et censeur pour l'exécution ; administrateur pour la configuration des règles.",
+            "en": "Management and dean to run it; administrator to configure the rules."},
+    "blocks": [
+        {"type": "p", "fr":
+            "Le module enchaîne trois opérations que l'école faisait jusque-là à la main : il **propose** une "
+            "décision à partir de la moyenne annuelle, il laisse le conseil de classe **l'arbitrer**, puis il "
+            "**applique** — l'élève change réellement de classe et son parcours s'écrit tout seul.",
+         "en":
+            "The module chains the three operations schools used to do by hand: it **proposes** a decision from the "
+            "annual average, lets the class council **override** it, then **applies** it — the student really moves "
+            "class and their journey is written automatically."},
+
+        {"type": "h", "fr": "16.1 Configurer la progression", "en": "16.1 Configure the progression"},
+        {"type": "steps", "items": [
+            {"fr": "Ouvrez **Passage de classe → Progression & règles**. Le tableau liste les classes du parcours "
+                   "actif, section par section.",
+             "en": "Open **Class promotion → Progression & rules**. The table lists the classes of the active "
+                   "parcours, section by section."},
+            {"fr": "__Déduire automatiquement__ reconnaît les libellés officiels et enchaîne les classes : "
+                   "SIL → CP → CE1 → … → CM2 → 6ème, Form 1 → Form 2, etc. La dernière classe d'un cycle bascule "
+                   "sur la première du cycle suivant, dans le même sous-système.",
+             "en": "__Auto-detect__ recognises the official labels and chains the classes: SIL → CP → CE1 → … → "
+                   "CM2 → 6ème, Form 1 → Form 2, etc. The last class of a cycle moves on to the first of the next "
+                   "cycle, within the same subsystem."},
+            {"fr": "Relisez et corrigez : la colonne **Classe suivante** se change librement, l'**Ordre** fixe le "
+                   "rang pédagogique, et **Classe de sortie** marque une fin de scolarité (Terminale, Upper Sixth) "
+                   "où la réussite vaut « Diplômé » au lieu de « Admis ». Terminez par __Enregistrer__.",
+             "en": "Review and correct: the **Next class** column is freely editable, **Order** sets the "
+                   "pedagogical rank, and **Exit class** marks the end of schooling (Terminale, Upper Sixth) where "
+                   "passing means “Graduated” instead of “Promoted”. Finish with __Save__."},
+        ]},
+        {"type": "note", "tone": "warn", "fr":
+            "Une classe sans classe suivante et non marquée classe de sortie ne bloque rien, mais ses élèves seront "
+            "tous proposés **à examiner** : l'application refuse de deviner où les envoyer.",
+         "en":
+            "A class with no next class and not marked as an exit class blocks nothing, but all its students will be "
+            "proposed **to review**: the app refuses to guess where to send them."},
+
+        {"type": "h", "fr": "16.2 Régler le seuil de décision", "en": "16.2 Set the decision threshold"},
+        {"type": "p", "fr":
+            "Sous le tableau de progression, les **règles de décision** disent à partir de quelle moyenne annuelle "
+            "un élève est proposé admis. La règle la plus précise l'emporte : une règle de classe prime sur une "
+            "règle de parcours, qui prime sur la règle générale de l'école.",
+         "en":
+            "Below the progression table, the **decision rules** state the annual average from which a student is "
+            "proposed for promotion. The most specific rule wins: a class rule beats a parcours rule, which beats "
+            "the school-wide rule."},
+        {"type": "table",
+         "head": {"fr": ["Réglage", "Effet"], "en": ["Setting", "Effect"]},
+         "rows": {
+            "fr": [
+                ["Seuil", "Moyenne annuelle à atteindre pour être proposé **admis** (10/20 par défaut)."],
+                ["Zone conseil", "Largeur, juste sous le seuil, où l'élève est proposé **à examiner** au lieu de "
+                                 "redoublant — la décision revient explicitement au conseil."],
+                ["Redoubl. max", "Nombre de redoublements déjà au parcours au-delà duquel plus aucun redoublement "
+                                 "n'est proposé automatiquement (2 par défaut)."],
+            ],
+            "en": [
+                ["Pass mark", "Annual average to reach to be proposed **promoted** (10/20 by default)."],
+                ["Council zone", "Band just below the pass mark where the student is proposed **to review** instead "
+                                 "of repeating — the decision explicitly goes back to the council."],
+                ["Max repeats", "Number of repeats already on the journey beyond which no further repeat is "
+                                "proposed automatically (2 by default)."],
+            ],
+         }},
+        {"type": "note", "tone": "info", "fr":
+            "La moyenne annuelle est la moyenne des séquences évaluées, chaque séquence étant pondérée par les "
+            "**mêmes coefficients que les bulletins**, surcharge par classe comprise. La note qui décide du passage "
+            "est donc exactement celle que l'élève lit sur son bulletin.",
+         "en":
+            "The annual average is the mean of the evaluated sequences, each weighted with the **same coefficients "
+            "as the report cards**, per-class overrides included. The mark that decides promotion is therefore "
+            "exactly the one the student reads on their report card."},
+
+        {"type": "h", "fr": "16.3 Simuler puis appliquer", "en": "16.3 Simulate then apply"},
+        {"type": "steps", "items": [
+            {"fr": "Onglet **Passage de classe** : choisissez la classe. L'année qui se termine et l'année "
+                   "d'accueil sont pré-remplies et restent modifiables.",
+             "en": "**Promotion** tab: pick the class. The year ending and the receiving year are pre-filled and "
+                   "remain editable."},
+            {"fr": "Chaque élève affiche sa **moyenne annuelle**, son **rang**, ses redoublements antérieurs, et la "
+                   "**proposition** de l'application avec sa justification en clair — « Moyenne 11,40/20 < seuil "
+                   "12,00 », « en zone conseil », « 2 redoublements déjà au parcours ».",
+             "en": "Each student shows their **annual average**, **rank**, previous repeats, and the app's "
+                   "**proposal** with its justification in plain words — “Average 11.40/20 < pass mark 12.00”, "
+                   "“in the council zone”, “2 repeats already on the journey”."},
+            {"fr": "La colonne **Décision retenue** est libre : vous pouvez admettre un élève sous le seuil ou "
+                   "faire redoubler un élève au-dessus. Dès que la décision s'écarte de la proposition, la ligne "
+                   "passe en ambre et le **motif devient obligatoire** — il est conservé et consultable.",
+             "en": "The **Final decision** column is free: you may promote a student below the pass mark or hold "
+                   "back one above it. As soon as the decision differs from the proposal, the row turns amber and "
+                   "the **reason becomes mandatory** — it is stored and auditable."},
+            {"fr": "La **classe d'accueil** est celle du mapping ; changez-la au cas par cas pour une orientation "
+                   "(3ème vers 2nde A ou 2nde C, par exemple).",
+             "en": "The **receiving class** comes from the mapping; change it case by case for guidance decisions "
+                   "(3ème to 2nde A or 2nde C, for instance)."},
+            {"fr": "__Appliquer__ demande confirmation puis exécute d'un bloc : les admis changent de classe, les "
+                   "redoublants sont marqués « redouble », les diplômés et les exclus sortent des effectifs "
+                   "actifs. L'année qui se termine et l'année d'accueil s'inscrivent dans le **parcours scolaire** "
+                   "de chaque élève (chapitre 15).",
+             "en": "__Apply__ asks for confirmation then runs as one block: promoted students change class, "
+                   "repeaters are flagged, graduated and excluded students leave the active roster. The closing "
+                   "year and the receiving year are written into each student's **school journey** (chapter 15)."},
+        ]},
+        {"type": "note", "tone": "info", "fr":
+            "Un élève sans aucune note est proposé **sans note** et n'est jamais appliqué tant qu'une décision n'a "
+            "pas été choisie à la main. Le compteur __Appliquer (n)__ ne compte que les lignes réellement prêtes : "
+            "décidées, motivées si nécessaire, et pourvues d'une classe d'accueil.",
+         "en":
+            "A student with no grade at all is proposed as **no grades** and is never applied until a decision is "
+            "picked by hand. The __Apply (n)__ counter only counts genuinely ready rows: decided, justified where "
+            "needed, and with a receiving class."},
+        {"type": "note", "tone": "tip", "fr":
+            "Traitez les classes **de la plus basse à la plus haute** ou dans l'ordre que vous voulez : peu importe. "
+            "Un élève qui vient d'être admis en 6ème depuis le CM2 est automatiquement écarté de la simulation de la "
+            "6ème — sa décision de l'année est déjà prise, le promouvoir une seconde fois lui ferait sauter une "
+            "classe. Un bandeau signale combien d'élèves ont été écartés à ce titre.",
+         "en":
+            "Process the classes **from the lowest to the highest**, or in any order you like: it does not matter. "
+            "A student just promoted into 6ème from CM2 is automatically excluded from the 6ème simulation — their "
+            "decision for the year is already made, and promoting them twice would make them skip a class. A banner "
+            "reports how many students were excluded on that basis."},
+        {"type": "note", "tone": "warn", "fr":
+            "Le passage déplace les élèves ; il ne remet pas les compteurs à zéro. C'est la **clôture de l'année** "
+            "(§16.5) qui archive les notes et rouvre les scolarités — faites-la après avoir passé toutes les classes.",
+         "en":
+            "Promotion moves students; it does not reset the counters. It is the **year closure** (§16.5) that "
+            "archives the grades and reopens the fees — run it once every class has been processed."},
+
+        {"type": "h", "fr": "16.4 Contrôler ce qui a été fait", "en": "16.4 Audit what was done"},
+        {"type": "p", "fr":
+            "L'onglet **Historique** liste les 50 derniers lots : la classe, les deux années, les effectifs admis / "
+            "redoublants / diplômés, le nombre d'arbitrages manuels et l'auteur. Chaque décision conserve la "
+            "proposition d'origine à côté de la décision retenue et de son motif.",
+         "en":
+            "The **History** tab lists the last 50 batches: the class, both years, the promoted / repeating / "
+            "graduated headcounts, the number of manual overrides and who ran it. Each decision keeps the original "
+            "proposal alongside the final decision and its reason."},
+        {"type": "note", "tone": "tip", "fr":
+            "Réappliquer un lot sur la même classe est possible : les élèves déjà traités sont signalés, et les "
+            "élèves qui ont quitté la classe sont simplement ignorés. C'est le moyen de rattraper une classe "
+            "traitée à moitié en fin de conseil.",
+         "en":
+            "Re-applying a batch on the same class is possible: already-processed students are flagged, and "
+            "students who left the class are simply skipped. That is how you finish a class left half-done at the "
+            "end of a council."},
+
+        {"type": "h", "fr": "16.5 Clôturer l'année", "en": "16.5 Close the year"},
+        {"type": "p", "fr":
+            "Une fois toutes les classes passées, la clôture remet l'établissement à zéro pour la rentrée. Trois "
+            "ensembles de données n'ont aucune notion d'année et se mélangeraient sans elle : les **notes**, les "
+            "**bulletins validés** et les **scolarités**. La clôture les archive sous le libellé de l'année écoulée, "
+            "vide les tables de travail, rouvre une scolarité vierge au tarif de la nouvelle classe, puis bascule "
+            "l'année courante de l'établissement.",
+         "en":
+            "Once every class has been processed, the closure resets the school for the new intake. Three data sets "
+            "carry no notion of year and would otherwise mix: the **grades**, the **validated report cards** and the "
+            "**school fees**. The closure archives them under the closing year's label, empties the working tables, "
+            "reopens a blank fee statement at the new class rate, then switches the school's current year."},
+        {"type": "steps", "items": [
+            {"fr": "Onglet **Clôture de l'année**. L'écran annonce ce qui sera archivé — nombre de notes, de "
+                   "bulletins validés, de scolarités — et surtout **combien d'élèves n'ont pas encore de décision** "
+                   "de fin d'année, classe par classe.",
+             "en": "**Year closure** tab. The screen states what will be archived — number of grades, validated "
+                   "reports, fee statements — and above all **how many students have no end-of-year decision yet**, "
+                   "class by class."},
+            {"fr": "Tant qu'il reste des élèves sans décision, la clôture est **refusée** : archiver leurs notes "
+                   "avant de les avoir fait passer reviendrait à jeter la base même du calcul. Retournez d'abord "
+                   "dans l'onglet Passage de classe. La case __Clôturer malgré tout__ n'apparaît que pour les cas "
+                   "assumés (élèves partis en cours d'année, par exemple).",
+             "en": "As long as students have no decision, the closure is **refused**: archiving their grades before "
+                   "promoting them would throw away the very basis of the calculation. Go back to the Promotion tab "
+                   "first. The __Close anyway__ box only shows for deliberate cases (students who left mid-year, "
+                   "for instance)."},
+            {"fr": "Trois interrupteurs pilotent ce qui est fait : __Archiver les notes__, __Rouvrir les "
+                   "scolarités__, __Basculer l'année courante__. Les décocher est possible mais l'écran prévient de "
+                   "la conséquence — des notes qui se mélangent, ou des soldes de l'an dernier toujours dus.",
+             "en": "Three switches drive what is done: __Archive the grades__, __Reopen the school fees__, __Switch "
+                   "the current year__. Unticking them is allowed but the screen states the consequence — mixed "
+                   "grades, or last year's balances still owed."},
+            {"fr": "L'opération étant irréversible, il faut **retaper l'année** (par exemple `2025-2026`) pour "
+                   "armer le bouton. Une année déjà clôturée ne peut pas l'être une seconde fois.",
+             "en": "The operation cannot be undone, so you must **retype the year** (for example `2025-2026`) to arm "
+                   "the button. A year already closed cannot be closed twice."},
+        ]},
+        {"type": "note", "tone": "info", "fr":
+            "Rien n'est perdu. Les notes et les états de compte partent dans une archive datée, consultable en base, "
+            "et **l'historique des encaissements reste intact** : seuls les cumuls de l'année sont remis à zéro. Le "
+            "**parcours scolaire** de chaque élève (chapitre 15) conserve par ailleurs sa moyenne annuelle, son rang "
+            "et la décision du conseil.",
+         "en":
+            "Nothing is lost. Grades and statements move to a dated archive, queryable in the database, and **the "
+            "payment history stays intact**: only the year's running totals are reset. Each student's **school "
+            "journey** (chapter 15) also keeps their annual average, rank and council decision."},
+        {"type": "note", "tone": "limit", "fr":
+            "Les bulletins des années archivées ne se rouvrent pas encore depuis l'application : la moyenne "
+            "annuelle, le rang et la décision restent lisibles dans le parcours de l'élève, mais le détail note par "
+            "note se relit en base.",
+         "en":
+            "Report cards of archived years cannot be reopened from the app yet: the annual average, rank and "
+            "decision stay readable in the student's journey, but the mark-by-mark detail is read from the database."},
+
+        {"type": "check", "items": [
+            {"fr": "Déduire automatiquement la progression, puis corriger un enchaînement à la main.",
+             "en": "Auto-detect the progression, then fix one chaining by hand."},
+            {"fr": "Créer une règle de classe à 12/20 et vérifier qu'elle prime sur la règle de l'école.",
+             "en": "Create a class rule at 12/20 and check it beats the school rule."},
+            {"fr": "Simuler une classe, admettre un élève sous le seuil avec motif, appliquer, puis retrouver "
+                   "l'arbitrage dans l'historique et le parcours de l'élève.",
+             "en": "Simulate a class, promote a student below the pass mark with a reason, apply, then find the "
+                   "override in the history and in the student's journey."},
+            {"fr": "Tenter la clôture avec une classe non passée, constater le refus, puis clôturer une fois "
+                   "toutes les classes traitées et vérifier que l'année courante a basculé.",
+             "en": "Try the closure with one class left unprocessed, see it refused, then close once every class is "
+                   "done and check that the current year has switched."},
+        ]},
+    ],
+}
+
+
 CH_SANTE = {
     "id": "sante",
-    "num": "16",
+    "num": "17",
     "title": {"fr": "Santé & vie scolaire", "en": "Health & school life"},
     "subtitle": {"fr": "Dossier médical, passages à l'infirmerie et activités extrascolaires.",
                  "en": "Medical record, infirmary visits and extracurricular activities."},
@@ -477,7 +704,7 @@ CH_SANTE = {
 
 CH_DOCUMENTS = {
     "id": "documents",
-    "num": "17",
+    "num": "18",
     "title": {"fr": "Documents & orientation", "en": "Documents & guidance"},
     "subtitle": {"fr": "Pièces du dossier administratif et décisions d'orientation.",
                  "en": "Administrative file items and guidance decisions."},

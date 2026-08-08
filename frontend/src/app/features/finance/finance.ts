@@ -58,6 +58,12 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
 
       <bbc-tabs [tabs]="tabs()" [value]="tab()" (change)="setTab($event)" />
 
+      @if (sectionNotice(); as notice) {
+        <p class="mb-4 text-sm rounded-lg px-3 py-2 bg-amber-50 text-amber-800 border border-amber-100">
+          {{ notice }}
+        </p>
+      }
+
       @switch (tab()) {
         @case ('payments') {
           <!-- KPIs -->
@@ -1003,6 +1009,25 @@ export class FinanceComponent {
 
   protected fr = () => this.i18n.lang() === 'fr';
   protected money = fmtMoney;
+
+  /**
+   * Le solde d'un admin de section ne compte que ses recettes : les dépenses
+   * n'appartiennent à aucun cycle et lui sont fermées. Le dire évite qu'un
+   * solde amputé soit lu comme celui de l'établissement.
+   */
+  protected sectionNotice = computed(() => {
+    const section = this.summary()?.section;
+    if (!section) return null;
+    const labels: Record<string, [string, string]> = {
+      maternelle: ['Maternelle', 'Nursery'],
+      primary: ['Primaire', 'Primary'],
+      secondary: ['Secondaire', 'Secondary'],
+    };
+    const [labelFr, labelEn] = labels[section] ?? [section, section];
+    return this.fr()
+      ? `Périmètre : ${labelFr}. Seules les recettes de votre section sont comptées ; les dépenses de l’établissement relèvent de l’administrateur principal.`
+      : `Scope: ${labelEn}. Only your section's revenue is counted; school-wide expenses belong to the main administrator.`;
+  });
 
   protected revenue30 = computed(() => this.summary()?.totalRevenue30d ?? 0);
   protected expense30 = computed(() => this.summary()?.totalExpense30d ?? 0);

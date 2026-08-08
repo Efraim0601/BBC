@@ -1,6 +1,7 @@
 package com.bbc.sms.reports;
 
 import com.bbc.sms.platform.common.ApiException;
+import com.bbc.sms.platform.tenant.ParcoursContext;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.reports.dto.ReportDtos.*;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -20,31 +21,53 @@ import java.util.UUID;
 /**
  * Aggregations for the reports module. No JPA entities here — every figure is computed
  * with JdbcTemplate and scoped to the current tenant via {@link TenantContext#get()}.
+ *
+ * <p>Second cloisonnement : le verrou de section. Un administrateur de cycle ne
+ * lit que ses propres chiffres, sans quoi ces agrégats — élèves, recouvrement,
+ * assiduité — lui livreraient tout l'établissement d'un seul écran. Le filtre
+ * est neutre pour les autres comptes, dont la vue reste école-entière.
  */
 @Service
 public class ReportService {
 
     private static final String UNKNOWN = "—";
 
+    /**
+     * Clause neutre quand aucun verrou n'est posé : le paramètre vaut alors null
+     * et la condition s'efface. Le transtypage explicite est exigé par
+     * PostgreSQL, qui refuse de deviner le type d'un paramètre nul.
+     */
+    private static final String LOCK = " AND (CAST(? AS VARCHAR) IS NULL OR %s = CAST(? AS VARCHAR))";
+
     private final JdbcTemplate jdbc;
 
     public ReportService(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+
+    /** Section imposée à la requête, ou null quand le compte voit toute l'école. */
+    private static String lock() { return ParcoursContext.sectionLock(); }
 
     @Transactional(readOnly = true)
     public FinanceReport finance() {
         UUID schoolId = TenantContext.get();
 
+        String lock = lock();
         long totalRevenue = jdbc.queryForObject(
-                "SELECT COALESCE(SUM(amount),0) FROM payment WHERE school_id = ?",
-                Long.class, schoolId);
-        long totalExpense = jdbc.queryForObject(
+                "SELECT COALESCE(SUM(p.amount),0) FROM payment p"
+                + " LEFT JOIN student s ON s.id = p.student_id WHERE p.school_id = ?"
+                + LOCK.formatted("s.level"),
+                Long.class, schoolId, lock, lock);
+        // Les dépenses n'appartiennent à aucun cycle : un admin de section en
+        // voit zéro plutôt qu'une part arbitraire (cf. FinanceService).
+        long totalExpense = lock != null ? 0L : jdbc.queryForObject(
                 "SELECT COALESCE(SUM(amount),0) FROM expense WHERE school_id = ?",
                 Long.class, schoolId);
 
         long[] fees = jdbc.query(
-                "SELECT COALESCE(SUM(paid),0), COALESCE(SUM(total),0) FROM student_fee WHERE school_id = ?",
+                "SELECT COALESCE(SUM(f.paid),0), COALESCE(SUM(f.total),0) FROM student_fee f"
+                + " LEFT JOIN student s ON s.id = f.student_id WHERE f.school_id = ?"
+                + LOCK.formatted("s.level"),
                 rs -> rs.next() ? new long[]{rs.getLong(1), rs.getLong(2)} : new long[]{0, 0},
-                schoolId);
+                schoolId, lock, lock);
         long paid = fees[0];
         long total = fees[1];
         double recoveryRate = total == 0 ? 0d : Math.round(((double) paid / total) * 1000d) / 10d;
@@ -74,7 +97,7 @@ public class ReportService {
         jdbc.query(
                 "SELECT a.student_id, s.last_name, s.first_name, s.class_name, a.status " +
                         "FROM attendance_record a JOIN student s ON s.id = a.student_id " +
-                        "WHERE a.school_id = ? AND a.att_date BETWEEN ? AND ?",
+                        "WHERE a.school_id = ? AND a.att_date BETWEEN ? AND ?" + LOCK.formatted("s.level"),
                 rs -> {
                     // Read all ResultSet columns here (the RowCallbackHandler declares
                     // throws SQLException); the computeIfAbsent lambda below is a plain
@@ -93,7 +116,7 @@ public class ReportService {
                         default -> { /* ignore unknown statuses */ }
                     }
                 },
-                schoolId, java.sql.Date.valueOf(from), java.sql.Date.valueOf(to));
+                schoolId, java.sql.Date.valueOf(from), java.sql.Date.valueOf(to), lock(), lock());
 
         List<AttendanceRow> rows = new ArrayList<>(byStudent.size());
         for (Agg a : byStudent.values()) {
@@ -119,14 +142,15 @@ public class ReportService {
         long[] total = {0};
 
         jdbc.query(
-                "SELECT level, subsystem, sex FROM student WHERE school_id = ? AND active = true",
+                "SELECT level, subsystem, sex FROM student WHERE school_id = ? AND active = true"
+                        + LOCK.formatted("level"),
                 rs -> {
                     total[0]++;
                     bump(byLevel, rs.getString("level"));
                     bump(bySubsystem, rs.getString("subsystem"));
                     bump(bySex, rs.getString("sex"));
                 },
-                schoolId);
+                schoolId, lock(), lock());
 
         return new Demographics(total[0], byLevel, bySubsystem, bySex);
     }

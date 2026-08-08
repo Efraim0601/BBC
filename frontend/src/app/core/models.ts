@@ -19,6 +19,10 @@ export interface UserView {
   permissions: Record<string, Level>;
   modules: string[];
   allowedParcours: Parcours[]; // empty = all parcours (admin)
+  /** Cycle administré, null pour un compte non cloisonné. */
+  section: 'maternelle' | 'primary' | 'secondary' | null;
+  /** Faux pour un admin de section : les réglages école-entière lui sont fermés. */
+  schoolWide: boolean;
 }
 
 export interface TokenResponse {
@@ -103,4 +107,9 @@ export interface FinanceSummary {
   balance30d: number;
   paymentsCount: number;
   revenueSeries: { date: string; amount: number }[];
+  /**
+   * Cycle du compte quand il est cloisonné : les recettes ne portent alors que
+   * sur ses élèves et les dépenses sont exclues. Null pour l'admin principal.
+   */
+  section: 'maternelle' | 'primary' | 'secondary' | null;
 }

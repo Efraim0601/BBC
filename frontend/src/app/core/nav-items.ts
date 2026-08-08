@@ -29,6 +29,7 @@ export const NAV_ICONS = {
   clipboard: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M9 12h6M9 16h6"/></svg>',
   heart: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.29 1.5 4.04 3 5.5l7 7Z"/></svg>',
   folder: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>',
+  cap: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M2 9l10-5 10 5-10 5z"/><path d="M6 11v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/><path d="M22 9v5"/></svg>',
   kit: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m7.5 4.27 9 5.15M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5M12 22V12"/></svg>',
 };
 
@@ -45,6 +46,7 @@ export const NAV_GROUPS: Group[] = [
     { id: 'presence', route: '/presence', iconBg: 'bg-amber-100 text-amber-700', color: 'from-amber-500 to-amber-700', svg: NAV_ICONS.fingerprint, subFr: 'Empreinte digitale, SMS auto', subEn: 'Biometric, auto SMS' },
     { id: 'discipline', route: '/discipline', iconBg: 'bg-orange-100 text-orange-700', color: 'from-orange-500 to-orange-700', svg: NAV_ICONS.shield, subFr: 'Incidents, SMS parents', subEn: 'Incidents, parent SMS' },
     { id: 'coursebook', route: '/coursebook', iconBg: 'bg-lime-100 text-lime-700', color: 'from-lime-500 to-lime-700', svg: NAV_ICONS.clipboard, subFr: 'Cahier de textes & devoirs', subEn: 'Class log & homework' },
+    { id: 'promotion', route: '/promotion', iconBg: 'bg-teal-100 text-teal-700', color: 'from-teal-500 to-teal-700', svg: NAV_ICONS.cap, subFr: 'Fin d’année, admis & redoublants', subEn: 'End of year, promotions & repeats' },
   ]},
   { key: 'operations', labelFr: 'Opérations', labelEn: 'Operations', mods: [
     { id: 'finance', route: '/finance', iconBg: 'bg-gold-50 text-gold-600', color: 'from-gold-400 to-gold-600', svg: NAV_ICONS.wallet, subFr: 'Recettes, dépenses, débiteurs', subEn: 'Revenue, expenses, debtors' },

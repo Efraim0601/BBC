@@ -30,4 +30,16 @@ public class SchoolClass {
 
     @Column(nullable = false)
     private String level;
+
+    /** Rang pédagogique dans la section (SIL=1, CP=2…) — ordonne l'échelle des classes. */
+    @Column(name = "grade_order", nullable = false)
+    private int gradeOrder = 0;
+
+    /** Classe d'accueil l'année suivante ; null tant que la progression n'est pas configurée. */
+    @Column(name = "next_class_id")
+    private UUID nextClassId;
+
+    /** Classe de sortie (Terminale, Upper Sixth) : la réussite y vaut « diplômé ». */
+    @Column(nullable = false)
+    private boolean terminal = false;
 }

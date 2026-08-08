@@ -398,8 +398,14 @@ export class AcademicComponent {
   protected readonly sequences = [1, 2, 3, 4, 5, 6] as const;
   protected canWrite = this.auth.can('academic', 'write');
 
+  /**
+   * Maternelle et primaire s'évaluent par compétences, le secondaire par matières.
+   * On lit le niveau de la CLASSE choisie : en mode « Tous les parcours », aucun
+   * parcours n'est actif et le bulletin par compétences disparaîtrait à tort.
+   */
   protected isApc = computed(() => {
-    const lvl = this.scope.scope()?.level;
+    const selected = this.classes().find((c) => c.name === this.selectedClass());
+    const lvl = selected?.level ?? this.scope.scope()?.level;
     return lvl === 'maternelle' || lvl === 'primary';
   });
 

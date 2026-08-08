@@ -32,19 +32,20 @@ Un tutoriel par module : chaque procédure est décrite étape par étape, avec 
 - [13 Carnet de correspondance](#correspondance)
 - [14 Fournitures & manuels](#fournitures)
 - [15 Parcours scolaire](#parcours-scolaire)
-- [16 Santé & vie scolaire](#sante)
-- [17 Documents & orientation](#documents)
+- [16 Passage de classe](#passage-de-classe)
+- [17 Santé & vie scolaire](#sante)
+- [18 Documents & orientation](#documents)
 
 **Pilotage & familles**
 
-- [18 Pilotage — tableau de bord, alertes, rapports](#pilotage)
-- [19 Portail parent](#portail-parent)
+- [19 Pilotage — tableau de bord, alertes, rapports](#pilotage)
+- [20 Portail parent](#portail-parent)
 
 **Aller plus loin**
 
-- [20 Démarrer une nouvelle année](#demarrer-une-annee)
-- [21 Questions fréquentes & dépannage](#faq)
-- [22 Annexes](#annexes)
+- [21 Démarrer une nouvelle année](#demarrer-une-annee)
+- [22 Questions fréquentes & dépannage](#faq)
+- [23 Annexes](#annexes)
 
 
 <a id="prise-en-main"></a>
@@ -685,7 +686,24 @@ Si l'élève a un solde de frais impayé, le bulletin s'affiche mais porte un ba
 
 ### 7.5 Maternelle et primaire : le bulletin APC
 
-Quand le parcours actif est **Maternelle** ou **Primaire**, l'application affiche automatiquement le bulletin par **compétences** (APC), conforme aux modèles officiels : six compétences, leurs sous-compétences, les types d'évaluation (orale, écrite, pratique, savoir-être) avec leur barème, un total général sur 280 et les trois trimestres.
+Dès que la classe choisie relève de la **maternelle** ou du **primaire**, l'application affiche le bulletin par **compétences** (APC) au lieu du bulletin par matières : six compétences, leurs sous-compétences, et pour chacune les types d'évaluation (orale, écrite, pratique, savoir-être) avec leur barème.
+
+Le barème n'est pas unique : il change de **sous-système** et de **classe**. L'application choisit le bon d'après la classe de l'élève, sans réglage — y compris en mode « Tous les parcours », où aucun sous-système n'est actif.
+
+*Les quatre barèmes officiels transcrits des classeurs de l'établissement.*
+
+| Sous-système | Barème | Classes | Total |
+|---|---|---|---|
+| Francophone | Niveau I | SIL, CP | 280 |
+| Francophone | Niveaux II et III | CE1, CE2, CM1, CM2 | 300 |
+| Anglophone | Level 1 | Class 1, Class 2 | 280 |
+| Anglophone | Levels 2 et 3 | Class 3 à Class 6 | 360 |
+
+Les colonnes suivent elles aussi le modèle d'origine : le francophone évalue par **unité d'apprentissage** (UA1 à UA8, réparties sur trois trimestres) avec une note et une cote pour chacune ; l'anglophone évalue **mensuellement** (1 à 8), totalise chaque trimestre, puis porte un total annuel et l'échelle d'appréciation officielle (C/SNA, B/SPA, A/SA, A+/Expert).
+
+> **À savoir** — En compétence 6, les activités sportives des apprenants **aptes** et **inaptes** sont deux lignes alternatives : un élève relève de l'une ou de l'autre, et une seule compte dans le total — c'est ce qui donne 40 points à la compétence et non 60. Le bulletin le signale sur la ligne concernée.
+
+> **Limite actuelle** — La **maternelle** n'a pas de modèle propre dans les documents de l'établissement : elle reprend pour l'instant le barème de la première année du primaire, dans son sous-système. Fournissez le modèle maternelle pour qu'il soit transcrit à son tour.
 
 > **Limite actuelle** — Le bulletin APC est aujourd'hui une **feuille imprimable conforme** : les cases de notes sont laissées vides pour un remplissage manuel. Les moyennes chiffrées automatiques restent réservées au secondaire.
 
@@ -1036,9 +1054,80 @@ Deux listes distinctes par classe : les **fournitures** (cahiers, matériel) et 
 - [ ] Vérifier la courbe de progression sur deux années.
 
 
+<a id="passage-de-classe"></a>
+
+## 16 Passage de classe
+
+*Fin d'année : proposition automatique, arbitrage du conseil, transfert réel des élèves.*
+
+**Pour qui :** Direction et censeur pour l'exécution ; administrateur pour la configuration des règles.
+
+Le module enchaîne trois opérations que l'école faisait jusque-là à la main : il **propose** une décision à partir de la moyenne annuelle, il laisse le conseil de classe **l'arbitrer**, puis il **applique** — l'élève change réellement de classe et son parcours s'écrit tout seul.
+
+### 16.1 Configurer la progression
+
+1. Ouvrez **Passage de classe → Progression & règles**. Le tableau liste les classes du parcours actif, section par section.
+2. **Déduire automatiquement** reconnaît les libellés officiels et enchaîne les classes : SIL → CP → CE1 → … → CM2 → 6ème, Form 1 → Form 2, etc. La dernière classe d'un cycle bascule sur la première du cycle suivant, dans le même sous-système.
+3. Relisez et corrigez : la colonne **Classe suivante** se change librement, l'**Ordre** fixe le rang pédagogique, et **Classe de sortie** marque une fin de scolarité (Terminale, Upper Sixth) où la réussite vaut « Diplômé » au lieu de « Admis ». Terminez par **Enregistrer**.
+
+> **Attention** — Une classe sans classe suivante et non marquée classe de sortie ne bloque rien, mais ses élèves seront tous proposés **à examiner** : l'application refuse de deviner où les envoyer.
+
+### 16.2 Régler le seuil de décision
+
+Sous le tableau de progression, les **règles de décision** disent à partir de quelle moyenne annuelle un élève est proposé admis. La règle la plus précise l'emporte : une règle de classe prime sur une règle de parcours, qui prime sur la règle générale de l'école.
+
+| Réglage | Effet |
+|---|---|
+| Seuil | Moyenne annuelle à atteindre pour être proposé **admis** (10/20 par défaut). |
+| Zone conseil | Largeur, juste sous le seuil, où l'élève est proposé **à examiner** au lieu de redoublant — la décision revient explicitement au conseil. |
+| Redoubl. max | Nombre de redoublements déjà au parcours au-delà duquel plus aucun redoublement n'est proposé automatiquement (2 par défaut). |
+
+> **À savoir** — La moyenne annuelle est la moyenne des séquences évaluées, chaque séquence étant pondérée par les **mêmes coefficients que les bulletins**, surcharge par classe comprise. La note qui décide du passage est donc exactement celle que l'élève lit sur son bulletin.
+
+### 16.3 Simuler puis appliquer
+
+1. Onglet **Passage de classe** : choisissez la classe. L'année qui se termine et l'année d'accueil sont pré-remplies et restent modifiables.
+2. Chaque élève affiche sa **moyenne annuelle**, son **rang**, ses redoublements antérieurs, et la **proposition** de l'application avec sa justification en clair — « Moyenne 11,40/20 < seuil 12,00 », « en zone conseil », « 2 redoublements déjà au parcours ».
+3. La colonne **Décision retenue** est libre : vous pouvez admettre un élève sous le seuil ou faire redoubler un élève au-dessus. Dès que la décision s'écarte de la proposition, la ligne passe en ambre et le **motif devient obligatoire** — il est conservé et consultable.
+4. La **classe d'accueil** est celle du mapping ; changez-la au cas par cas pour une orientation (3ème vers 2nde A ou 2nde C, par exemple).
+5. **Appliquer** demande confirmation puis exécute d'un bloc : les admis changent de classe, les redoublants sont marqués « redouble », les diplômés et les exclus sortent des effectifs actifs. L'année qui se termine et l'année d'accueil s'inscrivent dans le **parcours scolaire** de chaque élève (chapitre 15).
+
+> **À savoir** — Un élève sans aucune note est proposé **sans note** et n'est jamais appliqué tant qu'une décision n'a pas été choisie à la main. Le compteur **Appliquer (n)** ne compte que les lignes réellement prêtes : décidées, motivées si nécessaire, et pourvues d'une classe d'accueil.
+
+> **Astuce** — Traitez les classes **de la plus basse à la plus haute** ou dans l'ordre que vous voulez : peu importe. Un élève qui vient d'être admis en 6ème depuis le CM2 est automatiquement écarté de la simulation de la 6ème — sa décision de l'année est déjà prise, le promouvoir une seconde fois lui ferait sauter une classe. Un bandeau signale combien d'élèves ont été écartés à ce titre.
+
+> **Attention** — Le passage déplace les élèves ; il ne remet pas les compteurs à zéro. C'est la **clôture de l'année** (§16.5) qui archive les notes et rouvre les scolarités — faites-la après avoir passé toutes les classes.
+
+### 16.4 Contrôler ce qui a été fait
+
+L'onglet **Historique** liste les 50 derniers lots : la classe, les deux années, les effectifs admis / redoublants / diplômés, le nombre d'arbitrages manuels et l'auteur. Chaque décision conserve la proposition d'origine à côté de la décision retenue et de son motif.
+
+> **Astuce** — Réappliquer un lot sur la même classe est possible : les élèves déjà traités sont signalés, et les élèves qui ont quitté la classe sont simplement ignorés. C'est le moyen de rattraper une classe traitée à moitié en fin de conseil.
+
+### 16.5 Clôturer l'année
+
+Une fois toutes les classes passées, la clôture remet l'établissement à zéro pour la rentrée. Trois ensembles de données n'ont aucune notion d'année et se mélangeraient sans elle : les **notes**, les **bulletins validés** et les **scolarités**. La clôture les archive sous le libellé de l'année écoulée, vide les tables de travail, rouvre une scolarité vierge au tarif de la nouvelle classe, puis bascule l'année courante de l'établissement.
+
+1. Onglet **Clôture de l'année**. L'écran annonce ce qui sera archivé — nombre de notes, de bulletins validés, de scolarités — et surtout **combien d'élèves n'ont pas encore de décision** de fin d'année, classe par classe.
+2. Tant qu'il reste des élèves sans décision, la clôture est **refusée** : archiver leurs notes avant de les avoir fait passer reviendrait à jeter la base même du calcul. Retournez d'abord dans l'onglet Passage de classe. La case **Clôturer malgré tout** n'apparaît que pour les cas assumés (élèves partis en cours d'année, par exemple).
+3. Trois interrupteurs pilotent ce qui est fait : **Archiver les notes**, **Rouvrir les scolarités**, **Basculer l'année courante**. Les décocher est possible mais l'écran prévient de la conséquence — des notes qui se mélangent, ou des soldes de l'an dernier toujours dus.
+4. L'opération étant irréversible, il faut **retaper l'année** (par exemple `2025-2026`) pour armer le bouton. Une année déjà clôturée ne peut pas l'être une seconde fois.
+
+> **À savoir** — Rien n'est perdu. Les notes et les états de compte partent dans une archive datée, consultable en base, et **l'historique des encaissements reste intact** : seuls les cumuls de l'année sont remis à zéro. Le **parcours scolaire** de chaque élève (chapitre 15) conserve par ailleurs sa moyenne annuelle, son rang et la décision du conseil.
+
+> **Limite actuelle** — Les bulletins des années archivées ne se rouvrent pas encore depuis l'application : la moyenne annuelle, le rang et la décision restent lisibles dans le parcours de l'élève, mais le détail note par note se relit en base.
+
+**Fiche de test — je sais faire**
+
+- [ ] Déduire automatiquement la progression, puis corriger un enchaînement à la main.
+- [ ] Créer une règle de classe à 12/20 et vérifier qu'elle prime sur la règle de l'école.
+- [ ] Simuler une classe, admettre un élève sous le seuil avec motif, appliquer, puis retrouver l'arbitrage dans l'historique et le parcours de l'élève.
+- [ ] Tenter la clôture avec une classe non passée, constater le refus, puis clôturer une fois toutes les classes traitées et vérifier que l'année courante a basculé.
+
+
 <a id="sante"></a>
 
-## 16 Santé & vie scolaire
+## 17 Santé & vie scolaire
 
 *Dossier médical, passages à l'infirmerie et activités extrascolaires.*
 
@@ -1064,7 +1153,7 @@ Deux listes distinctes par classe : les **fournitures** (cahiers, matériel) et 
 
 <a id="documents"></a>
 
-## 17 Documents & orientation
+## 18 Documents & orientation
 
 *Pièces du dossier administratif et décisions d'orientation.*
 
@@ -1088,7 +1177,7 @@ Deux listes distinctes par classe : les **fournitures** (cahiers, matériel) et 
 
 <a id="pilotage"></a>
 
-## 18 Pilotage — tableau de bord, alertes, rapports
+## 19 Pilotage — tableau de bord, alertes, rapports
 
 *Les trois écrans de la direction : la journée, les risques, les tendances.*
 
@@ -1135,7 +1224,7 @@ Analytique école entière, indépendante du parcours : bilan financier, démogr
 
 <a id="portail-parent"></a>
 
-## 19 Portail parent
+## 20 Portail parent
 
 *Ce que voit une famille — et ce qu'elle ne peut pas voir.*
 
@@ -1189,7 +1278,7 @@ Un compte parent se connecte à la **même adresse** que le personnel, avec le m
 
 <a id="demarrer-une-annee"></a>
 
-## 20 Démarrer une nouvelle année
+## 21 Démarrer une nouvelle année
 
 *L'ordre des opérations, de la base vide à la première journée de classe.*
 
@@ -1214,6 +1303,8 @@ Chaque étape dépend de la précédente. Suivre cet ordre évite les blocages c
 
 > **Astuce** — Faites l'essai complet sur **un seul parcours** (par exemple Secondaire FR) avant de dérouler les autres : les erreurs de paramétrage se voient beaucoup plus vite sur un périmètre réduit.
 
+> **À savoir** — Cette séquence décrit une **première** installation. Une école qui a déjà tourné une année ne réimporte pas ses élèves : elle passe par **Passage de classe** (chapitre 16), qui reconduit les effectifs d'une année sur l'autre — les admis dans la classe supérieure, les redoublants dans la leur — et n'a plus qu'à reprendre à l'étape 11 (grille des frais) et à l'étape 12 (emploi du temps).
+
 **Fiche de test — je sais faire**
 
 - [ ] Dérouler les 14 étapes sur un parcours de test sans blocage.
@@ -1223,7 +1314,7 @@ Chaque étape dépend de la précédente. Suivre cet ordre évite les blocages c
 
 <a id="faq"></a>
 
-## 21 Questions fréquentes & dépannage
+## 22 Questions fréquentes & dépannage
 
 *Les blocages les plus courants et leur cause réelle.*
 
@@ -1251,7 +1342,7 @@ Chaque étape dépend de la précédente. Suivre cet ordre évite les blocages c
 
 <a id="annexes"></a>
 
-## 22 Annexes
+## 23 Annexes
 
 *Glossaire, comptes de démonstration et mise à jour du guide.*
 

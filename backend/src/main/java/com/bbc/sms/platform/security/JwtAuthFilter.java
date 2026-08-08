@@ -43,6 +43,10 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                     // to compartmentalise list views. Validated against the user's allowed
                     // parcours by @parcours when an endpoint requires it.
                     ParcoursContext.set(ParcoursContext.parse(request.getHeader("X-Parcours")));
+                    // Verrou de section d'un administrateur de cycle : il se lit dans le
+                    // code de rôle, donc sans requête. Contrairement au parcours, il ne
+                    // vient pas du client — un en-tête absent ne l'affranchit de rien.
+                    ParcoursContext.lockSection(SectionRoles.sectionOf(principal.roleCode()));
                 }
             } catch (Exception ignored) {
                 // invalid/expired token -> stays anonymous, secured endpoints will 401

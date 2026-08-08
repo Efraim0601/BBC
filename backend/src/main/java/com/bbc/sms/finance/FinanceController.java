@@ -36,16 +36,17 @@ public class FinanceController {
         return service.listExpenses();
     }
 
+    /** Une dépense engage l'établissement, non un cycle : admin principal seul. */
     @PostMapping("/expenses")
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("@perm.can('finance','write')")
+    @PreAuthorize("@perm.can('finance','write') and @perm.schoolWide()")
     public ExpenseView addExpense(@Valid @RequestBody ExpenseRequest in) {
         return service.addExpense(in);
     }
 
     @DeleteMapping("/expenses/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize("@perm.can('finance','write')")
+    @PreAuthorize("@perm.can('finance','write') and @perm.schoolWide()")
     public void deleteExpense(@PathVariable UUID id) {
         service.deleteExpense(id);
     }

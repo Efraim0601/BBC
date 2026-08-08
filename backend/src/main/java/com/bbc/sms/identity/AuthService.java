@@ -5,6 +5,7 @@ import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AppUserPrincipal;
 import com.bbc.sms.platform.security.JwtService;
 import com.bbc.sms.platform.security.ParcoursAccessService;
+import com.bbc.sms.platform.security.SectionRoles;
 import io.jsonwebtoken.Claims;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -93,8 +94,10 @@ public class AuthService {
                 .map(Map.Entry::getKey).toList();
         List<Parcours> allowedParcours = parcoursAccess.allowed(user.getId()).stream()
                 .map(s -> new Parcours(s.level(), s.subsystem())).toList();
+        String section = SectionRoles.sectionOf(user.getRoleCode());
         return new UserView(user.getId(), user.getUsername(), user.getDisplayName(),
                 user.getInitials(), user.getRoleCode(), user.getSchoolId(),
-                school.getCode(), school.getName(), user.getLocale(), perms, modules, allowedParcours);
+                school.getCode(), school.getName(), user.getLocale(), perms, modules, allowedParcours,
+                section, section == null);
     }
 }

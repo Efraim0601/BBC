@@ -5,6 +5,8 @@ import com.bbc.sms.hr.DepartmentRepository;
 import com.bbc.sms.identity.AppUser;
 import com.bbc.sms.identity.AppUserRepository;
 import com.bbc.sms.platform.common.ApiException;
+import com.bbc.sms.platform.security.AccessScopeService;
+import com.bbc.sms.platform.security.SectionRoles;
 import com.bbc.sms.platform.mail.MailService;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.setup.SetupService;
@@ -49,11 +51,13 @@ public class StaffService {
     private final AppUserRepository users;
     private final SchoolClassRepository classes;
     private final SetupService setup;
+    private final AccessScopeService accessScope;
     private final JdbcTemplate jdbc;
 
     public StaffService(EmployeeRepository repo, DepartmentRepository departments, MailService mail,
                         StaffAccountService accounts, AppUserRepository users,
-                        SchoolClassRepository classes, SetupService setup, JdbcTemplate jdbc) {
+                        SchoolClassRepository classes, SetupService setup,
+                        AccessScopeService accessScope, JdbcTemplate jdbc) {
         this.repo = repo;
         this.departments = departments;
         this.mail = mail;
@@ -61,6 +65,7 @@ public class StaffService {
         this.users = users;
         this.classes = classes;
         this.setup = setup;
+        this.accessScope = accessScope;
         this.jdbc = jdbc;
     }
 
@@ -119,8 +124,22 @@ public class StaffService {
         Map<UUID, String> deptNames = new HashMap<>();
         for (Department d : departments.findBySchoolIdOrderByName(schoolId)) deptNames.put(d.getId(), d.getName());
         Map<UUID, String> logins = loginUsernames(schoolId);
+        String section = accessScope.adminSection();
         return repo.findBySchoolIdAndActiveTrueOrderByNameAsc(schoolId).stream()
+                .filter(e -> inSection(e, section))
                 .map(e -> toView(e, deptNames.get(e.getDepartmentId()), logins.get(e.getId()))).toList();
+    }
+
+    /**
+     * L'employé relève-t-il de la section de l'administrateur courant ?
+     *
+     * <p>Le personnel sans section — économat, intendance, direction — reste
+     * visible de tous : il ne dépend d'aucun cycle, et le masquer le rendrait
+     * introuvable pour les admins de section, qui traitent pourtant ses congés
+     * et ses remplacements.
+     */
+    private static boolean inSection(Employee e, String section) {
+        return section == null || e.getLevel() == null || section.equals(e.getLevel());
     }
 
     @Transactional(readOnly = true)
@@ -247,6 +266,7 @@ public class StaffService {
                 }
 
                 Set<String> roles = resolveRoles(row.roles(), validRoles);
+                assertNoNewPrivilege(Set.of(), roles);   // un import ne nomme pas d'administrateur
 
                 String code;
                 do {
@@ -263,7 +283,18 @@ public class StaffService {
                 e.setEmail(email);
                 e.setPhone(phone);
                 e.setFormClass(blankToNull(row.formClass()));
-                e.setLevel(normSection(blankToNull(row.section())));
+                // Un admin de cycle importe dans son cycle : la colonne « section »
+                // du fichier ne peut pas l'en faire sortir.
+                String rowSection = normSection(blankToNull(row.section()));
+                String adminSection = accessScope.adminSection();
+                if (adminSection != null) {
+                    if (rowSection != null && !adminSection.equals(rowSection)) {
+                        throw new IllegalArgumentException(
+                                "Section « " + rowSection + " » hors de votre périmètre");
+                    }
+                    rowSection = adminSection;
+                }
+                e.setLevel(rowSection);
                 e.setDepartmentId(departmentId);
                 e.setMonthlySalary(row.monthlySalary() == null ? 0L : Math.max(0L, row.monthlySalary()));
                 e.setHourlyRate(row.hourlyRate() == null ? 0 : Math.max(0, row.hourlyRate()));
@@ -306,9 +337,16 @@ public class StaffService {
         return accounts.provisionOrReset(find(id));
     }
 
+    /**
+     * L'employé, à condition qu'il relève du périmètre de l'appelant. Toutes les
+     * opérations sur une fiche passent par ici : le contrôle de section est donc
+     * posé une fois, et non répété à chaque méthode où il pourrait manquer.
+     */
     private Employee find(UUID id) {
-        return repo.findByIdAndSchoolId(id, TenantContext.get())
+        Employee e = repo.findByIdAndSchoolId(id, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Employé"));
+        accessScope.assertEmployee(e.getId());
+        return e;
     }
 
     /** employeeId -> username for every staff-linked account in this school. */
@@ -337,9 +375,35 @@ public class StaffService {
         e.setHourlyRate(in.hourlyRate());
         Set<String> validRoles = new HashSet<>(jdbc.queryForList("SELECT code FROM role", String.class));
         try {
-            e.setRoles(resolveRoles(in.roles() == null ? null : List.copyOf(in.roles()), validRoles));
+            Set<String> roles = resolveRoles(in.roles() == null ? null : List.copyOf(in.roles()), validRoles);
+            assertNoNewPrivilege(e.getRoles(), roles);
+            e.setRoles(roles);
         } catch (IllegalArgumentException ex) {
             throw ApiException.badRequest(ex.getMessage());
+        }
+    }
+
+    /**
+     * Les rôles d'administration ne se <em>distribuent</em> pas depuis le module
+     * Personnel.
+     *
+     * <p>Sans ce contrôle, l'écran des employés offrirait le chemin de traverse
+     * que l'écran des administrateurs ferme : un admin de section cocherait
+     * « Principal » sur sa propre fiche, ou nommerait l'admin d'un autre cycle,
+     * et son verrou tomberait. La nomination passe par Paramètres →
+     * Administrateurs, réservé à l'admin principal.
+     *
+     * <p>Seuls les rôles <em>nouvellement ajoutés</em> sont refusés : la fiche
+     * d'un administrateur déjà nommé reste modifiable — téléphone, département,
+     * salaire — sans qu'on lui retire son rôle au passage.
+     */
+    private void assertNoNewPrivilege(Set<String> current, Set<String> wanted) {
+        Set<String> held = current == null ? Set.of() : current;
+        for (String r : wanted) {
+            if (SectionRoles.privilegedRoles().contains(r) && !held.contains(r)) {
+                throw ApiException.badRequest(
+                        "Le rôle « " + r + " » se confie depuis Paramètres → Administrateurs.");
+            }
         }
     }
 
@@ -351,6 +415,14 @@ public class StaffService {
     private void applySection(Employee e, String section) {
         if (section != null && !SECTIONS.contains(section)) {
             throw ApiException.badRequest("Section inconnue (attendu maternelle, primary ou secondary)");
+        }
+        String adminSection = accessScope.adminSection();
+        if (adminSection != null) {
+            // Un admin de cycle recrute dans son cycle : à défaut de section
+            // saisie il impose la sienne, et ne peut muter personne ailleurs —
+            // ce serait faire sortir un agent de son propre périmètre.
+            if (section == null) section = adminSection;
+            else accessScope.assertSection(section);
         }
         String previous = e.getLevel();
         e.setLevel(section);

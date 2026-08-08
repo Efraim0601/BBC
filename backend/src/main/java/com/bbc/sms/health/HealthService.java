@@ -2,7 +2,7 @@ package com.bbc.sms.health;
 
 import com.bbc.sms.health.dto.HealthDtos.*;
 import com.bbc.sms.platform.common.ApiException;
-import com.bbc.sms.platform.security.TeacherScopeService;
+import com.bbc.sms.platform.security.AccessScopeService;
 import com.bbc.sms.platform.security.AppUserPrincipal;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.student.Student;
@@ -26,23 +26,23 @@ public class HealthService {
     private final InfirmaryVisitRepository visits;
     private final StudentActivityRepository activities;
     private final StudentRepository students;
-    private final TeacherScopeService teacherScope;
+    private final AccessScopeService accessScope;
 
     public HealthService(HealthRecordRepository records,
                          InfirmaryVisitRepository visits,
                          StudentActivityRepository activities,
                          StudentRepository students,
-                         TeacherScopeService teacherScope) {
+                         AccessScopeService accessScope) {
         this.records = records;
         this.visits = visits;
         this.activities = activities;
         this.students = students;
-        this.teacherScope = teacherScope;
+        this.accessScope = accessScope;
     }
 
     @Transactional(readOnly = true)
     public StudentHealth forStudent(UUID studentId) {
-        teacherScope.assertStudent(studentId);
+        accessScope.assertStudent(studentId);
         UUID schoolId = TenantContext.get();
         Student student = students.findByIdAndSchoolId(studentId, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Élève"));
@@ -65,7 +65,7 @@ public class HealthService {
 
     @Transactional
     public HealthRecordView upsertRecord(UUID studentId, HealthRecordUpsert in) {
-        teacherScope.assertStudent(studentId);
+        accessScope.assertStudent(studentId);
         UUID schoolId = TenantContext.get();
         students.findByIdAndSchoolId(studentId, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Élève"));
@@ -88,7 +88,7 @@ public class HealthService {
 
     @Transactional
     public VisitView addVisit(UUID studentId, VisitUpsert in) {
-        teacherScope.assertStudent(studentId);
+        accessScope.assertStudent(studentId);
         UUID schoolId = TenantContext.get();
         students.findByIdAndSchoolId(studentId, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Élève"));
@@ -112,7 +112,7 @@ public class HealthService {
 
     @Transactional
     public ActivityView addActivity(UUID studentId, ActivityUpsert in) {
-        teacherScope.assertStudent(studentId);
+        accessScope.assertStudent(studentId);
         UUID schoolId = TenantContext.get();
         students.findByIdAndSchoolId(studentId, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Élève"));

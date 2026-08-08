@@ -1,7 +1,7 @@
 package com.bbc.sms.timetable;
 
 import com.bbc.sms.platform.common.ApiException;
-import com.bbc.sms.platform.security.TeacherScopeService;
+import com.bbc.sms.platform.security.AccessScopeService;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.setup.SetupService;
 import com.bbc.sms.staff.Employee;
@@ -26,23 +26,23 @@ public class TimetableService {
     private final SchoolClassRepository classRepo;
     private final TimetableSlotRepository slotRepo;
     private final EmployeeRepository employees;
-    private final TeacherScopeService teacherScope;
+    private final AccessScopeService accessScope;
     private final SetupService setup;
 
     public TimetableService(SchoolClassRepository classRepo, TimetableSlotRepository slotRepo,
-                            EmployeeRepository employees, TeacherScopeService teacherScope,
+                            EmployeeRepository employees, AccessScopeService accessScope,
                             SetupService setup) {
         this.classRepo = classRepo;
         this.slotRepo = slotRepo;
         this.employees = employees;
-        this.teacherScope = teacherScope;
+        this.accessScope = accessScope;
         this.setup = setup;
     }
 
     @Transactional(readOnly = true)
     public List<ClassRef> classes() {
         UUID schoolId = TenantContext.get();
-        Set<UUID> allowed = teacherScope.allowedClassIds();
+        Set<UUID> allowed = accessScope.allowedClassIds();
         return classRepo.findBySchoolIdOrderByName(schoolId).stream()
                 .filter(c -> allowed == null || allowed.contains(c.getId()))
                 .map(this::toRef)
@@ -53,7 +53,7 @@ public class TimetableService {
     public List<SlotView> grid(String className) {
         UUID schoolId = TenantContext.get();
         SchoolClass cls = findClass(schoolId, className);
-        teacherScope.assertClass(cls.getId());
+        accessScope.assertClass(cls.getId());
         return slotRepo.findBySchoolIdAndClassId(schoolId, cls.getId()).stream()
                 .map(this::toView)
                 .toList();
@@ -81,7 +81,7 @@ public class TimetableService {
     public SlotSaveResult upsertSlot(SlotUpsert in) {
         UUID schoolId = TenantContext.get();
         SchoolClass cls = findClass(schoolId, in.className());
-        teacherScope.assertClass(cls.getId());
+        accessScope.assertClass(cls.getId());
         // Un enseignant n'exerce que dans sa section : l'affectation d'un prof du
         // primaire sur une classe du secondaire est refusée ici aussi, pas
         // seulement depuis l'écran des classes.
@@ -182,7 +182,7 @@ public class TimetableService {
     public void deleteSlot(String className, int dayIdx, int slotIdx) {
         UUID schoolId = TenantContext.get();
         SchoolClass cls = findClass(schoolId, className);
-        teacherScope.assertClass(cls.getId());
+        accessScope.assertClass(cls.getId());
         slotRepo.findBySchoolIdAndClassIdAndDayIdxAndSlotIdx(schoolId, cls.getId(), dayIdx, slotIdx)
                 .ifPresent(slotRepo::delete);
     }

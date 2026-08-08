@@ -2,7 +2,7 @@ package com.bbc.sms.attendance;
 
 import com.bbc.sms.attendance.dto.AttendanceDtos.*;
 import com.bbc.sms.platform.common.ApiException;
-import com.bbc.sms.platform.security.TeacherScopeService;
+import com.bbc.sms.platform.security.AccessScopeService;
 import com.bbc.sms.platform.realtime.RealtimeService;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.settings.SchoolProfileService;
@@ -32,17 +32,17 @@ public class AttendanceService {
     private final StudentRepository students;
     private final RealtimeService realtime;
     private final SchoolProfileService schoolProfile;
-    private final TeacherScopeService teacherScope;
+    private final AccessScopeService accessScope;
 
     public AttendanceService(AttendanceRepository repo, DeviceRepository devices,
                              StudentRepository students, RealtimeService realtime,
-                             SchoolProfileService schoolProfile, TeacherScopeService teacherScope) {
+                             SchoolProfileService schoolProfile, AccessScopeService accessScope) {
         this.repo = repo;
         this.devices = devices;
         this.students = students;
         this.realtime = realtime;
         this.schoolProfile = schoolProfile;
-        this.teacherScope = teacherScope;
+        this.accessScope = accessScope;
     }
 
     /** Reader health for the tenant — drives the Attendance and Settings status cards. */
@@ -68,7 +68,7 @@ public class AttendanceService {
         students.findBySchoolIdAndActiveTrueOrderByLastNameAsc(schoolId)
                 .forEach(s -> byId.put(s.getId(), s));
         // Un enseignant ne voit l'appel que de ses classes.
-        Set<UUID> allowed = teacherScope.allowedClassIds();
+        Set<UUID> allowed = accessScope.allowedClassIds();
         List<AttendanceView> views = repo.findBySchoolIdAndDate(schoolId, date).stream()
                 .filter(r -> {
                     if (allowed == null) return true;
@@ -88,7 +88,7 @@ public class AttendanceService {
 
     @Transactional
     public AttendanceView mark(MarkRequest req) {
-        teacherScope.assertStudent(req.studentId());
+        accessScope.assertStudent(req.studentId());
         UUID schoolId = TenantContext.get();
         Student student = students.findByIdAndSchoolId(req.studentId(), schoolId)
                 .orElseThrow(() -> ApiException.notFound("Élève"));
