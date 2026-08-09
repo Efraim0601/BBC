@@ -14,6 +14,7 @@ import org.apache.pdfbox.pdmodel.font.PDType0Font;
 import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
 import org.springframework.stereotype.Service;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -32,37 +33,42 @@ public class ReportCardPdfService {
     private final BulletinSnapshotService snapshots;
     private final ProfilePhotoRepository photos;
     private final SchoolClassRepository classes;
+    private final JdbcTemplate jdbc;
 
-    public ReportCardPdfService(BulletinSnapshotService snapshots, ProfilePhotoRepository photos, SchoolClassRepository classes) {
-        this.snapshots = snapshots; this.photos = photos; this.classes = classes;
+    public ReportCardPdfService(BulletinSnapshotService snapshots, ProfilePhotoRepository photos,
+                                SchoolClassRepository classes, JdbcTemplate jdbc) {
+        this.snapshots = snapshots; this.photos = photos; this.classes = classes; this.jdbc = jdbc;
     }
 
     public byte[] render(java.util.UUID snapshotId, boolean french) {
         BulletinSnapshotView b = snapshots.byId(snapshotId);
-        ProfilePhoto photo = photos.findByOwnerTypeAndOwnerIdAndSchoolId("student", b.studentId(), TenantContext.get()).orElse(null);
+        byte[] photoBytes = snapshotPhoto(b);
+        BrandingRenderData branding = branding(b);
         boolean secondary = isSecondary(b);
         try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             NORMAL_FONT.set(loadFont(doc, "/usr/share/fonts/dejavu/DejaVuSans.ttf"));
             BOLD_FONT.set(loadFont(doc, "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf"));
             try {
                 PDPage page = new PDPage(PDRectangle.A4); doc.addPage(page);
-                PDImageXObject image = photo == null ? null : PDImageXObject.createFromByteArray(doc, photo.getBytes(), "student-photo");
-                float y = header(doc, page, b, french, image, secondary);
+                PDImageXObject image = imageOrNull(doc, photoBytes, "student-photo");
+                PDImageXObject logo = imageOrNull(doc, branding == null ? null : branding.logoBytes(), "school-logo");
+                PDImageXObject stamp = imageOrNull(doc, branding == null ? null : branding.stampBytes(), "school-stamp");
+                float y = header(doc, page, b, french, image, secondary, branding, logo);
                 y = tableHeader(doc, page, y, french, secondary);
                 for (BulletinLineView line : b.lines()) {
                     if (y < 88) {
                         footer(doc, page, french);
                         page = new PDPage(PDRectangle.A4); doc.addPage(page);
-                        y = header(doc, page, b, french, image, secondary);
+                        y = header(doc, page, b, french, image, secondary, branding, logo);
                         y = tableHeader(doc, page, y, french, secondary);
                     }
                     row(doc, page, y, line, french, secondary);
                     y -= 22;
                 }
                 y -= 5;
-                if (y < 230) { footer(doc, page, french); page = new PDPage(PDRectangle.A4); doc.addPage(page); y = header(doc, page, b, french, image, secondary) - 10; }
+                if (y < 230) { footer(doc, page, french); page = new PDPage(PDRectangle.A4); doc.addPage(page); y = header(doc, page, b, french, image, secondary, branding, logo) - 10; }
                 summary(doc, page, y, b, french, secondary);
-                signatureBoxes(doc, page, y - 148, french);
+                signatureBoxes(doc, page, y - 148, french, branding, stamp);
                 footer(doc, page, french);
                 doc.save(out);
                 return out.toByteArray();
@@ -75,15 +81,24 @@ public class ReportCardPdfService {
         }
     }
 
-    private float header(PDDocument doc, PDPage page, BulletinSnapshotView b, boolean fr, PDImageXObject photo, boolean secondary) throws Exception {
+    private float header(PDDocument doc, PDPage page, BulletinSnapshotView b, boolean fr, PDImageXObject photo,
+                         boolean secondary, BrandingRenderData branding, PDImageXObject logo) throws Exception {
         PDPageContentStream cs = new PDPageContentStream(doc, page);
         line(cs, LEFT, 775, RIGHT, 775, 1.2f);
         text(cs, bold(), 10, LEFT, 805, "REPUBLIC OF CAMEROON");
         text(cs, normal(), 8, LEFT, 793, "Peace-Work-Fatherland");
         text(cs, bold(), 10, 310, 805, "RÉPUBLIQUE DU CAMEROUN");
         text(cs, normal(), 8, 310, 793, "Paix-Travail-Patrie");
-        text(cs, bold(), 15, 205, 754, "BAYO BILINGUAL COMPLEX");
-        text(cs, normal(), 9, 238, 740, "Maroua · Official academic report card");
+        if (logo != null) cs.drawImage(logo, 48, 735, 38, 38);
+        String schoolName = branding == null || branding.schoolName() == null || branding.schoolName().isBlank()
+                ? "BAYO BILINGUAL COMPLEX" : (fr || branding.schoolNameEn() == null || branding.schoolNameEn().isBlank()
+                ? branding.schoolName() : branding.schoolNameEn());
+        text(cs, bold(), 15, 205, 754, clip(schoolName, 34));
+        String location = branding == null ? "Maroua" : blankJoin(branding.city(), branding.country(), "Maroua");
+        text(cs, normal(), 9, 238, 740, clip(location + " · Official academic report card", 50));
+        if (branding != null && branding.ministryText() != null && !branding.ministryText().isBlank()) {
+            text(cs, normal(), 7, LEFT, 719, clip(branding.ministryText(), 72));
+        }
         line(cs, LEFT, 730, RIGHT, 730, 0.8f);
         text(cs, bold(), 13, 205, 707, (fr ? "BULLETIN SCOLAIRE" : "SCHOOL REPORT CARD") + " · " + safeText(b.reportingPeriodLabel()));
         text(cs, bold(), 9, LEFT, 683, fr ? "INFORMATIONS DE L'ÉLÈVE" : "STUDENT INFORMATION");
@@ -112,9 +127,9 @@ public class ReportCardPdfService {
             text(cs, bold(), 8, 245, y - 10, "COEF");
             text(cs, bold(), 8, 292, y - 10, "TOTAL");
             text(cs, bold(), 7, 337, y - 10, fr ? "COMPOSANTES" : "COMPONENTS");
-            text(cs, bold(), 8, 423, y - 10, fr ? "APPRECIATION" : "REMARK");
+            text(cs, bold(), 8, 438, y - 10, fr ? "APPRECIATION" : "REMARK");
             cs.setNonStrokingColor(0, 0, 0);
-            for (float x : new float[]{42, 190, 235, 280, 330, 415, 553}) {
+            for (float x : new float[]{42, 190, 235, 280, 330, 430, 553}) {
                 line(cs, x, y + 4, x, y - 18, 0.6f);
             }
             line(cs, LEFT, y - 18, RIGHT, y - 18, 0.8f);
@@ -175,11 +190,11 @@ public class ReportCardPdfService {
             text(cs, normal(), 9, 198, y - 14, number(l.mark()));
             text(cs, normal(), 9, 247, y - 14, String.valueOf(l.coefficient()));
             text(cs, normal(), 9, 292, y - 14, number(l.weighted()));
-            text(cs, normal(), 7, 337, y - 14, clip(componentText(l), 20));
+            text(cs, normal(), 7, 337, y - 14, clip(componentText(l), 22));
             String remark = l.teacherRemark() == null ? l.appreciation() : l.teacherRemark();
             if (l.teacherName() != null && !l.teacherName().isBlank()) remark = "Prof. " + l.teacherName() + " · " + remark;
-            text(cs, normal(), 8, 423, y - 14, clip(remark, 28));
-            for (float x : new float[]{42, 190, 235, 280, 330, 415, 553}) {
+            text(cs, normal(), 7, 438, y - 14, clip(remark, 25));
+            for (float x : new float[]{42, 190, 235, 280, 330, 430, 553}) {
                 line(cs, x, y, x, y - 22, 0.35f);
             }
             line(cs, LEFT, y - 22, RIGHT, y - 22, 0.35f);
@@ -261,7 +276,8 @@ public class ReportCardPdfService {
             text(cs, normal(), 9, 285, y - 34, (fr ? "Moyenne classe : " : "Class average: ") + (stats == null ? "-" : number(stats.average())));
             text(cs, normal(), 9, 285, y - 51, (fr ? "Min / Max : " : "Min / Max: ") + (stats == null ? "-" : number(stats.minimum()) + " / " + number(stats.maximum())));
             text(cs, normal(), 9, 430, y - 34, (fr ? "Reussite : " : "Pass rate: ") + (stats == null ? "-" : number(stats.successRate()) + "%"));
-            text(cs, normal(), 8, 430, y - 51, (fr ? "Presence : " : "Attendance: ") + (b.attendance() == null ? "-" : b.attendance().presentCount() + " P / " + b.attendance().absentCount() + " A / " + number(b.attendance().unjustifiedAbsenceHours()) + "h NJ"));
+            text(cs, normal(), 7, 430, y - 51, fr ? "Presence :" : "Attendance:");
+            text(cs, normal(), 7, 430, y - 63, b.attendance() == null ? "-" : b.attendance().presentCount() + " P / " + b.attendance().absentCount() + " A / " + number(b.attendance().unjustifiedAbsenceHours()) + "h NJ");
             text(cs, normal(), 8, 52, y - 69, (fr ? "Groupes : " : "Groups: ") + clip(groupText, 76));
             text(cs, normal(), 8, 52, y - 86, (fr ? "Conduite et distinctions : " : "Conduct and awards: ") + clip(conductText, 88));
             text(cs, normal(), 8, 52, y - 103, (fr ? "Decision du conseil : " : "Council decision: ") + clip(decision, 88));
@@ -269,7 +285,8 @@ public class ReportCardPdfService {
         }
     }
 
-    private void signatureBoxes(PDDocument doc, PDPage page, float top, boolean fr) throws Exception {
+    private void signatureBoxes(PDDocument doc, PDPage page, float top, boolean fr,
+                                BrandingRenderData branding, PDImageXObject stamp) throws Exception {
         float first = LEFT;
         float width = (RIGHT - LEFT) / 3f;
         try (PDPageContentStream cs = new PDPageContentStream(doc, page, PDPageContentStream.AppendMode.APPEND, true)) {
@@ -277,12 +294,65 @@ public class ReportCardPdfService {
             box(cs, first + width, top - 58, first + (2 * width), top);
             box(cs, first + (2 * width), top - 58, RIGHT, top);
             text(cs, bold(), 7, first + 8, top - 15, fr ? "VISA DU PARENT" : "PARENT SIGNATURE");
-            text(cs, bold(), 7, first + width + 8, top - 15, fr ? "CONSEIL DE CLASSE" : "CLASS COUNCIL");
-            text(cs, bold(), 7, first + (2 * width) + 8, top - 15, fr ? "CHEF D'ETABLISSEMENT" : "HEAD OF SCHOOL");
+            String headTitle = branding == null || branding.principalTitle() == null || branding.principalTitle().isBlank()
+                    ? (fr ? "CHEF D'ETABLISSEMENT" : "HEAD OF SCHOOL") : branding.principalTitle();
+            String councilTitle = branding == null || branding.councilTitle() == null || branding.councilTitle().isBlank()
+                    ? (fr ? "CONSEIL DE CLASSE" : "CLASS COUNCIL") : branding.councilTitle();
+            text(cs, bold(), 7, first + width + 8, top - 15, councilTitle);
+            text(cs, bold(), 7, first + (2 * width) + 8, top - 15, headTitle);
             text(cs, normal(), 7, first + 8, top - 45, fr ? "Signature / date" : "Signature / date");
-            text(cs, normal(), 7, first + width + 8, top - 45, fr ? "Avis et visa" : "Decision / signature");
-            text(cs, normal(), 7, first + (2 * width) + 8, top - 45, fr ? "Cachet" : "Seal");
+            text(cs, normal(), 7, first + width + 8, top - 45, branding == null || branding.classMasterTitle() == null
+                    ? (fr ? "Avis et visa" : "Decision / signature") : clip(branding.classMasterTitle(), 28));
+            text(cs, normal(), 7, first + (2 * width) + 8, top - 45, branding == null || branding.principalName() == null
+                    ? (fr ? "Cachet" : "Seal") : clip(branding.principalName(), 28));
+            if (stamp != null) cs.drawImage(stamp, first + (2 * width) + 100, top - 55, 30, 30);
         }
+    }
+
+    private record BrandingRenderData(String schoolName, String schoolNameEn, String motto,
+                                      String ministryText, String delegationText, String city,
+                                      String country, String address, String phone,
+                                      byte[] logoBytes, byte[] stampBytes, String principalName,
+                                      String principalTitle, String classMasterTitle, String councilTitle) {}
+
+    private byte[] snapshotPhoto(BulletinSnapshotView bulletin) {
+        ProfileAssetEvidenceView asset = bulletin.evidence() == null ? null : bulletin.evidence().profilePhoto();
+        if (asset != null && asset.assetVersionId() != null) {
+            List<byte[]> bytes = jdbc.query("SELECT bytes FROM profile_photo_version WHERE id=? AND school_id=?",
+                    (rs, n) -> rs.getBytes(1), asset.assetVersionId(), TenantContext.get());
+            if (!bytes.isEmpty()) return bytes.get(0);
+        }
+        return photos.findByOwnerTypeAndOwnerIdAndSchoolId("student", bulletin.studentId(), TenantContext.get())
+                .map(ProfilePhoto::getBytes).orElse(null);
+    }
+
+    private BrandingRenderData branding(BulletinSnapshotView bulletin) {
+        DocumentDesignEvidenceView design = bulletin.evidence() == null ? null : bulletin.evidence().documentDesign();
+        if (design == null || design.brandingId() == null) return null;
+        return jdbc.query("""
+                SELECT school_name,school_name_en,motto,ministry_text,delegation_text,city,country,address,phone,
+                       logo_bytes,stamp_bytes,principal_name,principal_title,class_master_title,council_title
+                  FROM document_branding_version
+                 WHERE id=? AND school_id=?
+                """, rs -> rs.next() ? new BrandingRenderData(rs.getString("school_name"), rs.getString("school_name_en"),
+                        rs.getString("motto"), rs.getString("ministry_text"), rs.getString("delegation_text"),
+                        rs.getString("city"), rs.getString("country"), rs.getString("address"), rs.getString("phone"),
+                        rs.getBytes("logo_bytes"), rs.getBytes("stamp_bytes"), rs.getString("principal_name"),
+                        rs.getString("principal_title"), rs.getString("class_master_title"), rs.getString("council_title")) : null,
+                design.brandingId(), TenantContext.get());
+    }
+
+    private static PDImageXObject imageOrNull(PDDocument doc, byte[] bytes, String name) {
+        if (bytes == null || bytes.length == 0) return null;
+        try { return PDImageXObject.createFromByteArray(doc, bytes, name); }
+        catch (Exception ignored) { return null; }
+    }
+
+    private static String blankJoin(String first, String second, String fallback) {
+        String left = first == null ? "" : first.trim();
+        String right = second == null ? "" : second.trim();
+        String joined = left.isBlank() ? right : right.isBlank() ? left : left + ", " + right;
+        return joined.isBlank() ? fallback : joined;
     }
 
     private boolean isSecondary(BulletinSnapshotView b) {

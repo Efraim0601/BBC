@@ -33,8 +33,12 @@ public class AcademicReportingPeriod {
     @Column(name = "bulletin_publish_closes_at") private Instant bulletinPublishClosesAt;
     @Column(name = "correction_opens_at") private Instant correctionOpensAt;
     @Column(name = "correction_closes_at") private Instant correctionClosesAt;
+    @Column(name = "teacher_submission_opens_at") private Instant teacherSubmissionOpensAt;
+    @Column(name = "teacher_submission_closes_at") private Instant teacherSubmissionClosesAt;
+    @Column(nullable = false) private String timezone = "Africa/Douala";
     @Column(name = "calculation_policy", nullable = false) private String calculationPolicy = "DEFAULT";
     @Column(nullable = false) private String status = "DRAFT";
+    @Column(name = "structure_fingerprint") private String structureFingerprint;
     @Version private long version;
     @Column(name = "created_at", insertable = false, updatable = false) private Instant createdAt;
     @Column(name = "updated_at", insertable = false, updatable = false) private Instant updatedAt;

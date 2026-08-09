@@ -1,11 +1,13 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { forkJoin } from 'rxjs';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
 import { AcademicContextService } from '../../core/academic-context.service';
 import {
   AcademicSessionUpsert, AcademicSessionView, AcademicTermUpsert, AcademicTermView,
-  AcademicReportingPeriodView, AcademicReportingPeriodUpsert, CalendarDayView, FoundationApi, GenerationResult, StandardStructureView,
+  AcademicReportingPeriodView, AcademicReportingPeriodUpsert, CalendarDayView, FoundationApi, GenerationResult, StandardStructureView, StructureDependencyView, SessionReadinessView,
+  EffectiveWindowView, WindowOverrideView, WindowOverrideUpsert, WorkflowAction,
 } from '../../core/foundation.api';
 import { CardComponent, EmptyComponent, IconComponent } from '../../core/ui';
 
@@ -73,6 +75,8 @@ const cleanDisplay = (value: string | null | undefined): string => {
             <label class="block"><span class="text-xs font-semibold">{{ fr() ? 'Clôture notes' : 'Grade entry closes' }}</span><input type="datetime-local" [(ngModel)]="sessionWindows.gradeClose" class="field" /></label>
             <label class="block"><span class="text-xs font-semibold">{{ fr() ? 'Ouverture publication' : 'Publication opens' }}</span><input type="datetime-local" [(ngModel)]="sessionWindows.publishOpen" class="field" /></label>
             <label class="block"><span class="text-xs font-semibold">{{ fr() ? 'Clôture publication' : 'Publication closes' }}</span><input type="datetime-local" [(ngModel)]="sessionWindows.publishClose" class="field" /></label>
+            <label class="block"><span class="text-xs font-semibold">{{ fr() ? 'Ouverture soumission enseignants' : 'Teacher submission opens' }} <span class="text-rose-600">*</span></span><input type="datetime-local" [(ngModel)]="sessionWindows.teacherOpen" class="field" /></label>
+            <label class="block"><span class="text-xs font-semibold">{{ fr() ? 'Clôture soumission enseignants' : 'Teacher submission closes' }} <span class="text-rose-600">*</span></span><input type="datetime-local" [(ngModel)]="sessionWindows.teacherClose" class="field" /></label>
           </div>
           <div class="flex justify-end gap-2 mt-4">
             <button (click)="cancelSession()" class="btn-secondary">{{ fr() ? 'Annuler' : 'Cancel' }}</button>
@@ -118,6 +122,34 @@ const cleanDisplay = (value: string | null | undefined): string => {
                 </div>
               </bbc-card>
 
+              @if (readiness(); as r) {
+                <section class="rounded-xl border p-3" [class]="r.ready ? 'border-emerald-200 bg-emerald-50' : 'border-rose-200 bg-rose-50'">
+                  <div class="flex items-center justify-between gap-3"><strong class="text-sm">{{ fr() ? 'État de préparation' : 'Readiness' }}</strong><span class="chip" [class]="r.ready ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'">{{ r.phase }}</span></div>
+                  <p class="text-xs mt-1">{{ r.nextAction }}</p>
+                  @if (r.blockers.length) { <div class="mt-2 text-xs text-rose-800">@for (b of r.blockers; track b) { <div>• {{ b }}</div> }</div> }
+                </section>
+              }
+
+              @if (canManage() && s.status !== 'CLOSED' && s.status !== 'ARCHIVED') {
+                <div class="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                  <p class="text-xs text-amber-950">{{ fr() ? 'Une dérogation ouvre une action précise pour une durée courte. Elle est séparée de la configuration normale et auditée.' : 'An override opens one precise action for a short period. It is separate from normal configuration and audited.' }}</p>
+                  <button (click)="openWindowOverride()" class="btn-secondary shrink-0">{{ fr() ? 'Nouvelle dérogation' : 'New override' }}</button>
+                </div>
+              }
+
+              @if (windowOverrides().length) {
+                <section class="rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-950">
+                  <div class="flex items-center justify-between gap-3"><strong class="text-sm">{{ fr() ? 'Dérogations de fenêtres actives ou historiques' : 'Active or historical window overrides' }}</strong><span class="chip bg-amber-200 text-amber-900">{{ windowOverrides().length }}</span></div>
+                  <p class="text-xs mt-1">{{ fr() ? 'Ces ouvertures exceptionnelles sont limitées dans le temps, séparées de la configuration normale et conservées dans l’audit.' : 'These exceptional openings are time-bounded, separate from normal configuration, and retained in the audit trail.' }}</p>
+                  <div class="mt-2 space-y-1">
+                    @for (override of windowOverrides(); track override.id) {
+                      @if (canManage() && override.active) { <button (click)="requestWindowOverrideRevoke(override)" class="text-xs text-rose-700 font-semibold">{{ fr() ? 'Révoquer cette dérogation' : 'Revoke this override' }}</button> }
+                      <div class="rounded-md border border-amber-200 bg-white/70 px-2 py-1 text-xs"><span class="font-semibold">{{ override.action }}</span> · {{ override.scope }} · {{ override.active ? (fr() ? 'active' : 'active') : (fr() ? 'expirée' : 'expired') }} · {{ override.reason }}</div>
+                    }
+                  </div>
+                </section>
+              }
+
               <bbc-card [title]="fr() ? 'Périodes et fenêtres de publication' : 'Terms and publication windows'">
                 @for (t of s.terms; track t.id) {
                   <div class="flex items-center gap-3 py-2.5 border-b border-slate-100 last:border-0">
@@ -150,15 +182,64 @@ const cleanDisplay = (value: string | null | undefined): string => {
                 }
               </bbc-card>
 
+              <section class="rounded-xl border border-brand-200 bg-brand-50/30 p-4" aria-labelledby="academic-structure-wizard-title">
+                <div class="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 id="academic-structure-wizard-title" class="text-base font-bold text-ink">{{ fr() ? 'Assistant de configuration académique' : 'Academic configuration wizard' }}</h3>
+                    <p class="text-xs text-mute mt-1">{{ fr() ? 'Prévisualisez, éditez et appliquez la structure en six étapes. Rien n’est écrit avant la confirmation finale.' : 'Preview, edit, and apply the structure in six steps. Nothing is written before final confirmation.' }}</p>
+                  </div>
+                  <span class="chip bg-white text-brand-800 border border-brand-200">{{ fr() ? 'Étape ' + wizardStep() + ' sur 6' : 'Step ' + wizardStep() + ' of 6' }}</span>
+                </div>
+                <div class="grid grid-cols-2 md:grid-cols-6 gap-2 mt-4">
+                  @for (step of wizardSteps; track step) {
+                    <button type="button" (click)="setWizardStep(step)" class="rounded-lg border px-2 py-2 text-left text-xs transition" [class]="wizardStep() === step ? 'border-brand-500 bg-brand-600 text-white' : 'border-slate-200 bg-white text-slate-600 hover:border-brand-300'">
+                      <span class="font-bold">{{ step }}.</span> {{ wizardStepLabel(step) }}
+                    </button>
+                  }
+                </div>
+
+                @if (wizardStep() === 1) {
+                  <div class="mt-4 space-y-3">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div class="rounded-lg border border-slate-200 bg-white p-3"><div class="meta">{{ fr() ? 'Session' : 'Session' }}</div><div class="font-semibold text-sm mt-1">{{ s.label }}</div><div class="text-xs text-mute mt-1">{{ s.startDate }} → {{ s.endDate }}</div><div class="text-xs text-slate-500 mt-1">{{ fr() ? 'Fuseau' : 'Timezone' }}: {{ s.timezone }}</div></div>
+                      <div class="rounded-lg border border-slate-200 bg-white p-3 md:col-span-2"><div class="meta">{{ fr() ? 'Trimestres et dates' : 'Terms and dates' }}</div><div class="grid grid-cols-1 md:grid-cols-3 gap-2 mt-2">@for (term of s.terms; track term.id) { <div class="rounded-md border border-slate-100 px-2 py-1 text-xs"><strong>{{ term.code }}</strong><div>{{ term.startDate }} → {{ term.endDate }}</div><button type="button" (click)="editTerm(term)" class="text-brand-700 font-semibold mt-1">{{ fr() ? 'Éditer' : 'Edit' }}</button></div> }</div></div>
+                    </div>
+                    <p class="text-xs text-slate-600">{{ fr() ? 'Les dates de session et de trimestre bornent toutes les périodes de résultats et leurs fenêtres.' : 'Session and term dates bound every result period and workflow window.' }}</p>
+                  </div>
+                }
+
+                @if (wizardStep() === 2) {
+                  <div class="mt-4 space-y-3">
+                    <div class="flex flex-wrap items-center justify-between gap-2"><p class="text-xs text-slate-600">{{ fr() ? 'S1–S6, T1/T2/T3 et Annuel sont des produits distincts. Prévisualisez sans écrire.' : 'S1–S6, T1/T2/T3, and Annual are distinct products. Preview without writing.' }}</p><button type="button" (click)="previewStandardStructure()" class="btn-secondary">{{ fr() ? 'Prévisualiser les dates' : 'Preview result dates' }}</button></div>
+                    @if (structurePreview(); as preview) { <div class="grid grid-cols-1 md:grid-cols-3 gap-2">@for (period of preview.periods; track period.id) { <div class="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs"><div class="flex justify-between gap-2"><strong>{{ period.code }}</strong><span class="chip bg-slate-100">{{ period.periodType }}</span></div><div class="mt-1">{{ period.startDate }} → {{ period.endDate }}</div><div class="text-slate-500 mt-1">{{ period.timezone }}</div><button type="button" (click)="editReportingPeriod(period)" class="text-brand-700 font-semibold mt-1">{{ fr() ? 'Configurer les fenêtres' : 'Configure windows' }}</button></div> }</div> } @else { <div class="rounded-lg border border-dashed border-slate-300 bg-white p-4 text-xs text-slate-500">{{ fr() ? 'Prévisualisez la structure pour continuer.' : 'Preview the structure to continue.' }}</div> }
+                  </div>
+                }
+
+                @if (wizardStep() === 3) {
+                  <div class="mt-4 space-y-3">
+                    <div class="flex flex-wrap items-center justify-between gap-2"><p class="text-xs text-slate-600">{{ fr() ? 'Les poids et la règle COMP sont gelés dans l’empreinte de la proposition. Une ligne optionnelle ne bloque pas le résultat.' : 'Weights and the COMP rule are frozen in the proposal fingerprint. An optional row does not block the result.' }}</p><button type="button" (click)="previewStandardStructure()" class="btn-secondary">{{ fr() ? 'Recharger la proposition' : 'Reload proposal' }}</button></div>
+                    @if (wizardDependencies.length) { <div class="overflow-x-auto rounded-lg border border-slate-200 bg-white"><table class="w-full text-xs"><thead class="bg-slate-50"><tr><th class="text-left p-2">{{ fr() ? 'Parent' : 'Parent' }}</th><th class="text-left p-2">{{ fr() ? 'Composant' : 'Component' }}</th><th class="text-left p-2">{{ fr() ? 'Poids' : 'Weight' }}</th><th class="text-left p-2">{{ fr() ? 'Optionnel' : 'Optional' }}</th></tr></thead><tbody>@for (dependency of wizardDependencies; track dependency.parentPeriodId + dependency.childPeriodId) { <tr class="border-t border-slate-100"><td class="p-2 font-semibold">{{ dependency.parentCode }}</td><td class="p-2">{{ dependency.childCode }}</td><td class="p-2"><input type="number" min="0" step="0.01" [(ngModel)]="dependency.weight" class="field w-24" aria-label="Weight" /></td><td class="p-2"><label class="inline-flex items-center gap-2"><input type="checkbox" [(ngModel)]="dependency.optional" /><span>{{ dependency.optional ? (fr() ? 'Oui' : 'Yes') : (fr() ? 'Non' : 'No') }}</span></label></td></tr> }</tbody></table></div> } @else { <div class="rounded-lg border border-dashed border-slate-300 bg-white p-4 text-xs text-slate-500">{{ fr() ? 'Prévisualisez la structure pour éditer les dépendances et poids.' : 'Preview the structure to edit dependencies and weights.' }}</div> }
+                  </div>
+                }
+
+                @if (wizardStep() === 4) {
+                  <div class="mt-4 space-y-3"><p class="text-xs text-slate-600">{{ fr() ? 'Chaque jalon expose les six actions : saisie, soumission enseignant, revue, validation, publication et correction.' : 'Each milestone exposes six actions: entry, teacher submission, review, validation, publication, and correction.' }}</p><div class="grid grid-cols-1 md:grid-cols-2 gap-2">@for (period of reportingPeriods(); track period.id) { <div class="rounded-lg border border-slate-200 bg-white p-3"><div class="flex items-center justify-between gap-2"><strong class="text-sm">{{ period.code }} · {{ period.label }}</strong><button type="button" (click)="editReportingPeriod(period)" class="text-xs text-brand-700 font-semibold">{{ fr() ? 'Éditer' : 'Edit' }}</button></div><div class="grid grid-cols-1 md:grid-cols-2 gap-1 mt-2">@for (action of workflowActions; track action) { @if (effectiveWindowFor(period, action); as window) { <div class="rounded border border-slate-100 px-2 py-1 text-[11px]"><span class="font-semibold">{{ action }}</span><div>{{ window.opensAt || '—' }} → {{ window.closesAt || '—' }}</div><div class="text-slate-500">{{ window.source }} · {{ window.timezone }}</div></div> } }</div></div> }</div></div>
+                }
+
+                @if (wizardStep() === 5) {
+                  <div class="mt-4 space-y-3">@if (structurePreview(); as preview) { <div class="grid grid-cols-2 md:grid-cols-4 gap-2"><div class="rounded-lg border border-slate-200 bg-white p-3 text-xs"><div class="meta">{{ fr() ? 'Jalons' : 'Milestones' }}</div><strong>{{ preview.periods.length }}</strong></div><div class="rounded-lg border border-slate-200 bg-white p-3 text-xs"><div class="meta">{{ fr() ? 'Dépendances' : 'Dependencies' }}</div><strong>{{ wizardDependencies.length || preview.dependencies.length }}</strong></div><div class="rounded-lg border border-slate-200 bg-white p-3 text-xs"><div class="meta">{{ fr() ? 'Fenêtres' : 'Windows' }}</div><strong>{{ effectiveWindows().length }}</strong></div><div class="rounded-lg border border-slate-200 bg-white p-3 text-xs"><div class="meta">{{ fr() ? 'Empreinte' : 'Fingerprint' }}</div><strong class="font-mono text-[10px] break-all">{{ preview.fingerprint }}</strong></div></div>@for (warning of preview.warnings; track warning) { <div class="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">{{ warning }}</div> } } @else { <div class="rounded-lg border border-dashed border-slate-300 bg-white p-4 text-xs text-slate-500">{{ fr() ? 'La validation nécessite une proposition prévisualisée.' : 'Validation requires a previewed proposal.' }}</div> }</div>
+                }
+
+                @if (wizardStep() === 6) {
+                  <div class="mt-4 space-y-3"><div class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-xs text-amber-950"><strong>{{ fr() ? 'Confirmation transactionnelle' : 'Transactional confirmation' }}</strong><p class="mt-1">{{ fr() ? 'Cette étape appliquera la proposition avec son empreinte. Un motif est obligatoire et l’action sera auditée.' : 'This step applies the proposal with its fingerprint. A reason is required and the action is audited.' }}</p></div><label class="block"><span class="meta">{{ fr() ? 'Motif obligatoire' : 'Required reason' }} <span class="text-rose-600">*</span></span><textarea [(ngModel)]="wizardReason" rows="3" class="w-full mt-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm" [placeholder]="fr() ? 'Expliquez la structure et les fenêtres à appliquer…' : 'Explain the structure and windows to apply…'"></textarea></label></div>
+                }
+                <div class="flex justify-between gap-2 mt-4 pt-3 border-t border-brand-100"><button type="button" (click)="wizardBack()" [disabled]="wizardStep() === 1" class="btn-secondary">{{ fr() ? 'Précédent' : 'Back' }}</button><div class="flex gap-2">@if (wizardStep() < 6) { <button type="button" (click)="wizardNext()" class="btn-primary">{{ fr() ? 'Suivant' : 'Next' }}</button> } @else { <button type="button" (click)="wizardApply()" [disabled]="!structurePreview() || !wizardReason.trim() || saving()" class="btn-primary">{{ fr() ? 'Demander la confirmation' : 'Request confirmation' }}</button> }</div></div>
+              </section>
+
               <bbc-card [title]="fr() ? 'Structure des résultats : séquences, trimestres et annuel' : 'Results structure: sequences, terms, and annual'">
                 <div class="flex items-start justify-between gap-3 mb-3">
                   <p class="text-xs text-mute leading-relaxed">{{ fr() ? 'Cette structure relie les séquences 1 à 6 aux trois trimestres et au résultat annuel. Les fenêtres héritent du trimestre ou de la session tant qu’elles ne sont pas définies ici.' : 'This structure connects sequences 1–6 to the three terms and annual result. Windows inherit from the term or session until explicitly set here.' }}</p>
-                  @if (canManage() && s.status !== 'CLOSED' && s.status !== 'ARCHIVED') {
-                    <div class="flex gap-2 shrink-0">
-                      <button (click)="previewStandardStructure()" class="btn-secondary">{{ fr() ? 'Prévisualiser la structure' : 'Preview structure' }}</button>
-                      <button (click)="requestStructureApply()" class="btn-primary">{{ fr() ? 'Créer la structure standard' : 'Create standard structure' }}</button>
-                    </div>
-                  }
+                  <span class="chip bg-brand-50 text-brand-800 border border-brand-200 shrink-0">{{ fr() ? 'Géré par l’assistant ci-dessus' : 'Managed by the wizard above' }}</span>
                 </div>
                 @if (reportingPeriods().length) {
                   <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -167,6 +248,13 @@ const cleanDisplay = (value: string | null | undefined): string => {
                         <div class="flex items-center justify-between gap-2"><span class="font-semibold text-sm">{{ p.code }} · {{ p.label }}</span><span class="chip bg-white text-slate-600">{{ p.periodType }}</span></div>
                         <div class="text-xs text-mute mt-1">{{ p.startDate }} → {{ p.endDate }} · {{ p.calculationPolicy }}</div>
                         <div class="text-[11px] text-slate-500 mt-1">{{ p.bulletinPublishOpensAt ? (fr() ? 'Publication configurée' : 'Publication configured') : (fr() ? 'Publication héritée' : 'Publication inherited') }}</div>
+                        <div class="text-[11px] text-slate-500 mt-1">{{ p.teacherSubmissionOpensAt && p.teacherSubmissionClosesAt ? (fr() ? 'Soumission enseignants configurée' : 'Teacher submission configured') : (fr() ? 'Soumission enseignants requise' : 'Teacher submission required') }}</div>
+                        @if (effectiveWindowFor(p, 'TEACHER_SUBMISSION'); as window) {
+                          <div class="mt-2 rounded-md border px-2 py-1 text-[11px]" [class]="window.source === 'EMERGENCY_OVERRIDE' ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-slate-200 bg-slate-50 text-slate-600'">
+                            <span class="font-semibold">{{ window.source }}</span> · {{ window.state }}
+                            @if (window.nextTransition) { <span> · {{ fr() ? 'transition' : 'next' }} {{ window.nextTransition }}</span> }
+                          </div>
+                        }
                         @if (canManage() && s.status !== 'CLOSED' && s.status !== 'ARCHIVED') { <button (click)="editReportingPeriod(p)" class="mt-2 text-xs font-semibold text-brand-700 hover:text-brand-900">{{ fr() ? 'Configurer les fenêtres' : 'Configure windows' }}</button> }
                       </div>
                     }
@@ -310,6 +398,35 @@ const cleanDisplay = (value: string | null | undefined): string => {
         </div>
       }
 
+      @if (windowOverrideForm()) {
+        <div class="modal-backdrop" role="presentation">
+          <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="window-override-title">
+            <h3 id="window-override-title" class="text-lg font-bold text-ink">{{ fr() ? 'Créer une dérogation de fenêtre ?' : 'Create a workflow-window override?' }}</h3>
+            <p class="text-sm text-slate-700 mt-2">{{ fr() ? 'Cette ouverture exceptionnelle est limitée à 31 jours, n’efface pas la configuration normale et sera conservée dans l’audit.' : 'This exceptional opening is limited to 31 days, does not erase normal configuration, and is retained in the audit trail.' }}</p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
+              <label><span class="meta">{{ fr() ? 'Action' : 'Action' }} <span class="text-rose-600">*</span></span><select [(ngModel)]="windowOverrideDraft.action" class="field"><option value="GRADE_ENTRY">{{ fr() ? 'Saisie des notes' : 'Grade entry' }}</option><option value="TEACHER_SUBMISSION">{{ fr() ? 'Soumission enseignant' : 'Teacher submission' }}</option><option value="REVIEW">{{ fr() ? 'Revue' : 'Review' }}</option><option value="VALIDATION">{{ fr() ? 'Validation' : 'Validation' }}</option><option value="PUBLICATION">{{ fr() ? 'Publication' : 'Publication' }}</option><option value="CORRECTION">{{ fr() ? 'Correction' : 'Correction' }}</option></select></label>
+              <label><span class="meta">{{ fr() ? 'Jalon (vide = session)' : 'Milestone (blank = session)' }}</span><select [(ngModel)]="windowOverrideDraft.reportingPeriodId" class="field"><option [ngValue]="null">{{ fr() ? 'Toute la session' : 'Whole session' }}</option>@for (p of reportingPeriods(); track p.id) { <option [ngValue]="p.id">{{ p.code }} · {{ p.label }}</option> }</select></label>
+              <label><span class="meta">{{ fr() ? 'Ouverture' : 'Opens' }} <span class="text-rose-600">*</span></span><input type="datetime-local" [(ngModel)]="windowOverrideDraft.opensAt" class="field" /></label>
+              <label><span class="meta">{{ fr() ? 'Expiration' : 'Expires' }} <span class="text-rose-600">*</span></span><input type="datetime-local" [(ngModel)]="windowOverrideDraft.expiresAt" class="field" /></label>
+            </div>
+            <label class="block mt-3"><span class="meta">{{ fr() ? 'Motif obligatoire' : 'Required reason' }} <span class="text-rose-600">*</span></span><textarea [(ngModel)]="windowOverrideDraft.reason" rows="3" class="w-full mt-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm" [placeholder]="fr() ? 'Expliquez la correction exceptionnelle…' : 'Explain the exceptional correction…'"></textarea></label>
+            <p class="text-xs text-slate-500 mt-2">{{ fr() ? 'Le fuseau utilisé est celui de la session sélectionnée.' : 'The selected session timezone will be used.' }}</p>
+            <div class="flex justify-end gap-2 mt-5"><button (click)="cancelWindowOverride()" class="btn-secondary">{{ fr() ? 'Annuler — ne rien changer' : 'Cancel — make no change' }}</button><button (click)="confirmWindowOverride()" [disabled]="saving() || !windowOverrideDraft.reason.trim() || !windowOverrideDraft.opensAt || !windowOverrideDraft.expiresAt" class="btn-primary">{{ saving() ? '…' : (fr() ? 'Confirmer la dérogation' : 'Confirm override') }}</button></div>
+          </section>
+        </div>
+      }
+
+      @if (windowOverrideRevocation(); as override) {
+        <div class="modal-backdrop" role="presentation">
+          <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="window-revoke-title">
+            <h3 id="window-revoke-title" class="text-lg font-bold text-ink">{{ fr() ? 'Révoquer cette dérogation ?' : 'Revoke this override?' }}</h3>
+            <p class="text-sm text-slate-700 mt-2">{{ override.action }} · {{ override.scope }}. {{ fr() ? 'L’action redeviendra soumise à la fenêtre configurée ou héritée. L’historique restera conservé.' : 'The action will return to its configured or inherited window. History will remain available.' }}</p>
+            <label class="block mt-4"><span class="meta">{{ fr() ? 'Motif obligatoire' : 'Required reason' }} <span class="text-rose-600">*</span></span><textarea [(ngModel)]="windowOverrideReason" rows="3" class="w-full mt-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm"></textarea></label>
+            <div class="flex justify-end gap-2 mt-5"><button (click)="cancelWindowOverrideRevoke()" class="btn-secondary">{{ fr() ? 'Annuler' : 'Cancel' }}</button><button (click)="confirmWindowOverrideRevoke()" [disabled]="!windowOverrideReason.trim() || saving()" class="btn-primary">{{ fr() ? 'Révoquer' : 'Revoke' }}</button></div>
+          </section>
+        </div>
+      }
+
       @if (pendingTermRemoval()) {
         <div class="modal-backdrop" role="presentation">
           <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="term-removal-title">
@@ -350,7 +467,15 @@ export class FoundationSettingsComponent {
   protected selected = computed(() => this.sessions().find((s) => s.id === this.selectedId()) ?? null);
   protected calendarDays = signal<CalendarDayView[]>([]);
   protected reportingPeriods = signal<AcademicReportingPeriodView[]>([]);
+  protected readiness = signal<SessionReadinessView | null>(null);
+  protected effectiveWindows = signal<EffectiveWindowView[]>([]);
+  protected windowOverrides = signal<WindowOverrideView[]>([]);
   protected structurePreview = signal<StandardStructureView | null>(null);
+  protected wizardStep = signal(1);
+  protected wizardSteps = [1, 2, 3, 4, 5, 6];
+  protected wizardDependencies: StructureDependencyView[] = [];
+  protected wizardReason = '';
+  protected workflowActions: WorkflowAction[] = ['GRADE_ENTRY', 'TEACHER_SUBMISSION', 'REVIEW', 'VALIDATION', 'PUBLICATION', 'CORRECTION'];
   protected loading = signal(true);
   protected saving = signal(false);
   protected showSessionForm = signal(false);
@@ -360,7 +485,7 @@ export class FoundationSettingsComponent {
   protected actionPermissions = signal<Record<string, boolean>>({});
   protected canManage = computed(() => this.actionPermissions()['SESSION_MANAGE'] ?? this.auth.can('settings', 'write'));
   protected sessionDraft: AcademicSessionUpsert = this.blankSession();
-  protected sessionWindows = { gradeOpen: '', gradeClose: '', publishOpen: '', publishClose: '' };
+  protected sessionWindows = { gradeOpen: '', gradeClose: '', publishOpen: '', publishClose: '', teacherOpen: '', teacherClose: '' };
   protected termDraft: AcademicTermUpsert = { code: '', label: '', sequenceNo: 1, startDate: '', endDate: '' };
   protected editingTermId = signal<string | null>(null);
   protected termWindows = { gradeOpen: '', gradeClose: '', publishOpen: '', publishClose: '' };
@@ -373,15 +498,19 @@ export class FoundationSettingsComponent {
   protected structureReason = '';
   protected editingReportingPeriod = signal<AcademicReportingPeriodView | null>(null);
   protected periodWindowDraft = { gradeOpen: '', gradeClose: '', reviewOpen: '', reviewClose: '', validationOpen: '', validationClose: '', publishOpen: '', publishClose: '', correctionOpen: '', correctionClose: '' };
+  protected windowOverrideForm = signal(false);
+  protected windowOverrideRevocation = signal<WindowOverrideView | null>(null);
+  protected windowOverrideReason = '';
+  protected windowOverrideDraft: WindowOverrideUpsert = { action: 'GRADE_ENTRY', scope: 'SESSION', reason: '', opensAt: '', expiresAt: '', reportingPeriodId: null };
 
   constructor() { this.reload(); this.api.actionPermissions().subscribe((p) => this.actionPermissions.set(p)); }
 
   protected select(s: AcademicSessionView): void { this.selectedId.set(s.id); this.loadCalendar(s.id); this.loadReportingPeriods(s.id); this.generation.set(null); this.message.set(null); }
-  protected newSession(): void { this.editingId.set(null); this.sessionDraft = this.blankSession(); this.sessionWindows = { gradeOpen: '', gradeClose: '', publishOpen: '', publishClose: '' }; this.showSessionForm.set(true); }
+  protected newSession(): void { this.editingId.set(null); this.sessionDraft = this.blankSession(); this.sessionWindows = { gradeOpen: '', gradeClose: '', publishOpen: '', publishClose: '', teacherOpen: '', teacherClose: '' }; this.showSessionForm.set(true); }
   protected editSession(s: AcademicSessionView): void {
     this.editingId.set(s.id);
     this.sessionDraft = { ...s };
-    this.sessionWindows = { gradeOpen: this.localDateTime(s.gradeEntryOpensAt), gradeClose: this.localDateTime(s.gradeEntryClosesAt), publishOpen: this.localDateTime(s.bulletinPublishOpensAt), publishClose: this.localDateTime(s.bulletinPublishClosesAt) };
+    this.sessionWindows = { gradeOpen: this.localDateTime(s.gradeEntryOpensAt), gradeClose: this.localDateTime(s.gradeEntryClosesAt), publishOpen: this.localDateTime(s.bulletinPublishOpensAt), publishClose: this.localDateTime(s.bulletinPublishClosesAt), teacherOpen: this.localDateTime(s.teacherSubmissionOpensAt), teacherClose: this.localDateTime(s.teacherSubmissionClosesAt) };
     this.showSessionForm.set(true);
   }
   protected cancelSession(): void { this.showSessionForm.set(false); this.editingId.set(null); }
@@ -389,7 +518,8 @@ export class FoundationSettingsComponent {
     this.saving.set(true); this.message.set(null);
     const body: AcademicSessionUpsert = { ...this.sessionDraft,
       gradeEntryOpensAt: this.instant(this.sessionWindows.gradeOpen), gradeEntryClosesAt: this.instant(this.sessionWindows.gradeClose),
-      bulletinPublishOpensAt: this.instant(this.sessionWindows.publishOpen), bulletinPublishClosesAt: this.instant(this.sessionWindows.publishClose) };
+      bulletinPublishOpensAt: this.instant(this.sessionWindows.publishOpen), bulletinPublishClosesAt: this.instant(this.sessionWindows.publishClose),
+      teacherSubmissionOpensAt: this.instant(this.sessionWindows.teacherOpen), teacherSubmissionClosesAt: this.instant(this.sessionWindows.teacherClose), timezone: 'Africa/Douala' };
     const req = this.editingId() ? this.api.updateSession(this.editingId()!, body) : this.api.createSession(body);
     req.subscribe({ next: (s) => { this.saving.set(false); this.showSessionForm.set(false); this.reload(s.id); this.message.set({ ok: true, text: this.fr() ? 'Session enregistrée.' : 'Session saved.' }); }, error: (e) => this.fail(e) });
   }
@@ -447,10 +577,24 @@ export class FoundationSettingsComponent {
   protected cancelTermRemoval(): void { this.pendingTermRemoval.set(null); this.termRemovalReason = ''; }
   protected confirmTermRemoval(): void { const id = this.pendingTermRemoval(); const reason = this.termRemovalReason.trim(); if (!id || !reason) return;
     this.api.deleteTerm(id, reason).subscribe({ next: () => { this.cancelTermRemoval(); this.reload(this.selectedId() ?? undefined); }, error: (e) => this.fail(e) }); }
-  protected previewStandardStructure(): void { const s = this.selected(); if (!s) return; this.api.previewStandardStructure(s.id).subscribe({ next: (p) => this.structurePreview.set(p), error: (e) => this.fail(e) }); }
+  protected previewStandardStructure(): void { const s = this.selected(); if (!s) return; this.api.previewStandardStructure(s.id).subscribe({ next: (p) => { this.structurePreview.set(p); this.wizardDependencies = p.dependencies.map((dependency) => ({ ...dependency })); }, error: (e) => this.fail(e) }); }
+  protected wizardStepLabel(step: number): string {
+    const labels = this.fr()
+      ? ['Session / trimestres', 'Dates des résultats', 'Dépendances / COMP', 'Fenêtres', 'Validation / diff', 'Confirmation']
+      : ['Session / terms', 'Result dates', 'Dependencies / COMP', 'Windows', 'Validation / diff', 'Confirmation'];
+    return labels[step - 1] ?? '';
+  }
+  protected setWizardStep(step: number): void { this.wizardStep.set(Math.max(1, Math.min(6, step))); if (step >= 2 && !this.structurePreview()) this.previewStandardStructure(); }
+  protected wizardNext(): void { const next = Math.min(6, this.wizardStep() + 1); this.setWizardStep(next); }
+  protected wizardBack(): void { this.wizardStep.set(Math.max(1, this.wizardStep() - 1)); }
+  protected wizardApply(): void { const proposal = this.wizardProposal(); if (!proposal || !this.wizardReason.trim()) return; this.structurePreview.set(proposal); this.structureReason = this.wizardReason.trim(); this.structureConfirmation.set(true); }
+  private wizardProposal(): StandardStructureView | null {
+    const proposal = this.structurePreview();
+    return proposal ? { ...proposal, dependencies: this.wizardDependencies.length ? this.wizardDependencies.map((dependency) => ({ ...dependency })) : proposal.dependencies } : null;
+  }
   protected requestStructureApply(): void { this.structureReason = ''; this.structureConfirmation.set(true); }
   protected cancelStructureApply(): void { this.structureConfirmation.set(false); this.structureReason = ''; }
-  protected confirmStructureApply(): void { const s = this.selected(); const reason = this.structureReason.trim(); if (!s || !reason) return; this.saving.set(true); this.api.applyStandardStructure(s.id, reason).subscribe({ next: (p) => { this.saving.set(false); this.structurePreview.set(p); this.cancelStructureApply(); this.reload(s.id); this.message.set({ ok: true, text: this.fr() ? 'Structure académique créée.' : 'Academic structure created.' }); }, error: (e) => this.fail(e) }); }
+  protected confirmStructureApply(): void { const s = this.selected(); const reason = this.structureReason.trim(); if (!s || !reason) return; this.saving.set(true); const proposal = this.structurePreview(); this.api.applyStandardStructure(s.id, reason, proposal?.fingerprint, proposal).subscribe({ next: (p) => { this.saving.set(false); this.structurePreview.set(p); this.cancelStructureApply(); this.reload(s.id); this.message.set({ ok: true, text: this.fr() ? 'Structure académique créée.' : 'Academic structure created.' }); }, error: (e) => this.fail(e) }); }
   protected editReportingPeriod(p: AcademicReportingPeriodView): void { this.editingReportingPeriod.set(p); this.periodWindowDraft = { gradeOpen: this.localDateTime(p.gradeEntryOpensAt), gradeClose: this.localDateTime(p.gradeEntryClosesAt), reviewOpen: this.localDateTime(p.reviewOpensAt), reviewClose: this.localDateTime(p.reviewClosesAt), validationOpen: this.localDateTime(p.validationOpensAt), validationClose: this.localDateTime(p.validationClosesAt), publishOpen: this.localDateTime(p.bulletinPublishOpensAt), publishClose: this.localDateTime(p.bulletinPublishClosesAt), correctionOpen: this.localDateTime(p.correctionOpensAt), correctionClose: this.localDateTime(p.correctionClosesAt) }; }
   protected cancelReportingPeriodEdit(): void { this.editingReportingPeriod.set(null); }
   protected saveReportingPeriodWindows(): void {
@@ -501,13 +645,58 @@ export class FoundationSettingsComponent {
   protected dayLabel(day: number): string { return (this.fr() ? ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'] : ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'])[day - 1] ?? '?'; }
   protected statusLabel(s: string): string { const fr: Record<string,string> = { DRAFT:'Brouillon',OPEN:'Ouverte',CLOSED:'Clôturée',ARCHIVED:'Archivée' }; return this.fr() ? (fr[s] ?? s) : s[0] + s.slice(1).toLowerCase(); }
   protected statusClass(s: string): string { return s === 'OPEN' ? 'text-emerald-700' : s === 'DRAFT' ? 'text-amber-700' : 'text-slate-500'; }
+  protected effectiveWindowFor(period: AcademicReportingPeriodView, action: WorkflowAction): EffectiveWindowView | undefined {
+    return this.effectiveWindows().find((window) => window.periodId === period.id && window.action === action);
+  }
+  protected openWindowOverride(): void {
+    this.windowOverrideDraft = { action: 'GRADE_ENTRY', scope: 'PERIOD', reason: '', opensAt: '', expiresAt: '', reportingPeriodId: this.reportingPeriods()[0]?.id ?? null };
+    this.windowOverrideForm.set(true);
+  }
+  protected cancelWindowOverride(): void { this.windowOverrideForm.set(false); this.windowOverrideDraft = { action: 'GRADE_ENTRY', scope: 'SESSION', reason: '', opensAt: '', expiresAt: '', reportingPeriodId: null }; }
+  protected confirmWindowOverride(): void {
+    const session = this.selected();
+    const opensAt = this.instant(this.windowOverrideDraft.opensAt);
+    const expiresAt = this.instant(this.windowOverrideDraft.expiresAt);
+    const reason = this.windowOverrideDraft.reason.trim();
+    if (!session || !opensAt || !expiresAt || !reason) return;
+    this.saving.set(true);
+    this.api.createWindowOverride(session.id, { ...this.windowOverrideDraft, scope: this.windowOverrideDraft.reportingPeriodId ? 'PERIOD' : 'SESSION', reason, opensAt, expiresAt }).subscribe({
+      next: () => { this.saving.set(false); this.cancelWindowOverride(); this.loadReportingPeriods(session.id); this.message.set({ ok: true, text: this.fr() ? 'Dérogation enregistrée et auditée.' : 'Override saved and audited.' }); },
+      error: (e) => this.fail(e),
+    });
+  }
+  protected requestWindowOverrideRevoke(override: WindowOverrideView): void { this.windowOverrideReason = ''; this.windowOverrideRevocation.set(override); }
+  protected cancelWindowOverrideRevoke(): void { this.windowOverrideRevocation.set(null); this.windowOverrideReason = ''; }
+  protected confirmWindowOverrideRevoke(): void {
+    const override = this.windowOverrideRevocation();
+    const reason = this.windowOverrideReason.trim();
+    if (!override || !reason) return;
+    this.saving.set(true);
+    this.api.revokeWindowOverride(override.id, reason).subscribe({
+      next: () => { this.saving.set(false); this.cancelWindowOverrideRevoke(); this.loadReportingPeriods(this.selectedId() ?? ''); this.message.set({ ok: true, text: this.fr() ? 'Dérogation révoquée.' : 'Override revoked.' }); },
+      error: (e) => this.fail(e),
+    });
+  }
 
   private reload(selectId?: string): void {
     this.loading.set(true);
     this.api.listSessions().subscribe({ next: (rows) => { this.sessions.set(rows); const id = selectId ?? this.selectedId() ?? rows.find((s) => s.current)?.id ?? rows[0]?.id ?? null; this.selectedId.set(id); this.loading.set(false); if (id) { this.loadCalendar(id); this.loadReportingPeriods(id); } this.context.load(true); }, error: (e) => { this.loading.set(false); this.fail(e); } });
   }
   private loadCalendar(id: string): void { this.api.calendarDays(id).subscribe({ next: (d) => this.calendarDays.set(d.map((x) => ({ ...x }))), error: (e) => this.fail(e) }); }
-  private loadReportingPeriods(id: string): void { this.api.reportingPeriods(id).subscribe({ next: (p) => this.reportingPeriods.set(p.map((period) => ({ ...period, label: cleanDisplay(period.label) }))), error: (e) => this.fail(e) }); }
+  private loadReportingPeriods(id: string): void {
+    this.api.reportingPeriods(id).subscribe({
+      next: (p) => {
+        const periods = p.map((period) => ({ ...period, label: cleanDisplay(period.label) }));
+        this.reportingPeriods.set(periods);
+        const actions: WorkflowAction[] = ['GRADE_ENTRY', 'TEACHER_SUBMISSION', 'REVIEW', 'VALIDATION', 'PUBLICATION', 'CORRECTION'];
+        const requests = periods.flatMap((period) => actions.map((action) => this.api.effectiveWindow(id, period.id, action)));
+        forkJoin(requests).subscribe({ next: (windows) => this.effectiveWindows.set(windows), error: () => this.effectiveWindows.set([]) });
+      },
+      error: (e) => this.fail(e)
+    });
+    this.api.windowOverrides(id).subscribe({ next: (rows) => this.windowOverrides.set(rows), error: () => this.windowOverrides.set([]) });
+    this.api.readiness(id).subscribe({ next: (r) => this.readiness.set(r), error: () => this.readiness.set(null) });
+  }
   private runGeneration(dryRun: boolean): void { const s = this.selected(); if (!s) return; this.api.generateCalendar(s.id, s.startDate, s.endDate, dryRun).subscribe({ next: (g) => this.generation.set(g), error: (e) => this.fail(e) }); }
   private resetTermDraft(sequenceNo = 1): void { this.editingTermId.set(null); this.termDraft = { code: '', label: '', sequenceNo, startDate: '', endDate: '' }; this.termWindows = { gradeOpen: '', gradeClose: '', publishOpen: '', publishClose: '' }; }
   private blankSession(): AcademicSessionUpsert { const year = new Date().getFullYear(); return { code: `${year}-${year + 1}`, label: `Session ${year}-${year + 1}`, startDate: `${year}-09-01`, endDate: `${year + 1}-07-31`, status: 'DRAFT', current: false }; }

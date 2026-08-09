@@ -99,7 +99,14 @@ public class SetupDtos {
 
     public record CurriculumView(UUID academicSessionId, String sessionCode, String sessionLabel,
                                  UUID classId, String className, List<SubjectGroupView> groups,
-                                 List<CurriculumSubjectView> subjects) {}
+                                 List<CurriculumSubjectView> subjects,
+                                 CurriculumTeacherView homeroomTeacher) {
+        public CurriculumView(UUID academicSessionId, String sessionCode, String sessionLabel,
+                              UUID classId, String className, List<SubjectGroupView> groups,
+                              List<CurriculumSubjectView> subjects) {
+            this(academicSessionId, sessionCode, sessionLabel, classId, className, groups, subjects, null);
+        }
+    }
 
     public record CurriculumSubjectUpsert(@NotNull UUID academicSessionId, @NotNull UUID classId,
                                           @NotNull UUID subjectId, UUID groupId,
@@ -113,4 +120,25 @@ public class SetupDtos {
                                           @NotBlank String role, String source,
                                           java.time.LocalDate effectiveFrom,
                                           java.time.LocalDate effectiveTo, Long version) {}
+
+    public record HomeroomAssignmentUpsert(@NotNull UUID academicSessionId, @NotNull UUID classId,
+                                           @NotNull UUID employeeId, java.time.LocalDate effectiveFrom,
+                                           java.time.LocalDate effectiveTo, Long version) {}
+
+    /** Read-only consequence report shown before a dated assignment is changed. */
+    public record AssignmentImpactRequest(@NotNull UUID academicSessionId, @NotNull UUID classId,
+                                          UUID subjectId, @NotNull UUID employeeId, @NotBlank String role,
+                                          java.time.LocalDate effectiveFrom, java.time.LocalDate effectiveTo) {}
+
+    public record AssignmentImpactSlotView(UUID versionId, int versionNo, String versionStatus,
+                                           UUID slotId, String subjectCode, int dayIdx, int slotIdx,
+                                           UUID publishedTeacherId, String publishedTeacherName,
+                                           boolean teacherChanges) {}
+
+    public record AssignmentImpactView(UUID academicSessionId, UUID classId, UUID subjectId,
+                                       String role, UUID proposedTeacherId, java.time.LocalDate effectiveFrom,
+                                       java.time.LocalDate effectiveTo, int draftSlotCount,
+                                       int publishedSlotCount, boolean publishedScheduleDrift,
+                                       boolean requiresNewDraftVersion, List<AssignmentImpactSlotView> affectedPublishedSlots,
+                                       List<String> warnings, List<String> blockers) {}
 }

@@ -15,7 +15,7 @@ import { ApcBulletinComponent } from './apc-bulletin';
 import { PhotoApi } from '../../core/photo.api';
 import {
   IconComponent, CardComponent, PageHeaderComponent, EmptyComponent,
-  AvatarComponent, TabsComponent, ChipFilterComponent,
+  AvatarComponent, TabsComponent,
 } from '../../core/ui';
 
 type Mode = 'bulletin' | 'grade-entry' | 'inputs' | 'pv' | 'batch';
@@ -23,6 +23,17 @@ type Mode = 'bulletin' | 'grade-entry' | 'inputs' | 'pv' | 'batch';
 const cleanDisplay = (value: string | null | undefined): string => {
   if (!value) return value ?? '';
   return value
+    .replace(/\u00c3\u0192\u00c2\u00a9/g, '\u00e9')
+    .replace(/\u00c3\u0192\u00c2\u00a8/g, '\u00e8')
+    .replace(/\u00c3\u0192\u00c2\u00aa/g, '\u00ea')
+    .replace(/\u00c3\u0192\u00c2\u00a0/g, '\u00e0')
+    .replace(/\u00c3\u0192\u00c2\u00a2/g, '\u00e2')
+    .replace(/\u00c3\u0192\u00c2\u00a7/g, '\u00e7')
+    .replace(/\u00c3\u0192\u00c2\u00b4/g, '\u00f4')
+    .replace(/\u00c3\u0192\u00c2\u00bb/g, '\u00fb')
+    .replace(/\u00c3\u0192\u00c2\u00af/g, '\u00ef')
+    .replace(/\u00c3\u0192\u00c2\u00b7/g, '\u00b7')
+    .replace(/\u00c3\u0192\u00c2\u00a0/g, ' ')
     .replace(/\u00c3\u0083\u00c2\u2030/g, '\u00c9')
     .replace(/\u00c3\u0083\u00c2\u00a9/g, '\u00e9')
     .replace(/\u00c3\u0083\u00c2\u00a8/g, '\u00e8')
@@ -64,7 +75,7 @@ const appreciation = (avg: number, fr: boolean): string => {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     FormsModule, DatePipe, IconComponent, CardComponent, PageHeaderComponent,
-    EmptyComponent, AvatarComponent, TabsComponent, ChipFilterComponent, ApcBulletinComponent,
+    EmptyComponent, AvatarComponent, TabsComponent, ApcBulletinComponent,
   ],
   template: `
     <div class="fade-in max-w-6xl mx-auto">
@@ -94,16 +105,26 @@ const appreciation = (avg: number, fr: boolean): string => {
       </bbc-page-header>
 
       @if (notice(); as n) {
-        <div class="mb-4 rounded-lg border px-4 py-3 text-sm font-semibold" [class]="n.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-800'">{{ n.text }}</div>
+        <div class="mb-4 flex items-start gap-3 rounded-lg border px-4 py-3 text-sm" [class]="n.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-800'" role="status">
+          <div class="flex-1 font-semibold">{{ n.text }}</div>
+          <button type="button" (click)="notice.set(null)" class="shrink-0 text-current opacity-70 hover:opacity-100" [attr.aria-label]="fr() ? 'Fermer le message' : 'Dismiss message'">×</button>
+        </div>
       }
 
       <bbc-tabs [tabs]="tabs()" [value]="mode()" (change)="setMode($any($event))" />
+
+      @if (mode() === 'grade-entry') {
+        <div class="mb-4 rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-950 leading-relaxed print:hidden">
+          <div class="font-bold">{{ fr() ? 'Saisie des notes : votre feuille de travail' : 'Grade entry: your work sheet' }}</div>
+          <div class="mt-1 text-brand-900">{{ fr() ? '1. Choisissez la classe · 2. Choisissez la période · 3. Choisissez la matière · 4. Saisissez une note pour chaque élève · 5. Enregistrez ou envoyez à la direction.' : '1. Choose the class · 2. Choose the period · 3. Choose the subject · 4. Enter one mark for each student · 5. Save or send it to management.' }}</div>
+        </div>
+      }
 
       <!-- Toolbar: class + sequence -->
       <bbc-card className="mb-5 print:hidden">
         <div class="flex items-start gap-4 flex-wrap">
           <div class="flex-1 min-w-[240px]">
-            <div class="text-xs font-semibold text-mute uppercase mb-2">{{ fr() ? 'Classe' : 'Class' }}</div>
+            <div class="text-xs font-semibold text-mute uppercase mb-2">{{ mode() === 'grade-entry' ? (fr() ? '1. Classe' : '1. Class') : (fr() ? 'Classe' : 'Class') }}</div>
             <select [ngModel]="selectedClass()" (ngModelChange)="onClassChange($event)"
               class="w-full h-10 px-3 rounded-lg border border-slate-200 text-sm bg-white text-ink focus:outline-none focus:border-brand-400 font-semibold">
               <option value="">{{ fr() ? '— Choisir une classe —' : '— Pick a class —' }}</option>
@@ -114,27 +135,24 @@ const appreciation = (avg: number, fr: boolean): string => {
           </div>
           @if (reportingPeriods().length) {
             <div class="flex-1 min-w-[220px]">
-              <div class="text-xs font-semibold text-mute uppercase mb-2">{{ fr() ? 'Jalon académique' : 'Academic milestone' }}</div>
+              <div class="text-xs font-semibold text-mute uppercase mb-2">{{ mode() === 'grade-entry' ? (fr() ? '2. Période de notation' : '2. Grading period') : (fr() ? 'Jalon académique' : 'Academic milestone') }}</div>
               <select [ngModel]="selectedReportingPeriodId()" (ngModelChange)="onReportingPeriodChange($event)"
                 class="w-full h-10 px-3 rounded-lg border border-slate-200 text-sm bg-white text-ink focus:outline-none focus:border-brand-400 font-semibold">
-                @for (p of reportingPeriods(); track p.id) { <option [value]="p.id">{{ p.code }} · {{ p.label }}</option> }
+                @for (p of reportingPeriods(); track p.id) { <option [value]="p.id">{{ p.code }} · {{ display(p.label) }}</option> }
               </select>
+              @if (mode() === 'grade-entry') { <div class="mt-1 text-xs text-mute">{{ fr() ? 'La période sur laquelle les notes seront enregistrées.' : 'The period these marks will be recorded for.' }}</div> }
             </div>
           }
-          <div class="flex flex-col gap-2 shrink-0">
-            <div class="text-xs font-semibold text-mute uppercase">{{ fr() ? 'Séquence' : 'Sequence' }}</div>
-            <bbc-chip-filter allLabel="—" [value]="String(sequence())" [options]="seqOptions()"
-              (change)="onSequenceChip($event)" />
-          </div>
           @if (mode() === 'grade-entry' && gradeEntry(); as entry) {
             <div class="flex-1 min-w-[240px]">
-              <div class="text-xs font-semibold text-mute uppercase mb-2">{{ fr() ? 'Matière à saisir' : 'Subject to enter' }}</div>
+              <div class="text-xs font-semibold text-mute uppercase mb-2">{{ fr() ? '3. Matière' : '3. Subject' }}</div>
               <select [ngModel]="selectedGradeSubjectCode()" (ngModelChange)="onGradeSubjectChange($event)"
                 class="w-full h-10 px-3 rounded-lg border border-slate-200 text-sm bg-white text-ink focus:outline-none focus:border-brand-400 font-semibold">
                 @for (s of entry.availableSubjects; track s.code) {
-                  <option [value]="s.code">{{ s.label }} · {{ s.code }} · {{ fr() ? 'coef.' : 'coef.' }} {{ s.coefficient }}</option>
+                  <option [value]="s.code">{{ display(s.label) }} · {{ fr() ? 'coefficient' : 'coefficient' }} {{ s.coefficient }}</option>
                 }
               </select>
+              <div class="mt-1 text-xs text-mute">{{ fr() ? 'Les élèves et les évaluations apparaîtront ci-dessous.' : 'The students and assessments appear below.' }}</div>
             </div>
           }
           @if (mode() === 'pv') {
@@ -152,66 +170,88 @@ const appreciation = (avg: number, fr: boolean): string => {
       <!-- ============ TEACHER GRADE ENTRY ============ -->
       @if (mode() === 'grade-entry') {
         @if (!selectedClass()) {
-          <bbc-card><bbc-empty icon="users" [label]="fr() ? 'Choisissez une classe pour commencer la saisie.' : 'Pick a class to start entering grades.'" /></bbc-card>
+          <bbc-card className="border-brand-200">
+            <div class="flex items-start gap-3">
+              <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-100 text-brand-700 font-bold">1</div>
+              <div><h2 class="text-lg font-bold text-ink">{{ fr() ? 'Commencer une feuille de notes' : 'Start a grade sheet' }}</h2><p class="mt-1 text-sm text-mute">{{ fr() ? 'Choisissez une classe ci-dessus. La période et la matière vous permettront ensuite de voir exactement les élèves à noter.' : 'Choose a class above. The period and subject will then show you exactly which students need marks.' }}</p></div>
+            </div>
+          </bbc-card>
+        } @else if (gradeEntryError(); as error) {
+          <bbc-card className="border-rose-200 bg-rose-50/40">
+            <div class="flex items-start gap-3" role="alert">
+              <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-rose-100 text-rose-700 font-bold">!</div>
+              <div class="flex-1"><h2 class="text-lg font-bold text-rose-950">{{ fr() ? 'Cette feuille ne peut pas être ouverte' : 'This grade sheet cannot be opened' }}</h2><p class="mt-1 text-sm text-rose-900">{{ error }}</p><p class="mt-2 text-xs text-rose-800">{{ fr() ? 'Vérifiez la classe, la période, l’affectation de la matière et l’enseignant responsable, puis réessayez.' : 'Check the class, period, subject assignment, and responsible teacher, then try again.' }}</p><button type="button" (click)="loadGradeEntry()" class="mt-3 h-9 px-3 rounded-lg bg-white border border-rose-300 text-rose-800 text-sm font-semibold hover:bg-rose-100">{{ fr() ? 'Réessayer' : 'Try again' }}</button></div>
+            </div>
+          </bbc-card>
         } @else if (!gradeEntry()) {
-          <bbc-card><bbc-empty icon="doc" [label]="fr() ? 'Chargement de la feuille de saisie…' : 'Loading the grade-entry sheet…'" /></bbc-card>
+          <bbc-card><bbc-empty icon="doc" [label]="fr() ? 'Préparation de la feuille de notes…' : 'Preparing the grade sheet…'" /></bbc-card>
         } @else {
           @if (gradeEntry(); as entry) {
             <bbc-card className="mb-4">
               <div class="flex flex-wrap items-start gap-3 justify-between">
                 <div>
-                  <div class="text-lg font-bold text-ink">{{ entry.subjectLabel }} <span class="text-mute font-normal">· {{ entry.subjectCode }}</span></div>
-                  <div class="text-sm text-mute mt-1">{{ entry.className }} · {{ entry.teacherName || (fr() ? 'Enseignant à préciser' : 'Teacher to be assigned') }} · {{ fr() ? 'Coefficient' : 'Coefficient' }} {{ entry.coefficient }}</div>
+                  <div class="text-xs font-semibold uppercase tracking-wide text-brand-700">{{ fr() ? 'Feuille de notes' : 'Grade sheet' }}</div>
+                  <h2 class="text-xl font-bold text-ink mt-1">{{ display(entry.subjectLabel) }}</h2>
+                  <div class="text-sm text-mute mt-1">{{ entry.className }} · {{ selectedReportingPeriodCode() }} · {{ fr() ? 'coefficient' : 'coefficient' }} {{ entry.coefficient }}</div>
+                  <div class="text-xs text-mute mt-1">{{ fr() ? 'Enseignant responsable :' : 'Responsible teacher:' }} {{ display(entry.teacherName) || (fr() ? 'Non configuré' : 'Not configured') }}</div>
                 </div>
                 <span class="px-2.5 py-1 rounded-full text-xs font-bold uppercase"
                   [class]="entry.packetStatus === 'ACCEPTED' ? 'bg-emerald-100 text-emerald-700' : entry.packetStatus === 'SUBMITTED' ? 'bg-blue-100 text-blue-700' : entry.packetStatus === 'RETURNED' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-800'">
-                  {{ entry.packetStatus === 'DRAFT' ? (fr() ? 'Brouillon' : 'Draft') : entry.packetStatus === 'SUBMITTED' ? (fr() ? 'Soumis' : 'Submitted') : entry.packetStatus === 'ACCEPTED' ? (fr() ? 'Accepté' : 'Accepted') : entry.packetStatus === 'RETURNED' ? (fr() ? 'À corriger' : 'Returned') : entry.packetStatus }}
+                  {{ gradePacketStatusLabel(entry.packetStatus) }}
                 </span>
               </div>
-              <div class="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
-                <div class="rounded-lg border border-slate-200 bg-slate-50 p-3"><div class="text-[11px] uppercase text-mute font-semibold">{{ fr() ? 'Élèves' : 'Students' }}</div><div class="text-xl font-bold text-ink mt-1">{{ entry.totalStudents }}</div></div>
-                <div class="rounded-lg border border-slate-200 bg-slate-50 p-3"><div class="text-[11px] uppercase text-mute font-semibold">{{ fr() ? 'Complets' : 'Complete' }}</div><div class="text-xl font-bold text-emerald-700 mt-1">{{ entry.completedStudents }}/{{ entry.totalStudents }}</div></div>
-                <div class="rounded-lg border border-slate-200 bg-slate-50 p-3"><div class="text-[11px] uppercase text-mute font-semibold">{{ fr() ? 'Évaluations' : 'Assessments' }}</div><div class="text-xl font-bold text-ink mt-1">{{ entry.assessments.length }}</div></div>
-                <div class="rounded-lg border border-slate-200 bg-slate-50 p-3"><div class="text-[11px] uppercase text-mute font-semibold">{{ fr() ? 'Règle' : 'Rule' }}</div><div class="text-sm font-semibold text-ink mt-2">{{ fr() ? 'Note / statut par élève' : 'Mark / status per student' }}</div></div>
+              <div class="mt-4 rounded-lg border border-brand-200 bg-brand-50 px-3 py-3 text-sm text-brand-950"><strong>{{ fr() ? 'Votre tâche :' : 'Your task:' }}</strong> {{ fr() ? 'saisissez la note prévue pour chaque élève. Enregistrez pour garder un brouillon ; envoyez ensuite la feuille à la direction.' : 'enter the required mark for each student. Save to keep a draft; then send the sheet to management.' }}</div>
+              <div class="mt-4 grid grid-cols-2 md:grid-cols-3 gap-3">
+                <div class="rounded-lg border border-slate-200 bg-slate-50 p-3"><div class="text-[11px] uppercase text-mute font-semibold">{{ fr() ? 'Élèves à noter' : 'Students to grade' }}</div><div class="text-xl font-bold text-ink mt-1">{{ entry.totalStudents }}</div></div>
+                <div class="rounded-lg border border-slate-200 bg-slate-50 p-3"><div class="text-[11px] uppercase text-mute font-semibold">{{ fr() ? 'Saisie complète' : 'Completed' }}</div><div class="text-xl font-bold text-emerald-700 mt-1">{{ entry.completedStudents }}/{{ entry.totalStudents }}</div></div>
+                <div class="rounded-lg border border-slate-200 bg-slate-50 p-3"><div class="text-[11px] uppercase text-mute font-semibold">{{ fr() ? 'Colonnes de notes' : 'Mark columns' }}</div><div class="text-xl font-bold text-ink mt-1">{{ entry.assessments.length }}</div></div>
               </div>
               @if (entry.blockers.length) {
-                <div class="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                  <div class="font-bold">{{ fr() ? 'À compléter avant soumission' : 'Complete before submitting' }}</div>
-                  <div class="mt-1">{{ entry.blockers.join(' · ') }}</div>
+                <div class="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-950" role="status">
+                  <div class="font-bold">{{ fr() ? 'Il reste des champs à compléter avant l’envoi' : 'Some fields still need to be completed before sending' }}</div>
+                  <ul class="mt-1 list-disc pl-5">@for (blocker of entry.blockers; track blocker) { <li>{{ gradeBlockerLabel(blocker) }}</li> }</ul>
                 </div>
+              } @else if (entry.totalStudents > 0 && entry.assessments.length > 0) {
+                <div class="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">{{ fr() ? 'Toutes les notes obligatoires sont renseignées. Vous pouvez enregistrer ou envoyer la feuille.' : 'All required marks are entered. You can save or send the sheet.' }}</div>
               }
-              <div class="mt-4 text-sm text-mute">{{ fr() ? 'Les notes sont saisies sur 20 après conversion depuis le barème de chaque évaluation. Utilisez ABS pour un absent et EX pour une dispense.' : 'Marks are entered on a 20-point scale after conversion from each assessment maximum. Use ABS for absent and EX for exempt.' }}</div>
+              <div class="mt-4 text-sm text-mute">{{ fr() ? 'Saisissez la note sur le barème affiché (par exemple /20). Pour un élève absent ou dispensé, choisissez le statut correspondant au lieu de saisir une note.' : 'Enter the mark using the scale shown (for example /20). For an absent or exempt student, choose the matching status instead of entering a mark.' }}</div>
             </bbc-card>
-            <bbc-card className="mb-4">
-              <div class="flex items-center justify-between gap-3 flex-wrap">
-                <div><div class="font-bold text-ink">{{ fr() ? 'Évaluations de la matière' : 'Subject assessments' }}</div><div class="text-xs text-mute mt-1">{{ fr() ? 'Ces évaluations sont liées à cette classe et à cette matière. Un barème générique reste disponible comme compatibilité.' : 'These definitions are scoped to this class and subject. Generic definitions remain available for compatibility.' }}</div></div>
-                <button (click)="assessmentDialog.set(!assessmentDialog())" class="h-9 px-3 rounded-lg border border-brand-200 text-brand-700 text-sm font-semibold hover:bg-brand-50">{{ assessmentDialog() ? (fr() ? 'Fermer' : 'Close') : (fr() ? 'Ajouter une évaluation' : 'Add assessment') }}</button>
-              </div>
-              <div class="flex flex-wrap gap-2 mt-3">
-                @for (a of entry.assessments; track a.id) { <span class="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">{{ a.code }} · /{{ a.maxScore }} · ×{{ a.weight }}{{ a.mandatory ? ' · ' + (fr() ? 'obligatoire' : 'required') : '' }}</span> }
-              </div>
-              @if (assessmentDialog()) {
-                <div class="mt-4 rounded-lg border border-brand-100 bg-brand-50/40 p-3">
-                  <div class="grid grid-cols-1 md:grid-cols-5 gap-2">
-                    <label class="field-label"><span>Code</span><input [ngModel]="assessmentCode" (ngModelChange)="assessmentCode=$event" class="field" [class.border-rose-400]="assessmentTouched() && !assessmentCode.trim()" placeholder="CTRL1" /></label>
-                    <label class="field-label md:col-span-2"><span>{{ fr() ? 'Libellé' : 'Label' }}</span><input [ngModel]="assessmentLabel" (ngModelChange)="assessmentLabel=$event" class="field" [class.border-rose-400]="assessmentTouched() && !assessmentLabel.trim()" placeholder="Contrôle de séquence" /></label>
-                    <label class="field-label"><span>{{ fr() ? 'Barème' : 'Max score' }}</span><input type="number" min="0.01" step="0.01" [ngModel]="assessmentMax" (ngModelChange)="assessmentMax=+$event" class="field" /></label>
-                    <label class="field-label"><span>{{ fr() ? 'Poids' : 'Weight' }}</span><input type="number" min="0.01" step="0.01" [ngModel]="assessmentWeight" (ngModelChange)="assessmentWeight=+$event" class="field" /></label>
-                  </div>
-                  <div class="flex items-center justify-between gap-3 mt-3"><label class="flex items-center gap-2 text-sm"><input type="checkbox" [(ngModel)]="assessmentMandatory" /> {{ fr() ? 'Évaluation obligatoire pour cette matière' : 'Required for this subject' }}</label><button (click)="createScopedAssessment(entry)" [disabled]="assessmentBusy()" class="h-9 px-3 rounded-lg bg-brand-600 text-white text-sm font-semibold disabled:opacity-50">{{ assessmentBusy() ? '…' : (fr() ? 'Créer dans cette classe' : 'Create for this class') }}</button></div>
+            @if (gradeEntry(); as entry) {
+            <bbc-card className="mb-4 border-brand-200 bg-brand-50/40">
+              <div class="flex items-start gap-3">
+                <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-100 text-brand-700 font-bold">✓</div>
+                <div>
+                  <div class="font-bold text-ink">{{ fr() ? 'Note à saisir' : 'Mark to enter' }}</div>
+                  <div class="mt-1 text-sm text-mute">{{ fr() ? 'Saisissez une note pour chaque élève sur le barème affiché. Les détails techniques sont gérés automatiquement par le système.' : 'Enter one mark for each student using the scale shown. Technical details are handled automatically by the system.' }}</div>
                 </div>
+              </div>
+              @if (entry.assessments.length === 1) {
+                <div class="mt-3 flex items-center justify-between gap-3 rounded-lg border border-brand-200 bg-white px-3 py-2 text-sm">
+                  <span class="font-semibold text-ink">{{ selectedReportingPeriodCode() }} · {{ display(entry.subjectLabel) }}</span>
+                  <span class="text-mute">{{ fr() ? 'sur' : 'out of' }} {{ entry.assessments[0].maxScore }}</span>
+                </div>
+              } @else if (entry.assessments.length > 1) {
+                <div class="mt-3 rounded-lg border border-brand-200 bg-white px-3 py-2 text-sm text-mute">{{ fr() ? entry.assessments.length + ' colonnes de notes sont prévues pour cette matière.' : entry.assessments.length + ' mark columns are expected for this subject.' }}</div>
+              } @else {
+                <div class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">{{ fr() ? 'La feuille n’est pas encore prête : aucune colonne de note n’est configurée pour cette matière.' : 'This sheet is not ready yet: no mark column is configured for this subject.' }}</div>
               }
             </bbc-card>
+            }
             <bbc-card className="overflow-hidden">
-              <div class="overflow-x-auto -mx-5">
-                <table class="min-w-[980px] w-full text-sm">
+              <div class="flex items-start justify-between gap-3 flex-wrap px-5 pt-5">
+                <div><h2 class="text-lg font-bold text-ink">{{ fr() ? '4. Saisir les notes' : '4. Enter marks' }}</h2><p class="mt-1 text-sm text-mute">{{ fr() ? 'Une ligne = un élève. Remplissez chaque colonne obligatoire.' : 'One row = one student. Complete every required column.' }}</p></div>
+                @if (entry.assessments.length) { <div class="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-sm font-semibold text-ink">{{ entry.completedStudents }} / {{ entry.totalStudents }} {{ fr() ? 'élève(s) complet(s)' : 'student(s) complete' }}</div> }
+              </div>
+              @if (entry.assessments.length) {
+              <div class="overflow-x-auto mt-4">
+                <table class="min-w-[880px] w-full text-sm">
                   <thead class="bg-brand-50 border-y-2 border-brand-600">
                     <tr class="text-brand-700 font-bold uppercase text-[10px]">
-                      <th class="text-left py-3 pl-5 sticky left-0 bg-brand-50 z-10 min-w-[230px]">{{ fr() ? 'Élève' : 'Student' }}</th>
+                      <th class="text-left py-3 pl-5 sticky left-0 bg-brand-50 z-10 min-w-[220px]">{{ fr() ? 'Élève' : 'Student' }}</th>
                       @for (a of entry.assessments; track a.id) {
-                        <th class="text-center py-3 px-2 min-w-[145px]">{{ a.code }}<div class="font-normal normal-case">{{ a.label }} · /{{ a.maxScore }}</div></th>
+                        <th class="text-center py-3 px-2 min-w-[160px]"><span class="normal-case text-sm">{{ gradeAssessmentLabel(entry, a) }}</span><div class="font-normal normal-case">{{ fr() ? 'Note sur' : 'Mark out of' }} {{ a.maxScore }}</div><div class="font-normal normal-case text-mute">{{ a.mandatory ? (fr() ? 'Obligatoire' : 'Required') : (fr() ? 'Facultatif' : 'Optional') }}</div></th>
                       }
-                      <th class="text-left py-3 px-2 min-w-[250px]">{{ fr() ? 'Remarque par matière' : 'Subject remark' }}</th>
+                      <th class="text-left py-3 px-2 min-w-[240px]">{{ fr() ? 'Appréciation (facultatif)' : 'Comment (optional)' }}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -222,17 +262,19 @@ const appreciation = (avg: number, fr: boolean): string => {
                         </td>
                         @for (cell of row.values; track cell.assessmentId; let i = $index) {
                           <td class="p-2">
+                            <div class="mb-1 text-[11px] text-mute">{{ fr() ? 'Note /' : 'Mark /' }} {{ entry.assessments[i].maxScore }}</div>
                             <input type="number" min="0" [max]="entry.assessments[i].maxScore" step="0.01" [ngModel]="cell.mark" (ngModelChange)="updateGradeMark(row.studentId, i, $event)"
+                              [attr.aria-label]="(fr() ? 'Note de ' : 'Mark for ') + row.studentName + ' — ' + (gradeAssessmentLabel(entry, entry.assessments[i]))"
                               [disabled]="entry.packetStatus === 'SUBMITTED' || entry.packetStatus === 'ACCEPTED' || entry.packetStatus === 'LOCKED'"
-                              class="w-full h-9 px-2 text-center rounded-md border border-slate-300 bg-white focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 disabled:bg-slate-100" placeholder="—" />
+                              class="w-full h-10 px-2 text-center rounded-md border border-slate-300 bg-white text-base font-semibold focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 disabled:bg-slate-100" placeholder="—" />
                             <select [ngModel]="cell.valueStatus" (ngModelChange)="updateGradeStatus(row.studentId, i, $event)"
                               [disabled]="entry.packetStatus === 'SUBMITTED' || entry.packetStatus === 'ACCEPTED' || entry.packetStatus === 'LOCKED'"
-                              class="w-full h-7 mt-1 px-1 text-[10px] rounded border border-slate-200 bg-white text-mute">
-                              <option value="SCORED">{{ fr() ? 'Note' : 'Scored' }}</option><option value="ABSENT">ABS</option><option value="EXEMPT">EX</option><option value="MISSING">{{ fr() ? 'Manquante' : 'Missing' }}</option>
+                              class="w-full h-8 mt-1 px-2 text-xs rounded border border-slate-200 bg-white text-mute">
+                              <option value="SCORED">{{ fr() ? 'Note saisie' : 'Mark entered' }}</option><option value="ABSENT">{{ fr() ? 'Absent' : 'Absent' }}</option><option value="EXEMPT">{{ fr() ? 'Dispensé' : 'Exempt' }}</option><option value="MISSING">{{ fr() ? 'À compléter' : 'To complete' }}</option>
                             </select>
                           </td>
                         }
-                        <td class="p-2"><textarea rows="2" [ngModel]="row.comment" (ngModelChange)="updateGradeComment(row.studentId, $event)" [disabled]="entry.packetStatus === 'SUBMITTED' || entry.packetStatus === 'ACCEPTED' || entry.packetStatus === 'LOCKED'" maxlength="500" class="w-full px-2 py-1.5 rounded-md border border-slate-300 text-xs resize-y focus:outline-none focus:border-brand-500 disabled:bg-slate-100" [placeholder]="fr() ? 'Appréciation du professeur…' : 'Teacher remark…'"></textarea></td>
+                        <td class="p-2"><textarea rows="2" [ngModel]="row.comment" (ngModelChange)="updateGradeComment(row.studentId, $event)" [disabled]="entry.packetStatus === 'SUBMITTED' || entry.packetStatus === 'ACCEPTED' || entry.packetStatus === 'LOCKED'" maxlength="500" class="w-full px-2 py-2 rounded-md border border-slate-300 text-sm resize-y focus:outline-none focus:border-brand-500 disabled:bg-slate-100" [placeholder]="fr() ? 'Facultatif : remarque sur le travail…' : 'Optional: comment on the work…'"></textarea></td>
                       </tr>
                     } @empty {
                       <tr><td [attr.colspan]="entry.assessments.length + 2" class="p-8 text-center text-mute">{{ fr() ? 'Aucun élève actif dans cette classe pour la session.' : 'No active student in this class for the session.' }}</td></tr>
@@ -240,15 +282,18 @@ const appreciation = (avg: number, fr: boolean): string => {
                   </tbody>
                 </table>
               </div>
+              } @else {
+                <div class="mx-5 mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-950">{{ fr() ? 'La saisie ne peut pas commencer tant qu’une évaluation n’est pas configurée pour cette matière.' : 'Mark entry cannot start until an assessment is configured for this subject.' }}</div>
+              }
               <div class="flex flex-wrap gap-2 items-center mt-5 pt-4 border-t border-slate-100 print:hidden">
-                <div class="flex-1 text-xs text-mute">{{ fr() ? 'Enregistrer conserve le brouillon. Soumettre transmet la feuille à la direction.' : 'Save keeps a draft. Submit sends the sheet to management.' }}</div>
+                <div class="flex-1 min-w-[260px] text-xs text-mute">{{ entry.packetStatus === 'SUBMITTED' ? (fr() ? 'Cette feuille est en attente de vérification par la direction.' : 'This sheet is waiting for management review.') : entry.packetStatus === 'ACCEPTED' ? (fr() ? 'Cette feuille a été acceptée et est verrouillée.' : 'This sheet was accepted and is locked.') : (fr() ? 'Enregistrer = garder votre travail. Envoyer à la direction = demander la vérification.' : 'Save = keep your work. Send to management = request review.') }}</div>
                 @if (canWrite && (entry.packetStatus === 'DRAFT' || entry.packetStatus === 'RETURNED')) {
-                  <button (click)="saveGradeEntry()" [disabled]="gradeBusy()" class="h-10 px-4 rounded-lg border border-slate-300 text-sm font-semibold text-ink hover:bg-slate-50 disabled:opacity-50">{{ gradeBusy() ? '…' : (fr() ? 'Enregistrer le brouillon' : 'Save draft') }}</button>
-                  <button (click)="submitGradeEntry()" [disabled]="gradeBusy() || entry.blockers.length > 0" class="h-10 px-4 rounded-lg bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700 disabled:opacity-50">{{ fr() ? 'Soumettre la saisie' : 'Submit grades' }}</button>
+                  <button type="button" (click)="saveGradeEntry()" [disabled]="gradeBusy()" class="h-10 px-4 rounded-lg border border-slate-300 text-sm font-semibold text-ink hover:bg-slate-50 disabled:opacity-50">{{ gradeBusy() ? '…' : (fr() ? 'Enregistrer sans envoyer' : 'Save without sending') }}</button>
+                  <button type="button" (click)="submitGradeEntry()" [disabled]="gradeBusy() || entry.blockers.length > 0 || !entry.assessments.length" [title]="entry.blockers.length ? (fr() ? 'Complétez les champs indiqués avant l’envoi.' : 'Complete the highlighted fields before sending.') : ''" class="h-10 px-4 rounded-lg bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700 disabled:opacity-50">{{ fr() ? 'Envoyer à la direction' : 'Send to management' }}</button>
                 }
                 @if (canReview() && entry.packetStatus === 'SUBMITTED') {
-                  <button (click)="reviewGradeEntry('RETURN')" [disabled]="gradeBusy()" class="h-10 px-4 rounded-lg border border-rose-200 text-rose-700 text-sm font-semibold hover:bg-rose-50 disabled:opacity-50">{{ fr() ? 'Retourner à corriger' : 'Return for correction' }}</button>
-                  <button (click)="reviewGradeEntry('ACCEPT')" [disabled]="gradeBusy()" class="h-10 px-4 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50">{{ fr() ? 'Accepter la saisie' : 'Accept grades' }}</button>
+                  <button type="button" (click)="reviewGradeEntry('RETURN')" [disabled]="gradeBusy()" class="h-10 px-4 rounded-lg border border-rose-200 text-rose-700 text-sm font-semibold hover:bg-rose-50 disabled:opacity-50">{{ fr() ? 'Retourner pour correction' : 'Return for correction' }}</button>
+                  <button type="button" (click)="reviewGradeEntry('ACCEPT')" [disabled]="gradeBusy()" class="h-10 px-4 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50">{{ fr() ? 'Accepter la feuille' : 'Accept the sheet' }}</button>
                 }
               </div>
             </bbc-card>
@@ -401,6 +446,10 @@ const appreciation = (avg: number, fr: boolean): string => {
                               <div class="bg-emerald-500 text-white text-[10px] font-bold uppercase px-2 py-1 rounded flex items-center gap-1">
                                 <bbc-icon name="eye" [s]="12" [sw]="3" /> {{ fr() ? 'Publié aux parents' : 'Published to parents' }}
                               </div>
+                            } @else if (b.state === 'PREVIEW') {
+                              <div class="bg-blue-100 text-blue-800 text-[10px] font-bold uppercase px-2 py-1 rounded flex items-center gap-1">
+                                <bbc-icon name="eye" [s]="12" [sw]="3" /> {{ fr() ? 'Aperçu lecture seule' : 'Read-only preview' }}
+                              </div>
                             } @else if (b.validated) {
                               <div class="bg-emerald-500 text-white text-[10px] font-bold uppercase px-2 py-1 rounded flex items-center gap-1">
                                 <bbc-icon name="check" [s]="12" [sw]="3" /> {{ fr() ? 'Validé' : 'Validated' }}
@@ -432,6 +481,12 @@ const appreciation = (avg: number, fr: boolean): string => {
                       </div>
 
                       <div class="p-6">
+                        @if (b.state === 'PREVIEW') {
+                          <div class="mb-5 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+                            <div class="font-bold">{{ fr() ? 'Aperçu en lecture seule' : 'Read-only preview' }}</div>
+                            <div class="mt-1">{{ fr() ? 'Aucune version de bulletin n’a été créée. Les données affichées proviennent du calcul courant et ne modifient pas le dossier.' : 'No report-card version was created. The displayed data is a current calculation and does not change the record.' }}</div>
+                          </div>
+                        }
                         @if (b.complete === false && b.blockers?.length) {
                           <div class="mb-5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                             <div class="font-bold">{{ fr() ? 'Bulletin non complet' : 'Report card is incomplete' }}</div>
@@ -520,11 +575,11 @@ const appreciation = (avg: number, fr: boolean): string => {
                               <div class="text-[10px] uppercase tracking-wider text-mute font-semibold">
                                 {{ fr() ? 'Appréciation générale' : 'General appreciation' }}
                               </div>
-                              @if (canWrite && !b.validated && !b.financiallyBlocked) {
+                              @if (canWrite && b.state !== 'PREVIEW' && !b.validated && !b.financiallyBlocked) {
                                 <bbc-icon name="edit" [s]="12" />
                               }
                             </div>
-                            @if (canWrite && !b.validated && !b.financiallyBlocked) {
+                            @if (canWrite && b.state !== 'PREVIEW' && !b.validated && !b.financiallyBlocked) {
                               <textarea [ngModel]="appreciationDraft()" (ngModelChange)="appreciationDraft.set($event)"
                                 rows="3" [placeholder]="fr() ? 'Saisissez l’appréciation générale…' : 'Enter overall appreciation…'"
                                 class="w-full p-2 text-sm rounded border border-slate-200 italic resize-none focus:outline-none focus:border-brand-400 print:hidden"></textarea>
@@ -554,7 +609,13 @@ const appreciation = (avg: number, fr: boolean): string => {
                           } @else {
                             <div class="flex-1"></div>
                           }
-                          @if (canWrite && !b.validated && !b.financiallyBlocked) {
+                          @if (canWrite && b.state === 'PREVIEW' && !b.financiallyBlocked) {
+                            <button (click)="createBulletinDraft(b)" [disabled]="bulletinBusy()"
+                              class="inline-flex items-center gap-2 h-10 px-4 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-semibold disabled:opacity-50">
+                              <bbc-icon name="doc" [s]="16" /> {{ bulletinBusy() ? '…' : (fr() ? 'Créer le brouillon' : 'Create draft') }}
+                            </button>
+                          }
+                          @if (canWrite && !!b.id && b.state !== 'PREVIEW' && !b.validated && !b.financiallyBlocked) {
                             <button (click)="validate(b)"
                               class="inline-flex items-center gap-2 h-10 px-4 bg-gold-500 hover:bg-gold-600 text-white rounded-lg text-sm font-semibold">
                               <bbc-icon name="check" [s]="16" [sw]="2.5" /> {{ fr() ? 'Valider le bulletin' : 'Validate report card' }}
@@ -777,7 +838,6 @@ export class AcademicComponent {
   private scope = inject(ScopeService);
   private foundationApi = inject(FoundationApi);
 
-  protected readonly sequences = [1, 2, 3, 4, 5, 6] as const;
   protected canWrite = this.auth.can('academic', 'write');
 
   protected isApc = computed(() => {
@@ -799,18 +859,11 @@ export class AcademicComponent {
   protected bulletin = signal<BulletinView | null>(null);
   protected pv = signal<PvView | null>(null);
   protected gradeEntry = signal<GradeEntryView | null>(null);
+  protected gradeEntryError = signal<string | null>(null);
   protected reportInputs = signal<ReportCardInputsView | null>(null);
   protected inputDrafts = signal<Record<string, ReportCardInputUpsert>>({});
   protected inputBusy = signal<string | null>(null);
   protected selectedGradeSubjectCode = signal('');
-  protected assessmentDialog = signal(false);
-  protected assessmentBusy = signal(false);
-  protected assessmentTouched = signal(false);
-  protected assessmentCode = '';
-  protected assessmentLabel = '';
-  protected assessmentMax = 20;
-  protected assessmentWeight = 1;
-  protected assessmentMandatory = true;
   protected gradeBusy = signal(false);
   protected appreciationDraft = signal('');
   protected bulkBulletins = signal<BulletinView[]>([]);
@@ -820,6 +873,7 @@ export class AcademicComponent {
   protected publicationReason = '';
   protected publicationTarget = signal<BulletinView | null>(null);
   protected publicationBusy = signal(false);
+  protected bulletinBusy = signal(false);
   protected officialDocumentBusy = signal(false);
   protected officialDocument = signal<GeneratedDocumentView | null>(null);
   protected gradeReviewDialog = signal<'ACCEPT' | 'RETURN' | null>(null);
@@ -836,6 +890,7 @@ export class AcademicComponent {
 
   protected fr = () => this.i18n.lang() === 'fr';
   protected String = String;
+  protected display(value: string | null | undefined): string { return cleanDisplay(value); }
 
   protected tabs = computed(() => [
     { id: 'batch', label: this.fr() ? 'Génération en lot' : 'Batch generation' },
@@ -846,10 +901,6 @@ export class AcademicComponent {
   ]);
 
   protected canReview = computed(() => ['admin', 'principal', 'dean_of_studies', 'censor'].includes(this.auth.user()?.role ?? ''));
-
-  protected seqOptions = computed(() =>
-    this.sequences.map((n) => ({ value: String(n), label: (this.fr() ? 'Séq. ' : 'Seq ') + n })),
-  );
 
   protected filteredClassStudents = computed(() => {
     const q = this.studentQuery().trim().toLowerCase();
@@ -879,6 +930,8 @@ export class AcademicComponent {
 
   protected setMode(m: Mode): void {
     this.mode.set(m);
+    this.notice.set(null);
+    this.gradeEntryError.set(null);
     this.bulkBulletins.set([]);
     if (m === 'grade-entry' && this.selectedClassId() && this.selectedReportingPeriodId()) this.loadGradeEntry();
     if (m === 'inputs' && this.selectedClassId() && this.selectedReportingPeriodId()) this.loadReportInputs();
@@ -886,6 +939,8 @@ export class AcademicComponent {
   }
 
   protected onClassChange(name: string): void {
+    this.notice.set(null);
+    this.gradeEntryError.set(null);
     this.selectedClass.set(name);
     this.selectedClassId.set(this.classes().find((c) => c.name === name)?.id ?? '');
     this.selectedStudentId.set('');
@@ -918,18 +973,9 @@ export class AcademicComponent {
     this.loadBulletin();
   }
 
-  protected onSequenceChip(value: string | null): void {
-    if (!value) return;
-    this.sequence.set(Number(value));
-    this.bulkBulletins.set([]);
-    if (this.mode() === 'bulletin' && this.selectedStudentId()) this.loadBulletin();
-    if (this.mode() === 'pv' && this.selectedClass()) this.loadPv();
-    if (this.mode() === 'grade-entry' && this.selectedClassId()) this.loadGradeEntry();
-    if (this.mode() === 'inputs' && this.selectedClassId()) this.loadReportInputs();
-    if (this.mode() === 'batch' && this.selectedClassId()) this.loadBatchJobs();
-  }
-
   protected onReportingPeriodChange(id: string): void {
+    this.notice.set(null);
+    this.gradeEntryError.set(null);
     this.selectedReportingPeriodId.set(id);
     const period = this.reportingPeriods().find((p) => p.id === id);
     if (period) this.sequence.set(this.periodSequence(period));
@@ -1018,31 +1064,34 @@ export class AcademicComponent {
   }
 
   protected onGradeSubjectChange(code: string): void {
+    this.notice.set(null);
+    this.gradeEntryError.set(null);
     this.selectedGradeSubjectCode.set(code);
     this.loadGradeEntry(code);
   }
 
-  private loadGradeEntry(subjectCode?: string): void {
-    const classId = this.selectedClassId(); const periodId = this.selectedReportingPeriodId();
-    if (!classId || !periodId) { this.gradeEntry.set(null); return; }
-    this.api.gradeEntry(periodId, classId, subjectCode || this.selectedGradeSubjectCode() || undefined).subscribe({
-      next: (entry) => { this.gradeEntry.set(entry); this.selectedGradeSubjectCode.set(entry.subjectCode); },
-      error: (e) => { this.gradeEntry.set(null); this.fail(e); },
-    });
+  protected gradePacketStatusLabel(status: GradeEntryView['packetStatus']): string {
+    if (!this.fr()) return ({ DRAFT: 'Draft — not sent', SUBMITTED: 'Sent for review', RETURNED: 'Returned for correction', ACCEPTED: 'Accepted and locked', LOCKED: 'Locked' } as any)[status] ?? status;
+    return ({ DRAFT: 'Brouillon — non envoyé', SUBMITTED: 'Envoyée pour vérification', RETURNED: 'Retournée pour correction', ACCEPTED: 'Acceptée et verrouillée', LOCKED: 'Verrouillée' } as any)[status] ?? status;
   }
 
-  protected createScopedAssessment(entry: GradeEntryView): void {
-    this.assessmentTouched.set(true);
-    if (!this.assessmentCode.trim() || !this.assessmentLabel.trim()) return;
-    this.assessmentBusy.set(true);
-    this.api.createAssessment({
-      reportingPeriodId: entry.reportingPeriodId, code: this.assessmentCode.trim(), label: this.assessmentLabel.trim(),
-      assessmentType: 'EVALUATION', maxScore: this.assessmentMax || 20, weight: this.assessmentWeight || 1,
-      mandatory: this.assessmentMandatory, displayOrder: entry.assessments.length + 1,
-      classId: entry.classId, subjectCode: entry.subjectCode,
-    }).subscribe({
-      next: () => { this.assessmentBusy.set(false); this.assessmentDialog.set(false); this.assessmentTouched.set(false); this.assessmentCode = ''; this.assessmentLabel = ''; this.assessmentMax = 20; this.assessmentWeight = 1; this.loadGradeEntry(entry.subjectCode); this.notice.set({ ok: true, text: this.fr() ? 'Évaluation créée pour cette classe et cette matière.' : 'Assessment created for this class and subject.' }); },
-      error: (e) => { this.assessmentBusy.set(false); this.fail(e); },
+  protected gradeBlockerLabel(blocker: string): string {
+    const readable = cleanDisplay(blocker);
+    return readable.replace(' · ', ' — ');
+  }
+
+  protected gradeAssessmentLabel(entry: GradeEntryView, assessment: GradeEntryView['assessments'][number]): string {
+    if (entry.assessments.length === 1) return this.display(entry.subjectLabel);
+    return this.display(assessment.label) || assessment.code;
+  }
+
+  protected loadGradeEntry(subjectCode?: string): void {
+    const classId = this.selectedClassId(); const periodId = this.selectedReportingPeriodId();
+    if (!classId || !periodId) { this.gradeEntry.set(null); return; }
+    this.gradeEntryError.set(null);
+    this.api.gradeEntry(periodId, classId, subjectCode || this.selectedGradeSubjectCode() || undefined).subscribe({
+      next: (entry) => { this.gradeEntry.set(this.refreshGradeProgress(entry)); this.gradeEntryError.set(null); this.selectedGradeSubjectCode.set(entry.subjectCode); },
+      error: (e) => { this.gradeEntry.set(null); this.gradeEntryError.set(this.explainError(e, 'grade-entry')); },
     });
   }
 
@@ -1153,7 +1202,31 @@ export class AcademicComponent {
   }
 
   private updateGradeEntry(mutator: (entry: GradeEntryView) => GradeEntryView): void {
-    const current = this.gradeEntry(); if (current) this.gradeEntry.set(mutator(current));
+    const current = this.gradeEntry(); if (current) this.gradeEntry.set(this.refreshGradeProgress(mutator(current)));
+  }
+
+  private refreshGradeProgress(entry: GradeEntryView): GradeEntryView {
+    if (!entry.assessments.length) {
+      return { ...entry, completedStudents: 0, blockers: [this.fr() ? 'Aucune évaluation n’est configurée pour cette matière.' : 'No assessment is configured for this subject.'] };
+    }
+    const subject = entry.availableSubjects.find((item) => item.code.toUpperCase() === entry.subjectCode.toUpperCase());
+    const blockers: string[] = [];
+    const complete = entry.students.filter((row) => {
+      let ok = true;
+      entry.assessments.forEach((assessment, index) => {
+        const cell = row.values[index];
+        if (assessment.mandatory && (!cell || !['SCORED', 'ABSENT', 'EXEMPT'].includes(cell.valueStatus))) {
+          ok = false;
+          blockers.push(`${row.studentName} · ${this.gradeAssessmentLabel(entry, assessment)}`);
+        }
+      });
+      if (subject?.remarkRequired && !row.comment?.trim()) {
+        ok = false;
+        blockers.push(`${row.studentName} · ${this.fr() ? 'Appréciation obligatoire' : 'Required comment'}`);
+      }
+      return ok;
+    }).length;
+    return { ...entry, completedStudents: complete, blockers: blockers.length > 12 ? [...blockers.slice(0, 12), this.fr() ? `… et ${blockers.length - 12} autre(s)` : `… and ${blockers.length - 12} more`] : blockers };
   }
 
   protected updateGradeMark(studentId: string, index: number, raw: unknown): void {
@@ -1213,10 +1286,10 @@ export class AcademicComponent {
     }
     const periodId = this.selectedReportingPeriodId();
     if (periodId) {
-      this.api.bulletinSnapshot(id, periodId).subscribe((snapshot) => {
+      this.api.previewBulletinSnapshot(id, periodId).subscribe((snapshot) => {
         this.bulletin.set({ id: snapshot.id, studentId: snapshot.studentId, studentName: snapshot.studentName, className: snapshot.className ?? '', sequence: this.periodSequence(this.reportingPeriods().find((p) => p.id === periodId)!), lines: snapshot.lines.map((l) => ({ subjectCode: l.subjectCode, subjectLabel: l.subjectLabel, coef: l.coefficient, mark: l.mark, weighted: l.weighted, teacherRemark: l.teacherRemark ?? undefined, periodMarks: l.periodMarks ?? undefined, teacherName: l.teacherName, subjectGroupCode: l.subjectGroupCode, subjectGroupLabel: l.subjectGroupLabel })), average: snapshot.average, rank: snapshot.rank ?? 0, classSize: snapshot.classSize, classAverage: snapshot.classStats?.average ?? snapshot.average, validated: snapshot.state === 'VALIDATED' || snapshot.state === 'PUBLISHED', generalAppreciation: snapshot.generalAppreciation, financiallyBlocked: false, reportingPeriodId: snapshot.reportingPeriodId, reportingPeriodCode: snapshot.reportingPeriodCode, state: snapshot.state, complete: snapshot.complete, blockers: snapshot.blockers, snapshotHash: snapshot.snapshotHash, version: snapshot.version, attendance: snapshot.attendance, conduct: snapshot.conduct, groupStats: snapshot.groupStats ?? undefined });
         this.appreciationDraft.set(snapshot.generalAppreciation ?? '');
-      });
+      }, (e) => this.fail(e));
     } else {
       this.api.bulletin(id, this.sequence()).subscribe((b) => { this.bulletin.set(b); this.appreciationDraft.set(b.generalAppreciation ?? ''); });
     }
@@ -1245,6 +1318,19 @@ export class AcademicComponent {
     this.api.validateSnapshot(b.id).subscribe({ next: (snapshot) => { this.applySnapshot(snapshot); this.notice.set({ ok: true, text: this.fr() ? 'Bulletin validé. Il peut maintenant être publié aux parents.' : 'Report card validated. It can now be published to parents.' }); }, error: (e) => this.fail(e) });
   }
 
+  protected createBulletinDraft(b: BulletinView): void {
+    if (b.id || !b.reportingPeriodId || b.state !== 'PREVIEW' || this.bulletinBusy()) return;
+    this.bulletinBusy.set(true);
+    this.api.bulletinSnapshot(b.studentId, b.reportingPeriodId).subscribe({
+      next: (snapshot) => {
+        this.bulletinBusy.set(false);
+        this.applySnapshot(snapshot);
+        this.notice.set({ ok: true, text: this.fr() ? 'Brouillon de bulletin créé. Il peut maintenant être validé.' : 'Report-card draft created. It can now be validated.' });
+      },
+      error: (e) => { this.bulletinBusy.set(false); this.fail(e); },
+    });
+  }
+
   protected requestPublication(b: BulletinView): void { this.publicationTarget.set(b); this.publicationReason = ''; this.publicationDialog.set(true); }
   protected cancelPublication(): void { this.publicationDialog.set(false); this.publicationTarget.set(null); this.publicationReason = ''; }
   protected confirmPublication(): void {
@@ -1262,7 +1348,32 @@ export class AcademicComponent {
     this.appreciationDraft.set(snapshot.generalAppreciation ?? '');
   }
 
-  private fail(e: any): void { this.notice.set({ ok: false, text: typeof e?.error?.message === 'string' ? e.error.message : (this.fr() ? 'Opération impossible.' : 'Operation failed.') }); }
+  private explainError(e: any, context?: 'grade-entry'): string {
+    const raw = cleanDisplay(typeof e?.error?.message === 'string' ? e.error.message : '');
+    const code = String(e?.error?.code ?? '').toUpperCase();
+    const text = raw.toLowerCase();
+    const className = this.selectedClass() || (this.fr() ? 'la classe sélectionnée' : 'the selected class');
+    const period = this.selectedReportingPeriodCode() || (this.fr() ? 'la période sélectionnée' : 'the selected period');
+    if (code === 'ENROLLMENT_MISSING' || text.includes('inscription active') || text.includes('active enrollment')) {
+      return this.fr()
+        ? `Cet élève n’est pas inscrit dans ${className} pour ${period}. Vérifiez son inscription dans Élèves → Inscription avant de consulter ou publier son bulletin.`
+        : `This student is not enrolled in ${className} for ${period}. Check the student’s enrollment in Students → Enrollment before viewing or publishing the report card.`;
+    }
+    if (text.includes('matière') && (text.includes('affect') || text.includes('assigned'))) {
+      return this.fr()
+        ? `Cette matière n’est pas affectée à ${className}. Un administrateur doit la configurer dans Paramètres → Scolarité → Matières par classe.`
+        : `This subject is not assigned to ${className}. An administrator must configure it in Settings → Academics → Class subjects.`;
+    }
+    if (text.includes('enseignant') || text.includes('teacher assignment') || code.includes('ASSIGNMENT_')) {
+      return this.fr()
+        ? `Aucun enseignant responsable n’est configuré pour cette matière et cette classe. Configurez l’affectation avant la saisie.`
+        : `No responsible teacher is configured for this subject and class. Configure the assignment before entering marks.`;
+    }
+    if (context === 'grade-entry' && raw) return raw;
+    return raw || (this.fr() ? 'Impossible de terminer cette opération.' : 'This operation could not be completed.');
+  }
+
+  private fail(e: any): void { this.notice.set({ ok: false, text: this.explainError(e) }); }
 
   protected print(): void {
     this.bulkBulletins.set([]);

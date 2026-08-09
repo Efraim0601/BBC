@@ -14,7 +14,12 @@ import static com.bbc.sms.foundation.session.SessionDtos.*;
 @RequestMapping("/api/settings/academic-sessions")
 public class AcademicSessionController {
     private final AcademicSessionService service;
-    public AcademicSessionController(AcademicSessionService service) { this.service = service; }
+    private final AcademicWindowOverrideService overrides;
+    private final AcademicWindowPolicyService windows;
+    public AcademicSessionController(AcademicSessionService service, AcademicWindowOverrideService overrides,
+                                     AcademicWindowPolicyService windows) {
+        this.service = service; this.overrides = overrides; this.windows = windows;
+    }
 
     @GetMapping @PreAuthorize("@perm.canAction('SESSION_VIEW')")
     public List<SessionView> list() { return service.list(); }
@@ -49,6 +54,18 @@ public class AcademicSessionController {
         return service.reportingPeriods(sessionId);
     }
 
+    @GetMapping("/{sessionId}/readiness")
+    @PreAuthorize("@perm.canAction('SESSION_VIEW')")
+    public SessionReadinessView readiness(@PathVariable UUID sessionId) {
+        return service.readiness(sessionId);
+    }
+
+    @GetMapping("/{sessionId}/reporting-periods/dependencies")
+    @PreAuthorize("@perm.canAction('SESSION_VIEW')")
+    public List<StructureDependencyView> dependencies(@PathVariable UUID sessionId) {
+        return service.dependencies(sessionId);
+    }
+
     @PostMapping("/{sessionId}/reporting-periods")
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("@perm.canAction('SESSION_MANAGE')")
@@ -80,7 +97,50 @@ public class AcademicSessionController {
     @PostMapping("/{sessionId}/reporting-periods/standard/apply")
     @PreAuthorize("@perm.canAction('SESSION_MANAGE')")
     public StandardStructureView applyStandardStructure(@PathVariable UUID sessionId,
-                                                         @RequestParam(required = false) String reason) {
-        return service.applyStandardStructure(sessionId, reason);
+                                                         @RequestParam(required = false) String reason,
+                                                         @RequestParam(required = false) String fingerprint,
+                                                         @RequestBody(required = false) StandardStructureApplyRequest request) {
+        String requestedReason = request != null && request.reason() != null ? request.reason() : reason;
+        String requestedFingerprint = request != null && request.fingerprint() != null ? request.fingerprint() : fingerprint;
+        return service.applyStandardStructure(sessionId, requestedReason, requestedFingerprint,
+                request == null ? null : request.periods(), request == null ? null : request.dependencies());
+    }
+
+    @GetMapping("/{sessionId}/window-overrides")
+    @PreAuthorize("@perm.canAction('SESSION_VIEW')")
+    public List<WindowOverrideView> windowOverrides(@PathVariable UUID sessionId,
+                                                     @RequestParam(required = false) UUID reportingPeriodId) {
+        return overrides.list(sessionId, reportingPeriodId);
+    }
+
+    @GetMapping("/{sessionId}/reporting-periods/{periodId}/effective-window")
+    @PreAuthorize("@perm.canAction('SESSION_VIEW')")
+    public AcademicWindowPolicyService.WindowView effectiveWindow(@PathVariable UUID sessionId,
+                                                                    @PathVariable UUID periodId,
+                                                                    @RequestParam String action) {
+        AcademicWindowPolicyService.Action parsed;
+        try {
+            parsed = AcademicWindowPolicyService.Action.valueOf(action.trim().toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            throw com.bbc.sms.platform.common.ApiException.field(
+                    org.springframework.http.HttpStatus.BAD_REQUEST, "WINDOW_ACTION_INVALID",
+                    "L'action de fenêtre est invalide.", "action", "Choose a valid workflow action.");
+        }
+        return windows.effective(sessionId, periodId, parsed);
+    }
+
+    @PostMapping("/{sessionId}/window-overrides")
+    @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("@perm.canAction('ACADEMIC_WINDOW_OVERRIDE')")
+    public WindowOverrideView createWindowOverride(@PathVariable UUID sessionId,
+                                                    @Valid @RequestBody WindowOverrideUpsert in) {
+        return overrides.create(sessionId, in);
+    }
+
+    @PostMapping("/window-overrides/{id}/revoke")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("@perm.canAction('ACADEMIC_WINDOW_OVERRIDE')")
+    public void revokeWindowOverride(@PathVariable UUID id, @RequestParam String reason) {
+        overrides.revoke(id, reason);
     }
 }

@@ -15,6 +15,9 @@ public interface TimetableSlotRepository extends JpaRepository<TimetableSlot, UU
     List<TimetableSlot> findBySchoolIdAndAcademicSessionIdAndTeacherIdOrderByDayIdxAscSlotIdxAsc(UUID schoolId, UUID academicSessionId, UUID teacherId);
     Optional<TimetableSlot> findBySchoolIdAndClassIdAndDayIdxAndSlotIdx(UUID schoolId, UUID classId, int dayIdx, int slotIdx);
     Optional<TimetableSlot> findBySchoolIdAndAcademicSessionIdAndClassIdAndDayIdxAndSlotIdx(UUID schoolId, UUID academicSessionId, UUID classId, int dayIdx, int slotIdx);
+    Optional<TimetableSlot> findBySchoolIdAndAcademicSessionIdAndTimetableVersionIdAndClassIdAndDayIdxAndSlotIdx(UUID schoolId, UUID academicSessionId, UUID timetableVersionId, UUID classId, int dayIdx, int slotIdx);
+    List<TimetableSlot> findBySchoolIdAndAcademicSessionIdAndTimetableVersionId(UUID schoolId, UUID academicSessionId, UUID timetableVersionId);
+    List<TimetableSlot> findBySchoolIdAndAcademicSessionIdAndTimetableVersionIdAndClassId(UUID schoolId, UUID academicSessionId, UUID timetableVersionId, UUID classId);
     List<TimetableSlot> findBySchoolIdAndDayIdxAndSlotIdxAndTeacherId(UUID schoolId, int dayIdx, int slotIdx, UUID teacherId);
     /** Tous les créneaux affectés à un enseignant — base du calcul des chevauchements. */
     List<TimetableSlot> findBySchoolIdAndTeacherIdIsNotNull(UUID schoolId);

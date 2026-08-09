@@ -21,11 +21,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -532,9 +534,10 @@ public class SetupService {
               + "LEFT JOIN academic_subject_group g ON g.id=c.group_id "
               + "LEFT JOIN LATERAL (SELECT ast.id, ast.employee_id, e.name AS employee_name, e.code AS employee_code, "
               + "ast.role, ast.source, ast.active, ast.version FROM academic_class_subject_teacher ast "
-              + "JOIN employee e ON e.id=ast.employee_id WHERE ast.school_id=? AND ast.academic_session_id=? "
-              + "AND ast.class_id=? AND ast.subject_id=c.subject_id AND ast.active=true "
-              + "ORDER BY CASE ast.role WHEN 'RESPONSIBLE' THEN 0 WHEN 'HOMEROOM' THEN 1 ELSE 2 END, ast.created_at LIMIT 1) t ON true "
+               + "JOIN employee e ON e.id=ast.employee_id WHERE ast.school_id=? AND ast.academic_session_id=? "
+               + "AND ast.class_id=? AND ast.subject_id=c.subject_id AND ast.active=true "
+               + "AND ?='secondary' "
+               + "ORDER BY CASE ast.role WHEN 'RESPONSIBLE' THEN 0 WHEN 'HOMEROOM' THEN 1 ELSE 2 END, ast.created_at LIMIT 1) t ON true "
               + "WHERE c.school_id=? AND c.academic_session_id=? AND c.class_id=? ORDER BY c.display_order, s.code",
                 (rs, n) -> {
                     UUID teacherId = rs.getObject(14, UUID.class);
@@ -545,9 +548,20 @@ public class SetupService {
                             rs.getString(3), rs.getString(4), rs.getObject(5, UUID.class), rs.getString(6),
                             rs.getInt(7), rs.getInt(8), rs.getBigDecimal(9), rs.getBoolean(10), rs.getBigDecimal(11),
                             rs.getBoolean(12), rs.getBoolean(13), teacher, rs.getLong(22));
-                }, schoolId, academicSessionId, classId, schoolId, academicSessionId, classId);
+                 }, schoolId, academicSessionId, classId, cls.getLevel(), schoolId, academicSessionId, classId);
+        CurriculumTeacherView homeroom = jdbc.query(
+                "SELECT a.id,a.employee_id,e.name,e.code,a.role,a.source,a.status='ACTIVE',a.version "
+              + "FROM class_teacher_assignment a JOIN employee e ON e.id=a.employee_id "
+              + "JOIN academic_session s ON s.id=a.academic_session_id "
+              + "WHERE a.school_id=? AND a.academic_session_id=? AND a.class_id=? AND a.role='HOMEROOM' "
+              + "AND a.status='ACTIVE' AND a.effective_from<=s.end_date "
+              + "AND (a.effective_to IS NULL OR a.effective_to>=s.start_date) "
+              + "ORDER BY a.effective_from DESC,a.created_at DESC LIMIT 1",
+                rs -> rs.next() ? new CurriculumTeacherView(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class),
+                        rs.getString(3), rs.getString(4), rs.getString(5), rs.getString(6), rs.getBoolean(7), rs.getLong(8)) : null,
+                schoolId, academicSessionId, classId);
         return new CurriculumView(academicSessionId, (String) session.get("code"), (String) session.get("label"),
-                classId, cls.getName(), groups, subjects);
+                classId, cls.getName(), groups, subjects, homeroom);
     }
 
     @Transactional
@@ -659,33 +673,206 @@ public class SetupService {
         assertSession(in.academicSessionId());
         SchoolClass cls = classes.findByIdAndSchoolId(in.classId(), schoolId).orElseThrow(() -> ApiException.notFound("Classe"));
         employees.findByIdAndSchoolId(in.employeeId(), schoolId).orElseThrow(() -> ApiException.notFound("Enseignant"));
-        bindTeacherSection(in.employeeId(), cls.getLevel());
         String role = in.role().trim().toUpperCase();
-        if (!List.of("RESPONSIBLE", "ASSISTANT", "HOMEROOM").contains(role)) throw ApiException.badRequest("Rôle enseignant invalide");
+        if (!"secondary".equalsIgnoreCase(cls.getLevel())) {
+            throw ApiException.coded(org.springframework.http.HttpStatus.CONFLICT,
+                    "PRIMARY_TEACHER_ASSIGNMENT_MANAGED_BY_HOMEROOM",
+                    "La classe primaire utilise le titulaire de classe comme seule autorité enseignant. Configurez-le dans la section Titulaire de classe.");
+        }
+        if (!"RESPONSIBLE".equals(role)) {
+            throw ApiException.coded(org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "SECONDARY_RESPONSIBLE_ASSIGNMENT_REQUIRED",
+                    "Une classe secondaire doit utiliser une affectation RESPONSIBLE par matière.");
+        }
         String source = in.source() == null || in.source().isBlank() ? "MANUAL" : in.source().trim().toUpperCase();
-        if (!List.of("TIMETABLE", "HOMEROOM", "MANUAL").contains(source)) throw ApiException.badRequest("Source d'affectation invalide");
-        if (in.effectiveFrom() != null && in.effectiveTo() != null && in.effectiveFrom().isAfter(in.effectiveTo())) throw ApiException.badRequest("La période d'affectation est invalide");
+        if (!List.of("MANUAL", "ACADEMIC_SETUP").contains(source)) source = "MANUAL";
+        Map<String, Object> session = jdbc.queryForMap("SELECT start_date,end_date FROM academic_session WHERE id=? AND school_id=?",
+                in.academicSessionId(), schoolId);
+        LocalDate sessionStart = sqlDate(session.get("start_date"));
+        LocalDate sessionEnd = sqlDate(session.get("end_date"));
+        LocalDate effectiveFrom = in.effectiveFrom() == null ? sessionStart : in.effectiveFrom();
+        if (in.effectiveTo() != null && in.effectiveTo().isBefore(effectiveFrom)) {
+            throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST, "VALIDATION_ERROR",
+                    "La période d'affectation est invalide", "effectiveTo", "La date de fin doit suivre la date de début.");
+        }
+        if (effectiveFrom.isBefore(sessionStart) || effectiveFrom.isAfter(sessionEnd)
+                || (in.effectiveTo() != null && in.effectiveTo().isAfter(sessionEnd))) {
+            throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST, "ASSIGNMENT_DATE_OUTSIDE_SESSION",
+                    "La période d'affectation doit rester dans la session académique.", "effectiveFrom",
+                    "Assignment dates must stay inside the academic session.");
+        }
+        UUID existingId = jdbc.query("SELECT id FROM academic_class_subject_teacher WHERE school_id=? AND academic_session_id=? AND class_id=? AND subject_id=? AND employee_id=? AND role=? AND effective_from=?",
+                rs -> rs.next() ? rs.getObject(1, UUID.class) : null, schoolId, in.academicSessionId(), in.classId(),
+                in.subjectId(), in.employeeId(), role, effectiveFrom);
+        if (existingId != null && in.version() != null) {
+            Long currentVersion = jdbc.queryForObject("SELECT version FROM academic_class_subject_teacher WHERE id=? AND school_id=?",
+                    Long.class, existingId, schoolId);
+            assertVersion(in.version(), currentVersion, "L'affectation de l'enseignant");
+        }
+        // Validate the complete request before changing employee or assignment state.
+        bindTeacherSection(in.employeeId(), cls.getLevel());
         if ("RESPONSIBLE".equals(role)) jdbc.update("UPDATE academic_class_subject_teacher SET active=false,updated_at=now(),version=version+1 WHERE school_id=? AND academic_session_id=? AND class_id=? AND subject_id=? AND role='RESPONSIBLE' AND employee_id<>?",
                 schoolId, in.academicSessionId(), in.classId(), in.subjectId(), in.employeeId());
-        UUID id = jdbc.query("SELECT id FROM academic_class_subject_teacher WHERE school_id=? AND academic_session_id=? AND class_id=? AND subject_id=? AND employee_id=? AND role=?",
-                rs -> rs.next() ? rs.getObject(1, UUID.class) : null, schoolId, in.academicSessionId(), in.classId(), in.subjectId(), in.employeeId(), role);
+        UUID id = existingId;
         if (id == null) {
             id = UUID.randomUUID();
             jdbc.update("INSERT INTO academic_class_subject_teacher(id,school_id,academic_session_id,class_id,subject_id,employee_id,role,effective_from,effective_to,source,active) VALUES (?,?,?,?,?,?,?,?,?,?,true)",
-                    id, schoolId, in.academicSessionId(), in.classId(), in.subjectId(), in.employeeId(), role, in.effectiveFrom(), in.effectiveTo(), source);
+                    id, schoolId, in.academicSessionId(), in.classId(), in.subjectId(), in.employeeId(), role, effectiveFrom, in.effectiveTo(), source);
         } else {
             Map<String, Object> current = jdbc.query("SELECT version FROM academic_class_subject_teacher WHERE id=? AND school_id=?",
                     rs -> rs.next() ? Map.of("version", rs.getLong(1)) : null, id, schoolId);
             assertVersion(in.version(), current == null ? null : (Long) current.get("version"), "L'affectation de l'enseignant");
             jdbc.update("UPDATE academic_class_subject_teacher SET effective_from=?,effective_to=?,source=?,active=true,updated_at=now(),version=version+1 WHERE id=? AND school_id=?",
-                    in.effectiveFrom(), in.effectiveTo(), source, id, schoolId);
+                    effectiveFrom, in.effectiveTo(), source, id, schoolId);
         }
         return curriculumTeacher(id);
     }
 
     @Transactional
+    public CurriculumTeacherView upsertHomeroom(HomeroomAssignmentUpsert in) {
+        UUID schoolId = TenantContext.get();
+        assertSession(in.academicSessionId());
+        SchoolClass cls = classes.findByIdAndSchoolId(in.classId(), schoolId)
+                .orElseThrow(() -> ApiException.notFound("Classe"));
+        if ("secondary".equalsIgnoreCase(cls.getLevel())) {
+            throw ApiException.coded(org.springframework.http.HttpStatus.CONFLICT,
+                    "SECONDARY_TEACHER_ASSIGNMENT_MANAGED_PER_SUBJECT",
+                    "Les classes secondaires utilisent un enseignant RESPONSIBLE par matière.");
+        }
+        employees.findByIdAndSchoolId(in.employeeId(), schoolId)
+                .orElseThrow(() -> ApiException.notFound("Enseignant"));
+        Map<String, Object> session = jdbc.queryForMap("SELECT start_date,end_date FROM academic_session WHERE id=? AND school_id=?",
+                in.academicSessionId(), schoolId);
+        LocalDate sessionStart = sqlDate(session.get("start_date"));
+        LocalDate sessionEnd = sqlDate(session.get("end_date"));
+        LocalDate effectiveFrom = in.effectiveFrom() == null ? sessionStart : in.effectiveFrom();
+        if (in.effectiveTo() != null && in.effectiveTo().isBefore(effectiveFrom)) {
+            throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST, "VALIDATION_ERROR",
+                    "La période d'affectation est invalide", "effectiveTo", "La date de fin doit suivre la date de début.");
+        }
+        if (effectiveFrom.isBefore(sessionStart) || effectiveFrom.isAfter(sessionEnd)
+                || (in.effectiveTo() != null && in.effectiveTo().isAfter(sessionEnd))) {
+            throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST, "ASSIGNMENT_DATE_OUTSIDE_SESSION",
+                    "La période d'affectation doit rester dans la session académique.", "effectiveFrom",
+                    "Assignment dates must stay inside the academic session.");
+        }
+        UUID existingId = jdbc.query("SELECT id FROM class_teacher_assignment WHERE school_id=? AND academic_session_id=? AND class_id=? AND employee_id=? AND role='HOMEROOM' AND effective_from=?",
+                rs -> rs.next() ? rs.getObject(1, UUID.class) : null, schoolId, in.academicSessionId(), in.classId(),
+                in.employeeId(), effectiveFrom);
+        if (existingId != null && in.version() != null) {
+            Long currentVersion = jdbc.queryForObject("SELECT version FROM class_teacher_assignment WHERE id=? AND school_id=?",
+                    Long.class, existingId, schoolId);
+            assertVersion(in.version(), currentVersion, "L'affectation titulaire");
+        }
+        bindTeacherSection(in.employeeId(), cls.getLevel());
+        jdbc.update("UPDATE class_teacher_assignment SET status='INACTIVE',updated_at=now(),version=version+1 "
+                        + "WHERE school_id=? AND academic_session_id=? AND class_id=? AND role='HOMEROOM' AND status='ACTIVE' AND employee_id<>?",
+                schoolId, in.academicSessionId(), in.classId(), in.employeeId());
+        UUID id = existingId;
+        if (id == null) {
+            id = UUID.randomUUID();
+            jdbc.update("INSERT INTO class_teacher_assignment(id,school_id,academic_session_id,class_id,employee_id,role,effective_from,effective_to,status,source) VALUES (?,?,?,?,?,'HOMEROOM',?,?, 'ACTIVE','ACADEMIC_SETUP')",
+                    id, schoolId, in.academicSessionId(), in.classId(), in.employeeId(), effectiveFrom, in.effectiveTo());
+        } else {
+            Map<String, Object> current = jdbc.query("SELECT version FROM class_teacher_assignment WHERE id=? AND school_id=?",
+                    rs -> rs.next() ? Map.of("version", rs.getLong(1)) : null, id, schoolId);
+            assertVersion(in.version(), current == null ? null : (Long) current.get("version"), "L'affectation titulaire");
+            jdbc.update("UPDATE class_teacher_assignment SET effective_from=?,effective_to=?,status='ACTIVE',source='ACADEMIC_SETUP',updated_at=now(),version=version+1 WHERE id=? AND school_id=?",
+                    effectiveFrom, in.effectiveTo(), id, schoolId);
+        }
+        return curriculumTeacherFromClassAssignment(id);
+    }
+
+    /**
+     * Pure consequence report for an assignment edit.  It deliberately does
+     * not call bindTeacherSection or touch any row: administrators can inspect
+     * the impact from the confirmation screen before saving the new authority.
+     */
+    @Transactional(readOnly = true)
+    public AssignmentImpactView assignmentImpactPreview(AssignmentImpactRequest in) {
+        UUID schoolId = TenantContext.get();
+        assertSession(in.academicSessionId());
+        SchoolClass cls = classes.findByIdAndSchoolId(in.classId(), schoolId)
+                .orElseThrow(() -> ApiException.notFound("Classe"));
+        Employee employee = employees.findByIdAndSchoolId(in.employeeId(), schoolId)
+                .orElseThrow(() -> ApiException.notFound("Enseignant"));
+        String role = in.role().trim().toUpperCase();
+        List<String> blockers = new ArrayList<>();
+        if (!List.of("HOMEROOM", "RESPONSIBLE").contains(role)) {
+            blockers.add("ASSIGNMENT_ROLE_INVALID");
+        }
+        if ("secondary".equalsIgnoreCase(cls.getLevel()) && "HOMEROOM".equals(role)) {
+            blockers.add("SECONDARY_TEACHER_ASSIGNMENT_MANAGED_PER_SUBJECT");
+        }
+        if (!"secondary".equalsIgnoreCase(cls.getLevel()) && "RESPONSIBLE".equals(role)) {
+            blockers.add("PRIMARY_TEACHER_ASSIGNMENT_MANAGED_BY_HOMEROOM");
+        }
+        if ("RESPONSIBLE".equals(role) && in.subjectId() == null) blockers.add("SUBJECT_REQUIRED");
+        if ("HOMEROOM".equals(role) && in.subjectId() != null) blockers.add("HOMEROOM_SUBJECT_MUST_BE_EMPTY");
+        if (employee.getLevel() != null && cls.getLevel() != null
+                && !employee.getLevel().equalsIgnoreCase(cls.getLevel())) {
+            blockers.add("TEACHER_SECTION_MISMATCH");
+        }
+
+        Map<String, Object> session = jdbc.queryForMap(
+                "SELECT start_date,end_date FROM academic_session WHERE id=? AND school_id=?",
+                in.academicSessionId(), schoolId);
+        LocalDate sessionStart = sqlDate(session.get("start_date"));
+        LocalDate sessionEnd = sqlDate(session.get("end_date"));
+        LocalDate from = in.effectiveFrom() == null ? sessionStart : in.effectiveFrom();
+        LocalDate to = in.effectiveTo();
+        if (to != null && to.isBefore(from)) blockers.add("ASSIGNMENT_DATE_ORDER_INVALID");
+        if (from.isBefore(sessionStart) || from.isAfter(sessionEnd)
+                || (to != null && (to.isBefore(sessionStart) || to.isAfter(sessionEnd)))) {
+            blockers.add("ASSIGNMENT_DATE_OUTSIDE_SESSION");
+        }
+
+        String subjectCode = null;
+        if (in.subjectId() != null) {
+            subjectCode = jdbc.query("SELECT code FROM subject WHERE id=? AND school_id=?",
+                    rs -> rs.next() ? rs.getString(1) : null, in.subjectId(), schoolId);
+            if (subjectCode == null) blockers.add("SUBJECT_NOT_FOUND");
+        }
+        if (!blockers.isEmpty()) {
+            return new AssignmentImpactView(in.academicSessionId(), in.classId(), in.subjectId(), role,
+                    in.employeeId(), from, to, 0, 0, false, false, List.of(), List.of(), blockers);
+        }
+
+        LocalDate end = to == null ? sessionEnd : to;
+        List<AssignmentImpactSlotView> affected = jdbc.query("""
+                SELECT v.id,v.version_no,v.status,s.id,s.subject_code,s.day_idx,s.slot_idx,
+                       COALESCE(s.published_teacher_id,s.teacher_id),e.name
+                  FROM timetable_version v
+                  JOIN timetable_slot s ON s.timetable_version_id=v.id AND s.school_id=v.school_id
+                  LEFT JOIN employee e ON e.id=COALESCE(s.published_teacher_id,s.teacher_id)
+                 WHERE v.school_id=? AND v.academic_session_id=?
+                   AND v.status IN ('DRAFT','PUBLISHED')
+                   AND v.effective_from<=? AND (v.effective_to IS NULL OR v.effective_to>=?)
+                   AND s.class_id=?
+                   AND (?='HOMEROOM' OR upper(s.subject_code)=upper(?))
+                 ORDER BY v.status DESC,v.version_no DESC,s.day_idx,s.slot_idx
+                """, (rs, n) -> {
+                    UUID publishedTeacher = rs.getObject(8, UUID.class);
+                    return new AssignmentImpactSlotView(rs.getObject(1, UUID.class), rs.getInt(2), rs.getString(3),
+                            rs.getObject(4, UUID.class), rs.getString(5), rs.getInt(6), rs.getInt(7),
+                            publishedTeacher, rs.getString(9), !Objects.equals(publishedTeacher, in.employeeId()));
+                }, schoolId, in.academicSessionId(), end, from, in.classId(), role, subjectCode);
+        int draft = (int) affected.stream().filter(x -> "DRAFT".equals(x.versionStatus())).count();
+        List<AssignmentImpactSlotView> publishedChanges = affected.stream()
+                .filter(x -> "PUBLISHED".equals(x.versionStatus()) && x.teacherChanges()).toList();
+        boolean drift = !publishedChanges.isEmpty();
+        List<String> warnings = new ArrayList<>();
+        if (draft > 0) warnings.add("DRAFT_SCHEDULE_REFRESH_REQUIRED");
+        if (drift) warnings.add("PUBLISHED_SCHEDULE_DRIFT");
+        return new AssignmentImpactView(in.academicSessionId(), in.classId(), in.subjectId(), role,
+                in.employeeId(), from, to, draft, publishedChanges.size(), drift, drift,
+                publishedChanges, warnings, List.of());
+    }
+
+    @Transactional
     public void deleteCurriculumTeacher(UUID id) {
-        int updated = jdbc.update("DELETE FROM academic_class_subject_teacher WHERE id=? AND school_id=?", id, TenantContext.get());
+        int updated = jdbc.update("UPDATE academic_class_subject_teacher SET active=false,updated_at=now(),version=version+1 WHERE id=? AND school_id=?", id, TenantContext.get());
+        if (updated == 0) updated = jdbc.update("UPDATE class_teacher_assignment SET status='INACTIVE',updated_at=now(),version=version+1 WHERE id=? AND school_id=?", id, TenantContext.get());
         if (updated != 1) throw ApiException.notFound("Affectation de l'enseignant");
     }
 
@@ -695,9 +882,23 @@ public class SetupService {
                 id, TenantContext.get());
     }
 
+    private static LocalDate sqlDate(Object value) {
+        if (value instanceof LocalDate date) return date;
+        if (value instanceof java.sql.Date date) return date.toLocalDate();
+        return value == null ? null : LocalDate.parse(value.toString());
+    }
+
     private CurriculumTeacherView curriculumTeacher(UUID id) {
         return jdbc.query("SELECT t.id,t.employee_id,e.name,e.code,t.role,t.source,t.active,t.version FROM academic_class_subject_teacher t JOIN employee e ON e.id=t.employee_id WHERE t.id=? AND t.school_id=?",
                 rs -> rs.next() ? new CurriculumTeacherView(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class), rs.getString(3), rs.getString(4), rs.getString(5), rs.getString(6), rs.getBoolean(7), rs.getLong(8)) : null,
+                id, TenantContext.get());
+    }
+
+    private CurriculumTeacherView curriculumTeacherFromClassAssignment(UUID id) {
+        return jdbc.query("SELECT a.id,a.employee_id,e.name,e.code,a.role,a.source,a.status='ACTIVE',a.version "
+                        + "FROM class_teacher_assignment a JOIN employee e ON e.id=a.employee_id WHERE a.id=? AND a.school_id=?",
+                rs -> rs.next() ? new CurriculumTeacherView(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class),
+                        rs.getString(3), rs.getString(4), rs.getString(5), rs.getString(6), rs.getBoolean(7), rs.getLong(8)) : null,
                 id, TenantContext.get());
     }
 

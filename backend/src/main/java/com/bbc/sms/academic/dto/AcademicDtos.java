@@ -82,7 +82,32 @@ public class AcademicDtos {
                                        ClassStatsView classStats, UUID supersedesId,
                                        UUID correctsBulletinVersionId, String correctionReason,
                                        UUID correctionRequestedBy, Instant correctionRequestedAt,
-                                       List<GroupStatsView> groupStats) {}
+                                       List<GroupStatsView> groupStats,
+                                       SnapshotEvidenceView evidence) {}
+
+    /** Immutable evidence references used to render and audit an official result. */
+    public record SnapshotEvidenceView(
+            ProfileAssetEvidenceView profilePhoto,
+            DocumentDesignEvidenceView documentDesign,
+            List<ChildSnapshotEvidenceView> childSnapshots,
+            String formulaVersion,
+            String calculationPolicy) {}
+
+    public record ProfileAssetEvidenceView(UUID assetVersionId, String ownerType, UUID ownerId,
+                                           String contentType, long byteSize,
+                                           Instant capturedAt, String sha256) {}
+
+    public record DocumentDesignEvidenceView(UUID templateId, String templateFamily,
+                                             String product, String locale,
+                                             int templateVersion, String templateHash,
+                                             UUID brandingId, int brandingVersion,
+                                             String brandingHash, String principalName,
+                                             String principalTitle, String classMasterTitle,
+                                             String councilTitle) {}
+
+    public record ChildSnapshotEvidenceView(UUID reportingPeriodId, String periodCode,
+                                            UUID snapshotId, long snapshotVersion,
+                                            String state, String snapshotHash) {}
 
     /** Class master sheet built from the same session-aware calculation as a bulletin. */
     public record SessionPvRow(UUID snapshotId, UUID studentId, String studentName,
@@ -105,6 +130,7 @@ public class AcademicDtos {
 
     public record BulletinBatchJobCreateRequest(@NotNull UUID classId, @NotNull UUID reportingPeriodId,
                                                 String locale) {}
+    public record BulletinBatchCancelRequest(@NotBlank String reason) {}
 
     public record BulletinBatchJobView(UUID id, UUID academicSessionId, UUID reportingPeriodId, UUID classId,
                                        String locale, String status, int totalItems, int processedItems,
@@ -121,7 +147,16 @@ public class AcademicDtos {
                                            boolean mandatory, int displayOrder) {}
 
     public record GradeEntrySubjectView(String code, String label, int coefficient,
-                                        UUID teacherId, String teacherName) {}
+                                        UUID teacherId, String teacherName,
+                                        String status, String errorCode, String message,
+                                        boolean remarkRequired) {
+        public GradeEntrySubjectView(String code, String label, int coefficient,
+                                     UUID teacherId, String teacherName) {
+            this(code, label, coefficient, teacherId, teacherName,
+                    teacherId == null ? "MISSING" : "RESOLVED",
+                    teacherId == null ? "ASSIGNMENT_MISSING" : "ASSIGNMENT_RESOLVED", null, false);
+        }
+    }
 
     public record GradeEntryCellView(UUID assessmentId, BigDecimal mark,
                                      String valueStatus, long version) {}

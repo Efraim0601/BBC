@@ -53,6 +53,13 @@ public class ParentController {
         return service.latestPublishedBulletin(principal, studentId);
     }
 
+    @GetMapping("/children/{studentId}/journey")
+    @PreAuthorize("@perm.isParent()")
+    public List<ParentJourneyEventView> journey(@AuthenticationPrincipal AppUserPrincipal principal,
+                                                @PathVariable UUID studentId) {
+        return service.journey(principal, studentId);
+    }
+
     @GetMapping("/children/{studentId}/resources/{kind}")
     @PreAuthorize("@perm.isParent()")
     public ClassResourceView resources(@AuthenticationPrincipal AppUserPrincipal principal,

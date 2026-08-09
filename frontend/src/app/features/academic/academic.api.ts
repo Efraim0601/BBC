@@ -44,7 +44,7 @@ export interface BulletinView {
 }
 
 export interface BulletinSnapshotView {
-  id: string; academicSessionId: string; reportingPeriodId: string;
+  id?: string; academicSessionId: string; reportingPeriodId: string;
   reportingPeriodCode: string; reportingPeriodLabel: string; studentId: string;
   studentName: string; matricule: string; educationalLevel?: string | null; subsystem?: string | null; className: string | null;
   lines: Array<{ subjectCode: string; subjectLabel: string; coefficient: number; mark: number; weighted: number; teacherRemark: string | null; appreciation: string; assessments: unknown[]; periodMarks?: Array<{ periodCode: string; mark: number }> | null; teacherName?: string | null; subjectGroupCode?: string | null; subjectGroupLabel?: string | null }>;
@@ -94,6 +94,7 @@ export interface AssessmentUpsert {
 }
 export interface GradeEntrySubject {
   code: string; label: string; coefficient: number; teacherId: string | null; teacherName: string | null;
+  status?: string; errorCode?: string; message?: string | null; remarkRequired?: boolean;
 }
 export interface GradeEntryCell {
   assessmentId: string; mark: number | null; valueStatus: 'SCORED' | 'MISSING' | 'ABSENT' | 'EXEMPT'; version: number;
@@ -167,6 +168,9 @@ export class AcademicApi {
   }
   bulletinSnapshot(studentId: string, reportingPeriodId: string): Observable<BulletinSnapshotView> {
     return this.http.post<BulletinSnapshotView>(`${this.base}/students/${encodeURIComponent(studentId)}/bulletin-snapshots`, {}, { params: { reportingPeriodId } });
+  }
+  previewBulletinSnapshot(studentId: string, reportingPeriodId: string): Observable<BulletinSnapshotView> {
+    return this.http.get<BulletinSnapshotView>(`${this.base}/students/${encodeURIComponent(studentId)}/bulletin-snapshots/preview`, { params: { reportingPeriodId } });
   }
 
   validateSnapshot(id: string): Observable<BulletinSnapshotView> {

@@ -4,14 +4,21 @@ import com.bbc.sms.foundation.audit.AuditService;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.tenant.TenantContext;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import static com.bbc.sms.foundation.session.SessionDtos.*;
@@ -23,13 +30,16 @@ public class AcademicSessionService {
     private final AcademicTermRepository terms;
     private final AcademicReportingPeriodRepository reportingPeriods;
     private final AuditService audit;
+    private final JdbcTemplate jdbc;
 
     public AcademicSessionService(AcademicSessionRepository sessions, AcademicTermRepository terms,
-                                  AcademicReportingPeriodRepository reportingPeriods, AuditService audit) {
+                                  AcademicReportingPeriodRepository reportingPeriods, AuditService audit,
+                                  JdbcTemplate jdbc) {
         this.sessions = sessions;
         this.terms = terms;
         this.reportingPeriods = reportingPeriods;
         this.audit = audit;
+        this.jdbc = jdbc;
     }
 
     @Transactional(readOnly = true)
@@ -181,12 +191,16 @@ public class AcademicSessionService {
         period.setBulletinPublishClosesAt(in.bulletinPublishClosesAt());
         period.setCorrectionOpensAt(in.correctionOpensAt());
         period.setCorrectionClosesAt(in.correctionClosesAt());
+        period.setTeacherSubmissionOpensAt(in.teacherSubmissionOpensAt());
+        period.setTeacherSubmissionClosesAt(in.teacherSubmissionClosesAt());
+        period.setTimezone(in.timezone() == null || in.timezone().isBlank() ? "Africa/Douala" : in.timezone().trim());
         period.setCalculationPolicy(in.calculationPolicy() == null || in.calculationPolicy().isBlank()
                 ? "DEFAULT" : in.calculationPolicy().trim().toUpperCase(Locale.ROOT));
         period.setStatus(in.status() == null || in.status().isBlank() ? "DRAFT" : normalizePeriodStatus(in.status()));
         validateWindows(period);
         ensureUniquePeriod(session, period);
         period = reportingPeriods.saveAndFlush(period);
+        refreshStructureFingerprint(session.getId());
         audit.record(id == null ? "REPORTING_PERIOD_CREATED" : "REPORTING_PERIOD_UPDATED",
                 "AcademicReportingPeriod", period.getId().toString(), before == null ? null : reportingPeriodView(before),
                 reportingPeriodView(period), null);
@@ -211,24 +225,182 @@ public class AcademicSessionService {
 
     @Transactional
     public StandardStructureView applyStandardStructure(UUID sessionId, String reason) {
+        return applyStandardStructure(sessionId, reason, null);
+    }
+
+    @Transactional
+    public StandardStructureView applyStandardStructure(UUID sessionId, String reason, String expectedFingerprint) {
+        return applyStandardStructure(sessionId, reason, expectedFingerprint, null, null);
+    }
+
+    @Transactional
+    public StandardStructureView applyStandardStructure(UUID sessionId, String reason, String expectedFingerprint,
+                                                        List<ReportingPeriodView> proposedPeriods,
+                                                        List<StructureDependencyView> proposedDependencies) {
         AcademicSession session = find(sessionId);
         assertMutable(session);
+        if (reason == null || reason.isBlank()) {
+            throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST, "REASON_REQUIRED",
+                    "Le motif est obligatoire.", "reason", "Provide a reason before applying the academic structure.");
+        }
         ensureStandardTerms(session);
         StandardStructureView preview = standardStructure(session, false);
-        for (ReportingPeriodView view : preview.periods()) {
+        if (expectedFingerprint != null && !expectedFingerprint.isBlank()
+                && !expectedFingerprint.equals(preview.fingerprint())) {
+            throw ApiException.staleVersion("La structure académique a changé depuis l'aperçu. Rechargez avant de l'appliquer.",
+                    0, 0);
+        }
+        List<ReportingPeriodView> requestedPeriods = proposedPeriods == null || proposedPeriods.isEmpty()
+                ? preview.periods() : proposedPeriods;
+        validateProposedStructure(session, requestedPeriods, proposedDependencies);
+        for (ReportingPeriodView view : requestedPeriods) {
             ReportingPeriodUpsert input = new ReportingPeriodUpsert(view.code(), view.label(), view.periodType(),
                     view.academicTermId(), view.displayOrder(), view.startDate(), view.endDate(),
                     view.gradeEntryOpensAt(), view.gradeEntryClosesAt(), view.reviewOpensAt(), view.reviewClosesAt(),
                     view.validationOpensAt(), view.validationClosesAt(), view.bulletinPublishOpensAt(),
                     view.bulletinPublishClosesAt(), view.correctionOpensAt(), view.correctionClosesAt(),
+                    view.teacherSubmissionOpensAt(), view.teacherSubmissionClosesAt(), view.timezone(),
                     view.calculationPolicy(), view.status(), null);
             UUID id = reportingPeriods.findBySchoolIdAndAcademicSessionIdAndCode(
                     session.getSchoolId(), session.getId(), view.code()).map(AcademicReportingPeriod::getId).orElse(null);
             upsertReportingPeriod(sessionId, id, input);
         }
+        List<ReportingPeriodView> actual = reportingPeriods(sessionId);
+        List<StructureDependencyView> requestedDependencies = proposedDependencies == null || proposedDependencies.isEmpty()
+                ? standardDependencies(actual) : normalizeDependencies(actual, proposedDependencies);
+        replaceStandardDependencies(sessionId, requestedDependencies);
         audit.record("REPORTING_STRUCTURE_APPLIED", "AcademicSession", sessionId.toString(), null,
-                preview.periods().stream().map(ReportingPeriodView::code).toList(), reason);
-        return new StandardStructureView(sessionId, reportingPeriods(sessionId), preview.warnings(), true);
+                actual.stream().map(ReportingPeriodView::code).toList(), reason);
+        return new StandardStructureView(sessionId, actual, preview.warnings(), true,
+                structureFingerprint(actual), requestedDependencies);
+    }
+
+    @Transactional(readOnly = true)
+    public List<StructureDependencyView> dependencies(UUID sessionId) {
+        find(sessionId);
+        return jdbc.query("""
+            SELECT d.parent_period_id, p.code parent_code, d.child_period_id, c.code child_code,
+                   d.weight, d.optional, d.display_order
+              FROM academic_reporting_period_dependency d
+              JOIN academic_reporting_period p ON p.id=d.parent_period_id
+              JOIN academic_reporting_period c ON c.id=d.child_period_id
+             WHERE d.school_id=? AND d.academic_session_id=?
+             ORDER BY p.display_order, d.display_order
+            """, (rs, rowNum) -> new StructureDependencyView(
+                rs.getObject("parent_period_id", UUID.class), rs.getString("parent_code"),
+                rs.getObject("child_period_id", UUID.class), rs.getString("child_code"),
+                rs.getBigDecimal("weight"), rs.getBoolean("optional"), rs.getInt("display_order")),
+                TenantContext.get(), sessionId);
+    }
+
+    @Transactional(readOnly = true)
+    public SessionReadinessView readiness(UUID sessionId) {
+        AcademicSession session = find(sessionId);
+        List<ReportingPeriodView> periods = reportingPeriods(sessionId);
+        List<String> blockers = new ArrayList<>();
+        List<String> actions = new ArrayList<>();
+        if (periods.isEmpty()) {
+            blockers.add("REPORTING_STRUCTURE_MISSING");
+            actions.add("Appliquez la structure standard S1–S6, T1–T3 et Annuel.");
+        }
+        for (String code : List.of("S1", "S2", "S3", "S4", "S5", "S6", "T1_RESULT", "T2_RESULT", "T3_RESULT", "ANNUAL")) {
+            if (periods.stream().noneMatch(p -> code.equals(p.code()))) blockers.add("PERIOD_MISSING:" + code);
+        }
+        for (ReportingPeriodView p : periods) {
+            if (p.teacherSubmissionOpensAt() == null || p.teacherSubmissionClosesAt() == null
+                    || !p.teacherSubmissionClosesAt().isAfter(p.teacherSubmissionOpensAt())) {
+                blockers.add("TEACHER_WINDOW_NOT_CONFIGURED:" + p.code());
+            }
+        }
+        if ("DRAFT".equals(session.getStatus())) {
+            actions.add("Ouvrez la session après validation des fenêtres.");
+        } else if ("OPEN".equals(session.getStatus()) && blockers.isEmpty()) {
+            actions.add("Les enseignants peuvent soumettre dans les fenêtres configurées.");
+        }
+        String phase = blockers.isEmpty() ? ("OPEN".equals(session.getStatus()) ? "READY" : "CONFIGURED") : "BLOCKED";
+        String next = blockers.isEmpty() ? actions.stream().findFirst().orElse("Aucune action requise")
+                : actions.stream().findFirst().orElse("Corrigez les blocages affichés");
+        return new SessionReadinessView(sessionId, session.getStatus(), phase, blockers.isEmpty(), next, blockers, actions);
+    }
+
+    private void validateProposedStructure(AcademicSession session, List<ReportingPeriodView> periods,
+                                           List<StructureDependencyView> dependencies) {
+        if (periods == null || periods.isEmpty()) {
+            throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST, "STRUCTURE_PERIODS_REQUIRED",
+                    "La structure doit contenir au moins une période.", "periods", "Provide at least one reporting period.");
+        }
+        Set<String> codes = new HashSet<>();
+        for (ReportingPeriodView period : periods) {
+            if (period == null || period.code() == null || period.code().isBlank()) {
+                throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST, "PERIOD_CODE_REQUIRED",
+                        "Le code de période est obligatoire.", "periods", "Every reporting period needs a code.");
+            }
+            String code = period.code().trim().toUpperCase(Locale.ROOT);
+            if (!codes.add(code)) {
+                throw ApiException.field(org.springframework.http.HttpStatus.CONFLICT, "PERIOD_CODE_DUPLICATE",
+                        "Le code de période est dupliqué : " + code + ".", "periods", "Duplicate reporting period code: " + code + ".");
+            }
+            if (period.startDate() == null || period.endDate() == null || period.startDate().isAfter(period.endDate())
+                    || period.startDate().isBefore(session.getStartDate()) || period.endDate().isAfter(session.getEndDate())) {
+                throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST, "PERIOD_DATE_OUTSIDE_SESSION",
+                        "Les dates de chaque période doivent rester dans la session.", "periods", "Reporting period dates must remain inside the academic session.");
+            }
+            if (!Set.of("SEQUENCE", "TERM_RESULT", "ANNUAL_RESULT").contains(period.periodType())) {
+                throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST, "PERIOD_TYPE_INVALID",
+                        "Le type de période est invalide.", "periodType", "Use SEQUENCE, TERM_RESULT, or ANNUAL_RESULT.");
+            }
+            if (period.academicTermId() != null) {
+                Integer termCount = jdbc.queryForObject("SELECT count(*) FROM academic_term WHERE id=? AND school_id=? AND academic_session_id=?",
+                        Integer.class, period.academicTermId(), session.getSchoolId(), session.getId());
+                if (termCount == null || termCount == 0) {
+                    throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST, "PERIOD_TERM_INVALID",
+                            "La période référence un trimestre qui n'appartient pas à cette session.", "academicTermId", "The period term must belong to this session.");
+                }
+            }
+            validateWindow(period.gradeEntryOpensAt(), period.gradeEntryClosesAt(), "saisie des notes");
+            validateWindow(period.teacherSubmissionOpensAt(), period.teacherSubmissionClosesAt(), "soumission des enseignants");
+            validateWindow(period.reviewOpensAt(), period.reviewClosesAt(), "révision");
+            validateWindow(period.validationOpensAt(), period.validationClosesAt(), "validation");
+            validateWindow(period.bulletinPublishOpensAt(), period.bulletinPublishClosesAt(), "publication");
+            validateWindow(period.correctionOpensAt(), period.correctionClosesAt(), "correction");
+        }
+        if (dependencies == null || dependencies.isEmpty()) return;
+        Set<String> edges = new HashSet<>();
+        for (StructureDependencyView dependency : dependencies) {
+            String parent = dependency.parentCode() == null ? "" : dependency.parentCode().trim().toUpperCase(Locale.ROOT);
+            String child = dependency.childCode() == null ? "" : dependency.childCode().trim().toUpperCase(Locale.ROOT);
+            if (!codes.contains(parent) || !codes.contains(child)) {
+                throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST, "DEPENDENCY_PERIOD_UNKNOWN",
+                        "La dépendance référence une période absente de la proposition.", "dependencies", "Every dependency must reference proposed period codes.");
+            }
+            if (parent.equals(child)) {
+                throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST, "DEPENDENCY_SELF_REFERENCE",
+                        "Une période ne peut pas dépendre d'elle-même.", "dependencies", "A period cannot depend on itself.");
+            }
+            if (dependency.weight() == null || dependency.weight().signum() <= 0) {
+                throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST, "DEPENDENCY_WEIGHT_INVALID",
+                        "Le poids de dépendance doit être positif.", "weight", "Dependency weight must be positive.");
+            }
+            if (!edges.add(parent + "->" + child)) {
+                throw ApiException.field(org.springframework.http.HttpStatus.CONFLICT, "DEPENDENCY_DUPLICATE",
+                        "La dépendance est dupliquée.", "dependencies", "Duplicate reporting dependency.");
+            }
+        }
+    }
+
+    private List<StructureDependencyView> normalizeDependencies(List<ReportingPeriodView> actual,
+                                                                List<StructureDependencyView> proposed) {
+        Map<String, ReportingPeriodView> byCode = new LinkedHashMap<>();
+        actual.forEach(period -> byCode.put(period.code().toUpperCase(Locale.ROOT), period));
+        return proposed.stream().map(dependency -> {
+            ReportingPeriodView parent = byCode.get(dependency.parentCode().toUpperCase(Locale.ROOT));
+            ReportingPeriodView child = byCode.get(dependency.childCode().toUpperCase(Locale.ROOT));
+            if (parent == null || child == null) {
+                throw ApiException.badRequest("La dépendance ne correspond pas à la structure enregistrée.");
+            }
+            return new StructureDependencyView(parent.id(), parent.code(), child.id(), child.code(),
+                    dependency.weight(), dependency.optional(), dependency.displayOrder());
+        }).toList();
     }
 
     private void ensureStandardTerms(AcademicSession session) {
@@ -271,8 +443,12 @@ public class AcademicSessionService {
         s.setGradeEntryClosesAt(in.gradeEntryClosesAt());
         s.setBulletinPublishOpensAt(in.bulletinPublishOpensAt());
         s.setBulletinPublishClosesAt(in.bulletinPublishClosesAt());
+        s.setTeacherSubmissionOpensAt(in.teacherSubmissionOpensAt());
+        s.setTeacherSubmissionClosesAt(in.teacherSubmissionClosesAt());
+        s.setTimezone(in.timezone() == null || in.timezone().isBlank() ? "Africa/Douala" : in.timezone().trim());
         validateWindow(in.gradeEntryOpensAt(), in.gradeEntryClosesAt(), "saisie des notes");
         validateWindow(in.bulletinPublishOpensAt(), in.bulletinPublishClosesAt(), "publication des bulletins");
+        validateWindow(in.teacherSubmissionOpensAt(), in.teacherSubmissionClosesAt(), "soumission des enseignants");
     }
 
     private void apply(AcademicTerm t, TermUpsert in) {
@@ -285,8 +461,12 @@ public class AcademicSessionService {
         t.setGradeEntryClosesAt(in.gradeEntryClosesAt());
         t.setBulletinPublishOpensAt(in.bulletinPublishOpensAt());
         t.setBulletinPublishClosesAt(in.bulletinPublishClosesAt());
+        t.setTeacherSubmissionOpensAt(in.teacherSubmissionOpensAt());
+        t.setTeacherSubmissionClosesAt(in.teacherSubmissionClosesAt());
+        t.setTimezone(in.timezone() == null || in.timezone().isBlank() ? "Africa/Douala" : in.timezone().trim());
         validateWindow(in.gradeEntryOpensAt(), in.gradeEntryClosesAt(), "saisie des notes");
         validateWindow(in.bulletinPublishOpensAt(), in.bulletinPublishClosesAt(), "publication des bulletins");
+        validateWindow(in.teacherSubmissionOpensAt(), in.teacherSubmissionClosesAt(), "soumission des enseignants");
     }
 
     private void validateTerm(AcademicSession s, LocalDate start, LocalDate end, UUID ignoreId) {
@@ -331,13 +511,15 @@ public class AcademicSessionService {
                 .stream().map(this::termView).toList();
         return new SessionView(s.getId(), s.getCode(), s.getLabel(), s.getStartDate(), s.getEndDate(),
                 s.getStatus(), s.isCurrent(), s.getGradeEntryOpensAt(), s.getGradeEntryClosesAt(),
-                s.getBulletinPublishOpensAt(), s.getBulletinPublishClosesAt(), s.getVersion(), rows);
+                s.getBulletinPublishOpensAt(), s.getBulletinPublishClosesAt(), s.getTeacherSubmissionOpensAt(),
+                s.getTeacherSubmissionClosesAt(), s.getTimezone(), s.getVersion(), rows);
     }
 
     private TermView termView(AcademicTerm t) {
         return new TermView(t.getId(), t.getCode(), t.getLabel(), t.getSequenceNo(), t.getStartDate(),
                 t.getEndDate(), t.getGradeEntryOpensAt(), t.getGradeEntryClosesAt(),
-                t.getBulletinPublishOpensAt(), t.getBulletinPublishClosesAt(), t.getVersion());
+                t.getBulletinPublishOpensAt(), t.getBulletinPublishClosesAt(), t.getTeacherSubmissionOpensAt(),
+                t.getTeacherSubmissionClosesAt(), t.getTimezone(), t.getVersion());
     }
 
     private StandardStructureView standardStructure(AcademicSession session, boolean applied) {
@@ -370,7 +552,70 @@ public class AcademicSessionService {
                 "ANNUAL_RESULT", order, session.getStartDate(), session.getEndDate(), null, null, null, null,
                 null, null, null, null, null, null, "ANNUAL_T1_T2_T3_EQUAL", "DRAFT", 0));
         return new StandardStructureView(session.getId(), result,
-                existing.size() > 3 ? List.of("Les périodes existantes au-delà des trois trimestres seront conservées.") : List.of(), applied);
+                existing.size() > 3 ? List.of("Les périodes existantes au-delà des trois trimestres seront conservées.") : List.of(),
+                applied, structureFingerprint(result), standardDependencies(result));
+    }
+
+    private List<StructureDependencyView> standardDependencies(List<ReportingPeriodView> periods) {
+        java.util.Map<String, ReportingPeriodView> byCode = new LinkedHashMap<>();
+        periods.forEach(p -> byCode.put(p.code(), p));
+        List<StructureDependencyView> result = new ArrayList<>();
+        addDependency(result, byCode, "T1_RESULT", "S1", "0.5", false, 1);
+        addDependency(result, byCode, "T1_RESULT", "S2", "0.5", false, 2);
+        addDependency(result, byCode, "T2_RESULT", "S3", "0.5", false, 1);
+        addDependency(result, byCode, "T2_RESULT", "S4", "0.5", false, 2);
+        addDependency(result, byCode, "T3_RESULT", "S5", "0.5", false, 1);
+        addDependency(result, byCode, "T3_RESULT", "S6", "0.5", false, 2);
+        addDependency(result, byCode, "ANNUAL", "T1_RESULT", "0.3333333333", false, 1);
+        addDependency(result, byCode, "ANNUAL", "T2_RESULT", "0.3333333333", false, 2);
+        addDependency(result, byCode, "ANNUAL", "T3_RESULT", "0.3333333333", false, 3);
+        return result;
+    }
+
+    private void replaceStandardDependencies(UUID sessionId, List<StructureDependencyView> dependencyRows) {
+        jdbc.update("DELETE FROM academic_reporting_period_dependency WHERE school_id=? AND academic_session_id=?",
+                TenantContext.get(), sessionId);
+        for (StructureDependencyView dependency : dependencyRows) {
+            jdbc.update("""
+                    INSERT INTO academic_reporting_period_dependency
+                        (id,school_id,academic_session_id,parent_period_id,child_period_id,weight,optional,display_order)
+                    VALUES (?,?,?,?,?,?,?,?)
+                    """, UUID.randomUUID(), TenantContext.get(), sessionId, dependency.parentPeriodId(),
+                    dependency.childPeriodId(), dependency.weight(), dependency.optional(), dependency.displayOrder());
+        }
+    }
+
+    private static void addDependency(List<StructureDependencyView> out,
+                                      java.util.Map<String, ReportingPeriodView> byCode,
+                                      String parent, String child, String weight,
+                                      boolean optional, int order) {
+        ReportingPeriodView p = byCode.get(parent), c = byCode.get(child);
+        if (p != null && c != null) {
+            out.add(new StructureDependencyView(p.id(), p.code(), c.id(), c.code(),
+                    new java.math.BigDecimal(weight), optional, order));
+        }
+    }
+
+    private String structureFingerprint(List<ReportingPeriodView> periods) {
+        String payload = periods.stream()
+                .sorted(java.util.Comparator.comparingInt(ReportingPeriodView::displayOrder))
+                .map(p -> String.join("|", p.code(), p.periodType(), String.valueOf(p.academicTermId()),
+                        String.valueOf(p.displayOrder()), String.valueOf(p.startDate()), String.valueOf(p.endDate())))
+                .reduce((a, b) -> a + "\n" + b).orElse("");
+        try {
+            return java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(payload.getBytes(StandardCharsets.UTF_8)));
+        } catch (Exception ex) {
+            throw new IllegalStateException("Cannot fingerprint reporting structure", ex);
+        }
+    }
+
+    private void refreshStructureFingerprint(UUID sessionId) {
+        List<ReportingPeriodView> current = reportingPeriods(sessionId);
+        String fingerprint = structureFingerprint(current);
+        reportingPeriods.findBySchoolIdAndAcademicSessionIdOrderByDisplayOrder(TenantContext.get(), sessionId)
+                .forEach(p -> p.setStructureFingerprint(fingerprint));
+        reportingPeriods.flush();
     }
 
     private ReportingPeriodView previewPeriod(AcademicSession session, TermSeed term, String code, String label,
@@ -381,10 +626,12 @@ public class AcademicSessionService {
                 code, label, type, order, start, end,
                 existing == null ? null : existing.getGradeEntryOpensAt(), existing == null ? null : existing.getGradeEntryClosesAt(),
                 existing == null ? null : existing.getReviewOpensAt(), existing == null ? null : existing.getReviewClosesAt(),
-                existing == null ? null : existing.getValidationOpensAt(), existing == null ? null : existing.getValidationClosesAt(),
-                existing == null ? null : existing.getBulletinPublishOpensAt(), existing == null ? null : existing.getBulletinPublishClosesAt(),
-                existing == null ? null : existing.getCorrectionOpensAt(), existing == null ? null : existing.getCorrectionClosesAt(),
-                existing == null ? "DEFAULT" : existing.getCalculationPolicy(), existing == null ? "DRAFT" : existing.getStatus(),
+                 existing == null ? null : existing.getValidationOpensAt(), existing == null ? null : existing.getValidationClosesAt(),
+                 existing == null ? null : existing.getBulletinPublishOpensAt(), existing == null ? null : existing.getBulletinPublishClosesAt(),
+                 existing == null ? null : existing.getCorrectionOpensAt(), existing == null ? null : existing.getCorrectionClosesAt(),
+                 existing == null ? null : existing.getTeacherSubmissionOpensAt(), existing == null ? null : existing.getTeacherSubmissionClosesAt(),
+                 existing == null ? "Africa/Douala" : existing.getTimezone(),
+                 existing == null ? "DEFAULT" : existing.getCalculationPolicy(), existing == null ? "DRAFT" : existing.getStatus(),
                 existing == null ? 0 : existing.getVersion());
     }
 
@@ -433,6 +680,24 @@ public class AcademicSessionService {
         validateWindow(p.getValidationOpensAt(), p.getValidationClosesAt(), "validation");
         validateWindow(p.getBulletinPublishOpensAt(), p.getBulletinPublishClosesAt(), "publication");
         validateWindow(p.getCorrectionOpensAt(), p.getCorrectionClosesAt(), "correction");
+        validateWindow(p.getTeacherSubmissionOpensAt(), p.getTeacherSubmissionClosesAt(), "soumission des enseignants");
+        java.time.Instant previousClose = null;
+        String previousLabel = null;
+        java.util.List<java.util.Map.Entry<String, java.time.Instant[]>> phases = java.util.List.of(
+                java.util.Map.entry("saisie des notes", new java.time.Instant[]{p.getGradeEntryOpensAt(), p.getGradeEntryClosesAt()}),
+                java.util.Map.entry("soumission des enseignants", new java.time.Instant[]{p.getTeacherSubmissionOpensAt(), p.getTeacherSubmissionClosesAt()}),
+                java.util.Map.entry("revue", new java.time.Instant[]{p.getReviewOpensAt(), p.getReviewClosesAt()}),
+                java.util.Map.entry("validation", new java.time.Instant[]{p.getValidationOpensAt(), p.getValidationClosesAt()}),
+                java.util.Map.entry("publication", new java.time.Instant[]{p.getBulletinPublishOpensAt(), p.getBulletinPublishClosesAt()}),
+                java.util.Map.entry("correction", new java.time.Instant[]{p.getCorrectionOpensAt(), p.getCorrectionClosesAt()}));
+        for (var phase : phases) {
+            if (phase.getValue()[0] == null || phase.getValue()[1] == null) continue;
+            if (previousClose != null && !phase.getValue()[0].isAfter(previousClose)) {
+                throw ApiException.badRequest("La fenêtre " + phase.getKey() + " doit commencer après la fermeture de " + previousLabel);
+            }
+            previousClose = phase.getValue()[1];
+            previousLabel = phase.getKey();
+        }
     }
 
     private static String normalizePeriodType(String value) {
@@ -452,6 +717,7 @@ public class AcademicSessionService {
                 p.getPeriodType(), p.getDisplayOrder(), p.getStartDate(), p.getEndDate(), p.getGradeEntryOpensAt(), p.getGradeEntryClosesAt(),
                 p.getReviewOpensAt(), p.getReviewClosesAt(), p.getValidationOpensAt(), p.getValidationClosesAt(),
                 p.getBulletinPublishOpensAt(), p.getBulletinPublishClosesAt(), p.getCorrectionOpensAt(), p.getCorrectionClosesAt(),
+                p.getTeacherSubmissionOpensAt(), p.getTeacherSubmissionClosesAt(), p.getTimezone(),
                 p.getCalculationPolicy(), p.getStatus(), p.getVersion());
     }
 }

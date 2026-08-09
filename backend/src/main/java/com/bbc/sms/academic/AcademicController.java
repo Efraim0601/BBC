@@ -6,6 +6,7 @@ import com.bbc.sms.documents.OfficialDocumentService;
 import jakarta.validation.Valid;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -39,7 +40,8 @@ public class AcademicController {
     @PostMapping("/grades")
     @PreAuthorize("@perm.can('academic','write') and @perm.staffOnly()")
     public GradeView upsert(@Valid @RequestBody GradeUpsert in) {
-        return service.upsert(in);
+        throw com.bbc.sms.platform.common.ApiException.coded(HttpStatus.GONE, "CANONICAL_GRADE_PACKET_REQUIRED",
+                "La saisie directe est désactivée. Utilisez la feuille de notes par classe et matière.");
     }
 
     @GetMapping("/reporting-periods/{periodId}/assessments")
@@ -60,15 +62,27 @@ public class AcademicController {
 
     @PostMapping("/session-grades")
     @PreAuthorize("@perm.can('academic','write') and @perm.staffOnly()")
-    public AcademicGradeView upsertSessionGrade(@Valid @RequestBody AcademicGradeUpsert in) { return sessionService.upsertGrade(in); }
+    public AcademicGradeView upsertSessionGrade(@Valid @RequestBody AcademicGradeUpsert in) {
+        throw com.bbc.sms.platform.common.ApiException.coded(HttpStatus.GONE, "CANONICAL_GRADE_PACKET_REQUIRED",
+                "La saisie directe est désactivée. Utilisez la feuille de notes par classe et matière.");
+    }
 
     @PostMapping("/subject-comments")
     @PreAuthorize("@perm.can('academic','write') and @perm.staffOnly()")
-    public SubjectResultCommentView upsertSubjectComment(@Valid @RequestBody SubjectResultCommentUpsert in) { return sessionService.upsertComment(in); }
+    public SubjectResultCommentView upsertSubjectComment(@Valid @RequestBody SubjectResultCommentUpsert in) {
+        throw com.bbc.sms.platform.common.ApiException.coded(HttpStatus.GONE, "CANONICAL_GRADE_PACKET_REQUIRED",
+                "La saisie directe des remarques est désactivée. Utilisez la feuille de notes par classe et matière.");
+    }
 
     @PostMapping("/students/{studentId}/bulletin-snapshots")
     @PreAuthorize("@perm.can('academic','write') and @perm.staffOnly()")
     public BulletinSnapshotView calculateSnapshot(@PathVariable UUID studentId, @RequestParam UUID reportingPeriodId) { return snapshotService.calculate(studentId, reportingPeriodId); }
+
+    @GetMapping("/students/{studentId}/bulletin-snapshots/preview")
+    @PreAuthorize("@perm.can('academic','read') and @perm.staffOnly()")
+    public BulletinSnapshotView previewSnapshot(@PathVariable UUID studentId, @RequestParam UUID reportingPeriodId) {
+        return snapshotService.preview(studentId, reportingPeriodId);
+    }
 
     @GetMapping("/students/{studentId}/bulletin-snapshots/latest")
     @PreAuthorize("@perm.can('academic','read') and @perm.staffOnly()")
@@ -153,6 +167,13 @@ public class AcademicController {
     @PreAuthorize("@perm.can('academic','write') and @perm.staffOnly()")
     public BulletinBatchJobView retryBulletinBatchJob(@PathVariable UUID id, @RequestParam(required = false) UUID itemId) {
         return reportCardBatchJobService.retry(id, itemId);
+    }
+
+    @PostMapping("/bulletin-batch-jobs/{id}/cancel")
+    @PreAuthorize("@perm.can('academic','write') and @perm.staffOnly()")
+    public BulletinBatchJobView cancelBulletinBatchJob(@PathVariable UUID id,
+                                                        @Valid @RequestBody BulletinBatchCancelRequest request) {
+        return reportCardBatchJobService.cancel(id, request);
     }
 
     @GetMapping("/bulletin-batch-jobs/{id}/download")

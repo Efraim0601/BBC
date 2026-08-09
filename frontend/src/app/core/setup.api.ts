@@ -36,7 +36,7 @@ export interface CurriculumSubjectView {
   displayOrder: number; coefficient: number; maxScore: number; mandatory: boolean; passThreshold: number;
   showSubjectRank: boolean; remarkRequired: boolean; responsibleTeacher: CurriculumTeacherView | null; version: number;
 }
-export interface CurriculumView { academicSessionId: string; sessionCode: string; sessionLabel: string; classId: string; className: string; groups: SubjectGroupView[]; subjects: CurriculumSubjectView[]; }
+export interface CurriculumView { academicSessionId: string; sessionCode: string; sessionLabel: string; classId: string; className: string; groups: SubjectGroupView[]; subjects: CurriculumSubjectView[]; homeroomTeacher: CurriculumTeacherView | null; }
 export interface CurriculumSubjectUpsert {
   academicSessionId: string; classId: string; subjectId: string; groupId?: string | null; displayOrder?: number;
   coefficient?: number; maxScore?: number; mandatory?: boolean; passThreshold?: number; showSubjectRank?: boolean;
@@ -46,6 +46,10 @@ export interface CurriculumTeacherUpsert {
   academicSessionId: string; classId: string; subjectId: string; employeeId: string; role: string; source?: string;
   effectiveFrom?: string | null; effectiveTo?: string | null; version?: number;
 }
+export interface HomeroomAssignmentUpsert { academicSessionId: string; classId: string; employeeId: string; effectiveFrom?: string | null; effectiveTo?: string | null; version?: number; }
+export interface AssignmentImpactRequest { academicSessionId: string; classId: string; subjectId?: string | null; employeeId: string; role: 'HOMEROOM' | 'RESPONSIBLE'; effectiveFrom?: string | null; effectiveTo?: string | null; }
+export interface AssignmentImpactSlotView { versionId: string; versionNo: number; versionStatus: string; slotId: string; subjectCode: string; dayIdx: number; slotIdx: number; publishedTeacherId: string | null; publishedTeacherName: string | null; teacherChanges: boolean; }
+export interface AssignmentImpactView { academicSessionId: string; classId: string; subjectId: string | null; role: string; proposedTeacherId: string; effectiveFrom: string; effectiveTo: string | null; draftSlotCount: number; publishedSlotCount: number; publishedScheduleDrift: boolean; requiresNewDraftVersion: boolean; affectedPublishedSlots: AssignmentImpactSlotView[]; warnings: string[]; blockers: string[]; }
 
 /** Academic Setup — the relational backbone (sections, classes, subjects). */
 @Injectable({ providedIn: 'root' })
@@ -105,5 +109,7 @@ export class SetupApi {
     return this.http.delete<void>(`${this.base}/curriculum/subjects`, { params: { academicSessionId, classId, subjectId } });
   }
   upsertCurriculumTeacher(body: CurriculumTeacherUpsert): Observable<CurriculumTeacherView> { return this.http.post<CurriculumTeacherView>(`${this.base}/curriculum/teachers`, body); }
+  upsertHomeroom(body: HomeroomAssignmentUpsert): Observable<CurriculumTeacherView> { return this.http.post<CurriculumTeacherView>(`${this.base}/curriculum/homeroom`, body); }
+  assignmentImpactPreview(body: AssignmentImpactRequest): Observable<AssignmentImpactView> { return this.http.post<AssignmentImpactView>(`${this.base}/curriculum/assignments/impact-preview`, body); }
   deleteCurriculumTeacher(id: string): Observable<void> { return this.http.delete<void>(`${this.base}/curriculum/teachers/${id}`); }
 }

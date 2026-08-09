@@ -9,7 +9,10 @@ import java.util.UUID;
 
 public final class OfficialDocumentDtos {
     private OfficialDocumentDtos() {}
-    public record TemplateView(UUID id, String type, String locale, String name, int version) {}
+    public record TemplateView(UUID id, String type, String locale, String name, int version,
+                               String templateFamily, String product, String subsystem,
+                               String status, String referenceFamily, String checksum,
+                               Instant publishedAt) {}
     public record GenerateRequest(@NotBlank String documentType, UUID templateId,
                                   @NotBlank String aggregateType, @NotBlank String aggregateId,
                                   String aggregateVersion, String locale, @NotBlank String title,

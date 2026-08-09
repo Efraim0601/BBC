@@ -71,4 +71,8 @@ public class JourneyEntry {
 
     @Column(name = "recorded_at", nullable = false)
     private Instant recordedAt = Instant.now();
+
+    @Column(name = "voided_at") private Instant voidedAt;
+    @Column(name = "voided_by") private UUID voidedBy;
+    @Column(name = "void_reason") private String voidReason;
 }

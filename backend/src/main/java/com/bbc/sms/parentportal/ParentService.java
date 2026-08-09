@@ -137,6 +137,33 @@ public class ParentService {
         return bulletins.publishedLatest(studentId);
     }
 
+    public List<ParentJourneyEventView> journey(AppUserPrincipal p, UUID studentId) {
+        assertOwnership(p.schoolId(), p.userId(), studentId);
+        List<ParentJourneyEventView> result = new ArrayList<>();
+        result.addAll(jdbc.query("""
+                SELECT e.id,e.event_type,s.label,e.payload->>'class' AS class_name,
+                       NULL::numeric,e.payload->>'decision',e.created_at,e.id
+                  FROM journey_event e LEFT JOIN academic_session s ON s.id=e.academic_session_id
+                 WHERE e.school_id=? AND e.student_id=? AND e.visibility='PARENT'
+                 ORDER BY e.created_at DESC
+                """, (rs,n) -> new ParentJourneyEventView(rs.getObject(1, UUID.class), rs.getString(2),
+                        rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getString(6),
+                        rs.getTimestamp(7).toInstant(), rs.getObject(8, UUID.class)), p.schoolId(), studentId));
+        result.addAll(jdbc.query("""
+                SELECT v.id,'PUBLISHED_RESULT',s.label,e.class_name_snapshot,v.average,
+                       v.snapshot_json->'conduct'->>'decisionCode',v.published_at,v.id
+                  FROM bulletin_version v
+                  JOIN academic_session s ON s.id=v.academic_session_id
+                  LEFT JOIN student_enrollment e ON e.id=v.enrollment_id
+                 WHERE v.school_id=? AND v.student_id=? AND v.state='PUBLISHED'
+                 ORDER BY v.published_at DESC
+                """, (rs,n) -> new ParentJourneyEventView(rs.getObject(1, UUID.class), rs.getString(2),
+                        rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getString(6),
+                        rs.getTimestamp(7) == null ? null : rs.getTimestamp(7).toInstant(), rs.getObject(8, UUID.class)), p.schoolId(), studentId));
+        return result.stream().sorted(java.util.Comparator.comparing(ParentJourneyEventView::occurredAt,
+                java.util.Comparator.nullsLast(java.util.Comparator.reverseOrder()))).toList();
+    }
+
     /** Published supplies/books list for the class of one of the parent's children. */
     public ClassResourceView resources(AppUserPrincipal p, UUID studentId, String kind) {
         assertOwnership(p.schoolId(), p.userId(), studentId);

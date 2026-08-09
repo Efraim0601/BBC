@@ -61,7 +61,7 @@ public class ReportCardBatchService {
         if (roster.isEmpty()) throw ApiException.conflict("Aucun élève actif dans cette classe");
         boolean french = !"en".equalsIgnoreCase(locale);
         List<String> manifest = new ArrayList<>();
-        manifest.add("student_id,student_name,status,file,sha256,size_bytes,error");
+        manifest.add("student_id,student_name,status,file,sha256,size_bytes,snapshot_id,snapshot_version,snapshot_hash,document_id,error");
         Map<String, byte[]> files = new LinkedHashMap<>();
         for (StudentEnrollment enrollment : roster) {
             BulletinVersion version = versions.findFirstBySchoolIdAndStudentIdAndReportingPeriodIdAndStateOrderByPublishedAtDesc(
@@ -72,16 +72,17 @@ public class ReportCardBatchService {
             try { name = version == null ? students.findByIdAndSchoolId(enrollment.getStudentId(), TenantContext.get()).map(s -> s.getLastName() + " " + s.getFirstName()).orElse(enrollment.getStudentId().toString()) : snapshots.byId(version.getId()).studentName(); }
             catch (Exception ignored) { name = enrollment.getStudentId().toString(); }
             if (version == null) {
-                manifest.add(csv(enrollment.getStudentId().toString(), name, "BLOCKED", "", "", "", "No validated or published snapshot"));
+                manifest.add(csv(enrollment.getStudentId().toString(), name, "BLOCKED", "", "", "", "", "", "", "", "No validated or published snapshot"));
                 continue;
             }
             try {
                 byte[] bytes = pdf.render(version.getId(), french);
                 String file = safeFile(name) + "-" + enrollment.getStudentId().toString().substring(0, 8) + ".pdf";
                 files.put(file, bytes);
-                manifest.add(csv(enrollment.getStudentId().toString(), name, version.getState(), file, sha256(bytes), String.valueOf(bytes.length), ""));
+                manifest.add(csv(enrollment.getStudentId().toString(), name, version.getState(), file, sha256(bytes), String.valueOf(bytes.length),
+                        version.getId().toString(), String.valueOf(version.getVersion()), version.getSnapshotHash(), "", ""));
             } catch (Exception ex) {
-                manifest.add(csv(enrollment.getStudentId().toString(), name, "ERROR", "", "", "", clip(ex.getMessage())));
+                manifest.add(csv(enrollment.getStudentId().toString(), name, "ERROR", "", "", "", version.getId().toString(), String.valueOf(version.getVersion()), version.getSnapshotHash(), "", clip(ex.getMessage())));
             }
         }
         try (ByteArrayOutputStream out = new ByteArrayOutputStream(); ZipOutputStream zip = new ZipOutputStream(out, StandardCharsets.UTF_8)) {

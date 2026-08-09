@@ -337,6 +337,17 @@ Les listes déroulantes du module Discipline (chapitre 8) sont alimentées ici :
 
 > **Attention** — Sans SMTP configuré, la création de compte fonctionne quand même, mais **aucun identifiant n'est envoyé** : vous devez communiquer le mot de passe autrement. La réinitialisation en libre-service (§1.2) est alors indisponible.
 
+### 3.8 Années et périodes académiques
+
+L'onglet **Années & périodes** est le point de configuration de l'année scolaire. Les dates de session et de trimestre bornent les dix jalons : S1, S2, T1, S3, S4, T2, S5, S6, T3 et Annuel. T3 et Annuel restent deux produits distincts.
+
+1. Ouvrez **Paramètres → Années & périodes**, sélectionnez la session puis lancez **Prévisualiser les dates** dans l'**Assistant de configuration académique**. La prévisualisation est en lecture seule : aucune ligne n'est écrite.
+2. Parcourez les six étapes : dates session/trimestres, dates des résultats, dépendances et poids (COMP peut être optionnel), fenêtres, validation/diff, puis confirmation. Chaque fenêtre affiche son fuseau, sa source (locale ou héritée) et ses dates effectives.
+3. À l'étape **Confirmation**, saisissez un motif puis confirmez l'application transactionnelle. Une dérogation d'urgence exige aussi un motif et une expiration ; elle est limitée à 31 jours et reste visible dans l'historique d'audit.
+4. Dans **Paramètres → Scolarité → Modèles / marque**, consultez les versions de modèles et de marque. **Publier une nouvelle version** ou **Publier la version actuelle** demande un motif et conserve les anciennes références pour que les bulletins déjà publiés restent identiques.
+
+> **Attention** — Ne réutilisez pas un ancien bouton de création directe : l'assistant est l'unique parcours d'application. Une modification d'affectation après publication ne réécrit pas l'emploi du temps publié ; créez une nouvelle version brouillon si un changement est nécessaire.
+
 **Fiche de test — je sais faire**
 
 - [ ] Créer une section puis une classe dans le parcours actif.
@@ -788,24 +799,26 @@ La grille couvre **six jours** (lundi → samedi) et **neuf créneaux** horaires
    ![Grille d'une classe ; les cases vides portent un « + » en mode édition.](frontend/public/guide/img/fr-100-emploi-du-temps.webp)
    *Grille d'une classe ; les cases vides portent un « + » en mode édition.*
 
-2. **Cliquez une case** — vide ou occupée — pour ouvrir l'éditeur de créneau sous la grille.
+2. **Cliquez une case** — vide ou occupée — pour ouvrir l'éditeur de créneau sous la grille. Une version publiée est verrouillée : utilisez **Créer un brouillon depuis la version publiée** pour préparer un changement.
 
    ![Éditeur : matière, enseignant et salle pour le jour et l'heure indiqués.](frontend/public/guide/img/fr-101-emploi-du-temps-creneau.webp)
    *Éditeur : matière, enseignant et salle pour le jour et l'heure indiqués.*
 
-3. Renseignez la **matière** (liste filtrée sur le sous-système de la classe), l'**enseignant** et la **salle** — le champ salle propose les salles déjà utilisées.
-4. **Enregistrer**. Sur un créneau existant, **Supprimer** le libère.
+3. Renseignez la **matière** et la **salle** — le champ salle propose les salles déjà utilisées. L'enseignant est résolu automatiquement depuis **Paramètres → Scolarité → Matières par classe** : professeur principal au primaire, responsable de la matière au secondaire. Il n'est pas éditable ici.
+4. **Enregistrer**. Si l'affectation canonique manque ou est ambiguë, le bouton reste désactivé et l'écran indique le lien de réparation. Une modification après publication signale le drift et demande un nouveau brouillon.
 
-> **Attention** — **Un enseignant ne peut pas être dans deux salles à la même heure.** Si le professeur choisi assure déjà un cours sur ce créneau dans une autre classe, l'enregistrement est **refusé** : l'éditeur reste ouvert et affiche la classe, la matière et la salle qui l'occupent déjà. Corrigez l'enseignant ou l'heure — ou, si les deux classes sont réellement regroupées, cliquez **Forcer l'enregistrement**.
+> **Attention** — **Un enseignant ne peut pas être dans deux salles à la même heure.** Le contrôle se fait sur l'affectation résolue, les salles et les groupes. Si un conflit subsiste, l'enregistrement est refusé avec les cours concernés. Une substitution d'un jour n'est jamais saisie dans le créneau : ouvrez l'onglet **Remplacements**, indiquez dates, motif et validation pour conserver l'enseignant d'origine.
 
-Les chevauchements **déjà présents** dans la grille (import, saisie antérieure, enregistrement forcé) sont recalculés à chaque ouverture du module : un bandeau rouge en haut de page les liste tous — jour, heure, enseignant, puis les cours qui se chevauchent avec leur salle — et les cases concernées de la classe affichée sont cerclées de rouge avec un triangle d'alerte. Le bandeau disparaît de lui-même dès que le dernier chevauchement est résolu.
+Les chevauchements **déjà présents** dans la grille (import ou historique) sont recalculés à chaque ouverture du module : un bandeau rouge en haut de page les liste tous — jour, heure, enseignant, puis les cours qui se chevauchent avec leur salle — et les cases concernées de la classe affichée sont cerclées de rouge avec un triangle d'alerte. Le bandeau disparaît de lui-même dès que le dernier chevauchement est résolu.
+
+> **À savoir** — Les onglets **Vue maître**, **Planning des enseignants**, **Salles** et **Remplacements** réutilisent la même version publiée. Les exports CSV, ICS, XLSX et PDF portent le même identifiant de version ; la vue drift indique les créneaux publiés qui ne correspondent plus à l'affectation canonique.
 
 **Fiche de test — je sais faire**
 
-- [ ] Créer un créneau avec matière, enseignant et salle.
-- [ ] Tenter de placer un enseignant déjà occupé sur ce créneau et lire le refus.
-- [ ] Forcer un regroupement de classes, puis retrouver le chevauchement dans le bandeau rouge.
-- [ ] Supprimer un créneau puis vérifier la case libérée.
+- [ ] Créer un créneau avec matière et salle, puis vérifier que l'enseignant est résolu automatiquement.
+- [ ] Changer une affectation publiée, constater le drift et vérifier qu'un nouveau brouillon est requis.
+- [ ] Créer un remplacement daté avec motif et retrouver l'enseignant d'origine dans l'audit.
+- [ ] Exporter la même version en CSV et PDF puis comparer les contrôles d'intégrité.
 
 
 <a id="finance"></a>

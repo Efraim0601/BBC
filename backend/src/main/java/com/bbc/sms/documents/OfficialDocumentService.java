@@ -43,7 +43,9 @@ public class OfficialDocumentService {
     @Transactional(readOnly = true)
     public List<TemplateView> templates() {
         return templates.findBySchoolIdAndActiveTrueOrderByTypeAscLocaleAscTemplateVersionDesc(TenantContext.get())
-                .stream().map(t -> new TemplateView(t.getId(), t.getType(), t.getLocale(), t.getName(), t.getTemplateVersion())).toList();
+                .stream().map(t -> new TemplateView(t.getId(), t.getType(), t.getLocale(), t.getName(), t.getTemplateVersion(),
+                        t.getTemplateFamily(), t.getProduct(), t.getSubsystem(), t.getStatus(), t.getReferenceFamily(),
+                        t.getChecksum(), t.getPublishedAt())).toList();
     }
 
     @Transactional

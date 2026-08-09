@@ -55,7 +55,7 @@
 }
 
 html, body, #root, bbc-root { height: 100%; }
-html, body { margin: 0; background: theme('colors.surface'); color: theme('colors.ink'); }
+html, body { margin: 0; background: #F5F6FA; color: #0F2238; }
 body { overflow: hidden; font-family: 'Manrope', ui-sans-serif, system-ui, -apple-system, sans-serif; }
 
 /* scrollbar */

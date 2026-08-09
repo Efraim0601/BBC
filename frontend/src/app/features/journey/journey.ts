@@ -169,7 +169,7 @@ interface ResultMeta { fr: string; en: string; badge: string; }
                               [title]="fr() ? 'Modifier' : 'Edit'">
                               <bbc-icon name="edit" [s]="14" />
                             </button>
-                            <button (click)="remove(e)"
+                             <button (click)="askVoid(e)"
                               class="w-7 h-7 rounded text-mute hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center"
                               [title]="fr() ? 'Supprimer' : 'Delete'">
                               <bbc-icon name="x" [s]="14" />
@@ -186,7 +186,10 @@ interface ResultMeta { fr: string; en: string; badge: string; }
         </div>
       </div>
     </div>
-  `,
+     @if (voidCandidate(); as e) {
+       <div class="fixed inset-0 z-50 bg-slate-950/40 flex items-center justify-center p-4" (click)="closeVoid()"><div class="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md p-5" (click)="$event.stopPropagation()"><h2 class="font-display text-xl font-bold text-ink">{{ fr() ? 'Annuler une note historique ?' : 'Void historical note?' }}</h2><p class="text-sm text-mute mt-2">{{ e.academicYear }} · {{ e.className }}. {{ fr() ? 'Le contenu original restera dans l’audit et ne sera pas supprimé.' : 'The original content stays in the audit history and is not deleted.' }}</p><label class="field-label mt-4">{{ fr() ? 'Motif' : 'Reason' }} <span class="required">*</span><textarea [(ngModel)]="voidReason" rows="3" [class]="fieldClass(!voidReason.trim())"></textarea>@if (voidAttempted() && !voidReason.trim()) { <span class="field-error">{{ fr() ? 'Le motif est obligatoire.' : 'Reason is required.' }}</span> }</label><div class="mt-5 flex justify-end gap-2"><button (click)="closeVoid()" class="secondary-btn">{{ fr() ? 'Retour' : 'Back' }}</button><button (click)="confirmVoid()" class="danger-btn">{{ fr() ? 'Annuler l’entrée' : 'Void entry' }}</button></div></div></div>
+     }
+   `,
 })
 export class JourneyComponent {
   protected i18n = inject(I18nService);
@@ -215,6 +218,9 @@ export class JourneyComponent {
   protected showForm = signal(false);
   protected editingId = signal<string | null>(null);
   protected draft: JourneyUpsert = this.blank();
+  protected voidCandidate = signal<JourneyView | null>(null);
+  protected voidReason = '';
+  protected voidAttempted = signal(false);
 
   protected canWrite = this.auth.can('journey', 'write');
   protected fr = () => this.i18n.lang() === 'fr';
@@ -271,11 +277,14 @@ export class JourneyComponent {
     });
   }
 
-  protected remove(e: JourneyView): void {
-    const id = this.selectedId();
-    if (!id) return;
-    this.api.remove(e.id).subscribe(() => this.api.forStudent(id).subscribe((j) => this.journey.set(j)));
+  protected askVoid(e: JourneyView): void { this.voidCandidate.set(e); this.voidReason = ''; this.voidAttempted.set(false); }
+  protected closeVoid(): void { this.voidCandidate.set(null); this.voidReason = ''; this.voidAttempted.set(false); }
+  protected confirmVoid(): void {
+    const e = this.voidCandidate(); const id = this.selectedId(); this.voidAttempted.set(true);
+    if (!e || !id || !this.voidReason.trim()) return;
+    this.api.voidEntry(e.id, this.voidReason.trim()).subscribe({ next: () => { this.closeVoid(); this.api.forStudent(id).subscribe((j) => this.journey.set(j)); } });
   }
+  protected fieldClass(invalid: boolean): string { return `field ${invalid && this.voidAttempted() ? 'field-invalid' : ''}`; }
 
   protected dotColor(result: string): string {
     const map: Record<string, string> = {

@@ -181,6 +181,18 @@ public class SetupController {
         return service.upsertCurriculumTeacher(in);
     }
 
+    @PostMapping("/curriculum/homeroom")
+    @PreAuthorize(WRITE)
+    public CurriculumTeacherView upsertHomeroom(@Valid @RequestBody HomeroomAssignmentUpsert in) {
+        return service.upsertHomeroom(in);
+    }
+
+    @PostMapping("/curriculum/assignments/impact-preview")
+    @PreAuthorize(READ)
+    public AssignmentImpactView assignmentImpactPreview(@Valid @RequestBody AssignmentImpactRequest in) {
+        return service.assignmentImpactPreview(in);
+    }
+
     @DeleteMapping("/curriculum/teachers/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @PreAuthorize(WRITE)

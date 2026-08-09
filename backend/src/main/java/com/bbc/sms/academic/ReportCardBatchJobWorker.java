@@ -1,6 +1,9 @@
 package com.bbc.sms.academic;
 
 import com.bbc.sms.documents.DocumentStorage;
+import com.bbc.sms.documents.OfficialDocumentDtos.GeneratedDocumentView;
+import com.bbc.sms.documents.OfficialDocumentService;
+import com.bbc.sms.academic.dto.AcademicDtos.BulletinSnapshotView;
 import com.bbc.sms.platform.tenant.TenantContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Async;
@@ -21,10 +24,13 @@ public class ReportCardBatchJobWorker {
     private final BulletinSnapshotService snapshots;
     private final ReportCardPdfService pdf;
     private final DocumentStorage storage;
+    private final OfficialDocumentService officialDocuments;
 
     public ReportCardBatchJobWorker(JdbcTemplate jdbc, BulletinSnapshotService snapshots,
-                                    ReportCardPdfService pdf, DocumentStorage storage) {
+                                    ReportCardPdfService pdf, DocumentStorage storage,
+                                    OfficialDocumentService officialDocuments) {
         this.jdbc = jdbc; this.snapshots = snapshots; this.pdf = pdf; this.storage = storage;
+        this.officialDocuments = officialDocuments;
     }
 
     @Async("academicBatchExecutor")
@@ -58,8 +64,17 @@ public class ReportCardBatchJobWorker {
                  WHERE school_id=? AND job_id=? AND status='QUEUED'
                  ORDER BY created_at,id
                 """, (rs, row) -> new Item(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class)), schoolId, jobId);
-        for (Item item : items) processItem(jobId, schoolId, scope, item);
+        for (Item item : items) {
+            if (isCancelled(schoolId, jobId)) return;
+            processItem(jobId, schoolId, scope, item);
+        }
+        if (isCancelled(schoolId, jobId)) return;
         buildArchive(jobId, schoolId, scope);
+    }
+
+    private boolean isCancelled(UUID schoolId, UUID jobId) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("SELECT status='CANCELLED' FROM bulletin_batch_job WHERE school_id=? AND id=?",
+                Boolean.class, schoolId, jobId));
     }
 
     private void processItem(UUID jobId, UUID schoolId, JobScope scope, Item item) {
@@ -69,18 +84,24 @@ public class ReportCardBatchJobWorker {
             UUID snapshotId = publishedOrValidated(schoolId, item.studentId(), scope.reportingPeriodId(), scope.classId());
             // Draft snapshots are intentionally excluded: only validated/published results enter an archive.
             if (snapshotId == null) {
-                markTerminal(schoolId, item.id(), "BLOCKED", null, null, null, "No validated or published snapshot");
+                markTerminal(schoolId, item.id(), "BLOCKED", null, null, null, null, null, null, null, "No validated or published snapshot");
                 refreshCounts(schoolId, jobId);
                 return;
             }
             byte[] bytes = pdf.render(snapshotId, "en".equalsIgnoreCase(scope.locale()) ? false : true);
-            String name = snapshots.byId(snapshotId).studentName();
+            BulletinSnapshotView snapshot = snapshots.byId(snapshotId);
+            String name = snapshot.studentName();
             String fileName = safeFile(name) + "-" + item.studentId().toString().substring(0, 8) + ".pdf";
             String key = storage.store(schoolId.toString(), "bulletin-batch/" + jobId + "/" + item.id(), "pdf", bytes);
-            markTerminal(schoolId, item.id(), "PUBLISHED", fileName, key, bytes, null);
+            GeneratedDocumentView document = officialDocuments.registerPdf("REPORT_CARD", "BulletinVersion",
+                    snapshot.id().toString(), String.valueOf(snapshot.version()), scope.locale(),
+                    ("en".equalsIgnoreCase(scope.locale()) ? "School report card" : "Bulletin scolaire") + " - " + name,
+                    "PARENT", bytes, "bulletin-batch:" + jobId + ":" + item.id());
+            markTerminal(schoolId, item.id(), "PUBLISHED", fileName, key, bytes, snapshot.id(), snapshot.version(),
+                    snapshot.snapshotHash(), document.id(), null);
             refreshCounts(schoolId, jobId);
         } catch (Exception ex) {
-            markTerminal(schoolId, item.id(), "ERROR", null, null, null, clip(ex.getMessage()));
+            markTerminal(schoolId, item.id(), "ERROR", null, null, null, null, null, null, null, clip(ex.getMessage()));
             refreshCounts(schoolId, jobId);
         }
     }
@@ -97,13 +118,15 @@ public class ReportCardBatchJobWorker {
                 schoolId, studentId, periodId, schoolId, classId);
     }
 
-    private void markTerminal(UUID schoolId, UUID itemId, String status, String fileName, String key, byte[] bytes, String error) {
+    private void markTerminal(UUID schoolId, UUID itemId, String status, String fileName, String key, byte[] bytes,
+                              UUID snapshotId, Long snapshotVersion, String snapshotHash, UUID documentId, String error) {
         jdbc.update("""
                 UPDATE bulletin_batch_item
-                   SET status=?,file_name=?,file_storage_key=?,sha256=?,size_bytes=?,error=?,completed_at=now(),version=version+1
+                   SET status=?,file_name=?,file_storage_key=?,sha256=?,size_bytes=?,error=?,snapshot_id=?,
+                       snapshot_version=?,snapshot_hash=?,generated_document_id=?,completed_at=now(),version=version+1
                  WHERE school_id=? AND id=?
                 """, status, fileName, key, bytes == null ? null : sha256(bytes), bytes == null ? null : (long) bytes.length,
-                error, schoolId, itemId);
+                error, snapshotId, snapshotVersion, snapshotHash, documentId, schoolId, itemId);
     }
 
     private void refreshCounts(UUID schoolId, UUID jobId) {
@@ -124,27 +147,30 @@ public class ReportCardBatchJobWorker {
                                count(*) FILTER (WHERE status='BLOCKED') AS blocked,
                                count(*) FILTER (WHERE status='ERROR') AS errors
                           FROM bulletin_batch_item WHERE school_id=? AND job_id=? GROUP BY job_id) x
-                 WHERE j.school_id=? AND j.id=?
+                 WHERE j.school_id=? AND j.id=? AND j.status<>'CANCELLED'
                 """, schoolId, jobId, schoolId, jobId);
     }
 
     private void buildArchive(UUID jobId, UUID schoolId, JobScope scope) {
         List<ArchiveItem> files = jdbc.query("""
                 SELECT i.student_id,coalesce(s.last_name||' '||s.first_name,i.student_id::text),i.status,
-                       coalesce(i.file_name,''),i.file_storage_key,coalesce(i.sha256,''),coalesce(i.size_bytes,0),coalesce(i.error,'')
+                       coalesce(i.file_name,''),i.file_storage_key,coalesce(i.sha256,''),coalesce(i.size_bytes,0),coalesce(i.error,''),
+                       i.snapshot_id,i.snapshot_version,coalesce(i.snapshot_hash,''),i.generated_document_id
                   FROM bulletin_batch_item i JOIN student s ON s.id=i.student_id
                  WHERE i.school_id=? AND i.job_id=? ORDER BY s.last_name,s.first_name,i.created_at
                 """, (rs, row) -> new ArchiveItem(rs.getObject(1, UUID.class), rs.getString(2), rs.getString(3),
-                        rs.getString(4), rs.getString(5), rs.getString(6), rs.getLong(7), rs.getString(8)), schoolId, jobId);
+                        rs.getString(4), rs.getString(5), rs.getString(6), rs.getLong(7), rs.getString(8),
+                        rs.getObject(9, UUID.class), rs.getObject(10, Long.class), rs.getString(11), rs.getObject(12, UUID.class)), schoolId, jobId);
         try (ByteArrayOutputStream out = new ByteArrayOutputStream(); ZipOutputStream zip = new ZipOutputStream(out, StandardCharsets.UTF_8)) {
             List<String> manifest = new ArrayList<>();
-            manifest.add("student_id,student_name,status,file,sha256,size_bytes,error");
+            manifest.add("student_id,student_name,status,file,sha256,size_bytes,snapshot_id,snapshot_version,snapshot_hash,document_id,error");
             for (ArchiveItem item : files) {
                 if (item.fileStorageKey() != null && !item.fileStorageKey().isBlank()) {
                     byte[] bytes = storage.read(item.fileStorageKey());
                     zip.putNextEntry(new ZipEntry(item.fileName())); zip.write(bytes); zip.closeEntry();
                 }
-                manifest.add(csv(item.studentId().toString(), item.studentName(), item.status(), item.fileName(), item.sha256(), String.valueOf(item.sizeBytes()), item.error()));
+                manifest.add(csv(item.studentId().toString(), item.studentName(), item.status(), item.fileName(), item.sha256(), String.valueOf(item.sizeBytes()),
+                        String.valueOf(item.snapshotId()), String.valueOf(item.snapshotVersion()), item.snapshotHash(), String.valueOf(item.documentId()), item.error()));
             }
             zip.putNextEntry(new ZipEntry("manifest.csv")); zip.write(String.join("\n", manifest).getBytes(StandardCharsets.UTF_8)); zip.closeEntry(); zip.finish();
             byte[] archive = out.toByteArray();
@@ -161,6 +187,7 @@ public class ReportCardBatchJobWorker {
     private static String sha256(byte[] bytes) { try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes)); } catch (Exception ex) { throw new IllegalStateException(ex); } }
     private record JobScope(UUID academicSessionId, UUID reportingPeriodId, UUID classId, String locale) {}
     private record Item(UUID id, UUID studentId) {}
-    private record ArchiveItem(UUID studentId, String studentName, String status, String fileName, String fileStorageKey, String sha256, long sizeBytes, String error) {}
+    private record ArchiveItem(UUID studentId, String studentName, String status, String fileName, String fileStorageKey, String sha256, long sizeBytes, String error,
+                               UUID snapshotId, Long snapshotVersion, String snapshotHash, UUID documentId) {}
 
 }
