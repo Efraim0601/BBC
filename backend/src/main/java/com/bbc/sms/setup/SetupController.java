@@ -113,9 +113,76 @@ public class SetupController {
     @PreAuthorize(READ)
     public List<ClassCoefView> coefficients() { return service.listCoefficients(); }
 
+    @PostMapping("/subjects/coefficients")
+    @PreAuthorize(WRITE)
+    public ClassCoefView upsertCoefficient(@Valid @RequestBody ClassCoefUpsert in) {
+        return service.upsertCoefficient(in);
+    }
+
+    @DeleteMapping("/subjects/coefficients")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize(WRITE)
+    public void deleteCoefficient(@RequestParam UUID classId, @RequestParam UUID subjectId) {
+        service.deleteCoefficient(classId, subjectId);
+    }
+
     @PostMapping("/subjects/coefficients/import")
     @PreAuthorize(WRITE)
     public CoefImportResult importCoefficients(@Valid @RequestBody CoefImportRequest in) {
         return service.importCoefficients(in);
     }
+
+    // ---- Session-versioned curriculum --------------------------------------
+
+    @GetMapping("/curriculum")
+    @PreAuthorize(READ)
+    public CurriculumView curriculum(@RequestParam UUID academicSessionId,
+                                     @RequestParam UUID classId) {
+        return service.curriculum(academicSessionId, classId);
+    }
+
+    @PostMapping("/curriculum/groups")
+    @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize(WRITE)
+    public SubjectGroupView createCurriculumGroup(@Valid @RequestBody SubjectGroupUpsert in) {
+        return service.upsertCurriculumGroup(null, in);
+    }
+
+    @PutMapping("/curriculum/groups/{id}")
+    @PreAuthorize(WRITE)
+    public SubjectGroupView updateCurriculumGroup(@PathVariable UUID id,
+                                                  @Valid @RequestBody SubjectGroupUpsert in) {
+        return service.upsertCurriculumGroup(id, in);
+    }
+
+    @DeleteMapping("/curriculum/groups/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize(WRITE)
+    public void deleteCurriculumGroup(@PathVariable UUID id) { service.deleteCurriculumGroup(id); }
+
+    @PostMapping("/curriculum/subjects")
+    @PreAuthorize(WRITE)
+    public CurriculumSubjectView upsertCurriculumSubject(@Valid @RequestBody CurriculumSubjectUpsert in) {
+        return service.upsertCurriculumSubject(in);
+    }
+
+    @DeleteMapping("/curriculum/subjects")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize(WRITE)
+    public void deleteCurriculumSubject(@RequestParam UUID academicSessionId,
+                                        @RequestParam UUID classId,
+                                        @RequestParam UUID subjectId) {
+        service.deleteCurriculumSubject(academicSessionId, classId, subjectId);
+    }
+
+    @PostMapping("/curriculum/teachers")
+    @PreAuthorize(WRITE)
+    public CurriculumTeacherView upsertCurriculumTeacher(@Valid @RequestBody CurriculumTeacherUpsert in) {
+        return service.upsertCurriculumTeacher(in);
+    }
+
+    @DeleteMapping("/curriculum/teachers/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize(WRITE)
+    public void deleteCurriculumTeacher(@PathVariable UUID id) { service.deleteCurriculumTeacher(id); }
 }

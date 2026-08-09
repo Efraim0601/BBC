@@ -17,6 +17,7 @@ import {
   ClassResourceView,
   StudentFeeStatementView,
   PaymentChannelView,
+  PublishedBulletinView,
 } from './parent.api';
 
 interface CategoryOption {
@@ -116,7 +117,7 @@ const fmtMoney = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} FCFA`;
                 [value]="sel.feeStatus" />
               <bbc-kpi tone="gold" icon="book"
                 [label]="fr() ? 'Notes' : 'Grades'"
-                [value]="grades().length"
+                [value]="publishedBulletin()?.lines?.length ?? 0"
                 [sub]="fr() ? 'évaluation(s)' : 'assessment(s)'" />
             </div>
 
@@ -285,6 +286,16 @@ const fmtMoney = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} FCFA`;
           }
 
           @case ('grades') {
+            @if (publishedBulletin(); as b) {
+              <bbc-card className="mb-5" [title]="(fr() ? 'Dernier bulletin publié' : 'Latest published report card')" [subtitle]="b.reportingPeriodCode + ' · ' + b.reportingPeriodLabel">
+                <div class="flex flex-wrap items-center gap-4 mb-4">
+                  <div class="rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-2"><div class="text-[10px] uppercase text-emerald-700 font-semibold">{{ fr() ? 'Moyenne' : 'Average' }}</div><div class="text-xl font-bold text-emerald-700">{{ b.average }}/20</div></div>
+                  <div class="rounded-lg bg-slate-50 px-4 py-2"><div class="text-[10px] uppercase text-mute font-semibold">{{ fr() ? 'Rang' : 'Rank' }}</div><div class="text-xl font-bold text-ink">{{ b.rank ?? '—' }}/{{ b.classSize }}</div></div>
+                  @if (b.attendance) { <div class="rounded-lg bg-slate-50 px-4 py-2"><div class="text-[10px] uppercase text-mute font-semibold">{{ fr() ? 'Absences' : 'Absences' }}</div><div class="text-xl font-bold text-ink">{{ b.attendance.absentCount }}</div></div> }
+                </div>
+                <div class="overflow-x-auto"><table class="w-full text-sm"><thead class="border-b border-slate-100"><tr class="text-[11px] uppercase text-mute"><th class="text-left font-semibold py-2">{{ fr() ? 'Matière' : 'Subject' }}</th><th class="text-center font-semibold py-2">Coef</th><th class="text-right font-semibold py-2">{{ fr() ? 'Note' : 'Mark' }}</th><th class="text-left font-semibold py-2">{{ fr() ? 'Remarque' : 'Remark' }}</th></tr></thead><tbody>@for (l of b.lines; track l.subjectLabel) {<tr class="border-b border-slate-50"><td class="py-2.5 font-semibold text-ink">{{ l.subjectLabel }}</td><td class="py-2.5 text-center text-mute">{{ l.coefficient }}</td><td class="py-2.5 text-right font-bold">{{ l.mark }}/20</td><td class="py-2.5 pl-3 text-xs italic text-mute">{{ l.teacherRemark || l.appreciation }}</td></tr>}</tbody></table></div>
+              </bbc-card>
+            }
             <bbc-card
               [title]="(fr() ? 'Dernières notes' : 'Latest grades')"
               [subtitle]="sel.className">
@@ -472,6 +483,7 @@ export class ParentComponent {
   protected children = signal<ChildView[]>([]);
   protected selected = signal<ChildView | null>(null);
   protected grades = signal<GradeView[]>([]);
+  protected publishedBulletin = signal<PublishedBulletinView | null>(null);
   protected suggestions = signal<SuggestionView[]>([]);
   protected supplies = signal<ClassResourceView | null>(null);
   protected books = signal<ClassResourceView | null>(null);
@@ -611,10 +623,22 @@ export class ParentComponent {
   protected select(child: ChildView): void {
     this.selected.set(child);
     this.grades.set([]);
+    this.publishedBulletin.set(null);
     this.supplies.set(null);
     this.books.set(null);
     this.statement.set(null);
-    this.api.grades(child.studentId).subscribe((g) => this.grades.set(g));
+    this.api.latestPublishedBulletin(child.studentId).subscribe({
+      next: (b) => {
+        this.publishedBulletin.set(b);
+        // The parent portal derives this list from the immutable published
+        // bulletin. It never loads raw grade rows.
+        this.grades.set(b.lines.map((line) => ({
+          subjectCode: line.subjectLabel, subjectLabelFr: line.subjectLabel, subjectLabelEn: line.subjectLabel,
+          coef: line.coefficient, sequence: 0, mark: line.mark,
+        })));
+      },
+      error: () => { this.publishedBulletin.set(null); this.grades.set([]); },
+    });
     this.api.fees(child.studentId).subscribe((st) => this.statement.set(st));
     this.api.resources(child.studentId, 'supplies').subscribe((r) => this.supplies.set(r));
     this.api.resources(child.studentId, 'books').subscribe((r) => this.books.set(r));

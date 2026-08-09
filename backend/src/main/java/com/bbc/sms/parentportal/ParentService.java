@@ -4,6 +4,8 @@ import com.bbc.sms.academic.Grade;
 import com.bbc.sms.academic.GradeRepository;
 import com.bbc.sms.academic.Subject;
 import com.bbc.sms.academic.SubjectRepository;
+import com.bbc.sms.academic.BulletinSnapshotService;
+import com.bbc.sms.academic.dto.AcademicDtos.BulletinSnapshotView;
 import com.bbc.sms.classkit.ClassKitService;
 import com.bbc.sms.classkit.dto.ClassKitDtos.ClassResourceView;
 import com.bbc.sms.finance.FeeService;
@@ -41,6 +43,7 @@ public class ParentService {
     private final ClassKitService classKit;
     private final FeeService fees;
     private final GuardianAccessService guardianAccess;
+    private final BulletinSnapshotService bulletins;
 
     public ParentService(JdbcTemplate jdbc,
                          StudentRepository students,
@@ -49,7 +52,8 @@ public class ParentService {
                          SuggestionRepository suggestions,
                          ClassKitService classKit,
                          FeeService fees,
-                         GuardianAccessService guardianAccess) {
+                         GuardianAccessService guardianAccess,
+                         BulletinSnapshotService bulletins) {
         this.jdbc = jdbc;
         this.students = students;
         this.grades = grades;
@@ -58,6 +62,7 @@ public class ParentService {
         this.classKit = classKit;
         this.fees = fees;
         this.guardianAccess = guardianAccess;
+        this.bulletins = bulletins;
     }
 
     /** Student ids linked to the given parent account. */
@@ -120,6 +125,16 @@ public class ParentService {
                     g.getMark()));
         }
         return out;
+    }
+
+    public BulletinSnapshotView publishedBulletin(AppUserPrincipal p, UUID studentId, UUID reportingPeriodId) {
+        assertOwnership(p.schoolId(), p.userId(), studentId);
+        return bulletins.published(studentId, reportingPeriodId);
+    }
+
+    public BulletinSnapshotView latestPublishedBulletin(AppUserPrincipal p, UUID studentId) {
+        assertOwnership(p.schoolId(), p.userId(), studentId);
+        return bulletins.publishedLatest(studentId);
     }
 
     /** Published supplies/books list for the class of one of the parent's children. */

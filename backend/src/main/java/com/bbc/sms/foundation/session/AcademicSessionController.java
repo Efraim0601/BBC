@@ -42,4 +42,45 @@ public class AcademicSessionController {
     @DeleteMapping("/terms/{id}") @ResponseStatus(HttpStatus.NO_CONTENT)
     @PreAuthorize("@perm.canAction('SESSION_MANAGE')")
     public void deleteTerm(@PathVariable UUID id, @RequestParam(required = false) String reason) { service.deleteTerm(id, reason); }
+
+    @GetMapping("/{sessionId}/reporting-periods")
+    @PreAuthorize("@perm.canAction('SESSION_VIEW')")
+    public List<ReportingPeriodView> reportingPeriods(@PathVariable UUID sessionId) {
+        return service.reportingPeriods(sessionId);
+    }
+
+    @PostMapping("/{sessionId}/reporting-periods")
+    @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("@perm.canAction('SESSION_MANAGE')")
+    public ReportingPeriodView createReportingPeriod(@PathVariable UUID sessionId,
+                                                       @Valid @RequestBody ReportingPeriodUpsert in) {
+        return service.upsertReportingPeriod(sessionId, null, in);
+    }
+
+    @PutMapping("/{sessionId}/reporting-periods/{id}")
+    @PreAuthorize("@perm.canAction('SESSION_MANAGE')")
+    public ReportingPeriodView updateReportingPeriod(@PathVariable UUID sessionId, @PathVariable UUID id,
+                                                      @Valid @RequestBody ReportingPeriodUpsert in) {
+        return service.upsertReportingPeriod(sessionId, id, in);
+    }
+
+    @DeleteMapping("/reporting-periods/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("@perm.canAction('SESSION_MANAGE')")
+    public void deleteReportingPeriod(@PathVariable UUID id, @RequestParam(required = false) String reason) {
+        service.deleteReportingPeriod(id, reason);
+    }
+
+    @PostMapping("/{sessionId}/reporting-periods/standard/preview")
+    @PreAuthorize("@perm.canAction('SESSION_VIEW')")
+    public StandardStructureView previewStandardStructure(@PathVariable UUID sessionId) {
+        return service.previewStandardStructure(sessionId);
+    }
+
+    @PostMapping("/{sessionId}/reporting-periods/standard/apply")
+    @PreAuthorize("@perm.canAction('SESSION_MANAGE')")
+    public StandardStructureView applyStandardStructure(@PathVariable UUID sessionId,
+                                                         @RequestParam(required = false) String reason) {
+        return service.applyStandardStructure(sessionId, reason);
+    }
 }

@@ -5,9 +5,38 @@ import { I18nService } from '../../core/i18n.service';
 import { AcademicContextService } from '../../core/academic-context.service';
 import {
   AcademicSessionUpsert, AcademicSessionView, AcademicTermUpsert, AcademicTermView,
-  CalendarDayView, FoundationApi, GenerationResult,
+  AcademicReportingPeriodView, AcademicReportingPeriodUpsert, CalendarDayView, FoundationApi, GenerationResult, StandardStructureView,
 } from '../../core/foundation.api';
 import { CardComponent, EmptyComponent, IconComponent } from '../../core/ui';
+
+const cleanDisplay = (value: string | null | undefined): string => {
+  if (!value) return value ?? '';
+  return value
+    .replace(/\u00c3\u0083\u00c2\u2030/g, '\u00c9')
+    .replace(/\u00c3\u0083\u00c2\u00a9/g, '\u00e9')
+    .replace(/\u00c3\u0083\u00c2\u00a8/g, '\u00e8')
+    .replace(/\u00c3\u0083\u00c2\u00aa/g, '\u00ea')
+    .replace(/\u00c3\u0083\u00c2\u00a0/g, '\u00e0')
+    .replace(/\u00c3\u0083\u00c2\u00a2/g, '\u00e2')
+    .replace(/\u00c3\u0083\u00c2\u00a7/g, '\u00e7')
+    .replace(/\u00c3\u0083\u00c2\u00b4/g, '\u00f4')
+    .replace(/\u00c3\u0083\u00c2\u00bb/g, '\u00fb')
+    .replace(/\u00c3\u0083\u00c2\u00af/g, '\u00ef')
+    .replace(/\u00c3\u0082\u00c2\u00b7/g, '\u00b7')
+    .replace(/\u00c3\u0082\u00c2\u00a0/g, ' ')
+    .replace(/\u00c3\u2030/g, '\u00c9')
+    .replace(/\u00c3\u00a9/g, '\u00e9')
+    .replace(/\u00c3\u00a8/g, '\u00e8')
+    .replace(/\u00c3\u00aa/g, '\u00ea')
+    .replace(/\u00c3\u00a0/g, '\u00e0')
+    .replace(/\u00c3\u00a2/g, '\u00e2')
+    .replace(/\u00c3\u00a7/g, '\u00e7')
+    .replace(/\u00c3\u00b4/g, '\u00f4')
+    .replace(/\u00c3\u00bb/g, '\u00fb')
+    .replace(/\u00c3\u00af/g, '\u00ef')
+    .replace(/\u00c2\u00b7/g, '\u00b7')
+    .replace(/\u00c2\u00a0/g, ' ');
+};
 
 @Component({
   selector: 'bbc-foundation-settings',
@@ -121,6 +150,39 @@ import { CardComponent, EmptyComponent, IconComponent } from '../../core/ui';
                 }
               </bbc-card>
 
+              <bbc-card [title]="fr() ? 'Structure des résultats : séquences, trimestres et annuel' : 'Results structure: sequences, terms, and annual'">
+                <div class="flex items-start justify-between gap-3 mb-3">
+                  <p class="text-xs text-mute leading-relaxed">{{ fr() ? 'Cette structure relie les séquences 1 à 6 aux trois trimestres et au résultat annuel. Les fenêtres héritent du trimestre ou de la session tant qu’elles ne sont pas définies ici.' : 'This structure connects sequences 1–6 to the three terms and annual result. Windows inherit from the term or session until explicitly set here.' }}</p>
+                  @if (canManage() && s.status !== 'CLOSED' && s.status !== 'ARCHIVED') {
+                    <div class="flex gap-2 shrink-0">
+                      <button (click)="previewStandardStructure()" class="btn-secondary">{{ fr() ? 'Prévisualiser la structure' : 'Preview structure' }}</button>
+                      <button (click)="requestStructureApply()" class="btn-primary">{{ fr() ? 'Créer la structure standard' : 'Create standard structure' }}</button>
+                    </div>
+                  }
+                </div>
+                @if (reportingPeriods().length) {
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    @for (p of reportingPeriods(); track p.id) {
+                      <div class="rounded-lg border border-slate-200 px-3 py-2" [class]="p.periodType === 'ANNUAL_RESULT' ? 'bg-amber-50 border-amber-200' : p.periodType === 'TERM_RESULT' ? 'bg-slate-50' : 'bg-white'">
+                        <div class="flex items-center justify-between gap-2"><span class="font-semibold text-sm">{{ p.code }} · {{ p.label }}</span><span class="chip bg-white text-slate-600">{{ p.periodType }}</span></div>
+                        <div class="text-xs text-mute mt-1">{{ p.startDate }} → {{ p.endDate }} · {{ p.calculationPolicy }}</div>
+                        <div class="text-[11px] text-slate-500 mt-1">{{ p.bulletinPublishOpensAt ? (fr() ? 'Publication configurée' : 'Publication configured') : (fr() ? 'Publication héritée' : 'Publication inherited') }}</div>
+                        @if (canManage() && s.status !== 'CLOSED' && s.status !== 'ARCHIVED') { <button (click)="editReportingPeriod(p)" class="mt-2 text-xs font-semibold text-brand-700 hover:text-brand-900">{{ fr() ? 'Configurer les fenêtres' : 'Configure windows' }}</button> }
+                      </div>
+                    }
+                  </div>
+                } @else {
+                  <div class="text-sm text-mute py-3">{{ fr() ? 'Aucune structure de résultats configurée. Prévisualisez puis appliquez la structure standard.' : 'No result structure configured. Preview and apply the standard structure.' }}</div>
+                }
+                @if (structurePreview(); as preview) {
+                  <div class="mt-3 rounded-lg border border-brand-200 bg-brand-50 p-3 text-sm">
+                    <div class="font-semibold text-brand-900">{{ preview.applied ? (fr() ? 'Structure appliquée' : 'Structure applied') : (fr() ? 'Aperçu' : 'Preview') }}</div>
+                    <div class="text-xs text-brand-800 mt-1">{{ preview.periods.length }} {{ fr() ? 'jalons disponibles.' : 'milestones available.' }}</div>
+                    @for (warning of preview.warnings; track warning) { <div class="text-xs text-amber-800 mt-1">{{ warning }}</div> }
+                  </div>
+                }
+              </bbc-card>
+
               <bbc-card [title]="fr() ? 'Calendrier et séances attendues' : 'Calendar and expected sessions'">
                 <div class="mb-4 px-3 py-2.5 rounded-lg bg-sky-50 border border-sky-100 text-xs text-sky-900 leading-relaxed">
                   <strong>{{ fr() ? 'À quoi servent ces séances ?' : 'What are these sessions for?' }}</strong>
@@ -213,6 +275,41 @@ import { CardComponent, EmptyComponent, IconComponent } from '../../core/ui';
         </div>
       }
 
+      @if (structureConfirmation()) {
+        <div class="modal-backdrop" role="presentation">
+          <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="structure-title">
+            <h3 id="structure-title" class="text-lg font-bold text-ink">{{ fr() ? 'Créer la structure académique standard ?' : 'Create the standard academic structure?' }}</h3>
+            <p class="text-sm text-slate-700 mt-3">{{ fr() ? 'Cette action crée ou met à jour les trois trimestres, les six séquences, les trois résultats trimestriels et le résultat annuel. Les fenêtres déjà définies sont conservées.' : 'This creates or updates three terms, six sequences, three term results, and the annual result. Existing windows are preserved.' }}</p>
+            <label class="block mt-4"><span class="text-xs font-semibold">{{ fr() ? 'Motif de configuration' : 'Configuration reason' }}</span><textarea [(ngModel)]="structureReason" rows="3" class="w-full mt-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm"></textarea></label>
+            <div class="flex justify-end gap-2 mt-5"><button (click)="cancelStructureApply()" class="btn-secondary">{{ fr() ? 'Annuler' : 'Cancel' }}</button><button (click)="confirmStructureApply()" [disabled]="!structureReason.trim() || saving()" class="btn-primary">{{ fr() ? 'Confirmer la création' : 'Confirm creation' }}</button></div>
+          </section>
+        </div>
+      }
+
+      @if (editingReportingPeriod(); as p) {
+        <div class="modal-backdrop" role="presentation">
+          <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="period-window-title">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3 rounded-lg border border-brand-100 bg-brand-50/40 p-3">
+              <label><span class="meta">{{ fr() ? 'Ouverture revue' : 'Review opens' }}</span><input type="datetime-local" [(ngModel)]="periodWindowDraft.reviewOpen" class="field" /></label>
+<label><span class="meta">{{ fr() ? 'Cloture revue' : 'Review closes' }}</span><input type="datetime-local" [(ngModel)]="periodWindowDraft.reviewClose" class="field" /></label>
+            </div>
+            <h3 id="period-window-title" class="text-lg font-bold text-ink">{{ fr() ? 'Fenêtres du jalon ' + p.code : 'Windows for ' + p.code }}</h3>
+            <p class="text-sm text-mute mt-2">{{ fr() ? 'Ces fenêtres contrôlent directement la saisie, la validation et la publication de ce résultat. Une fenêtre vide hérite du trimestre puis de la session.' : 'These windows directly control grade entry, validation, and publication for this result. An empty window inherits from the term, then the session.' }}</p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
+              <label><span class="meta">{{ fr() ? 'Ouverture notes' : 'Grade entry opens' }}</span><input type="datetime-local" [(ngModel)]="periodWindowDraft.gradeOpen" class="field" /></label>
+              <label><span class="meta">{{ fr() ? 'Clôture notes' : 'Grade entry closes' }}</span><input type="datetime-local" [(ngModel)]="periodWindowDraft.gradeClose" class="field" /></label>
+              <label><span class="meta">{{ fr() ? 'Ouverture validation' : 'Validation opens' }}</span><input type="datetime-local" [(ngModel)]="periodWindowDraft.validationOpen" class="field" /></label>
+              <label><span class="meta">{{ fr() ? 'Clôture validation' : 'Validation closes' }}</span><input type="datetime-local" [(ngModel)]="periodWindowDraft.validationClose" class="field" /></label>
+              <label><span class="meta">{{ fr() ? 'Ouverture publication' : 'Publication opens' }}</span><input type="datetime-local" [(ngModel)]="periodWindowDraft.publishOpen" class="field" /></label>
+              <label><span class="meta">{{ fr() ? 'Clôture publication' : 'Publication closes' }}</span><input type="datetime-local" [(ngModel)]="periodWindowDraft.publishClose" class="field" /></label>
+              <label><span class="meta">{{ fr() ? 'Ouverture corrections' : 'Correction opens' }}</span><input type="datetime-local" [(ngModel)]="periodWindowDraft.correctionOpen" class="field" /></label>
+              <label><span class="meta">{{ fr() ? 'Clôture corrections' : 'Correction closes' }}</span><input type="datetime-local" [(ngModel)]="periodWindowDraft.correctionClose" class="field" /></label>
+            </div>
+            <div class="flex justify-end gap-2 mt-5"><button (click)="cancelReportingPeriodEdit()" class="btn-secondary">{{ fr() ? 'Annuler' : 'Cancel' }}</button><button (click)="saveReportingPeriodWindows()" [disabled]="saving()" class="btn-primary">{{ saving() ? '…' : (fr() ? 'Enregistrer les fenêtres' : 'Save windows') }}</button></div>
+          </section>
+        </div>
+      }
+
       @if (pendingTermRemoval()) {
         <div class="modal-backdrop" role="presentation">
           <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="term-removal-title">
@@ -252,6 +349,8 @@ export class FoundationSettingsComponent {
   protected selectedId = signal<string | null>(null);
   protected selected = computed(() => this.sessions().find((s) => s.id === this.selectedId()) ?? null);
   protected calendarDays = signal<CalendarDayView[]>([]);
+  protected reportingPeriods = signal<AcademicReportingPeriodView[]>([]);
+  protected structurePreview = signal<StandardStructureView | null>(null);
   protected loading = signal(true);
   protected saving = signal(false);
   protected showSessionForm = signal(false);
@@ -270,10 +369,14 @@ export class FoundationSettingsComponent {
   protected generationConfirmation = signal(false);
   protected pendingTermRemoval = signal<string | null>(null);
   protected termRemovalReason = '';
+  protected structureConfirmation = signal(false);
+  protected structureReason = '';
+  protected editingReportingPeriod = signal<AcademicReportingPeriodView | null>(null);
+  protected periodWindowDraft = { gradeOpen: '', gradeClose: '', reviewOpen: '', reviewClose: '', validationOpen: '', validationClose: '', publishOpen: '', publishClose: '', correctionOpen: '', correctionClose: '' };
 
   constructor() { this.reload(); this.api.actionPermissions().subscribe((p) => this.actionPermissions.set(p)); }
 
-  protected select(s: AcademicSessionView): void { this.selectedId.set(s.id); this.loadCalendar(s.id); this.generation.set(null); this.message.set(null); }
+  protected select(s: AcademicSessionView): void { this.selectedId.set(s.id); this.loadCalendar(s.id); this.loadReportingPeriods(s.id); this.generation.set(null); this.message.set(null); }
   protected newSession(): void { this.editingId.set(null); this.sessionDraft = this.blankSession(); this.sessionWindows = { gradeOpen: '', gradeClose: '', publishOpen: '', publishClose: '' }; this.showSessionForm.set(true); }
   protected editSession(s: AcademicSessionView): void {
     this.editingId.set(s.id);
@@ -344,6 +447,49 @@ export class FoundationSettingsComponent {
   protected cancelTermRemoval(): void { this.pendingTermRemoval.set(null); this.termRemovalReason = ''; }
   protected confirmTermRemoval(): void { const id = this.pendingTermRemoval(); const reason = this.termRemovalReason.trim(); if (!id || !reason) return;
     this.api.deleteTerm(id, reason).subscribe({ next: () => { this.cancelTermRemoval(); this.reload(this.selectedId() ?? undefined); }, error: (e) => this.fail(e) }); }
+  protected previewStandardStructure(): void { const s = this.selected(); if (!s) return; this.api.previewStandardStructure(s.id).subscribe({ next: (p) => this.structurePreview.set(p), error: (e) => this.fail(e) }); }
+  protected requestStructureApply(): void { this.structureReason = ''; this.structureConfirmation.set(true); }
+  protected cancelStructureApply(): void { this.structureConfirmation.set(false); this.structureReason = ''; }
+  protected confirmStructureApply(): void { const s = this.selected(); const reason = this.structureReason.trim(); if (!s || !reason) return; this.saving.set(true); this.api.applyStandardStructure(s.id, reason).subscribe({ next: (p) => { this.saving.set(false); this.structurePreview.set(p); this.cancelStructureApply(); this.reload(s.id); this.message.set({ ok: true, text: this.fr() ? 'Structure académique créée.' : 'Academic structure created.' }); }, error: (e) => this.fail(e) }); }
+  protected editReportingPeriod(p: AcademicReportingPeriodView): void { this.editingReportingPeriod.set(p); this.periodWindowDraft = { gradeOpen: this.localDateTime(p.gradeEntryOpensAt), gradeClose: this.localDateTime(p.gradeEntryClosesAt), reviewOpen: this.localDateTime(p.reviewOpensAt), reviewClose: this.localDateTime(p.reviewClosesAt), validationOpen: this.localDateTime(p.validationOpensAt), validationClose: this.localDateTime(p.validationClosesAt), publishOpen: this.localDateTime(p.bulletinPublishOpensAt), publishClose: this.localDateTime(p.bulletinPublishClosesAt), correctionOpen: this.localDateTime(p.correctionOpensAt), correctionClose: this.localDateTime(p.correctionClosesAt) }; }
+  protected cancelReportingPeriodEdit(): void { this.editingReportingPeriod.set(null); }
+  protected saveReportingPeriodWindows(): void {
+    const s = this.selected();
+    const p = this.editingReportingPeriod();
+    if (!s || !p) return;
+    this.saving.set(true);
+    const body: AcademicReportingPeriodUpsert = {
+      code: p.code,
+      label: p.label,
+      periodType: p.periodType,
+      academicTermId: p.academicTermId,
+      displayOrder: p.displayOrder,
+      startDate: p.startDate,
+      endDate: p.endDate,
+      gradeEntryOpensAt: this.instant(this.periodWindowDraft.gradeOpen),
+      gradeEntryClosesAt: this.instant(this.periodWindowDraft.gradeClose),
+      reviewOpensAt: this.instant(this.periodWindowDraft.reviewOpen),
+      reviewClosesAt: this.instant(this.periodWindowDraft.reviewClose),
+      validationOpensAt: this.instant(this.periodWindowDraft.validationOpen),
+      validationClosesAt: this.instant(this.periodWindowDraft.validationClose),
+      bulletinPublishOpensAt: this.instant(this.periodWindowDraft.publishOpen),
+      bulletinPublishClosesAt: this.instant(this.periodWindowDraft.publishClose),
+      correctionOpensAt: this.instant(this.periodWindowDraft.correctionOpen),
+      correctionClosesAt: this.instant(this.periodWindowDraft.correctionClose),
+      calculationPolicy: p.calculationPolicy,
+      status: p.status,
+      version: p.version
+    };
+    this.api.updateReportingPeriod(s.id, p.id, body).subscribe({
+      next: () => {
+        this.saving.set(false);
+        this.cancelReportingPeriodEdit();
+        this.loadReportingPeriods(s.id);
+        this.message.set({ ok: true, text: this.fr() ? 'Fenêtres du jalon enregistrées.' : 'Milestone windows saved.' });
+      },
+      error: (e) => this.fail(e)
+    });
+  }
   protected saveDay(d: CalendarDayView): void {
     const s = this.selected(); if (!s) return;
     this.api.saveCalendarDay(s.id, { dayOfWeek: d.dayOfWeek, teachingDay: d.teachingDay, startTime: d.startTime, endTime: d.endTime, version: d.version })
@@ -358,9 +504,10 @@ export class FoundationSettingsComponent {
 
   private reload(selectId?: string): void {
     this.loading.set(true);
-    this.api.listSessions().subscribe({ next: (rows) => { this.sessions.set(rows); const id = selectId ?? this.selectedId() ?? rows.find((s) => s.current)?.id ?? rows[0]?.id ?? null; this.selectedId.set(id); this.loading.set(false); if (id) this.loadCalendar(id); this.context.load(true); }, error: (e) => { this.loading.set(false); this.fail(e); } });
+    this.api.listSessions().subscribe({ next: (rows) => { this.sessions.set(rows); const id = selectId ?? this.selectedId() ?? rows.find((s) => s.current)?.id ?? rows[0]?.id ?? null; this.selectedId.set(id); this.loading.set(false); if (id) { this.loadCalendar(id); this.loadReportingPeriods(id); } this.context.load(true); }, error: (e) => { this.loading.set(false); this.fail(e); } });
   }
   private loadCalendar(id: string): void { this.api.calendarDays(id).subscribe({ next: (d) => this.calendarDays.set(d.map((x) => ({ ...x }))), error: (e) => this.fail(e) }); }
+  private loadReportingPeriods(id: string): void { this.api.reportingPeriods(id).subscribe({ next: (p) => this.reportingPeriods.set(p.map((period) => ({ ...period, label: cleanDisplay(period.label) }))), error: (e) => this.fail(e) }); }
   private runGeneration(dryRun: boolean): void { const s = this.selected(); if (!s) return; this.api.generateCalendar(s.id, s.startDate, s.endDate, dryRun).subscribe({ next: (g) => this.generation.set(g), error: (e) => this.fail(e) }); }
   private resetTermDraft(sequenceNo = 1): void { this.editingTermId.set(null); this.termDraft = { code: '', label: '', sequenceNo, startDate: '', endDate: '' }; this.termWindows = { gradeOpen: '', gradeClose: '', publishOpen: '', publishClose: '' }; }
   private blankSession(): AcademicSessionUpsert { const year = new Date().getFullYear(); return { code: `${year}-${year + 1}`, label: `Session ${year}-${year + 1}`, startDate: `${year}-09-01`, endDate: `${year + 1}-07-31`, status: 'DRAFT', current: false }; }

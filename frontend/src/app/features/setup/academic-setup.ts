@@ -5,8 +5,9 @@ import { I18nService } from '../../core/i18n.service';
 import { ScopeService } from '../../core/scope.service';
 import {
   SetupApi, SectionView, SectionUpsert, ClassView, ClassUpsert, SubjectView, SubjectUpsert, TeacherOption,
-  ClassCoefView, CoefImportRow, CoefImportResult,
+  ClassCoefView, CoefImportRow, CoefImportResult, CurriculumView, CurriculumSubjectView, SubjectGroupView,
 } from '../../core/setup.api';
+import { FoundationApi, AcademicSessionView } from '../../core/foundation.api';
 import { defaultSubjects } from './subject-defaults';
 import { forkJoin } from 'rxjs';
 import { IconComponent, CardComponent, TabsComponent, EmptyComponent } from '../../core/ui';
@@ -231,6 +232,187 @@ import { downloadCsv } from '../../core/csv';
         </bbc-card>
       }
 
+      <!-- ===================== CLASS SUBJECTS ===================== -->
+      @case ('class-subjects') {
+        <bbc-card [title]="fr() ? 'Matières par classe' : 'Class subjects'"
+          [subtitle]="fr() ? 'Affectez les matières enseignées et définissez le coefficient utilisé sur les bulletins de chaque classe.' : 'Assign the subjects taught and define the coefficient used on each class bulletin.'">
+          <div action class="flex items-center gap-2">
+            <label class="inline-flex items-center gap-2 text-xs font-semibold text-ink">
+              {{ fr() ? 'Session' : 'Session' }}
+              <select [ngModel]="curriculumSessionId()" (ngModelChange)="selectCurriculumSession($event)" class="h-9 px-2 rounded-lg border border-slate-300 bg-white text-sm">
+                <option value="">{{ fr() ? 'Choisir' : 'Choose' }}</option>
+                @for (session of academicSessions(); track session.id) { <option [value]="session.id">{{ session.label }}{{ session.current ? ' · current' : '' }}</option> }
+              </select>
+            </label>
+            @if (canWrite) {
+              <label class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50 cursor-pointer"
+                [title]="fr() ? 'Optionnel : import en masse depuis un fichier officiel' : 'Optional: bulk import from an official file'">
+                <bbc-icon name="download" [s]="16" /> {{ fr() ? 'Import en masse (optionnel)' : 'Bulk import (optional)' }}
+                <input type="file" accept=".csv,.xls,.xlsx,.xlsm,text/csv,text/plain" (change)="onCoefFile($event)" class="hidden" />
+              </label>
+            }
+          </div>
+
+          <div class="mb-5 rounded-xl border border-brand-100 bg-brand-50/40 p-4">
+            <div class="mb-3">
+              <div class="font-semibold text-ink">{{ fr() ? 'Ajouter une matière à une classe' : 'Add a subject to a class' }}</div>
+              <div class="text-xs text-mute mt-1">{{ fr() ? 'Le coefficient de la matière est proposé automatiquement. Vous pouvez le modifier pour cette classe uniquement.' : 'The subject default is proposed automatically. You can override it for this class only.' }}</div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+              <label class="block">
+                <span class="text-xs font-semibold text-ink">{{ fr() ? 'Classe' : 'Class' }} *</span>
+                <select [ngModel]="assignmentClassId()" (ngModelChange)="selectAssignmentClass($event)"
+                  class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-300 bg-white focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100">
+                  <option value="">{{ fr() ? 'Choisir une classe' : 'Choose a class' }}</option>
+                  @for (c of classes(); track c.id) { <option [value]="c.id">{{ c.name }} · {{ c.subsystem }}</option> }
+                </select>
+              </label>
+              <label class="block">
+                <span class="text-xs font-semibold text-ink">{{ fr() ? 'Matière à ajouter' : 'Subject to add' }} *</span>
+                <select [ngModel]="assignmentSubjectId()" (ngModelChange)="selectAssignmentSubject($event)"
+                  [disabled]="!assignmentClassId() || !availableAssignmentSubjects().length"
+                  class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-300 bg-white focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 disabled:bg-slate-100">
+                  <option value="">{{ availableAssignmentSubjects().length ? (fr() ? 'Choisir une matière' : 'Choose a subject') : (fr() ? 'Toutes les matières sont affectées' : 'All subjects are assigned') }}</option>
+                  @for (s of availableAssignmentSubjects(); track s.id) { <option [value]="s.id">{{ subjectLabel(s) }} · {{ s.code }}</option> }
+                </select>
+              </label>
+              <label class="block">
+                <span class="text-xs font-semibold text-ink">{{ fr() ? 'Coefficient pour cette classe' : 'Coefficient for this class' }} *</span>
+                <input type="number" min="1" step="1" [ngModel]="assignmentCoef()" (ngModelChange)="assignmentCoef.set(+$event)"
+                  [disabled]="!assignmentSubjectId()"
+                  class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-300 bg-white focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 disabled:bg-slate-100" />
+                @if (selectedAssignmentSubject(); as subject) {
+                  <span class="text-[11px] text-mute mt-1 block">{{ fr() ? 'Défaut matière :' : 'Subject default:' }} {{ subject.coef }}</span>
+                }
+              </label>
+              <button type="button" (click)="addAssignment()" [disabled]="!canWrite || !assignmentClassId() || !assignmentSubjectId() || assignmentCoef() < 1"
+                class="h-10 px-4 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-semibold inline-flex items-center justify-center gap-2">
+                <bbc-icon name="plus" [s]="16" /> {{ fr() ? 'Ajouter à la classe' : 'Add to class' }}
+              </button>
+            </div>
+          </div>
+
+          @if (assignmentClassId() && curriculum()) {
+            <div class="mb-5 rounded-xl border border-slate-200 bg-white p-4">
+              <div class="flex items-start justify-between gap-3 mb-3">
+                <div>
+                  <div class="font-semibold text-ink">{{ fr() ? 'Groupes de matières' : 'Subject groups' }}</div>
+                  <div class="text-xs text-mute mt-1">{{ fr() ? 'Les groupes structurent les sous-totaux et la présentation du bulletin de cette session.' : 'Groups control subtotals and report-card presentation for this session.' }}</div>
+                </div>
+              </div>
+              <div class="grid grid-cols-1 md:grid-cols-5 gap-2 items-end">
+                <label><span class="meta">Code *</span><input [(ngModel)]="groupCode" class="field" placeholder="SCIENCES" /></label>
+                <label><span class="meta">{{ fr() ? 'Libellé FR' : 'French label' }} *</span><input [(ngModel)]="groupFr" class="field" placeholder="Sciences" /></label>
+                <label><span class="meta">{{ fr() ? 'Libellé EN' : 'English label' }}</span><input [(ngModel)]="groupEn" class="field" placeholder="Science" /></label>
+                <label><span class="meta">{{ fr() ? 'Ordre' : 'Order' }} *</span><input type="number" min="1" [(ngModel)]="groupOrder" class="field" /></label>
+                <button type="button" (click)="createGroup()" [disabled]="!canWrite" class="h-10 rounded-lg bg-brand-600 text-white text-sm font-semibold disabled:opacity-50">{{ fr() ? 'Créer le groupe' : 'Create group' }}</button>
+              </div>
+              @if (curriculum()?.groups?.length) {
+                <div class="flex flex-wrap gap-2 mt-3">
+                  @for (group of (curriculum()?.groups ?? []); track group.id) {
+                    <span class="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                      {{ group.displayOrder }} · {{ groupLabel(group) }}
+                      @if (canWrite) {
+                        @if (pendingGroupRemoval() === group.id) { <button type="button" (click)="removeGroup(group)" class="text-rose-700 font-bold">{{ fr() ? 'Confirmer' : 'Confirm' }}</button><button type="button" (click)="pendingGroupRemoval.set(null)" class="text-slate-500">×</button> }
+                        @else { <button type="button" (click)="askRemoveGroup(group)" class="text-slate-400 hover:text-rose-600">×</button> }
+                      }
+                    </span>
+                  }
+                </div>
+              }
+              @if (groupNotice(); as notice) { <div class="mt-3 text-sm rounded-lg px-3 py-2" [class]="notice.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'">{{ notice.text }}</div> }
+            </div>
+          }
+
+          @if (assignmentClassId()) {
+            <div class="flex items-center justify-between mb-3">
+              <div>
+                <div class="font-semibold text-ink">{{ fr() ? 'Matières affectées' : 'Assigned subjects' }}</div>
+                <div class="text-xs text-mute">{{ selectedAssignmentClass()?.name }} · {{ assignmentRows().length }} {{ fr() ? 'matière(s)' : 'subject(s)' }}</div>
+              </div>
+            </div>
+            @if (assignmentRows().length) {
+              <div class="rounded-lg border border-slate-200 overflow-auto">
+                <table class="w-full text-sm">
+                  <thead class="bg-slate-50 text-[11px] uppercase text-mute text-left">
+                    <tr>
+                      <th class="px-3 py-2 font-semibold">{{ fr() ? 'Matière' : 'Subject' }}</th>
+                      <th class="px-3 py-2 font-semibold">{{ fr() ? 'Code' : 'Code' }}</th>
+                      <th class="px-3 py-2 font-semibold text-center">{{ fr() ? 'Défaut' : 'Default' }}</th>
+                      <th class="px-3 py-2 font-semibold text-center">{{ fr() ? 'Coef de la classe' : 'Class coefficient' }}</th>
+                      <th class="px-3 py-2 font-semibold text-right">{{ fr() ? 'Action' : 'Action' }}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (row of assignmentRows(); track row.subjectId) {
+                      <tr class="border-t border-slate-100">
+                        <td class="px-3 py-2 font-semibold text-ink">{{ assignmentSubjectLabel(row) }}</td>
+                        <td class="px-3 py-2 font-mono text-xs">{{ row.subjectCode }}</td>
+                        <td class="px-3 py-2 text-center text-mute">{{ row.defaultCoef }}</td>
+                        <td class="px-3 py-2 text-center">
+                          <input type="number" min="1" step="1" [ngModel]="draftCoefficient(row)" (ngModelChange)="setDraftCoefficient(row, $event)"
+                            [name]="'class-coef-' + row.subjectId" [disabled]="!canWrite"
+                            class="w-24 h-9 px-2 text-center rounded-lg border border-slate-300 bg-white focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 disabled:bg-slate-100" />
+                        </td>
+                        <td class="px-3 py-2 text-right whitespace-nowrap">
+                          @if (canWrite) {
+                            <button type="button" (click)="saveAssignment(row)" class="h-8 px-2.5 rounded-lg text-xs font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100">{{ fr() ? 'Enregistrer' : 'Save' }}</button>
+                            @if (pendingCoefficientRemoval() === assignmentKey(row)) {
+                              <button type="button" (click)="removeAssignment(row)" class="h-8 px-2.5 rounded-lg text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 ml-1">{{ fr() ? 'Confirmer' : 'Confirm' }}</button>
+                              <button type="button" (click)="pendingCoefficientRemoval.set(null)" class="h-8 px-2 rounded-lg text-xs text-mute hover:text-ink ml-1">{{ fr() ? 'Annuler' : 'Cancel' }}</button>
+                            } @else {
+                              <button type="button" (click)="askRemoveAssignment(row)" class="h-8 px-2.5 rounded-lg text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 ml-1">{{ fr() ? 'Retirer' : 'Remove' }}</button>
+                            }
+                          }
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            } @else {
+              <div class="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-mute">
+                {{ fr() ? 'Aucune matière affectée. Utilisez le formulaire ci-dessus pour commencer.' : 'No subject assigned yet. Use the form above to get started.' }}
+              </div>
+            }
+          } @else {
+            <div class="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-mute">
+              {{ fr() ? 'Choisissez une classe pour voir et gérer ses matières.' : 'Choose a class to view and manage its subjects.' }}
+            </div>
+          }
+
+          @if (assignmentRows().length) {
+            <div class="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <div class="font-semibold text-ink">{{ fr() ? 'Règles du bulletin et enseignant responsable' : 'Report-card rules and responsible teacher' }}</div>
+              <div class="text-xs text-mute mt-1 mb-3">{{ fr() ? 'Ces valeurs sont enregistrées pour la combinaison session + classe + matière. Le coefficient ci-dessus est celui qui sera calculé sur le bulletin.' : 'These values are saved for the session + class + subject combination. The coefficient above is the one used on the report card.' }}</div>
+              <div class="space-y-2">
+                @for (row of assignmentRows(); track row.subjectId) {
+                  <div class="grid grid-cols-1 md:grid-cols-8 gap-2 items-center rounded-lg bg-white border border-slate-200 p-2">
+                    <div class="font-semibold text-sm md:col-span-2">{{ row.subjectCode }} · {{ assignmentSubjectLabel(row) }}</div>
+                    <label><span class="meta">{{ fr() ? 'Groupe' : 'Group' }}</span><select [ngModel]="row.groupId ?? ''" (ngModelChange)="setSubjectGroup(row, $event)" class="field"><option value="">{{ fr() ? 'Aucun' : 'None' }}</option>@for (group of (curriculum()?.groups ?? []); track group.id) { <option [value]="group.id">{{ groupLabel(group) }}</option> }</select></label>
+                    <label><span class="meta">{{ fr() ? 'Barème' : 'Max score' }}</span><input type="number" min="1" [ngModel]="row.maxScore" (ngModelChange)="row.maxScore = +$event" class="field" /></label>
+                    <label><span class="meta">{{ fr() ? 'Seuil' : 'Pass mark' }}</span><input type="number" min="0" [ngModel]="row.passThreshold" (ngModelChange)="row.passThreshold = +$event" class="field" /></label>
+                    <label class="flex items-center gap-2 text-xs font-semibold pt-4"><input type="checkbox" [ngModel]="row.mandatory" (ngModelChange)="row.mandatory = $event" /> {{ fr() ? 'Obligatoire' : 'Required' }}</label>
+                    <label class="flex items-center gap-2 text-xs font-semibold pt-4"><input type="checkbox" [ngModel]="row.remarkRequired" (ngModelChange)="row.remarkRequired = $event" /> {{ fr() ? 'Remarque' : 'Remark' }}</label>
+                    <div class="flex items-end gap-1"><select [ngModel]="row.responsibleTeacher?.employeeId ?? ''" (ngModelChange)="saveSubjectTeacher(row, $event)" class="field"><option value="">{{ fr() ? 'Enseignant' : 'Teacher' }}</option>@for (teacher of allTeachers(); track teacher.id) { <option [value]="teacher.id">{{ teacher.name }}</option> }</select><button type="button" (click)="saveAssignment(row)" [disabled]="!canWrite" class="h-10 px-2 rounded-lg bg-brand-50 text-brand-700 text-xs font-bold">{{ fr() ? 'Sauver' : 'Save' }}</button></div>
+                  </div>
+                }
+              </div>
+            </div>
+          }
+
+          @if (assignmentNotice(); as notice) {
+            <div class="mt-3 text-sm rounded-lg px-3 py-2" [class]="notice.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'">{{ notice.text }}</div>
+          }
+          @if (coefResult(); as result) {
+            <div class="mt-3 text-xs rounded-lg px-3 py-2 bg-slate-50 text-mute">{{ result.applied }} {{ fr() ? 'affectation(s) importée(s).' : 'assignment(s) imported.' }}</div>
+          }
+          @if (coefError(); as importError) {
+            <div class="mt-3 text-sm rounded-lg px-3 py-2 bg-rose-50 text-rose-700">{{ importError }}</div>
+          }
+        </bbc-card>
+      }
+
       <!-- ===================== SUBJECTS ===================== -->
       @case ('subjects') {
         <bbc-card [title]="fr() ? 'Matières & coefficients' : 'Subjects & coefficients'"
@@ -346,73 +528,6 @@ import { downloadCsv } from '../../core/csv';
           }
         </bbc-card>
 
-        <!-- Per-class coefficients -->
-        <bbc-card className="mt-5"
-          [title]="fr() ? 'Coefficients par classe' : 'Per-class coefficients'"
-          [subtitle]="fr() ? 'Chaque matière peut peser différemment selon la classe (6e…Tle / Form 1…U6)' : 'A subject can weigh differently per class (6e…Tle / Form 1…U6)'">
-          <div action class="flex items-center gap-2">
-            @if (canWrite) {
-              <label class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-brand-600 hover:bg-brand-700 text-white cursor-pointer">
-                <bbc-icon name="download" [s]="16" /> {{ fr() ? 'Importer (Excel/CSV)' : 'Import (Excel/CSV)' }}
-                <input type="file" accept=".csv,.xls,.xlsx,.xlsm,text/csv,text/plain" (change)="onCoefFile($event)" class="hidden" />
-              </label>
-            }
-          </div>
-
-          @if (coefResult(); as r) {
-            <div class="mb-4 flex items-center gap-3 p-3 rounded-lg" [class]="r.skipped ? 'bg-amber-50' : 'bg-emerald-50'">
-              <div class="text-sm">
-                <span class="font-semibold text-ink">{{ r.applied }}</span> {{ fr() ? 'coefficient(s) enregistré(s)' : 'coefficient(s) saved' }}
-                @if (r.subjectsCreated) { · {{ r.subjectsCreated }} {{ fr() ? 'matière(s) créée(s)' : 'subject(s) created' }} }
-                @if (r.skipped) { · <span class="text-amber-700">{{ r.skipped }} {{ fr() ? 'ligne(s) ignorée(s)' : 'row(s) skipped' }}</span> }
-              </div>
-            </div>
-            @if (r.errors.length) {
-              <div class="mb-4 rounded-lg border border-slate-200 overflow-auto max-h-40 text-xs">
-                @for (e of r.errors; track e.row) {
-                  <div class="flex gap-2 px-3 py-1 border-t border-slate-100 first:border-0">
-                    <span class="font-mono text-mute w-10">#{{ e.row }}</span>
-                    <span class="font-medium text-ink w-40 shrink-0">{{ e.label }}</span>
-                    <span class="text-rose-600">{{ e.message }}</span>
-                  </div>
-                }
-              </div>
-            }
-          }
-
-          @if (coefRows().length) {
-            <div class="rounded-lg border border-slate-200 overflow-auto max-h-96">
-              <table class="w-full text-sm">
-                <thead class="bg-slate-50 sticky top-0 text-[11px] uppercase text-mute text-left">
-                  <tr>
-                    <th class="px-3 py-2 font-semibold">{{ fr() ? 'Classe' : 'Class' }}</th>
-                    <th class="px-3 py-2 font-semibold">{{ fr() ? 'Système' : 'System' }}</th>
-                    <th class="px-3 py-2 font-semibold">{{ fr() ? 'Matière' : 'Subject' }}</th>
-                    <th class="px-3 py-2 font-semibold text-center">{{ fr() ? 'Coef' : 'Coef' }}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  @for (c of coefRows(); track c.classId + c.subjectId) {
-                    <tr class="border-t border-slate-100">
-                      <td class="px-3 py-1.5 font-medium text-ink">{{ c.className }}</td>
-                      <td class="px-3 py-1.5">{{ c.subsystem }}</td>
-                      <td class="px-3 py-1.5 font-mono text-xs">{{ c.subjectCode }}</td>
-                      <td class="px-3 py-1.5 text-center font-semibold">{{ c.coef }}</td>
-                    </tr>
-                  }
-                </tbody>
-              </table>
-            </div>
-          } @else {
-            <div class="text-sm text-mute p-4 rounded-lg bg-slate-50">
-              {{ fr()
-                ? 'Aucun coefficient par classe. Importez le fichier « Coefficients_BBC_2026-2027.xlsx » (dossier bulletins templates). Les classes citées doivent déjà exister.'
-                : 'No per-class coefficient yet. Import “Coefficients_BBC_2026-2027.xlsx” (bulletins templates folder). The named classes must already exist.' }}
-            </div>
-          }
-
-          @if (coefError(); as e) { <div class="mt-3 text-xs rounded-lg px-3 py-2 bg-rose-50 text-rose-600">{{ e }}</div> }
-        </bbc-card>
       }
     }
 
@@ -425,6 +540,7 @@ export class AcademicSetupComponent {
   protected i18n = inject(I18nService);
   private auth = inject(AuthService);
   private api = inject(SetupApi);
+  private foundation = inject(FoundationApi);
   private scopeSvc = inject(ScopeService);
 
   protected fr = () => this.i18n.lang() === 'fr';
@@ -447,7 +563,7 @@ export class AcademicSetupComponent {
       : `Active parcours: ${lvl} · ${sub}. Other parcours data is hidden — switch from the top bar.`;
   });
 
-  protected sub = signal<'sections' | 'classes' | 'subjects'>('sections');
+  protected sub = signal<'sections' | 'classes' | 'subjects' | 'class-subjects'>('sections');
   protected sections = signal<SectionView[]>([]);
   protected classes = signal<ClassView[]>([]);
   protected subjects = signal<SubjectView[]>([]);
@@ -457,6 +573,7 @@ export class AcademicSetupComponent {
     { id: 'sections', label: this.fr() ? 'Sections' : 'Sections' },
     { id: 'classes', label: this.fr() ? 'Classes' : 'Classes' },
     { id: 'subjects', label: this.fr() ? 'Matières' : 'Subjects' },
+    { id: 'class-subjects', label: this.fr() ? 'Matières par classe' : 'Class subjects' },
   ]);
 
   // Section form
@@ -519,18 +636,210 @@ export class AcademicSetupComponent {
   protected coefRows = signal<ClassCoefView[]>([]);
   protected coefResult = signal<CoefImportResult | null>(null);
   protected coefError = signal<string | null>(null);
+  protected assignmentClassId = signal('');
+  protected assignmentSubjectId = signal('');
+  protected assignmentCoef = signal(1);
+  protected assignmentNotice = signal<{ ok: boolean; text: string } | null>(null);
+  protected pendingCoefficientRemoval = signal<string | null>(null);
+  protected coefficientDrafts: Record<string, number> = {};
+  protected academicSessions = signal<AcademicSessionView[]>([]);
+  protected curriculumSessionId = signal('');
+  protected curriculum = signal<CurriculumView | null>(null);
+  protected groupCode = '';
+  protected groupFr = '';
+  protected groupEn = '';
+  protected groupOrder = 1;
+  protected groupNotice = signal<{ ok: boolean; text: string } | null>(null);
+  protected pendingGroupRemoval = signal<string | null>(null);
+
+  protected selectedAssignmentClass = computed(() =>
+    this.classes().find((c) => c.id === this.assignmentClassId()) ?? null,
+  );
+  protected selectedAssignmentSubject = computed(() =>
+    this.subjects().find((s) => s.id === this.assignmentSubjectId()) ?? null,
+  );
+  protected assignmentRows = computed<CurriculumSubjectView[]>(() => this.curriculum()?.subjects ?? []);
+  protected availableAssignmentSubjects = computed(() => {
+    const selectedClass = this.selectedAssignmentClass();
+    if (!selectedClass) return [];
+    const assigned = new Set(this.assignmentRows().map((row) => row.subjectId));
+    return this.subjects()
+      .filter((s) => (s.subsystem == null || s.subsystem === selectedClass.subsystem) && !assigned.has(s.id))
+      .sort((a, b) => this.subjectLabel(a).localeCompare(this.subjectLabel(b)));
+  });
 
   constructor() {
     this.loadSections();
     this.loadClasses();
     this.loadSubjects();
     this.loadCoefficients();
+    this.foundation.listSessions().subscribe((rows) => {
+      this.academicSessions.set(rows);
+      const current = rows.find((s) => s.current) ?? rows.find((s) => s.status === 'OPEN') ?? rows[0];
+      if (current) {
+        this.curriculumSessionId.set(current.id);
+        this.loadCurriculum();
+      }
+    });
   }
 
   private loadCoefficients(): void {
-    this.api.listCoefficients().subscribe((r) => this.coefRows.set(
-      r.sort((a, b) => a.className.localeCompare(b.className) || a.subjectCode.localeCompare(b.subjectCode)),
-    ));
+    this.api.listCoefficients().subscribe((r) => {
+      this.coefRows.set(r.sort((a, b) => a.className.localeCompare(b.className) || a.subjectCode.localeCompare(b.subjectCode)));
+      this.syncCoefficientDrafts();
+    });
+  }
+
+  protected selectAssignmentClass(classId: string): void {
+    this.assignmentClassId.set(classId);
+    this.assignmentSubjectId.set('');
+    this.assignmentCoef.set(1);
+    this.pendingCoefficientRemoval.set(null);
+    this.assignmentNotice.set(null);
+    this.syncCoefficientDrafts();
+    const selected = this.classes().find((c) => c.id === classId);
+    if (selected) this.api.assignableTeachers(selected.level).subscribe((teachers) => this.allTeachers.set(teachers));
+    this.loadCurriculum();
+  }
+
+  protected selectCurriculumSession(sessionId: string): void {
+    this.curriculumSessionId.set(sessionId);
+    this.curriculum.set(null);
+    this.assignmentNotice.set(null);
+    this.groupNotice.set(null);
+    this.loadCurriculum();
+  }
+
+  private loadCurriculum(): void {
+    const sessionId = this.curriculumSessionId();
+    const classId = this.assignmentClassId();
+    if (!sessionId || !classId) { this.curriculum.set(null); return; }
+    this.api.curriculum(sessionId, classId).subscribe({
+      next: (value) => { this.curriculum.set({ ...value, subjects: value.subjects.map((row) => ({ ...row, classId: value.classId, className: value.className, defaultCoef: this.subjects().find((s) => s.id === row.subjectId)?.coef ?? row.coefficient })) }); this.syncCoefficientDrafts(); },
+      error: (e) => this.assignmentError(e),
+    });
+  }
+
+  protected selectAssignmentSubject(subjectId: string): void {
+    this.assignmentSubjectId.set(subjectId);
+    const subject = this.subjects().find((s) => s.id === subjectId);
+    this.assignmentCoef.set(subject?.coef ?? 1);
+  }
+
+  protected assignmentSubjectLabel(row: CurriculumSubjectView): string {
+    return row.subjectLabel || row.subjectCode;
+  }
+
+  protected assignmentKey(row: CurriculumSubjectView): string { return `${this.assignmentClassId()}:${row.subjectId}`; }
+
+  protected draftCoefficient(row: CurriculumSubjectView): number {
+    return this.coefficientDrafts[this.assignmentKey(row)] ?? row.coefficient;
+  }
+
+  protected setDraftCoefficient(row: CurriculumSubjectView, raw: number | string): void {
+    this.coefficientDrafts = { ...this.coefficientDrafts, [this.assignmentKey(row)]: Number(raw) };
+  }
+
+  private syncCoefficientDrafts(): void {
+    const next: Record<string, number> = {};
+    for (const row of this.assignmentRows()) next[this.assignmentKey(row)] = row.coefficient;
+    this.coefficientDrafts = next;
+  }
+
+  private setAssignmentNotice(ok: boolean, text: string): void {
+    this.assignmentNotice.set({ ok, text });
+  }
+
+  private assignmentError(e: any): void {
+    this.setAssignmentNotice(false, e?.error?.message ?? (this.fr() ? 'Affectation impossible.' : 'Assignment failed.'));
+  }
+
+  protected addAssignment(): void {
+    const classId = this.assignmentClassId();
+    const subjectId = this.assignmentSubjectId();
+    const coef = Number(this.assignmentCoef());
+    if (!classId || !subjectId || !Number.isInteger(coef) || coef < 1) {
+      this.setAssignmentNotice(false, this.fr() ? 'Choisissez une classe, une matière et un coefficient valide.' : 'Choose a class, subject, and valid coefficient.');
+      return;
+    }
+    const sessionId = this.curriculumSessionId();
+    if (!sessionId) { this.setAssignmentNotice(false, this.fr() ? 'Choisissez d’abord une session académique.' : 'Choose an academic session first.'); return; }
+    this.assignmentNotice.set(null);
+    this.api.upsertCurriculumSubject({ academicSessionId: sessionId, classId, subjectId, coefficient: coef }).subscribe({
+      next: (row) => {
+        this.curriculum.update((current) => current ? { ...current, subjects: [...current.subjects.filter((x) => x.subjectId !== row.subjectId), row].sort((a, b) => a.displayOrder - b.displayOrder) } : current);
+        this.assignmentSubjectId.set('');
+        this.assignmentCoef.set(1);
+        this.setAssignmentNotice(true, this.fr() ? `Matière ${row.subjectCode} ajoutée à ${row.className}.` : `${row.subjectCode} added to ${row.className}.`);
+      },
+      error: (e) => this.assignmentError(e),
+    });
+  }
+
+  protected saveAssignment(row: CurriculumSubjectView): void {
+    const coef = Number(this.draftCoefficient(row));
+    if (!Number.isInteger(coef) || coef < 1) {
+      this.setAssignmentNotice(false, this.fr() ? 'Le coefficient doit être un entier supérieur ou égal à 1.' : 'The coefficient must be a whole number of at least 1.');
+      return;
+    }
+    this.api.upsertCurriculumSubject({ academicSessionId: this.curriculumSessionId(), classId: this.assignmentClassId(), subjectId: row.subjectId, groupId: row.groupId, displayOrder: row.displayOrder, coefficient: coef, maxScore: row.maxScore, mandatory: row.mandatory, passThreshold: row.passThreshold, showSubjectRank: row.showSubjectRank, remarkRequired: row.remarkRequired, version: row.version }).subscribe({
+      next: (updated) => {
+        this.curriculum.update((current) => current ? { ...current, subjects: current.subjects.map((x) => x.subjectId === updated.subjectId ? updated : x) } : current);
+        this.setAssignmentNotice(true, this.fr() ? `Coefficient ${updated.subjectCode} enregistré pour ${updated.className}.` : `${updated.subjectCode} coefficient saved for ${updated.className}.`);
+      },
+      error: (e) => this.assignmentError(e),
+    });
+  }
+
+  protected askRemoveAssignment(row: CurriculumSubjectView): void {
+    this.pendingCoefficientRemoval.set(this.assignmentKey(row));
+    this.assignmentNotice.set(null);
+  }
+
+  protected removeAssignment(row: CurriculumSubjectView): void {
+    this.api.deleteCurriculumSubject(this.curriculumSessionId(), this.assignmentClassId(), row.subjectId).subscribe({
+      next: () => {
+        this.curriculum.update((current) => current ? { ...current, subjects: current.subjects.filter((currentRow) => currentRow.subjectId !== row.subjectId) } : current);
+        this.pendingCoefficientRemoval.set(null);
+        this.syncCoefficientDrafts();
+        this.setAssignmentNotice(true, this.fr() ? `Matière ${row.subjectCode} retirée de ${row.className}.` : `${row.subjectCode} removed from ${row.className}.`);
+      },
+      error: (e) => this.assignmentError(e),
+    });
+  }
+
+  /** Read an Excel/CSV coefficient file (long format) and import it. */
+  protected groupLabel(group: SubjectGroupView): string {
+    return (this.fr() ? group.label?.['fr'] : group.label?.['en']) || group.label?.['fr'] || group.label?.['en'] || group.code;
+  }
+
+  protected setSubjectGroup(row: CurriculumSubjectView, groupId: string): void {
+    const group = this.curriculum()?.groups.find((g) => g.id === groupId);
+    this.curriculum.update((current) => current ? { ...current, subjects: current.subjects.map((x) => x.subjectId === row.subjectId ? { ...x, groupId: groupId || null, groupCode: group?.code ?? null } : x) } : current);
+  }
+
+  protected saveSubjectTeacher(row: CurriculumSubjectView, employeeId: string): void {
+    if (!employeeId) return;
+    this.api.upsertCurriculumTeacher({ academicSessionId: this.curriculumSessionId(), classId: this.assignmentClassId(), subjectId: row.subjectId, employeeId, role: 'RESPONSIBLE', source: 'MANUAL' }).subscribe({
+      next: (teacher) => this.curriculum.update((current) => current ? { ...current, subjects: current.subjects.map((x) => x.subjectId === row.subjectId ? { ...x, responsibleTeacher: teacher } : x) } : current),
+      error: (e) => this.assignmentError(e),
+    });
+  }
+
+  protected createGroup(): void {
+    const sessionId = this.curriculumSessionId();
+    if (!sessionId || !this.groupCode.trim() || !this.groupFr.trim() || this.groupOrder < 1) {
+      this.groupNotice.set({ ok: false, text: this.fr() ? 'Code, libellé et ordre du groupe sont obligatoires.' : 'Group code, label, and order are required.' }); return;
+    }
+    this.api.createCurriculumGroup({ academicSessionId: sessionId, code: this.groupCode, label: { fr: this.groupFr, en: this.groupEn || this.groupFr }, displayOrder: this.groupOrder, showSubtotal: true, showRank: false, averagePolicy: 'WEIGHTED_COEFFICIENT' }).subscribe({
+      next: (group) => { this.curriculum.update((current) => current ? { ...current, groups: [...current.groups, group].sort((a, b) => a.displayOrder - b.displayOrder) } : current); this.groupCode = ''; this.groupFr = ''; this.groupEn = ''; this.groupOrder = (this.curriculum()?.groups.length ?? 0) + 1; this.groupNotice.set({ ok: true, text: this.fr() ? `Groupe ${group.code} créé.` : `Group ${group.code} created.` }); },
+      error: (e) => this.groupNotice.set({ ok: false, text: e?.error?.message ?? (this.fr() ? 'Création du groupe impossible.' : 'Could not create group.') }),
+    });
+  }
+
+  protected askRemoveGroup(group: SubjectGroupView): void { this.pendingGroupRemoval.set(group.id); }
+  protected removeGroup(group: SubjectGroupView): void {
+    this.api.deleteCurriculumGroup(group.id).subscribe({ next: () => { this.curriculum.update((current) => current ? { ...current, groups: current.groups.filter((x) => x.id !== group.id), subjects: current.subjects.map((x) => x.groupId === group.id ? { ...x, groupId: null, groupCode: null } : x) } : current); this.pendingGroupRemoval.set(null); }, error: (e) => this.groupNotice.set({ ok: false, text: e?.error?.message ?? (this.fr() ? 'Suppression impossible.' : 'Could not delete group.') }) });
   }
 
   /** Read an Excel/CSV coefficient file (long format) and import it. */
@@ -594,9 +903,10 @@ export class AcademicSetupComponent {
     return out;
   }
 
-  protected switchTo(t: 'sections' | 'classes' | 'subjects'): void {
+  protected switchTo(t: 'sections' | 'classes' | 'subjects' | 'class-subjects'): void {
     this.sub.set(t);
     this.secForm.set(false); this.clsForm.set(false); this.subjForm.set(false);
+    this.assignmentNotice.set(null);
   }
 
   protected levelLabel(l: string): string {

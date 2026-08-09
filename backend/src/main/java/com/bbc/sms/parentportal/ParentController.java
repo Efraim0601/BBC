@@ -4,6 +4,7 @@ import com.bbc.sms.classkit.dto.ClassKitDtos.ClassResourceView;
 import com.bbc.sms.finance.dto.FeeDtos.PaymentChannelView;
 import com.bbc.sms.finance.dto.FeeDtos.StudentFeeStatementView;
 import com.bbc.sms.parentportal.dto.ParentDtos.*;
+import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AppUserPrincipal;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -34,7 +35,22 @@ public class ParentController {
     @PreAuthorize("@perm.isParent()")
     public List<GradeView> grades(@AuthenticationPrincipal AppUserPrincipal principal,
                                   @PathVariable UUID studentId) {
-        return service.grades(principal, studentId);
+        throw ApiException.forbidden("Les notes brutes ne sont pas visibles dans le portail parent. Consultez un bulletin publié.");
+    }
+
+    @GetMapping("/children/{studentId}/bulletins")
+    @PreAuthorize("@perm.isParent()")
+    public com.bbc.sms.academic.dto.AcademicDtos.BulletinSnapshotView publishedBulletin(
+            @AuthenticationPrincipal AppUserPrincipal principal,
+            @PathVariable UUID studentId, @RequestParam UUID reportingPeriodId) {
+        return service.publishedBulletin(principal, studentId, reportingPeriodId);
+    }
+
+    @GetMapping("/children/{studentId}/bulletins/latest")
+    @PreAuthorize("@perm.isParent()")
+    public com.bbc.sms.academic.dto.AcademicDtos.BulletinSnapshotView latestPublishedBulletin(
+            @AuthenticationPrincipal AppUserPrincipal principal, @PathVariable UUID studentId) {
+        return service.latestPublishedBulletin(principal, studentId);
     }
 
     @GetMapping("/children/{studentId}/resources/{kind}")

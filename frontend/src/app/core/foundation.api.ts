@@ -9,6 +9,30 @@ export interface AcademicTermView {
   gradeEntryClosesAt: string | null; bulletinPublishOpensAt: string | null;
   bulletinPublishClosesAt: string | null; version: number;
 }
+export interface AcademicReportingPeriodView {
+  id: string; academicSessionId: string; academicTermId: string | null;
+  code: string; label: string; periodType: 'SEQUENCE' | 'TERM_RESULT' | 'ANNUAL_RESULT';
+  displayOrder: number; startDate: string; endDate: string;
+  gradeEntryOpensAt: string | null; gradeEntryClosesAt: string | null;
+  reviewOpensAt: string | null; reviewClosesAt: string | null;
+  validationOpensAt: string | null; validationClosesAt: string | null;
+  bulletinPublishOpensAt: string | null; bulletinPublishClosesAt: string | null;
+  correctionOpensAt: string | null; correctionClosesAt: string | null;
+  calculationPolicy: string; status: string; version: number;
+}
+export interface AcademicReportingPeriodUpsert {
+  code: string; label: string; periodType: 'SEQUENCE' | 'TERM_RESULT' | 'ANNUAL_RESULT'; academicTermId: string | null;
+  displayOrder: number; startDate: string; endDate: string;
+  gradeEntryOpensAt?: string | null; gradeEntryClosesAt?: string | null;
+  reviewOpensAt?: string | null; reviewClosesAt?: string | null;
+  validationOpensAt?: string | null; validationClosesAt?: string | null;
+  bulletinPublishOpensAt?: string | null; bulletinPublishClosesAt?: string | null;
+  correctionOpensAt?: string | null; correctionClosesAt?: string | null;
+  calculationPolicy?: string; status?: string; version?: number;
+}
+export interface StandardStructureView {
+  academicSessionId: string; periods: AcademicReportingPeriodView[]; warnings: string[]; applied: boolean;
+}
 export interface AcademicSessionView {
   id: string; code: string; label: string; startDate: string; endDate: string;
   status: 'DRAFT' | 'OPEN' | 'CLOSED' | 'ARCHIVED'; current: boolean; version: number;
@@ -69,6 +93,14 @@ export class FoundationApi {
   addTerm(sessionId: string, body: AcademicTermUpsert): Observable<AcademicTermView> { return this.http.post<AcademicTermView>(`${this.settings}/academic-sessions/${sessionId}/terms`, body); }
   updateTerm(id: string, body: AcademicTermUpsert): Observable<AcademicTermView> { return this.http.put<AcademicTermView>(`${this.settings}/academic-sessions/terms/${id}`, body); }
   deleteTerm(id: string, reason?: string): Observable<void> { return this.http.delete<void>(`${this.settings}/academic-sessions/terms/${id}`, { params: reason ? { reason } : {} }); }
+  reportingPeriods(sessionId: string): Observable<AcademicReportingPeriodView[]> { return this.http.get<AcademicReportingPeriodView[]>(`${this.settings}/academic-sessions/${sessionId}/reporting-periods`); }
+  previewStandardStructure(sessionId: string): Observable<StandardStructureView> { return this.http.post<StandardStructureView>(`${this.settings}/academic-sessions/${sessionId}/reporting-periods/standard/preview`, {}); }
+  applyStandardStructure(sessionId: string, reason: string): Observable<StandardStructureView> {
+    return this.http.post<StandardStructureView>(`${this.settings}/academic-sessions/${sessionId}/reporting-periods/standard/apply`, {}, { params: { reason } });
+  }
+  updateReportingPeriod(sessionId: string, periodId: string, body: AcademicReportingPeriodUpsert): Observable<AcademicReportingPeriodView> {
+    return this.http.put<AcademicReportingPeriodView>(`${this.settings}/academic-sessions/${sessionId}/reporting-periods/${periodId}`, body);
+  }
 
   calendarDays(sessionId: string): Observable<CalendarDayView[]> { return this.http.get<CalendarDayView[]>(`${this.settings}/calendar/${sessionId}/days`); }
   saveCalendarDay(sessionId: string, day: Omit<CalendarDayView, 'id' | 'academicSessionId'>): Observable<CalendarDayView> {

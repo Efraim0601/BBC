@@ -22,10 +22,30 @@ export interface SubjectView { id: string; code: string; subsystem: string | nul
 export interface SubjectUpsert { code: string; subsystem: string | null; label: Record<string, string>; coef: number; }
 
 // Per-class coefficients
-export interface ClassCoefView { classId: string; className: string; subsystem: string; subjectId: string; subjectCode: string; coef: number; }
+export interface ClassCoefView { classId: string; className: string; subsystem: string; subjectId: string; subjectCode: string; coef: number; defaultCoef: number; }
+export interface ClassCoefUpsert { classId: string; subjectId: string; coef: number; }
 export interface CoefImportRow { subsystem: string; code: string; label?: string; klass: string; coef: number | null; }
 export interface CoefImportError { row: number; label: string; message: string; }
 export interface CoefImportResult { applied: number; subjectsCreated: number; skipped: number; errors: CoefImportError[]; }
+
+export interface SubjectGroupView { id: string; code: string; label: Record<string, string>; displayOrder: number; showSubtotal: boolean; showRank: boolean; averagePolicy: string; version: number; }
+export interface SubjectGroupUpsert { academicSessionId: string; code: string; label: Record<string, string>; displayOrder: number; showSubtotal?: boolean; showRank?: boolean; averagePolicy?: string; version?: number; }
+export interface CurriculumTeacherView { id: string; employeeId: string; employeeName: string; employeeCode: string; role: string; source: string; active: boolean; version: number; }
+export interface CurriculumSubjectView {
+  id: string; subjectId: string; subjectCode: string; subjectLabel: string; classId?: string; className?: string; defaultCoef?: number; groupId: string | null; groupCode: string | null;
+  displayOrder: number; coefficient: number; maxScore: number; mandatory: boolean; passThreshold: number;
+  showSubjectRank: boolean; remarkRequired: boolean; responsibleTeacher: CurriculumTeacherView | null; version: number;
+}
+export interface CurriculumView { academicSessionId: string; sessionCode: string; sessionLabel: string; classId: string; className: string; groups: SubjectGroupView[]; subjects: CurriculumSubjectView[]; }
+export interface CurriculumSubjectUpsert {
+  academicSessionId: string; classId: string; subjectId: string; groupId?: string | null; displayOrder?: number;
+  coefficient?: number; maxScore?: number; mandatory?: boolean; passThreshold?: number; showSubjectRank?: boolean;
+  remarkRequired?: boolean; version?: number;
+}
+export interface CurriculumTeacherUpsert {
+  academicSessionId: string; classId: string; subjectId: string; employeeId: string; role: string; source?: string;
+  effectiveFrom?: string | null; effectiveTo?: string | null; version?: number;
+}
 
 /** Academic Setup — the relational backbone (sections, classes, subjects). */
 @Injectable({ providedIn: 'root' })
@@ -64,7 +84,26 @@ export class SetupApi {
 
   // Per-class coefficients
   listCoefficients(): Observable<ClassCoefView[]> { return this.http.get<ClassCoefView[]>(`${this.base}/subjects/coefficients`); }
+  upsertCoefficient(b: ClassCoefUpsert): Observable<ClassCoefView> {
+    return this.http.post<ClassCoefView>(`${this.base}/subjects/coefficients`, b);
+  }
+  deleteCoefficient(classId: string, subjectId: string): Observable<void> {
+    return this.http.delete<void>(`${this.base}/subjects/coefficients?classId=${encodeURIComponent(classId)}&subjectId=${encodeURIComponent(subjectId)}`);
+  }
   importCoefficients(rows: CoefImportRow[]): Observable<CoefImportResult> {
     return this.http.post<CoefImportResult>(`${this.base}/subjects/coefficients/import`, { rows });
   }
+
+  curriculum(academicSessionId: string, classId: string): Observable<CurriculumView> {
+    return this.http.get<CurriculumView>(`${this.base}/curriculum`, { params: { academicSessionId, classId } });
+  }
+  createCurriculumGroup(body: SubjectGroupUpsert): Observable<SubjectGroupView> { return this.http.post<SubjectGroupView>(`${this.base}/curriculum/groups`, body); }
+  updateCurriculumGroup(id: string, body: SubjectGroupUpsert): Observable<SubjectGroupView> { return this.http.put<SubjectGroupView>(`${this.base}/curriculum/groups/${id}`, body); }
+  deleteCurriculumGroup(id: string): Observable<void> { return this.http.delete<void>(`${this.base}/curriculum/groups/${id}`); }
+  upsertCurriculumSubject(body: CurriculumSubjectUpsert): Observable<CurriculumSubjectView> { return this.http.post<CurriculumSubjectView>(`${this.base}/curriculum/subjects`, body); }
+  deleteCurriculumSubject(academicSessionId: string, classId: string, subjectId: string): Observable<void> {
+    return this.http.delete<void>(`${this.base}/curriculum/subjects`, { params: { academicSessionId, classId, subjectId } });
+  }
+  upsertCurriculumTeacher(body: CurriculumTeacherUpsert): Observable<CurriculumTeacherView> { return this.http.post<CurriculumTeacherView>(`${this.base}/curriculum/teachers`, body); }
+  deleteCurriculumTeacher(id: string): Observable<void> { return this.http.delete<void>(`${this.base}/curriculum/teachers/${id}`); }
 }

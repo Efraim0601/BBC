@@ -52,6 +52,46 @@ public class OfficialDocumentService {
                 GeneratedDocumentView.class, () -> generateNow(in));
     }
 
+    /** Register an already-rendered official PDF in the same immutable document ledger. */
+    @Transactional
+    public GeneratedDocumentView registerPdf(String documentType, String aggregateType, String aggregateId,
+                                             String aggregateVersion, String locale, String title, String visibility,
+                                             byte[] pdf, String idempotencyKey) {
+        String normalizedLocale = blank(locale, "fr").toLowerCase(Locale.ROOT);
+        PdfRegistration request = new PdfRegistration(documentType, aggregateType, aggregateId,
+                blank(aggregateVersion, "1"), normalizedLocale, title, visibility);
+        String key = blank(idempotencyKey, "pdf:" + aggregateType + ":" + aggregateId + ":" + request.aggregateVersion() + ":" + normalizedLocale);
+        return idempotency.execute("official-documents/pdf", key, request,
+                GeneratedDocumentView.class, () -> registerPdfNow(request, pdf));
+    }
+
+    private GeneratedDocumentView registerPdfNow(PdfRegistration in, byte[] pdf) {
+        UUID schoolId = TenantContext.get();
+        GeneratedDocument existing = documents.findFirstBySchoolIdAndDocumentTypeAndAggregateTypeAndAggregateIdAndAggregateVersionAndLocale(
+                schoolId, in.documentType(), in.aggregateType(), in.aggregateId(), in.aggregateVersion(), in.locale()).orElse(null);
+        if (existing != null) return view(existing);
+        UUID id = UUID.randomUUID();
+        String normalizedType = in.documentType().trim().toUpperCase(Locale.ROOT);
+        String prefix = normalizedType.replaceAll("[^A-Z0-9]", "");
+        prefix = prefix.substring(0, Math.min(8, Math.max(1, prefix.length())));
+        String number = prefix + "-" + DateTimeFormatter.ofPattern("yyyyMMddHHmmss").withZone(ZoneOffset.UTC).format(Instant.now())
+                + "-" + id.toString().substring(0, 6).toUpperCase(Locale.ROOT);
+        GeneratedDocument d = new GeneratedDocument();
+        d.setId(id); d.setSchoolId(schoolId); d.setDocumentType(normalizedType);
+        d.setAggregateType(in.aggregateType().trim()); d.setAggregateId(in.aggregateId().trim());
+        d.setAggregateVersion(in.aggregateVersion()); d.setLocale(in.locale()); d.setDocumentNumber(number);
+        d.setTitle(in.title().trim()); d.setStorageKey(storage.store(schoolId.toString(), id.toString(), pdf));
+        d.setSha256(sha256(pdf)); d.setSizeBytes(pdf.length); d.setVisibility(normalizeVisibility(in.visibility()));
+        d.setGeneratedBy(currentUserId()); d.setIssuedAt(Instant.now());
+        d = documents.saveAndFlush(d);
+        GeneratedDocumentView result = view(d);
+        audit.record("DOCUMENT_GENERATED", "GeneratedDocument", id.toString(), null, result, null);
+        return result;
+    }
+
+    private record PdfRegistration(String documentType, String aggregateType, String aggregateId,
+                                   String aggregateVersion, String locale, String title, String visibility) {}
+
     private GeneratedDocumentView generateNow(GenerateRequest in) {
         UUID schoolId = TenantContext.get();
         String locale = blank(in.locale(), "fr").toLowerCase(Locale.ROOT);

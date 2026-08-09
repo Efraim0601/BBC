@@ -23,6 +23,13 @@ export interface GradeView {
   mark: number;
 }
 
+export interface PublishedBulletinView {
+  id: string; reportingPeriodCode: string; reportingPeriodLabel: string; className: string | null;
+  lines: Array<{ subjectLabel: string; mark: number; coefficient: number; teacherRemark: string | null; appreciation: string }>;
+  average: number; rank: number | null; classSize: number; state: string; complete: boolean;
+  attendance: { absentCount: number; excusedCount: number; lateCount: number; lateMinutes: number } | null;
+}
+
 /** Une tranche vue par le parent : ce qui est couvert, ce qui reste, l'échéance. */
 export interface TrancheStatusView {
   index: number;
@@ -121,6 +128,9 @@ export class ParentApi {
   }
   grades(studentId: string): Observable<GradeView[]> {
     return this.http.get<GradeView[]>(`${this.base}/children/${studentId}/grades`);
+  }
+  latestPublishedBulletin(studentId: string): Observable<PublishedBulletinView> {
+    return this.http.get<PublishedBulletinView>(`${this.base}/children/${studentId}/bulletins/latest`);
   }
   resources(studentId: string, kind: ResourceKind): Observable<ClassResourceView> {
     return this.http.get<ClassResourceView>(`${this.base}/children/${studentId}/resources/${kind}`);

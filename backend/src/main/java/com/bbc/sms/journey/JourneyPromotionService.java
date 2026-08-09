@@ -250,14 +250,27 @@ public class JourneyPromotionService {
              AND target_session_id=? AND source_class_id=? AND active
             """, rs -> rs.next() ? pathInfo(rs) : null, TenantContext.get(), sourceSession.id, targetSessionId, e.classId);
         RuleInfo rule = resolveRule(sourceSession.id, e.subsystem, e.level);
-        BigDecimal average = jdbc.query("""
-            SELECT general_average FROM journey_entry WHERE school_id=? AND student_id=? AND academic_year=?
-            """, rs -> rs.next() ? rs.getBigDecimal(1) : null, TenantContext.get(), e.studentId, sourceSession.code);
-        String averageSource = "JOURNEY";
-        if (average == null) {
-            average = jdbc.query("SELECT round(avg(mark),2) FROM grade WHERE school_id=? AND student_id=?",
-                    rs -> rs.next() ? rs.getBigDecimal(1) : null, TenantContext.get(), e.studentId);
-            averageSource = average == null ? "MISSING" : "LEGACY_GRADES";
+        AnnualEvidence annual = jdbc.query("""
+            SELECT v.id, v.average, v.snapshot_json->'conduct'->>'decisionCode' AS decision_code
+              FROM bulletin_version v
+              JOIN academic_reporting_period p ON p.id=v.reporting_period_id
+             WHERE v.school_id=? AND v.student_id=? AND v.academic_session_id=?
+               AND p.period_type='ANNUAL_RESULT' AND v.state='PUBLISHED'
+             ORDER BY v.published_at DESC NULLS LAST, v.created_at DESC LIMIT 1
+            """, rs -> rs.next() ? new AnnualEvidence(rs.getObject("id", UUID.class), rs.getBigDecimal("average"), rs.getString("decision_code")) : null,
+                TenantContext.get(), e.studentId, sourceSession.id);
+        BigDecimal average = annual == null ? null : annual.average;
+        String averageSource = annual == null ? "MISSING" : "PUBLISHED_ANNUAL_BULLETIN";
+        if (annual == null) {
+            average = jdbc.query("""
+                SELECT general_average FROM journey_entry WHERE school_id=? AND student_id=? AND academic_year=?
+                """, rs -> rs.next() ? rs.getBigDecimal(1) : null, TenantContext.get(), e.studentId, sourceSession.code);
+            averageSource = average == null ? "MISSING" : "JOURNEY_LEGACY_FALLBACK";
+            if (average == null) {
+                average = jdbc.query("SELECT round(avg(mark),2) FROM grade WHERE school_id=? AND student_id=?",
+                        rs -> rs.next() ? rs.getBigDecimal(1) : null, TenantContext.get(), e.studentId);
+                averageSource = average == null ? "MISSING" : "LEGACY_GRADES_FALLBACK";
+            }
         }
         String recommendation;
         UUID mapped = path == null ? null : path.targetClassId;
@@ -266,6 +279,9 @@ public class JourneyPromotionService {
             recommendation = "REVIEW"; explanation = "Aucun parcours de progression configuré pour cette classe.";
         } else if (path.terminal) {
             recommendation = "GRADUATE"; explanation = "Classe terminale : sortie/diplôme recommandé.";
+        } else if (annual != null && annual.decisionCode != null && DECISIONS.contains(annual.decisionCode.toUpperCase(Locale.ROOT))) {
+            recommendation = annual.decisionCode.toUpperCase(Locale.ROOT);
+            explanation = "Décision annuelle publiée : " + recommendation + " (bulletin annuel " + annual.id + ").";
         } else if (average == null && rule.requireAverage) {
             recommendation = "REVIEW"; explanation = "Moyenne finale indisponible : décision manuelle requise.";
         } else if (average != null && average.compareTo(rule.promoteMin) >= 0) {
@@ -276,9 +292,11 @@ public class JourneyPromotionService {
             recommendation = "REVIEW"; explanation = "Résultat dans la zone de révision du conseil de classe.";
         }
         UUID target = switch (recommendation) {
-            case "PROMOTE" -> mapped; case "REPEAT" -> e.classId; default -> null;
+            case "PROMOTE" -> mapped; case "REPEAT", "HOLD" -> e.classId; default -> null;
         };
-        String evidence = "{\"averageSource\":\"" + averageSource + "\",\"promoteMin\":" + rule.promoteMin
+        String annualId = annual == null ? "" : ",\"annualBulletinId\":\"" + annual.id + "\"";
+        String annualDecision = annual == null || annual.decisionCode == null ? "" : ",\"annualDecision\":\"" + jsonEscape(annual.decisionCode) + "\"";
+        String evidence = "{\"averageSource\":\"" + averageSource + "\"" + annualId + annualDecision + ",\"promoteMin\":" + rule.promoteMin
                 + ",\"reviewMin\":" + rule.reviewMin + ",\"explanation\":\"" + jsonEscape(explanation) + "\"}";
         jdbc.update("""
             INSERT INTO promotion_decision
@@ -413,6 +431,7 @@ public class JourneyPromotionService {
     private record EnrollmentInfo(UUID enrollmentId,UUID studentId,UUID classId,String className,String level,String subsystem,String matricule,String firstName,String lastName) {}
     private record PathInfo(UUID targetClassId,boolean terminal) {}
     private record RuleInfo(BigDecimal promoteMin,BigDecimal reviewMin,boolean requireAverage) {}
+    private record AnnualEvidence(UUID id, BigDecimal average, String decisionCode) {}
     private record BatchInfo(UUID id,String name,UUID sourceSessionId,String sourceLabel,UUID targetSessionId,String targetLabel,String status,long version,Instant createdAt,Instant committedAt) {}
     private record DecisionInfo(UUID id,UUID batchId,UUID studentId,UUID sourceEnrollmentId,UUID sourceClassId,UUID mappedTargetClassId,UUID targetClassId,BigDecimal finalAverage,String recommendation,String finalDecision,String overrideReason,long version) {}
 }

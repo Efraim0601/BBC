@@ -11,4 +11,6 @@ public interface GeneratedDocumentRepository extends JpaRepository<GeneratedDocu
     Optional<GeneratedDocument> findBySchoolIdAndDocumentNumber(UUID schoolId, String number);
     Optional<GeneratedDocument> findFirstByDocumentNumberIgnoreCase(String number);
     List<GeneratedDocument> findBySchoolIdAndAggregateTypeAndAggregateIdOrderByGeneratedAtDesc(UUID schoolId, String type, String id);
+    Optional<GeneratedDocument> findFirstBySchoolIdAndDocumentTypeAndAggregateTypeAndAggregateIdAndAggregateVersionAndLocale(
+            UUID schoolId, String documentType, String aggregateType, String aggregateId, String aggregateVersion, String locale);
 }

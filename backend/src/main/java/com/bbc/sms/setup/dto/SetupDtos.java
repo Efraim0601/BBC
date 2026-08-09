@@ -2,9 +2,12 @@ package com.bbc.sms.setup.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -66,5 +69,48 @@ public class SetupDtos {
 
     /** A single stored override, for the read-back matrix (Academic Setup display). */
     public record ClassCoefView(UUID classId, String className, String subsystem,
-                                UUID subjectId, String subjectCode, int coef) {}
+                                UUID subjectId, String subjectCode, int coef, int defaultCoef) {}
+
+    /** Directly create or update one class + subject teaching combination. */
+    public record ClassCoefUpsert(@NotNull UUID classId, @NotNull UUID subjectId,
+                                  @Positive int coef) {}
+
+    // ---- Session-versioned curriculum --------------------------------------
+
+    public record SubjectGroupView(UUID id, String code, Map<String, String> label,
+                                   int displayOrder, boolean showSubtotal, boolean showRank,
+                                   String averagePolicy, long version) {}
+
+    public record SubjectGroupUpsert(@NotNull UUID academicSessionId, @NotBlank String code,
+                                     Map<String, String> label, @Positive int displayOrder,
+                                     Boolean showSubtotal, Boolean showRank, String averagePolicy,
+                                     Long version) {}
+
+    public record CurriculumTeacherView(UUID id, UUID employeeId, String employeeName,
+                                        String employeeCode, String role, String source,
+                                        boolean active, long version) {}
+
+    public record CurriculumSubjectView(UUID id, UUID subjectId, String subjectCode,
+                                        String subjectLabel, UUID groupId, String groupCode,
+                                        int displayOrder, int coefficient, BigDecimal maxScore,
+                                        boolean mandatory, BigDecimal passThreshold,
+                                        boolean showSubjectRank, boolean remarkRequired,
+                                        CurriculumTeacherView responsibleTeacher, long version) {}
+
+    public record CurriculumView(UUID academicSessionId, String sessionCode, String sessionLabel,
+                                 UUID classId, String className, List<SubjectGroupView> groups,
+                                 List<CurriculumSubjectView> subjects) {}
+
+    public record CurriculumSubjectUpsert(@NotNull UUID academicSessionId, @NotNull UUID classId,
+                                          @NotNull UUID subjectId, UUID groupId,
+                                          Integer displayOrder, @Positive Integer coefficient,
+                                          BigDecimal maxScore, Boolean mandatory,
+                                          BigDecimal passThreshold, Boolean showSubjectRank,
+                                          Boolean remarkRequired, Long version) {}
+
+    public record CurriculumTeacherUpsert(@NotNull UUID academicSessionId, @NotNull UUID classId,
+                                          @NotNull UUID subjectId, @NotNull UUID employeeId,
+                                          @NotBlank String role, String source,
+                                          java.time.LocalDate effectiveFrom,
+                                          java.time.LocalDate effectiveTo, Long version) {}
 }

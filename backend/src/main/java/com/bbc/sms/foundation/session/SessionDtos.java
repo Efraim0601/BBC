@@ -38,4 +38,28 @@ public final class SessionDtos {
                              Long version) {}
 
     public record SessionStateRequest(@NotBlank String status, String reason, Long version) {}
+
+    public record ReportingPeriodView(UUID id, UUID academicSessionId, UUID academicTermId,
+                                      String code, String label, String periodType, int displayOrder,
+                                      LocalDate startDate, LocalDate endDate,
+                                      Instant gradeEntryOpensAt, Instant gradeEntryClosesAt,
+                                      Instant reviewOpensAt, Instant reviewClosesAt,
+                                      Instant validationOpensAt, Instant validationClosesAt,
+                                      Instant bulletinPublishOpensAt, Instant bulletinPublishClosesAt,
+                                      Instant correctionOpensAt, Instant correctionClosesAt,
+                                      String calculationPolicy, String status, long version) {}
+
+    public record ReportingPeriodUpsert(@NotBlank String code, @NotBlank String label,
+                                        @NotBlank String periodType, UUID academicTermId,
+                                        int displayOrder, @NotNull LocalDate startDate,
+                                        @NotNull LocalDate endDate,
+                                        Instant gradeEntryOpensAt, Instant gradeEntryClosesAt,
+                                        Instant reviewOpensAt, Instant reviewClosesAt,
+                                        Instant validationOpensAt, Instant validationClosesAt,
+                                        Instant bulletinPublishOpensAt, Instant bulletinPublishClosesAt,
+                                        Instant correctionOpensAt, Instant correctionClosesAt,
+                                        String calculationPolicy, String status, Long version) {}
+
+    public record StandardStructureView(UUID academicSessionId, List<ReportingPeriodView> periods,
+                                        List<String> warnings, boolean applied) {}
 }
