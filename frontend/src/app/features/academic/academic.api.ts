@@ -92,6 +92,32 @@ export interface AssessmentUpsert {
   maxScore: number; weight: number; mandatory: boolean; displayOrder: number;
   version?: number; classId?: string | null; subjectCode?: string | null;
 }
+export type AssessmentDefaultsMode = 'ONE_SEQUENCE' | 'ALL_SEQUENCES';
+export interface AssessmentDefaultsRowInput {
+  clientRowId: string; reportingPeriodId: string; subjectCode: string;
+  code?: string; label?: string; maxScore?: number; weight?: number; mandatory?: boolean;
+}
+export interface AssessmentDefaultsRequest {
+  academicSessionId: string; classId: string; mode: AssessmentDefaultsMode;
+  reportingPeriodId?: string; rows?: AssessmentDefaultsRowInput[]; scopeFingerprint?: string;
+}
+export interface AssessmentDefaultsRow {
+  clientRowId: string; reportingPeriodId: string; reportingPeriodCode: string; reportingPeriodLabel: string;
+  curriculumSubjectId: string; subjectCode: string; subjectLabel: string; coefficient: number;
+  maxScore: number; weight: number; mandatory: boolean; teacherId: string | null; teacherName: string | null;
+  teacherStatus: string; proposedCode: string; proposedLabel: string; status: 'PROPOSED' | 'EXISTING' | 'INVALID';
+  errors: string[]; existingAssessmentId: string | null; existingVersion: number;
+}
+export interface AssessmentDefaultsPeriod { reportingPeriodId: string; code: string; label: string; rows: AssessmentDefaultsRow[]; }
+export interface AssessmentDefaultsPreview {
+  academicSessionId: string; classId: string; className: string; subsystem: string; contentLanguage: string;
+  mode: AssessmentDefaultsMode; scopeFingerprint: string; periods: AssessmentDefaultsPeriod[];
+  totalRows: number; proposedRows: number; existingRows: number; excludedRows: number;
+}
+export interface AssessmentDefaultsApplyResponse {
+  preview: AssessmentDefaultsPreview; generationBatchId: string;
+  createdCount: number; existingCount: number; skippedCount: number;
+}
 export interface GradeEntrySubject {
   code: string; label: string; coefficient: number; teacherId: string | null; teacherName: string | null;
   status?: string; errorCode?: string; message?: string | null; remarkRequired?: boolean;
@@ -258,6 +284,14 @@ export class AcademicApi {
   }
   createAssessment(body: AssessmentUpsert): Observable<AssessmentDefinition> {
     return this.http.post<AssessmentDefinition>(`${this.base}/assessments`, body);
+  }
+  previewAssessmentDefaults(body: AssessmentDefaultsRequest): Observable<AssessmentDefaultsPreview> {
+    return this.http.post<AssessmentDefaultsPreview>(`${this.base}/assessment-defaults/preview`, body);
+  }
+  applyAssessmentDefaults(body: AssessmentDefaultsRequest, idempotencyKey: string): Observable<AssessmentDefaultsApplyResponse> {
+    return this.http.post<AssessmentDefaultsApplyResponse>(`${this.base}/assessment-defaults/apply`, body, {
+      headers: { 'Idempotency-Key': idempotencyKey },
+    });
   }
   reportCardInputs(reportingPeriodId: string, classId: string): Observable<ReportCardInputsView> {
     return this.http.get<ReportCardInputsView>(`${this.base}/report-card-inputs`, { params: { reportingPeriodId, classId } });

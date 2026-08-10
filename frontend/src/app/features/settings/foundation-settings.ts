@@ -248,7 +248,11 @@ const cleanDisplay = (value: string | null | undefined): string => {
                         <div class="flex items-center justify-between gap-2"><span class="font-semibold text-sm">{{ p.code }} · {{ p.label }}</span><span class="chip bg-white text-slate-600">{{ p.periodType }}</span></div>
                         <div class="text-xs text-mute mt-1">{{ p.startDate }} → {{ p.endDate }} · {{ p.calculationPolicy }}</div>
                         <div class="text-[11px] text-slate-500 mt-1">{{ p.bulletinPublishOpensAt ? (fr() ? 'Publication configurée' : 'Publication configured') : (fr() ? 'Publication héritée' : 'Publication inherited') }}</div>
-                        <div class="text-[11px] text-slate-500 mt-1">{{ p.teacherSubmissionOpensAt && p.teacherSubmissionClosesAt ? (fr() ? 'Soumission enseignants configurée' : 'Teacher submission configured') : (fr() ? 'Soumission enseignants requise' : 'Teacher submission required') }}</div>
+                        @if (p.periodType === 'SEQUENCE') {
+                          <div class="text-[11px] text-slate-500 mt-1">{{ p.teacherSubmissionOpensAt && p.teacherSubmissionClosesAt ? (fr() ? 'Soumission enseignants configurée' : 'Teacher submission configured') : (fr() ? 'Soumission enseignants requise' : 'Teacher submission required') }}</div>
+                        } @else {
+                          <div class="text-[11px] text-indigo-700 mt-1">{{ fr() ? 'Jalon calculé : saisie et soumission enseignants non applicables' : 'Computed milestone: grade entry and teacher submission do not apply' }}</div>
+                        }
                         @if (effectiveWindowFor(p, 'TEACHER_SUBMISSION'); as window) {
                           <div class="mt-2 rounded-md border px-2 py-1 text-[11px]" [class]="window.source === 'EMERGENCY_OVERRIDE' ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-slate-200 bg-slate-50 text-slate-600'">
                             <span class="font-semibold">{{ window.source }}</span> · {{ window.state }}
@@ -383,7 +387,8 @@ const cleanDisplay = (value: string | null | undefined): string => {
             </div>
             <h3 id="period-window-title" class="text-lg font-bold text-ink">{{ fr() ? 'Fenêtres du jalon ' + p.code : 'Windows for ' + p.code }}</h3>
             <p class="text-sm text-mute mt-2">{{ fr() ? 'Ces fenêtres contrôlent directement la saisie, la validation et la publication de ce résultat. Une fenêtre vide hérite du trimestre puis de la session.' : 'These windows directly control grade entry, validation, and publication for this result. An empty window inherits from the term, then the session.' }}</p>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
+            @if (p.periodType !== 'SEQUENCE') { <div class="mt-4 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm text-indigo-950">{{ fr() ? 'Résultat calculé : les fenêtres de saisie et de soumission ne s’appliquent pas à ce jalon. Configurez uniquement la revue, validation, publication et correction.' : 'Computed result: grade entry and teacher submission windows do not apply to this milestone. Configure review, validation, publication, and correction only.' }}</div> }
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4" [class.hidden]="p.periodType !== 'SEQUENCE'">
               <label><span class="meta">{{ fr() ? 'Ouverture notes' : 'Grade entry opens' }}</span><input type="datetime-local" [(ngModel)]="periodWindowDraft.gradeOpen" class="field" /></label>
               <label><span class="meta">{{ fr() ? 'Clôture notes' : 'Grade entry closes' }}</span><input type="datetime-local" [(ngModel)]="periodWindowDraft.gradeClose" class="field" /></label>
               <label><span class="meta">{{ fr() ? 'Ouverture validation' : 'Validation opens' }}</span><input type="datetime-local" [(ngModel)]="periodWindowDraft.validationOpen" class="field" /></label>

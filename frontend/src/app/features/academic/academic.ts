@@ -1,6 +1,7 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { ActivatedRoute } from '@angular/router';
 import { forkJoin, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { StudentApi } from '../students/students.api';
@@ -136,7 +137,14 @@ const appreciation = (avg: number, fr: boolean): string => {
           @if (reportingPeriods().length) {
             <div class="flex-1 min-w-[220px]">
               <div class="text-xs font-semibold text-mute uppercase mb-2">{{ mode() === 'grade-entry' ? (fr() ? '2. Période de notation' : '2. Grading period') : (fr() ? 'Jalon académique' : 'Academic milestone') }}</div>
+              @if (mode() === 'grade-entry') {
+                <select [ngModel]="selectedReportingPeriodId()" (ngModelChange)="onReportingPeriodChange($event)"
+                  class="w-full h-10 px-3 rounded-lg border border-slate-200 text-sm bg-white text-ink focus:outline-none focus:border-brand-400 font-semibold">
+                  @for (p of sequenceReportingPeriods(); track p.id) { <option [value]="p.id">{{ p.code }} · {{ display(p.label) }}</option> }
+                </select>
+              }
               <select [ngModel]="selectedReportingPeriodId()" (ngModelChange)="onReportingPeriodChange($event)"
+                [class.hidden]="mode() === 'grade-entry'"
                 class="w-full h-10 px-3 rounded-lg border border-slate-200 text-sm bg-white text-ink focus:outline-none focus:border-brand-400 font-semibold">
                 @for (p of reportingPeriods(); track p.id) { <option [value]="p.id">{{ p.code }} · {{ display(p.label) }}</option> }
               </select>
@@ -166,6 +174,10 @@ const appreciation = (avg: number, fr: boolean): string => {
           }
         </div>
       </bbc-card>
+
+      @if (mode() === 'bulletin' && selectedPeriodIsComputed()) {
+        <div class="mb-4 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-950 print:hidden"><div class="font-bold">{{ fr() ? 'Résultat calculé' : 'Computed result' }}</div><div class="mt-1">{{ dependencyText() }}</div><div class="mt-1 text-xs text-indigo-800">{{ fr() ? 'Les jalons T1, T2, T3 et annuel sont calculés à partir des dépendances configurées. Les notes brutes restent limitées à S1–S6.' : 'T1, T2, T3 and annual milestones use configured dependencies. Raw marks remain limited to S1–S6.' }}</div></div>
+      }
 
       <!-- ============ TEACHER GRADE ENTRY ============ -->
       @if (mode() === 'grade-entry') {
@@ -837,6 +849,7 @@ export class AcademicComponent {
   private auth = inject(AuthService);
   private scope = inject(ScopeService);
   private foundationApi = inject(FoundationApi);
+  private route = inject(ActivatedRoute);
 
   protected canWrite = this.auth.can('academic', 'write');
 
@@ -856,6 +869,10 @@ export class AcademicComponent {
   protected reportingPeriods = signal<AcademicReportingPeriodView[]>([]);
   protected selectedReportingPeriodId = signal('');
   protected selectedReportingPeriodCode = computed(() => this.reportingPeriods().find((p) => p.id === this.selectedReportingPeriodId())?.code ?? '');
+  protected sequenceReportingPeriods = computed(() => this.reportingPeriods().filter((p) => p.periodType === 'SEQUENCE'));
+  protected computedReportingPeriods = computed(() => this.reportingPeriods().filter((p) => p.periodType !== 'SEQUENCE'));
+  protected selectedPeriodIsComputed = computed(() => { const period = this.reportingPeriods().find((p) => p.id === this.selectedReportingPeriodId()); return !!period && period.periodType !== 'SEQUENCE'; });
+  protected reportingDependencies = signal<import('../../core/foundation.api').StructureDependencyView[]>([]);
   protected mode = signal<Mode>('bulletin');
   protected bulletin = signal<BulletinView | null>(null);
   protected pv = signal<PvView | null>(null);
@@ -913,15 +930,20 @@ export class AcademicComponent {
   });
 
   constructor() {
+    const requestedMode = this.route.snapshot.queryParamMap.get('mode') as Mode | null;
+    const requestedClassId = this.route.snapshot.queryParamMap.get('classId');
+    const requestedPeriodId = this.route.snapshot.queryParamMap.get('periodId');
+    if (requestedMode && ['bulletin', 'grade-entry', 'inputs', 'pv', 'batch'].includes(requestedMode)) this.mode.set(requestedMode);
     this.setupApi.listClasses().subscribe({
-      next: (c) => this.classes.set(c),
+      next: (c) => { this.classes.set(c); const klass = c.find((item) => item.id === requestedClassId); if (klass && this.academicSessionId()) this.onClassChange(klass.name); },
       error: () => this.classes.set([]),
     });
     this.foundationApi.currentSession().subscribe({
       next: (s) => {
         this.academicSessionId.set(s.id);
+        this.foundationApi.reportingDependencies(s.id).subscribe({ next: (rows) => this.reportingDependencies.set(rows), error: () => this.reportingDependencies.set([]) });
         this.foundationApi.reportingPeriods(s.id).subscribe({
-        next: (periods) => { const readablePeriods = periods.map((p) => ({ ...p, label: cleanDisplay(p.label) })); this.reportingPeriods.set(readablePeriods); const first = readablePeriods.find((p) => p.code === 'S1') ?? readablePeriods[0]; if (first) { this.selectedReportingPeriodId.set(first.id); this.sequence.set(this.periodSequence(first)); } },
+        next: (periods) => { const readablePeriods = periods.map((p) => ({ ...p, label: cleanDisplay(p.label) })); this.reportingPeriods.set(readablePeriods); const first = readablePeriods.find((p) => p.id === requestedPeriodId && (this.mode() !== 'grade-entry' || p.periodType === 'SEQUENCE')) ?? readablePeriods.find((p) => p.code === 'S1') ?? readablePeriods[0]; if (first) { this.selectedReportingPeriodId.set(first.id); this.sequence.set(this.periodSequence(first)); } const klass = this.classes().find((c) => c.id === requestedClassId); if (klass) this.onClassChange(klass.name); },
         error: () => this.reportingPeriods.set([]),
         });
       },
@@ -934,6 +956,10 @@ export class AcademicComponent {
   }
 
   protected setMode(m: Mode): void {
+    if (m === 'grade-entry' && this.reportingPeriods().find((p) => p.id === this.selectedReportingPeriodId())?.periodType !== 'SEQUENCE') {
+      const firstSequence = this.sequenceReportingPeriods()[0];
+      if (firstSequence) this.selectedReportingPeriodId.set(firstSequence.id);
+    }
     this.mode.set(m);
     this.notice.set(null);
     this.gradeEntryError.set(null);
@@ -1003,13 +1029,15 @@ export class AcademicComponent {
   }
 
   protected onReportingPeriodChange(id: string): void {
+    const selected = this.reportingPeriods().find((p) => p.id === id);
+    if (this.mode() === 'grade-entry' && selected && selected.periodType !== 'SEQUENCE') return;
     this.notice.set(null);
     this.gradeEntryError.set(null);
     this.selectedReportingPeriodId.set(id);
     this.clearBulletinState();
     this.pv.set(null);
     this.bulkBulletins.set([]);
-    const period = this.reportingPeriods().find((p) => p.id === id);
+    const period = selected;
     if (period) this.sequence.set(this.periodSequence(period));
     if (this.mode() === 'bulletin' && this.selectedStudentId()) this.loadBulletin();
     if (this.mode() === 'grade-entry' && this.selectedClassId()) this.loadGradeEntry();
@@ -1385,6 +1413,13 @@ export class AcademicComponent {
   }
 
   private periodSequence(period: AcademicReportingPeriodView): number { const match = period?.code?.match(/^S(\d+)$/); return match ? Number(match[1]) : this.sequence(); }
+  protected dependencyText(): string {
+    const parent = this.reportingPeriods().find((p) => p.id === this.selectedReportingPeriodId());
+    if (!parent) return this.fr() ? 'Dépendances configurées non disponibles.' : 'Configured dependencies are unavailable.';
+    const children = this.reportingDependencies().filter((d) => d.parentPeriodId === parent.id);
+    if (!children.length) return this.fr() ? 'Aucune dépendance configurée pour ce jalon.' : 'No dependency is configured for this milestone.';
+    return (this.fr() ? 'Calcul : ' : 'Formula: ') + children.map((d) => `${d.childCode} × ${d.weight}`).join(' + ');
+  }
 
   protected loadPv(): void {
     const cls = this.selectedClass().trim();

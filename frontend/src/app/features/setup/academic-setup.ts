@@ -1,5 +1,6 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { ActivatedRoute } from '@angular/router';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
 import { ScopeService } from '../../core/scope.service';
@@ -9,6 +10,7 @@ import {
 } from '../../core/setup.api';
 import { FoundationApi, AcademicSessionView, AcademicReportingPeriodView, DocumentDesignView } from '../../core/foundation.api';
 import { AcademicApi, SecondaryCompetencyModelView } from '../academic/academic.api';
+import { AssessmentDefaultsComponent } from './assessment-defaults/assessment-defaults';
 import { defaultSubjects } from './subject-defaults';
 import { forkJoin } from 'rxjs';
 import { IconComponent, CardComponent, TabsComponent, EmptyComponent } from '../../core/ui';
@@ -23,9 +25,9 @@ import { downloadCsv } from '../../core/csv';
   selector: 'bbc-academic-setup',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, IconComponent, CardComponent, TabsComponent, EmptyComponent],
+  imports: [FormsModule, IconComponent, CardComponent, TabsComponent, EmptyComponent, AssessmentDefaultsComponent],
   template: `
-    <bbc-tabs [tabs]="subTabs()" [value]="sub()" (change)="switchTo($any($event))" />
+    <bbc-tabs [tabs]="displayedSubTabs()" [value]="sub()" (change)="switchTo($any($event))" />
 
     @switch (sub()) {
       <!-- ===================== SECTIONS ===================== -->
@@ -550,6 +552,10 @@ import { downloadCsv } from '../../core/csv';
       }
 
       <!-- ===================== SECONDARY COMPETENCIES ===================== -->
+      @case ('assessments') {
+        <bbc-assessment-defaults />
+      }
+
       @case ('competencies') {
         <bbc-card [title]="fr() ? 'Compétences du secondaire' : 'Secondary competencies'"
           [subtitle]="fr() ? 'Définissez manuellement les compétences évaluées ou importez les notes par fichier CSV. Chaque modèle est versionné par session, période, classe et matière.' : 'Define assessed competencies manually or import marks from CSV. Each model is versioned by session, period, class and subject.'">
@@ -738,6 +744,7 @@ export class AcademicSetupComponent {
   private academicApi = inject(AcademicApi);
   private foundation = inject(FoundationApi);
   private scopeSvc = inject(ScopeService);
+  private route = inject(ActivatedRoute);
 
   protected fr = () => this.i18n.lang() === 'fr';
   protected canWrite = this.auth.can('settings', 'write');
@@ -759,7 +766,7 @@ export class AcademicSetupComponent {
       : `Active parcours: ${lvl} · ${sub}. Other parcours data is hidden — switch from the top bar.`;
   });
 
-  protected sub = signal<'sections' | 'classes' | 'subjects' | 'class-subjects' | 'competencies' | 'design'>('sections');
+  protected sub = signal<'sections' | 'classes' | 'subjects' | 'class-subjects' | 'assessments' | 'competencies' | 'design'>('sections');
   protected sections = signal<SectionView[]>([]);
   protected classes = signal<ClassView[]>([]);
   protected subjects = signal<SubjectView[]>([]);
@@ -773,6 +780,8 @@ export class AcademicSetupComponent {
     { id: 'competencies', label: this.fr() ? 'Compétences secondaire' : 'Secondary competencies' },
     { id: 'design', label: this.fr() ? 'Modèles / marque' : 'Templates / branding' },
   ]);
+  protected displayedSubTabs = computed(() => this.subTabs().map((tab) =>
+    tab.id === 'competencies' ? { id: 'assessments', label: this.fr() ? 'Évaluations' : 'Evaluations' } : tab));
 
   // Section form
   protected secForm = signal(false);
@@ -896,6 +905,16 @@ export class AcademicSetupComponent {
   });
 
   constructor() {
+    const params = this.route.snapshot.queryParamMap;
+    const requestedSubtab = params.get('subtab');
+    if (requestedSubtab === 'sections' || requestedSubtab === 'classes' || requestedSubtab === 'subjects'
+      || requestedSubtab === 'class-subjects' || requestedSubtab === 'assessments' || requestedSubtab === 'competencies' || requestedSubtab === 'design') {
+      this.sub.set(requestedSubtab === 'competencies' ? 'assessments' : requestedSubtab);
+    }
+    const requestedSessionId = params.get('sessionId');
+    const requestedClassId = params.get('classId');
+    if (requestedSessionId) this.curriculumSessionId.set(requestedSessionId);
+    if (requestedClassId) this.assignmentClassId.set(requestedClassId);
     this.loadSections();
     this.loadClasses();
     this.loadSubjects();
@@ -903,7 +922,8 @@ export class AcademicSetupComponent {
     this.loadDocumentDesign();
     this.foundation.listSessions().subscribe((rows) => {
       this.academicSessions.set(rows);
-      const current = rows.find((s) => s.current) ?? rows.find((s) => s.status === 'OPEN') ?? rows[0];
+      const current = rows.find((s) => s.id === this.curriculumSessionId())
+        ?? rows.find((s) => s.current) ?? rows.find((s) => s.status === 'OPEN') ?? rows[0];
       if (current) {
         this.curriculumSessionId.set(current.id);
         this.loadCurriculum();
@@ -1182,8 +1202,8 @@ export class AcademicSetupComponent {
     return out;
   }
 
-  protected switchTo(t: 'sections' | 'classes' | 'subjects' | 'class-subjects' | 'competencies' | 'design'): void {
-    this.sub.set(t);
+  protected switchTo(t: 'sections' | 'classes' | 'subjects' | 'class-subjects' | 'assessments' | 'competencies' | 'design'): void {
+    this.sub.set(t === 'competencies' ? 'assessments' : t);
     this.secForm.set(false); this.clsForm.set(false); this.subjForm.set(false);
     this.assignmentNotice.set(null);
   }
