@@ -113,12 +113,14 @@ SELECT c.school_id, c.student_id, c.previous_enrollment_id, c.id,
 INSERT INTO permission_action_grant (school_id, role_code, action_code, allowed)
 SELECT pg.school_id, pg.role_code, a.action_code,
        CASE WHEN a.required_level = 'read'
-            THEN pg.level IN ('read','write') ELSE pg.level = 'write' END
+            THEN bool_or(pg.level IN ('read','write'))
+            ELSE bool_or(pg.level = 'write') END
   FROM permission_grant pg
  CROSS JOIN (VALUES
      ('PROGRESSION_VIEW','read'),
      ('PROGRESSION_CONFIGURE','write'),
      ('PROMOTION_REVIEW','write')
  ) AS a(action_code, required_level)
+ GROUP BY pg.school_id, pg.role_code, a.action_code, a.required_level
 ON CONFLICT (school_id, role_code, action_code) DO UPDATE
     SET allowed = EXCLUDED.allowed;
