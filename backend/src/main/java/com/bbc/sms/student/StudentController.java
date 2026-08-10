@@ -67,6 +67,13 @@ public class StudentController {
         return service.list(className);
     }
 
+    /** Active roster for one class in one academic session. */
+    @GetMapping("/roster")
+    @PreAuthorize("@parcours.allows() and @perm.can('students','read') and @perm.staffOnly()")
+    public List<StudentView> roster(@RequestParam UUID sessionId, @RequestParam UUID classId) {
+        return service.roster(sessionId, classId);
+    }
+
     @GetMapping("/{id}")
     @PreAuthorize("@perm.can('students','read') and @perm.staffOnly()")
     public StudentView get(@PathVariable UUID id) {

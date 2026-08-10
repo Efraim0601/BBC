@@ -19,6 +19,7 @@ import com.bbc.sms.journey.dto.JourneyPromotionDtos.PromotionRuleUpsert;
 import com.bbc.sms.journey.dto.JourneyPromotionDtos.PromotionActivationRequest;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.tenant.TenantContext;
+import com.bbc.sms.student.StudentService;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -34,6 +35,9 @@ import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.*;
@@ -61,6 +65,7 @@ class SharedFoundationIntegrationTest {
     @Autowired OfficialDocumentService documents;
     @Autowired AttendanceWorkflowService attendance;
     @Autowired JourneyPromotionService promotions;
+    @Autowired StudentService students;
 
     @BeforeEach
     void tenant() {
@@ -143,6 +148,32 @@ class SharedFoundationIntegrationTest {
         var analytics = attendance.analytics(date, date, classId);
         assertThat(analytics.expected()).isEqualTo(1);
         assertThat(analytics.attendancePercent()).isEqualByComparingTo("100.00");
+    }
+
+    @Test
+    void academicRosterUsesActiveEnrollmentForTheRequestedSessionAndClass() {
+        UUID academicId = UUID.randomUUID();
+        UUID classId = UUID.randomUUID();
+        UUID enrolledStudent = UUID.randomUUID();
+        UUID legacyOnlyStudent = UUID.randomUUID();
+        String sectionId = "r" + schoolId.toString().substring(0, 8);
+        jdbc.update("INSERT INTO section(id,school_id,label,subsystem,level) VALUES (?,?,?,'FR','primary')",
+                sectionId, schoolId, "Roster");
+        jdbc.update("INSERT INTO school_class(id,school_id,section_id,name,subsystem,level) VALUES (?,?,?,'CE1','FR','primary')",
+                classId, schoolId, sectionId);
+        jdbc.update("INSERT INTO academic_session(id,school_id,code,label,start_date,end_date,status,is_current) VALUES (?,?, '2026-2027','2026-2027','2026-09-01','2027-07-31','OPEN',true)",
+                academicId, schoolId);
+        jdbc.update("INSERT INTO student(id,school_id,matricule,first_name,last_name,class_id,class_name,subsystem,level) VALUES (?,?, 'ROSTER-1','Enrolled','Student',?,'CE1','FR','primary')",
+                enrolledStudent, schoolId, classId);
+        jdbc.update("INSERT INTO student(id,school_id,matricule,first_name,last_name,class_id,class_name,subsystem,level) VALUES (?,?, 'ROSTER-2','Legacy','Student',?,'CE1','FR','primary')",
+                legacyOnlyStudent, schoolId, classId);
+        jdbc.update("INSERT INTO student_enrollment(school_id,student_id,academic_session_id,school_class_id,class_name_snapshot,level_snapshot,subsystem_snapshot,status,enrolled_on,source) VALUES (?,?,?,?,'CE1','primary','FR','ACTIVE','2026-09-01','TEST')",
+                schoolId, enrolledStudent, academicId, classId);
+
+        var roster = students.roster(academicId, classId);
+
+        assertThat(roster).extracting(v -> v.id()).containsExactly(enrolledStudent);
+        assertThat(roster.getFirst().className()).isEqualTo("CE1");
     }
 
     @Test
@@ -244,8 +275,48 @@ class SharedFoundationIntegrationTest {
         UUID planned = jdbc.queryForObject("SELECT id FROM student_enrollment WHERE school_id=? AND student_id=? AND academic_session_id=? AND status='PLANNED'", UUID.class, schoolId, student, targetSession);
         var activated = promotions.activatePlanned(planned, new PromotionActivationRequest("Rentrée confirmée"));
         assertThat(activated.status()).isEqualTo("ACTIVE");
+        long transitionCount = jdbc.queryForObject("SELECT count(*) FROM promotion_transition_event WHERE target_enrollment_id=?", Long.class, planned);
+        var activationReplay = promotions.activatePlanned(planned, new PromotionActivationRequest("Retry sans doublon"));
+        assertThat(activationReplay.status()).isEqualTo("ACTIVE");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM promotion_transition_event WHERE target_enrollment_id=?", Long.class, planned))
+                .isEqualTo(transitionCount);
         assertThat(jdbc.queryForObject("SELECT status FROM student_enrollment WHERE id=?", String.class, planned)).isEqualTo("ACTIVE");
         assertThat(jdbc.queryForObject("SELECT status FROM student_enrollment WHERE school_id=? AND student_id=? AND academic_session_id=? AND status='COMPLETED'", String.class, schoolId, student, sourceSession)).isEqualTo("COMPLETED");
         assertThat(jdbc.queryForObject("SELECT final_decision FROM journey_entry WHERE school_id=? AND student_id=? AND academic_year='2025-2026'", String.class, schoolId, student)).isEqualTo("HOLD");
+    }
+
+    @Test
+    void committedPromotionRetryRepairsMissingRegisterAndSerializesConcurrentRetries() throws Exception {
+        UUID sourceSession = UUID.randomUUID(), targetSession = UUID.randomUUID(), batchId = UUID.randomUUID();
+        jdbc.update("INSERT INTO academic_session(id,school_id,code,label,start_date,end_date,status,is_current) VALUES (?,?, '2025-2026','Source','2025-09-01','2026-07-31','OPEN',false)",
+                sourceSession, schoolId);
+        jdbc.update("INSERT INTO academic_session(id,school_id,code,label,start_date,end_date,status,is_current) VALUES (?,?, '2026-2027','Target','2026-09-01','2027-07-31','DRAFT',false)",
+                targetSession, schoolId);
+        jdbc.update("INSERT INTO promotion_batch(id,school_id,source_session_id,target_session_id,name,status,committed_at) VALUES (?,?,?,?,?,'COMMITTED',now())",
+                batchId, schoolId, sourceSession, targetSession, "Recovery batch");
+
+        var repaired = promotions.commit(batchId, new PromotionCommitRequest("Recover register", 0L));
+        assertThat(repaired.status()).isEqualTo("COMMITTED");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM promotion_register WHERE school_id=? AND batch_id=?", Integer.class, schoolId, batchId)).isEqualTo(1);
+
+        jdbc.update("DELETE FROM promotion_register WHERE school_id=? AND batch_id=?", schoolId, batchId);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> first = pool.submit(() -> {
+                TenantContext.set(schoolId);
+                try { promotions.commit(batchId, new PromotionCommitRequest("Concurrent retry A", 0L)); }
+                finally { TenantContext.clear(); }
+            });
+            Future<?> second = pool.submit(() -> {
+                TenantContext.set(schoolId);
+                try { promotions.commit(batchId, new PromotionCommitRequest("Concurrent retry B", 0L)); }
+                finally { TenantContext.clear(); }
+            });
+            first.get();
+            second.get();
+        } finally {
+            pool.shutdownNow();
+        }
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM promotion_register WHERE school_id=? AND batch_id=?", Integer.class, schoolId, batchId)).isEqualTo(1);
     }
 }

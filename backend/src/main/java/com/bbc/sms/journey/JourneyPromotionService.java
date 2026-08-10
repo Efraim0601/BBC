@@ -922,18 +922,20 @@ public class JourneyPromotionService {
     @Transactional
     public PromotionBatchView commit(UUID id, PromotionCommitRequest in) {
         BatchInfo batch = batchInfo(id);
-        if (!"DRAFT".equals(batch.status)) {
-            if ("COMMITTED".equals(batch.status)) return batch(id);
-            throw ApiException.conflict("Ce lot ne peut plus être validé");
-        }
-        if (in.version() != null && in.version() != batch.version) throw ApiException.conflict("Le lot a été modifié par un autre utilisateur");
+        // Serialize every retry, including already committed batches. A prior
+        // commit may have persisted the enrollments but failed before the
+        // durable register was written; retry must repair that evidence.
         jdbc.queryForObject("SELECT pg_advisory_xact_lock(hashtext(?))", Object.class,
                 TenantContext.get() + ":promotion-batch:" + id);
         batch = batchInfo(id);
         if (!"DRAFT".equals(batch.status)) {
-            if ("COMMITTED".equals(batch.status)) return batch(id);
+            if ("COMMITTED".equals(batch.status)) {
+                createPromotionRegister(id);
+                return batch(id);
+            }
             throw ApiException.conflict("Ce lot ne peut plus être validé");
         }
+        if (in.version() != null && in.version() != batch.version) throw ApiException.conflict("Le lot a été modifié par un autre utilisateur");
         List<DecisionInfo> decisions = jdbc.query("SELECT * FROM promotion_decision WHERE school_id=? AND batch_id=? ORDER BY student_id",
                 this::mapDecisionInfo, TenantContext.get(), id);
         List<String> blockers = new ArrayList<>();

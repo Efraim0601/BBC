@@ -490,7 +490,7 @@ const appreciation = (avg: number, fr: boolean): string => {
                         @if (b.complete === false && b.blockers?.length) {
                           <div class="mb-5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                             <div class="font-bold">{{ fr() ? 'Bulletin non complet' : 'Report card is incomplete' }}</div>
-                            <ul class="mt-1 list-disc pl-5 font-normal">@for (blocker of b.blockers; track blocker) { <li>{{ blocker }}</li> }</ul>
+                            <ul class="mt-1 list-disc pl-5 font-normal">@for (blocker of b.blockers; track blocker) { <li>{{ bulletinBlockerLabel(blocker, b) }}</li> }</ul>
                           </div>
                         }
                         @if (b.financiallyBlocked) {
@@ -851,6 +851,7 @@ export class AcademicComponent {
   protected classStudents = signal<Student[]>([]);
   protected studentQuery = signal('');
   protected selectedStudentId = signal('');
+  protected academicSessionId = signal('');
   protected sequence = signal(1);
   protected reportingPeriods = signal<AcademicReportingPeriodView[]>([]);
   protected selectedReportingPeriodId = signal('');
@@ -885,6 +886,7 @@ export class AcademicComponent {
   protected batchItems = signal<BulletinBatchItemView[]>([]);
   protected batchBusy = signal(false);
   private batchPollId: string | null = null;
+  private rosterRequestKey = '';
   protected notice = signal<{ ok: boolean; text: string } | null>(null);
   private photoApi = inject(PhotoApi);
 
@@ -916,10 +918,13 @@ export class AcademicComponent {
       error: () => this.classes.set([]),
     });
     this.foundationApi.currentSession().subscribe({
-      next: (s) => this.foundationApi.reportingPeriods(s.id).subscribe({
+      next: (s) => {
+        this.academicSessionId.set(s.id);
+        this.foundationApi.reportingPeriods(s.id).subscribe({
         next: (periods) => { const readablePeriods = periods.map((p) => ({ ...p, label: cleanDisplay(p.label) })); this.reportingPeriods.set(readablePeriods); const first = readablePeriods.find((p) => p.code === 'S1') ?? readablePeriods[0]; if (first) { this.selectedReportingPeriodId.set(first.id); this.sequence.set(this.periodSequence(first)); } },
         error: () => this.reportingPeriods.set([]),
-      }),
+        });
+      },
       error: () => this.reportingPeriods.set([]),
     });
   }
@@ -944,7 +949,7 @@ export class AcademicComponent {
     this.selectedClass.set(name);
     this.selectedClassId.set(this.classes().find((c) => c.name === name)?.id ?? '');
     this.selectedStudentId.set('');
-    this.bulletin.set(null);
+    this.clearBulletinState();
     this.pv.set(null);
     this.bulkBulletins.set([]);
     this.gradeEntry.set(null);
@@ -955,9 +960,23 @@ export class AcademicComponent {
     this.classStudents.set([]);
     this.batchJob.set(null); this.batchJobs.set([]); this.batchItems.set([]);
     if (!name) return;
-    this.studentApi.list(name).subscribe({
-      next: (r) => this.classStudents.set(r),
-      error: () => this.classStudents.set([]),
+    const sessionId = this.academicSessionId();
+    const classId = this.selectedClassId();
+    if (!sessionId || !classId) return;
+    const requestKey = `${sessionId}:${classId}`;
+    this.rosterRequestKey = requestKey;
+    this.studentApi.listRoster(sessionId, classId).subscribe({
+      next: (r) => {
+        if (this.rosterRequestKey === requestKey && this.academicSessionId() === sessionId && this.selectedClassId() === classId) {
+          this.classStudents.set(r);
+        }
+      },
+      error: (e) => {
+        if (this.rosterRequestKey === requestKey) {
+          this.classStudents.set([]);
+          this.notice.set({ ok: false, text: this.explainError(e) });
+        }
+      },
     });
     if (this.mode() === 'pv') this.loadPv();
     if (this.mode() === 'grade-entry') this.loadGradeEntry();
@@ -966,10 +985,20 @@ export class AcademicComponent {
   }
 
   protected onStudentChange(id: string): void {
+    this.clearBulletinState();
     this.selectedStudentId.set(id);
-    this.studentPhotoUrl.set(null);
-    this.photoApi.load('students', id).subscribe((url) => this.studentPhotoUrl.set(url));
     this.bulkBulletins.set([]);
+    if (!id) return;
+    if (!this.classStudents().some((student) => student.id === id)) {
+      this.selectedStudentId.set('');
+      this.notice.set({ ok: false, text: this.fr()
+        ? 'Cet élève n’est pas inscrit activement dans la classe et la session sélectionnées.'
+        : 'This student is not actively enrolled in the selected class and session.' });
+      return;
+    }
+    this.photoApi.load('students', id).subscribe((url) => {
+      if (this.selectedStudentId() === id) this.studentPhotoUrl.set(url);
+    });
     this.loadBulletin();
   }
 
@@ -977,6 +1006,9 @@ export class AcademicComponent {
     this.notice.set(null);
     this.gradeEntryError.set(null);
     this.selectedReportingPeriodId.set(id);
+    this.clearBulletinState();
+    this.pv.set(null);
+    this.bulkBulletins.set([]);
     const period = this.reportingPeriods().find((p) => p.id === id);
     if (period) this.sequence.set(this.periodSequence(period));
     if (this.mode() === 'bulletin' && this.selectedStudentId()) this.loadBulletin();
@@ -1078,6 +1110,40 @@ export class AcademicComponent {
   protected gradeBlockerLabel(blocker: string): string {
     const readable = cleanDisplay(blocker);
     return readable.replace(' · ', ' — ');
+  }
+
+  /** Keep API blocker codes stable while presenting actionable staff-facing text. */
+  protected bulletinBlockerLabel(blocker: string, bulletin?: BulletinView): string {
+    const raw = cleanDisplay(blocker).trim();
+    const parts = raw.split(':');
+    const code = parts.at(-1)?.toUpperCase() ?? raw.toUpperCase();
+    const subjectCode = parts.length > 1 ? parts[0].toUpperCase() : '';
+    const subject = bulletin?.lines.find((line) => line.subjectCode.toUpperCase() === subjectCode);
+    const subjectLabel = subject ? this.display(subject.subjectLabel) : (this.fr() ? 'Cette matière' : 'This subject');
+    if (code === 'MISSING') {
+      return this.fr()
+        ? `${subjectLabel} : saisissez la note obligatoire ou choisissez « Absent » / « Dispensé ».`
+        : `${subjectLabel}: enter the required mark or choose “Absent” / “Exempt”.`;
+    }
+    if (code === 'REMARK_REQUIRED') {
+      return this.fr()
+        ? `${subjectLabel} : ajoutez l’appréciation obligatoire de l’enseignant.`
+        : `${subjectLabel}: add the teacher’s required comment.`;
+    }
+    if (code === 'NO_ASSESSMENT') {
+      return this.fr()
+        ? `${subjectLabel} : configurez au moins une évaluation avant de publier le bulletin.`
+        : `${subjectLabel}: configure at least one assessment before publishing the report card.`;
+    }
+    const labels: Record<string, [string, string]> = {
+      PUBLISHED_ANNUAL_REQUIRED: ['Publiez d’abord le bulletin annuel requis.', 'Publish the required annual report card first.'],
+      COUNCIL_APPROVAL_REQUIRED: ['Faites approuver les éléments par le conseil de classe.', 'Have the class-council inputs approved.'],
+      ATTENDANCE_REQUIRED: ['Finalisez les appels requis avant de publier.', 'Finalize the required attendance calls before publishing.'],
+    };
+    const message = labels[code];
+    return message ? (this.fr() ? message[0] : message[1]) : (this.fr()
+      ? 'Complétez l’information indiquée avant de publier le bulletin.'
+      : 'Complete the indicated information before publishing the report card.');
   }
 
   protected gradeAssessmentLabel(entry: GradeEntryView, assessment: GradeEntryView['assessments'][number]): string {
@@ -1281,17 +1347,40 @@ export class AcademicComponent {
   private loadBulletin(): void {
     const id = this.selectedStudentId();
     if (!id) {
-      this.bulletin.set(null);
+      this.clearBulletinState();
       return;
     }
+    if (!this.classStudents().some((student) => student.id === id)) {
+      this.clearBulletinState();
+      return;
+    }
+    this.clearBulletinState();
     const periodId = this.selectedReportingPeriodId();
     if (periodId) {
       this.api.previewBulletinSnapshot(id, periodId).subscribe((snapshot) => {
+        if (this.selectedStudentId() !== id || this.selectedReportingPeriodId() !== periodId) return;
         this.bulletin.set({ id: snapshot.id, studentId: snapshot.studentId, studentName: snapshot.studentName, className: snapshot.className ?? '', sequence: this.periodSequence(this.reportingPeriods().find((p) => p.id === periodId)!), lines: snapshot.lines.map((l) => ({ subjectCode: l.subjectCode, subjectLabel: l.subjectLabel, coef: l.coefficient, mark: l.mark, weighted: l.weighted, teacherRemark: l.teacherRemark ?? undefined, periodMarks: l.periodMarks ?? undefined, teacherName: l.teacherName, subjectGroupCode: l.subjectGroupCode, subjectGroupLabel: l.subjectGroupLabel })), average: snapshot.average, rank: snapshot.rank ?? 0, classSize: snapshot.classSize, classAverage: snapshot.classStats?.average ?? snapshot.average, validated: snapshot.state === 'VALIDATED' || snapshot.state === 'PUBLISHED', generalAppreciation: snapshot.generalAppreciation, financiallyBlocked: false, reportingPeriodId: snapshot.reportingPeriodId, reportingPeriodCode: snapshot.reportingPeriodCode, state: snapshot.state, complete: snapshot.complete, blockers: snapshot.blockers, snapshotHash: snapshot.snapshotHash, version: snapshot.version, attendance: snapshot.attendance, conduct: snapshot.conduct, groupStats: snapshot.groupStats ?? undefined });
         this.appreciationDraft.set(snapshot.generalAppreciation ?? '');
-      }, (e) => this.fail(e));
+      }, (e) => {
+        if (this.selectedStudentId() === id && this.selectedReportingPeriodId() === periodId) {
+          this.clearBulletinState();
+          this.fail(e);
+        }
+      });
     } else {
-      this.api.bulletin(id, this.sequence()).subscribe((b) => { this.bulletin.set(b); this.appreciationDraft.set(b.generalAppreciation ?? ''); });
+      const sequence = this.sequence();
+      this.api.bulletin(id, sequence).subscribe({
+        next: (b) => {
+          if (this.selectedStudentId() !== id || this.sequence() !== sequence) return;
+          this.bulletin.set(b); this.appreciationDraft.set(b.generalAppreciation ?? '');
+        },
+        error: (e) => {
+          if (this.selectedStudentId() === id && this.sequence() === sequence) {
+            this.clearBulletinState();
+            this.fail(e);
+          }
+        },
+      });
     }
   }
 
@@ -1303,14 +1392,35 @@ export class AcademicComponent {
       this.pv.set(null);
       return;
     }
+    this.pv.set(null);
+    const classId = this.selectedClassId();
+    const periodId = this.selectedReportingPeriodId();
     if (this.selectedClassId() && this.selectedReportingPeriodId()) {
-      this.api.sessionPv(this.selectedClassId(), this.selectedReportingPeriodId()).subscribe({
-        next: (p) => this.pv.set({ ...p, sequence: this.sequence() }),
-        error: (e) => this.fail(e),
+      this.api.sessionPv(classId, periodId).subscribe({
+        next: (p) => {
+          if (this.selectedClassId() === classId && this.selectedReportingPeriodId() === periodId) this.pv.set({ ...p, sequence: this.sequence() });
+        },
+        error: (e) => {
+          if (this.selectedClassId() === classId && this.selectedReportingPeriodId() === periodId) { this.pv.set(null); this.fail(e); }
+        },
       });
       return;
     }
-    this.api.pv(cls, this.sequence()).subscribe((p) => this.pv.set(p));
+    const sequence = this.sequence();
+    this.api.pv(cls, sequence).subscribe({
+      next: (p) => { if (this.selectedClass() === cls && this.sequence() === sequence) this.pv.set(p); },
+      error: (e) => { if (this.selectedClass() === cls && this.sequence() === sequence) { this.pv.set(null); this.fail(e); } },
+    });
+  }
+
+  private clearBulletinState(): void {
+    this.bulletin.set(null);
+    this.studentPhotoUrl.set(null);
+    this.appreciationDraft.set('');
+    this.officialDocument.set(null);
+    this.publicationDialog.set(false);
+    this.publicationTarget.set(null);
+    this.publicationReason = '';
   }
 
   protected validate(b: BulletinView): void {

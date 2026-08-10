@@ -25,7 +25,7 @@ interface ResultMeta { fr: string; en: string; badge: string; }
     <div class="fade-in max-w-6xl mx-auto">
       <bbc-page-header [title]="i18n.t('journey')"
         [subtitle]="fr() ? 'Parcours scolaire complet — année par année' : 'Full school journey — year by year'">
-        @if (canWrite) {
+        @if (canWrite()) {
           <a action routerLink="/journey/promotions"
             class="inline-flex items-center gap-2 h-9 px-4 text-sm font-semibold rounded-lg bg-brand-600 text-white hover:bg-brand-700">
             <bbc-icon name="route" [s]="16" /> {{ fr() ? 'Promotions de fin d’année' : 'End-of-year promotions' }}
@@ -56,7 +56,7 @@ interface ResultMeta { fr: string; en: string; badge: string; }
                   <div class="font-display text-lg font-bold text-ink">{{ journey()!.studentName }}</div>
                   <div class="text-xs text-mute">{{ journey()!.matricule }} · {{ fr() ? 'Classe actuelle' : 'Current class' }}: {{ journey()!.currentClass }}</div>
                 </div>
-                @if (canWrite) {
+                @if (canWrite()) {
                   <button (click)="toggleForm()"
                     class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-brand-600 text-white hover:bg-brand-700">
                     <bbc-icon name="plus" [s]="16" /> {{ fr() ? 'Ajouter une année' : 'Add a year' }}
@@ -71,7 +71,7 @@ interface ResultMeta { fr: string; en: string; badge: string; }
             </bbc-card>
 
             <!-- Add/edit form -->
-            @if (canWrite && showForm()) {
+            @if (canWrite() && showForm()) {
               <bbc-card [title]="editingId() ? (fr() ? 'Modifier l’année' : 'Edit year') : (fr() ? 'Nouvelle année' : 'New year')">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-2.5">
                   <input [(ngModel)]="draft.academicYear" [placeholder]="fr() ? 'Année (ex: 2024-2025)' : 'Year (e.g. 2024-2025)'"
@@ -162,7 +162,7 @@ interface ResultMeta { fr: string; en: string; badge: string; }
                             </div>
                           }
                         </div>
-                        @if (canWrite && !e.promotionBatchId) {
+                        @if (canWrite() && !e.promotionBatchId) {
                           <div class="flex items-center gap-1 self-center opacity-0 group-hover:opacity-100 transition">
                             <button (click)="edit(e)"
                               class="w-7 h-7 rounded text-mute hover:text-brand-600 hover:bg-brand-50 flex items-center justify-center"
@@ -222,7 +222,8 @@ export class JourneyComponent {
   protected voidReason = '';
   protected voidAttempted = signal(false);
 
-  protected canWrite = this.auth.can('journey', 'write');
+  /** Re-evaluate after login/refresh; a one-time boolean can be captured before the user arrives. */
+  protected canWrite = computed(() => this.auth.can('journey', 'write'));
   protected fr = () => this.i18n.lang() === 'fr';
 
   protected repeats = computed(() =>

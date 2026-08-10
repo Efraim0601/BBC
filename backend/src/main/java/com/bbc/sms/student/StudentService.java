@@ -14,8 +14,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
@@ -51,6 +54,34 @@ public class StudentService {
                 .filter(s -> allowed == null || (s.getClassId() != null && allowed.contains(s.getClassId())))
                 .filter(s -> inScope(scope, s.getLevel(), s.getSubsystem()))
                 .map(this::toView).toList();
+    }
+
+    /**
+     * Academic screens use the active enrollment in the requested session and
+     * class as their roster. Student.className/classId is only a current legacy
+     * projection and must not decide who appears in a historical or future
+     * session bulletin/PV.
+     */
+    @Transactional(readOnly = true)
+    public List<StudentView> roster(UUID sessionId, UUID classId) {
+        List<com.bbc.sms.foundation.enrollment.EnrollmentDtos.EnrollmentView> active =
+                enrollmentService.roster(sessionId, classId);
+        if (active.isEmpty()) return List.of();
+
+        Collection<UUID> studentIds = active.stream().map(e -> e.studentId()).toList();
+        Map<UUID, Student> students = new HashMap<>();
+        for (Student student : repo.findBySchoolIdAndIdInAndActiveTrue(TenantContext.get(), studentIds)) {
+            students.put(student.getId(), student);
+        }
+        Scope scope = ParcoursContext.get();
+        return active.stream()
+                .filter(e -> inScope(scope, e.level(), e.subsystem()))
+                .map(e -> {
+                    Student student = students.get(e.studentId());
+                    return student == null ? null : toView(student, e.classId(), e.className(), e.subsystem(), e.level());
+                })
+                .filter(java.util.Objects::nonNull)
+                .toList();
     }
 
     /**
@@ -308,10 +339,14 @@ public class StudentService {
     }
 
     private StudentView toView(Student s) {
+        return toView(s, s.getClassId(), s.getClassName(), s.getSubsystem(), s.getLevel());
+    }
+
+    private StudentView toView(Student s, UUID classId, String className, String subsystem, String level) {
         String name = s.getLastName().toUpperCase() + " " + s.getFirstName();
         return new StudentView(s.getId(), s.getMatricule(), s.getNiu(), s.getFirstName(), s.getLastName(),
                 name, s.getSex(), s.getDob(), s.getBirthplace(), s.isRepeats(),
-                s.getClassId(), s.getClassName(), s.getSubsystem(), s.getLevel(),
+                classId, className, subsystem, level,
                 s.getParentName(), s.getParentPhone(),
                 s.getFatherName(), s.getFatherPhone(), s.getFatherEmail(),
                 s.getMotherName(), s.getMotherPhone(), s.getMotherEmail(),
