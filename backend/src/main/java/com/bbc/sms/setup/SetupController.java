@@ -1,5 +1,6 @@
 package com.bbc.sms.setup;
 
+import com.bbc.sms.foundation.idempotency.IdempotencyService;
 import com.bbc.sms.setup.dto.SetupDtos.*;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -25,8 +26,12 @@ public class SetupController {
     private static final String WRITE = "@parcours.allows() and @perm.can('settings','write')";
 
     private final SetupService service;
+    private final CurriculumCopyService curriculumCopy;
+    private final IdempotencyService idempotency;
 
-    public SetupController(SetupService service) { this.service = service; }
+    public SetupController(SetupService service, CurriculumCopyService curriculumCopy, IdempotencyService idempotency) {
+        this.service = service; this.curriculumCopy = curriculumCopy; this.idempotency = idempotency;
+    }
 
     // ---- Sections -----------------------------------------------------------
     @GetMapping("/sections")
@@ -139,6 +144,21 @@ public class SetupController {
     public CurriculumView curriculum(@RequestParam UUID academicSessionId,
                                      @RequestParam UUID classId) {
         return service.curriculum(academicSessionId, classId);
+    }
+
+    @PostMapping("/curriculum/copy/preview")
+    @PreAuthorize(READ)
+    public CurriculumCopyPreview previewCurriculumCopy(@Valid @RequestBody CurriculumCopyPreviewRequest in) {
+        return curriculumCopy.preview(in);
+    }
+
+    @PostMapping("/curriculum/copy/apply")
+    @PreAuthorize(WRITE)
+    public CurriculumCopyPreview applyCurriculumCopy(
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @Valid @RequestBody CurriculumCopyApplyRequest in) {
+        return idempotency.execute("curriculum-copy:" + in.targetSessionId(), idempotencyKey,
+                in, CurriculumCopyPreview.class, () -> curriculumCopy.apply(in));
     }
 
     @PostMapping("/curriculum/groups")

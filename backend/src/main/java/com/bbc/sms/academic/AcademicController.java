@@ -231,7 +231,7 @@ public class AcademicController {
     }
 
     @PostMapping("/grade-entry/workflow")
-    @PreAuthorize("@perm.can('academic','write') and @perm.staffOnly()")
+    @PreAuthorize("@perm.canAction('GRADE_SUBMIT') and @perm.staffOnly()")
     public GradeEntryView gradeEntryWorkflow(@Valid @RequestBody GradeEntryReviewRequest request) {
         return gradeEntryService.submit(request);
     }

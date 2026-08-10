@@ -33,15 +33,17 @@ public class AcademicSessionService {
     private final AcademicReportingPeriodRepository reportingPeriods;
     private final AuditService audit;
     private final JdbcTemplate jdbc;
+    private final AcademicWindowPolicyService windows;
 
     public AcademicSessionService(AcademicSessionRepository sessions, AcademicTermRepository terms,
                                   AcademicReportingPeriodRepository reportingPeriods, AuditService audit,
-                                  JdbcTemplate jdbc) {
+                                  JdbcTemplate jdbc, AcademicWindowPolicyService windows) {
         this.sessions = sessions;
         this.terms = terms;
         this.reportingPeriods = reportingPeriods;
         this.audit = audit;
         this.jdbc = jdbc;
+        this.windows = windows;
     }
 
     @Transactional(readOnly = true)
@@ -301,20 +303,70 @@ public class AcademicSessionService {
         List<ReportingPeriodView> periods = reportingPeriods(sessionId);
         List<String> blockers = new ArrayList<>();
         List<String> actions = new ArrayList<>();
+        List<ReadinessSectionView> sections = new ArrayList<>();
+        List<ReadinessIssueView> structureIssues = new ArrayList<>();
         if (periods.isEmpty()) {
             blockers.add("REPORTING_STRUCTURE_MISSING");
             actions.add("Appliquez la structure standard S1–S6, T1–T3 et Annuel.");
+            structureIssues.add(new ReadinessIssueView("REPORTING_STRUCTURE_MISSING", "BLOCKER",
+                    "Reporting structure is missing", "Apply the standard reporting structure before opening grade entry.",
+                    "standard-structure", 1));
         }
         for (String code : List.of("S1", "S2", "S3", "S4", "S5", "S6", "T1_RESULT", "T2_RESULT", "T3_RESULT", "ANNUAL")) {
-            if (periods.stream().noneMatch(p -> code.equals(p.code()))) blockers.add("PERIOD_MISSING:" + code);
-        }
-        for (ReportingPeriodView p : periods) {
-            if (!AcademicPeriodRules.SEQUENCE.equalsIgnoreCase(p.periodType())) continue;
-            if (p.teacherSubmissionOpensAt() == null || p.teacherSubmissionClosesAt() == null
-                    || !p.teacherSubmissionClosesAt().isAfter(p.teacherSubmissionOpensAt())) {
-                blockers.add("TEACHER_WINDOW_NOT_CONFIGURED:" + p.code());
+            if (periods.stream().noneMatch(p -> code.equals(p.code()))) {
+                blockers.add("PERIOD_MISSING:" + code);
+                structureIssues.add(new ReadinessIssueView("PERIOD_MISSING", "BLOCKER", "Missing period " + code,
+                        "Add this reporting milestone to the session structure.", "standard-structure", 1));
             }
         }
+        sections.add(new ReadinessSectionView("STRUCTURE", "Reporting structure", structureIssues.isEmpty() ? "READY" : "BLOCKED",
+                structureIssues.isEmpty(), structureIssues));
+        List<ReadinessIssueView> windowIssues = new ArrayList<>();
+        for (ReportingPeriodView p : periods) {
+            if (!AcademicPeriodRules.SEQUENCE.equalsIgnoreCase(p.periodType())) continue;
+            AcademicWindowPolicyService.WindowView window = windows.effective(sessionId, p.id(), AcademicWindowPolicyService.Action.TEACHER_SUBMISSION);
+            if ("NOT_CONFIGURED".equals(window.state()) || "INVALID".equals(window.state())) {
+                blockers.add("TEACHER_WINDOW_NOT_CONFIGURED:" + p.code());
+                windowIssues.add(new ReadinessIssueView("TEACHER_WINDOW_NOT_CONFIGURED", "BLOCKER",
+                        "Teacher submission window missing", "Choose unrestricted or add an opening/closing limit for " + p.code() + ".",
+                        "window-rules", 1));
+            }
+        }
+        sections.add(new ReadinessSectionView("WINDOWS", "Workflow windows", windowIssues.isEmpty() ? "READY" : "BLOCKED",
+                windowIssues.isEmpty(), windowIssues));
+
+        int curriculumClasses = jdbc.queryForObject("""
+                SELECT count(DISTINCT class_id) FROM academic_curriculum_subject
+                 WHERE school_id=? AND academic_session_id=?
+                """, Integer.class, TenantContext.get(), sessionId);
+        List<ReadinessIssueView> curriculumIssues = new ArrayList<>();
+        if (curriculumClasses == 0) {
+            blockers.add("CURRICULUM_MISSING");
+            curriculumIssues.add(new ReadinessIssueView("CURRICULUM_MISSING", "BLOCKER", "Class-subject curricula missing",
+                    "Reuse or configure each class's subjects before grade entry.", "class-subjects", 1));
+        }
+        Integer missingAssignments = jdbc.queryForObject("""
+                SELECT count(*) FROM academic_curriculum_subject cur JOIN school_class c ON c.id=cur.class_id
+                 WHERE cur.school_id=? AND cur.academic_session_id=? AND (
+                   (lower(c.level)='secondary' AND NOT EXISTS (
+                      SELECT 1 FROM academic_class_subject_teacher ast
+                       WHERE ast.school_id=cur.school_id AND ast.academic_session_id=cur.academic_session_id
+                         AND ast.class_id=cur.class_id AND ast.subject_id=cur.subject_id
+                         AND ast.role='RESPONSIBLE' AND ast.active=true
+                         AND EXISTS (SELECT 1 FROM employee e WHERE e.id=ast.employee_id AND e.active=true)))
+                   OR (lower(c.level)<>'secondary' AND NOT EXISTS (
+                      SELECT 1 FROM class_teacher_assignment a
+                       WHERE a.school_id=cur.school_id AND a.academic_session_id=cur.academic_session_id
+                         AND a.class_id=cur.class_id AND a.role='HOMEROOM' AND a.status='ACTIVE')))
+                """, Integer.class, TenantContext.get(), sessionId);
+        if (missingAssignments != null && missingAssignments > 0) {
+            blockers.add("CURRICULUM_ASSIGNMENT_MISSING");
+            curriculumIssues.add(new ReadinessIssueView("CURRICULUM_ASSIGNMENT_MISSING", "BLOCKER",
+                    "Teacher assignment needs repair", "Some class subjects have no authoritative responsible teacher.",
+                    "class-subjects", missingAssignments));
+        }
+        sections.add(new ReadinessSectionView("CURRICULUM", "Curriculum and assignments",
+                curriculumIssues.isEmpty() ? "READY" : "BLOCKED", curriculumIssues.isEmpty(), curriculumIssues));
         if ("DRAFT".equals(session.getStatus())) {
             actions.add("Ouvrez la session après validation des fenêtres.");
         } else if ("OPEN".equals(session.getStatus()) && blockers.isEmpty()) {
@@ -323,7 +375,7 @@ public class AcademicSessionService {
         String phase = blockers.isEmpty() ? ("OPEN".equals(session.getStatus()) ? "READY" : "CONFIGURED") : "BLOCKED";
         String next = blockers.isEmpty() ? actions.stream().findFirst().orElse("Aucune action requise")
                 : actions.stream().findFirst().orElse("Corrigez les blocages affichés");
-        return new SessionReadinessView(sessionId, session.getStatus(), phase, blockers.isEmpty(), next, blockers, actions);
+        return new SessionReadinessView(sessionId, session.getStatus(), phase, blockers.isEmpty(), next, blockers, actions, sections);
     }
 
     private void validateProposedStructure(AcademicSession session, List<ReportingPeriodView> periods,

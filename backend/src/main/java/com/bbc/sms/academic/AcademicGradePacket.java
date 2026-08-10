@@ -19,6 +19,10 @@ public class AcademicGradePacket {
     @Column(name = "class_id", nullable = false) private UUID classId;
     @Column(name = "subject_code", nullable = false) private String subjectCode;
     @Column(name = "teacher_id") private UUID teacherId;
+    @Column(name = "responsible_assignment_id") private UUID responsibleAssignmentId;
+    @Column(name = "responsible_assignment_version") private Long responsibleAssignmentVersion;
+    @Column(name = "last_saved_by") private UUID lastSavedBy;
+    @Column(name = "last_saved_at") private Instant lastSavedAt;
     @Column(nullable = false) private String status = "DRAFT";
     @Column(name = "submitted_by") private UUID submittedBy;
     @Column(name = "submitted_at") private Instant submittedAt;

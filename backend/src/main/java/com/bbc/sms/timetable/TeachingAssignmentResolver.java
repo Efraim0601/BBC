@@ -48,10 +48,11 @@ public class TeachingAssignmentResolver {
         if (!"secondary".equalsIgnoreCase(level)) {
             List<AssignmentRow> rows = jdbc.query("""
                 SELECT a.id,a.employee_id,e.name,e.code,a.version,a.source
-                  FROM class_teacher_assignment a
+                 FROM class_teacher_assignment a
                   JOIN employee e ON e.id=a.employee_id
                  WHERE a.school_id=? AND a.academic_session_id=? AND a.class_id=?
                    AND a.role='HOMEROOM' AND a.status='ACTIVE'
+                   AND e.active=true
                    AND a.effective_from<=? AND (a.effective_to IS NULL OR a.effective_to>=?)
                  ORDER BY a.effective_from DESC,a.created_at DESC
                 """, (rs, n) -> new AssignmentRow(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class),
@@ -76,6 +77,7 @@ public class TeachingAssignmentResolver {
               JOIN employee e ON e.id=ast.employee_id
              WHERE ast.school_id=? AND ast.academic_session_id=? AND ast.class_id=?
                AND upper(s.code)=upper(?) AND ast.role='RESPONSIBLE' AND ast.active=true
+               AND e.active=true
                AND (ast.effective_from IS NULL OR ast.effective_from<=?)
                AND (ast.effective_to IS NULL OR ast.effective_to>=?)
              ORDER BY ast.effective_from DESC NULLS LAST,ast.created_at DESC

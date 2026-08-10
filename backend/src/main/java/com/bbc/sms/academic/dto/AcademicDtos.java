@@ -8,6 +8,7 @@ import jakarta.validation.constraints.NotNull;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.UUID;
 import java.util.List;
 
@@ -187,15 +188,44 @@ public class AcademicDtos {
                                            BigDecimal maxScore, BigDecimal weight,
                                            boolean mandatory, int displayOrder) {}
 
+    public record TeacherAssignmentReadinessView(String status, String code,
+                                                 UUID teacherId, String teacherName, String teacherCode,
+                                                 UUID assignmentId, long assignmentVersion,
+                                                 String source, String role,
+                                                 LocalDate effectiveFrom, LocalDate effectiveTo,
+                                                 String messageFr, String messageEn, boolean repairable) {}
+
+    public record GradeEntryBlockerView(String code, String subjectCode, String studentName,
+                                        String messageFr, String messageEn,
+                                        String repairTarget, String severity) {}
+
+    public record GradeEntryCapabilitiesView(boolean canEditDraft, boolean canSubmit,
+                                             boolean canReview, boolean restrictedTeacher,
+                                             String explanation) {}
+
     public record GradeEntrySubjectView(String code, String label, int coefficient,
                                         UUID teacherId, String teacherName,
                                         String status, String errorCode, String message,
-                                        boolean remarkRequired) {
+                                        boolean remarkRequired,
+                                        TeacherAssignmentReadinessView assignmentReadiness) {
         public GradeEntrySubjectView(String code, String label, int coefficient,
                                      UUID teacherId, String teacherName) {
             this(code, label, coefficient, teacherId, teacherName,
                     teacherId == null ? "MISSING" : "RESOLVED",
-                    teacherId == null ? "ASSIGNMENT_MISSING" : "ASSIGNMENT_RESOLVED", null, false);
+                    teacherId == null ? "ASSIGNMENT_MISSING" : "ASSIGNMENT_RESOLVED", null, false,
+                    teacherId == null
+                            ? new TeacherAssignmentReadinessView("MISSING", "ASSIGNMENT_MISSING", null, null, null,
+                            null, 0, null, null, null, null, null, null, true)
+                            : new TeacherAssignmentReadinessView("RESOLVED", "ASSIGNMENT_RESOLVED", teacherId, teacherName,
+                            null, null, 0, null, null, null, null, null, null, false));
+        }
+
+        public GradeEntrySubjectView(String code, String label, int coefficient,
+                                     UUID teacherId, String teacherName, String status,
+                                     String errorCode, String message, boolean remarkRequired) {
+            this(code, label, coefficient, teacherId, teacherName, status, errorCode, message,
+                    remarkRequired, new TeacherAssignmentReadinessView(status, errorCode, teacherId, teacherName,
+                            null, null, 0, null, null, null, null, message, message, teacherId == null));
         }
     }
 
@@ -214,7 +244,38 @@ public class AcademicDtos {
                                  List<GradeEntryStudentView> students,
                                  int totalStudents, int completedStudents,
                                  List<String> blockers,
-                                 List<GradeEntrySubjectView> availableSubjects) {}
+                                 List<GradeEntrySubjectView> availableSubjects,
+                                 List<GradeEntryBlockerView> completionBlockers,
+                                 List<GradeEntryBlockerView> submissionBlockers,
+                                 List<GradeEntryBlockerView> warnings,
+                                 TeacherAssignmentReadinessView assignmentReadiness,
+                                 GradeEntryCapabilitiesView capabilities) {
+        public GradeEntryView(UUID academicSessionId, UUID reportingPeriodId, UUID classId,
+                              String className, String subjectCode, String subjectLabel,
+                              int coefficient, UUID teacherId, String teacherName,
+                              String packetStatus, long packetVersion,
+                              List<GradeEntryAssessmentView> assessments,
+                              List<GradeEntryStudentView> students,
+                              int totalStudents, int completedStudents,
+                              List<String> blockers,
+                              List<GradeEntrySubjectView> availableSubjects) {
+            this(academicSessionId, reportingPeriodId, classId, className, subjectCode, subjectLabel,
+                    coefficient, teacherId, teacherName, packetStatus, packetVersion, assessments, students,
+                    totalStudents, completedStudents, blockers, availableSubjects,
+                    blockers.stream().map(message -> new GradeEntryBlockerView(
+                            "GRADE_ENTRY_INCOMPLETE", subjectCode, null, message, message,
+                            "grade-entry", "BLOCKER")).toList(),
+                    teacherId == null ? List.of(new GradeEntryBlockerView(
+                            "ASSIGNMENT_MISSING", subjectCode, null,
+                            "A responsible teacher assignment is required before submission.",
+                            "A responsible teacher assignment is required before submission.",
+                            "class-subjects", "BLOCKER")) : List.of(), List.of(),
+                    availableSubjects.stream().filter(x -> subjectCode.equalsIgnoreCase(x.code()))
+                            .findFirst().map(GradeEntrySubjectView::assignmentReadiness).orElse(null),
+                    new GradeEntryCapabilitiesView(true, teacherId != null && blockers.isEmpty(), false,
+                            false, null));
+        }
+    }
 
     public record GradeEntryCellUpsert(@NotNull UUID assessmentId, BigDecimal mark,
                                        String valueStatus, Long version) {}

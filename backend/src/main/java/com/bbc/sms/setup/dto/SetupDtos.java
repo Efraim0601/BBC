@@ -8,6 +8,7 @@ import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -95,7 +96,19 @@ public class SetupDtos {
                                         int displayOrder, int coefficient, BigDecimal maxScore,
                                         boolean mandatory, BigDecimal passThreshold,
                                         boolean showSubjectRank, boolean remarkRequired,
-                                        CurriculumTeacherView responsibleTeacher, long version) {}
+                                        CurriculumTeacherView responsibleTeacher, long version,
+                                        LocalDate activeFrom, LocalDate activeTo) {
+        public CurriculumSubjectView(UUID id, UUID subjectId, String subjectCode,
+                                     String subjectLabel, UUID groupId, String groupCode,
+                                     int displayOrder, int coefficient, BigDecimal maxScore,
+                                     boolean mandatory, BigDecimal passThreshold,
+                                     boolean showSubjectRank, boolean remarkRequired,
+                                     CurriculumTeacherView responsibleTeacher, long version) {
+            this(id, subjectId, subjectCode, subjectLabel, groupId, groupCode, displayOrder,
+                    coefficient, maxScore, mandatory, passThreshold, showSubjectRank,
+                    remarkRequired, responsibleTeacher, version, null, null);
+        }
+    }
 
     public record CurriculumView(UUID academicSessionId, String sessionCode, String sessionLabel,
                                  UUID classId, String className, List<SubjectGroupView> groups,
@@ -113,7 +126,65 @@ public class SetupDtos {
                                           Integer displayOrder, @Positive Integer coefficient,
                                           BigDecimal maxScore, Boolean mandatory,
                                           BigDecimal passThreshold, Boolean showSubjectRank,
-                                          Boolean remarkRequired, Long version) {}
+                                          Boolean remarkRequired, Long version,
+                                          LocalDate activeFrom, LocalDate activeTo) {
+        public CurriculumSubjectUpsert(UUID academicSessionId, UUID classId, UUID subjectId,
+                                       UUID groupId, Integer displayOrder, Integer coefficient,
+                                       BigDecimal maxScore, Boolean mandatory,
+                                       BigDecimal passThreshold, Boolean showSubjectRank,
+                                       Boolean remarkRequired, Long version) {
+            this(academicSessionId, classId, subjectId, groupId, displayOrder, coefficient,
+                    maxScore, mandatory, passThreshold, showSubjectRank, remarkRequired,
+                    version, null, null);
+        }
+    }
+
+    public record CurriculumCopyEdit(@NotBlank String key, @NotBlank String field, String value) {}
+
+    public record CurriculumCopyPreviewRequest(@NotNull UUID sourceSessionId,
+                                                UUID targetSessionId, List<UUID> classIds,
+                                                Boolean allMatchingClasses,
+                                                Boolean includeGroups, Boolean includeTeachers,
+                                                String mergeMode, List<String> selectedKeys,
+                                                List<CurriculumCopyEdit> edits) {
+        public CurriculumCopyPreviewRequest(UUID sourceSessionId, UUID targetSessionId, List<UUID> classIds,
+                                            Boolean allMatchingClasses, Boolean includeGroups, Boolean includeTeachers,
+                                            String mergeMode, List<String> selectedKeys) {
+            this(sourceSessionId, targetSessionId, classIds, allMatchingClasses, includeGroups, includeTeachers,
+                    mergeMode, selectedKeys, List.of());
+        }
+    }
+
+    public record CurriculumCopyRow(String key, UUID classId, String className,
+                                     UUID subjectId, String subjectCode, String subjectLabel,
+                                     String status, Map<String, Object> source,
+                                     Map<String, Object> proposed, Map<String, Object> existing,
+                                     String teacherStatus, String teacherMessage,
+                                     List<String> warnings, List<String> blockers) {}
+
+    public record CurriculumCopyPreview(UUID sourceSessionId, UUID targetSessionId,
+                                        int classCount, List<SubjectGroupView> groups,
+                                        List<CurriculumCopyRow> rows,
+                                        List<String> warnings, List<String> blockers,
+                                        String fingerprint, int createCount,
+                                        int updateCount, int keepCount) {}
+
+    public record CurriculumCopyApplyRequest(@NotNull UUID sourceSessionId,
+                                             UUID targetSessionId, List<UUID> classIds,
+                                             Boolean allMatchingClasses,
+                                             Boolean includeGroups, Boolean includeTeachers,
+                                             String mergeMode, List<String> selectedKeys,
+                                             List<CurriculumCopyEdit> edits,
+                                             @NotBlank String reason,
+                                             @NotBlank String previewFingerprint) {
+        public CurriculumCopyApplyRequest(UUID sourceSessionId, UUID targetSessionId, List<UUID> classIds,
+                                          Boolean allMatchingClasses, Boolean includeGroups, Boolean includeTeachers,
+                                          String mergeMode, List<String> selectedKeys, String reason,
+                                          String previewFingerprint) {
+            this(sourceSessionId, targetSessionId, classIds, allMatchingClasses, includeGroups, includeTeachers,
+                    mergeMode, selectedKeys, List.of(), reason, previewFingerprint);
+        }
+    }
 
     public record CurriculumTeacherUpsert(@NotNull UUID academicSessionId, @NotNull UUID classId,
                                           @NotNull UUID subjectId, @NotNull UUID employeeId,

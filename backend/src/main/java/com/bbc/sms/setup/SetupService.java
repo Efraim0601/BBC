@@ -529,14 +529,15 @@ public class SetupService {
                 "SELECT c.id, c.subject_id, s.code, COALESCE(s.label->>'fr', s.label->>'en', s.code), "
               + "c.group_id, g.code, c.display_order, c.coefficient, c.max_score, c.mandatory, c.pass_threshold, "
               + "c.show_subject_rank, c.remark_required, t.id, t.employee_id, t.employee_name, t.employee_code, "
-              + "t.role, t.source, t.active, t.version, c.version "
+              + "t.role, t.source, t.active, t.version, c.version, c.active_from, c.active_to "
               + "FROM academic_curriculum_subject c JOIN subject s ON s.id=c.subject_id "
               + "LEFT JOIN academic_subject_group g ON g.id=c.group_id "
               + "LEFT JOIN LATERAL (SELECT ast.id, ast.employee_id, e.name AS employee_name, e.code AS employee_code, "
               + "ast.role, ast.source, ast.active, ast.version FROM academic_class_subject_teacher ast "
-               + "JOIN employee e ON e.id=ast.employee_id WHERE ast.school_id=? AND ast.academic_session_id=? "
-               + "AND ast.class_id=? AND ast.subject_id=c.subject_id AND ast.active=true "
-               + "AND ?='secondary' "
+              + "JOIN employee e ON e.id=ast.employee_id WHERE ast.school_id=? AND ast.academic_session_id=? "
+              + "AND ast.class_id=? AND ast.subject_id=c.subject_id AND ast.active=true "
+              + "AND e.active=true "
+              + "AND ?='secondary' "
                + "ORDER BY CASE ast.role WHEN 'RESPONSIBLE' THEN 0 WHEN 'HOMEROOM' THEN 1 ELSE 2 END, ast.created_at LIMIT 1) t ON true "
               + "WHERE c.school_id=? AND c.academic_session_id=? AND c.class_id=? ORDER BY c.display_order, s.code",
                 (rs, n) -> {
@@ -545,16 +546,17 @@ public class SetupService {
                             rs.getObject(14, UUID.class), rs.getObject(15, UUID.class), rs.getString(16),
                             rs.getString(17), rs.getString(18), rs.getString(19), rs.getBoolean(20), rs.getLong(21));
                     return new CurriculumSubjectView(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class),
-                            rs.getString(3), rs.getString(4), rs.getObject(5, UUID.class), rs.getString(6),
-                            rs.getInt(7), rs.getInt(8), rs.getBigDecimal(9), rs.getBoolean(10), rs.getBigDecimal(11),
-                            rs.getBoolean(12), rs.getBoolean(13), teacher, rs.getLong(22));
+                             rs.getString(3), rs.getString(4), rs.getObject(5, UUID.class), rs.getString(6),
+                             rs.getInt(7), rs.getInt(8), rs.getBigDecimal(9), rs.getBoolean(10), rs.getBigDecimal(11),
+                             rs.getBoolean(12), rs.getBoolean(13), teacher, rs.getLong(22),
+                             rs.getObject(23, java.time.LocalDate.class), rs.getObject(24, java.time.LocalDate.class));
                  }, schoolId, academicSessionId, classId, cls.getLevel(), schoolId, academicSessionId, classId);
         CurriculumTeacherView homeroom = jdbc.query(
                 "SELECT a.id,a.employee_id,e.name,e.code,a.role,a.source,a.status='ACTIVE',a.version "
               + "FROM class_teacher_assignment a JOIN employee e ON e.id=a.employee_id "
               + "JOIN academic_session s ON s.id=a.academic_session_id "
               + "WHERE a.school_id=? AND a.academic_session_id=? AND a.class_id=? AND a.role='HOMEROOM' "
-              + "AND a.status='ACTIVE' AND a.effective_from<=s.end_date "
+              + "AND a.status='ACTIVE' AND e.active=true AND a.effective_from<=s.end_date "
               + "AND (a.effective_to IS NULL OR a.effective_to>=s.start_date) "
               + "ORDER BY a.effective_from DESC,a.created_at DESC LIMIT 1",
                 rs -> rs.next() ? new CurriculumTeacherView(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class),
@@ -635,14 +637,30 @@ public class SetupService {
         boolean remarkRequired = in.remarkRequired() == null ? current != null && (Boolean) current.get("remarkRequired") : in.remarkRequired();
         if (order < 1 || coefficient < 1) throw ApiException.badRequest("L'ordre et le coefficient doivent être supérieurs ou égaux à 1");
         if (maxScore.signum() <= 0 || threshold.signum() < 0 || threshold.compareTo(maxScore) > 0) throw ApiException.badRequest("Le barème et le seuil de réussite sont invalides");
+        Map<String, Object> sessionDates = jdbc.query("SELECT start_date,end_date FROM academic_session WHERE id=? AND school_id=?",
+                rs -> rs.next() ? Map.of("start", rs.getObject(1), "end", rs.getObject(2)) : null,
+                in.academicSessionId(), schoolId);
+        LocalDate activeFrom = in.activeFrom();
+        LocalDate activeTo = in.activeTo();
+        LocalDate sessionStart = sessionDates == null ? null : sqlDate(sessionDates.get("start"));
+        LocalDate sessionEnd = sessionDates == null ? null : sqlDate(sessionDates.get("end"));
+        if (activeFrom != null && activeTo != null && activeTo.isBefore(activeFrom)) {
+            throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST, "CURRICULUM_DATE_INVALID",
+                    "La période d'effet de la matière est invalide.", "activeTo", "activeTo must follow activeFrom.");
+        }
+        if (sessionStart != null && ((activeFrom != null && activeFrom.isBefore(sessionStart))
+                || (activeTo != null && activeTo.isAfter(sessionEnd)))) {
+            throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST, "CURRICULUM_DATE_OUTSIDE_SESSION",
+                    "La période d'effet doit rester dans la session.", "activeFrom", "Curriculum dates must stay inside the academic session.");
+        }
         if (current == null) {
-            jdbc.update("INSERT INTO academic_curriculum_subject(school_id,academic_session_id,class_id,subject_id,group_id,display_order,coefficient,max_score,mandatory,pass_threshold,show_subject_rank,remark_required) "
-                      + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                    schoolId, in.academicSessionId(), in.classId(), in.subjectId(), in.groupId(), order, coefficient, maxScore, mandatory, threshold, showRank, remarkRequired);
+            jdbc.update("INSERT INTO academic_curriculum_subject(school_id,academic_session_id,class_id,subject_id,group_id,display_order,coefficient,max_score,mandatory,pass_threshold,show_subject_rank,remark_required,active_from,active_to) "
+                      + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    schoolId, in.academicSessionId(), in.classId(), in.subjectId(), in.groupId(), order, coefficient, maxScore, mandatory, threshold, showRank, remarkRequired, activeFrom, activeTo);
         } else {
             assertVersion(in.version(), (Long) current.get("version"), "La configuration de matière");
-            int updated = jdbc.update("UPDATE academic_curriculum_subject SET group_id=?,display_order=?,coefficient=?,max_score=?,mandatory=?,pass_threshold=?,show_subject_rank=?,remark_required=?,updated_at=now(),version=version+1 WHERE id=? AND school_id=?",
-                    in.groupId(), order, coefficient, maxScore, mandatory, threshold, showRank, remarkRequired, current.get("id"), schoolId);
+            int updated = jdbc.update("UPDATE academic_curriculum_subject SET group_id=?,display_order=?,coefficient=?,max_score=?,mandatory=?,pass_threshold=?,show_subject_rank=?,remark_required=?,active_from=COALESCE(?,active_from),active_to=COALESCE(?,active_to),updated_at=now(),version=version+1 WHERE id=? AND school_id=?",
+                    in.groupId(), order, coefficient, maxScore, mandatory, threshold, showRank, remarkRequired, activeFrom, activeTo, current.get("id"), schoolId);
             if (updated != 1) throw ApiException.conflict("La configuration de matière a été modifiée entre-temps");
         }
         reorderCurriculumSubjects(schoolId, in.academicSessionId(), in.classId(), current == null

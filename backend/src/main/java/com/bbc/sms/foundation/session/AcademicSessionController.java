@@ -1,6 +1,7 @@
 package com.bbc.sms.foundation.session;
 
 import jakarta.validation.Valid;
+import com.bbc.sms.foundation.idempotency.IdempotencyService;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -16,9 +17,14 @@ public class AcademicSessionController {
     private final AcademicSessionService service;
     private final AcademicWindowOverrideService overrides;
     private final AcademicWindowPolicyService windows;
+    private final AcademicWindowRuleService windowRules;
+    private final AcademicConfigurationCopyService configurationCopy;
+    private final IdempotencyService idempotency;
     public AcademicSessionController(AcademicSessionService service, AcademicWindowOverrideService overrides,
-                                     AcademicWindowPolicyService windows) {
-        this.service = service; this.overrides = overrides; this.windows = windows;
+                                     AcademicWindowPolicyService windows, AcademicWindowRuleService windowRules,
+                                     AcademicConfigurationCopyService configurationCopy, IdempotencyService idempotency) {
+        this.service = service; this.overrides = overrides; this.windows = windows; this.windowRules = windowRules;
+        this.configurationCopy = configurationCopy; this.idempotency = idempotency;
     }
 
     @GetMapping @PreAuthorize("@perm.canAction('SESSION_VIEW')")
@@ -64,6 +70,36 @@ public class AcademicSessionController {
     @PreAuthorize("@perm.canAction('SESSION_VIEW')")
     public List<StructureDependencyView> dependencies(@PathVariable UUID sessionId) {
         return service.dependencies(sessionId);
+    }
+
+    @GetMapping("/{sessionId}/window-rules")
+    @PreAuthorize("@perm.canAction('SESSION_VIEW')")
+    public List<WorkflowWindowRuleView> windowRules(@PathVariable UUID sessionId) {
+        return windowRules.list(sessionId);
+    }
+
+    @PutMapping("/{sessionId}/window-rules")
+    @PreAuthorize("@perm.canAction('SESSION_MANAGE')")
+    public WorkflowWindowRuleView saveWindowRule(@PathVariable UUID sessionId,
+                                                  @Valid @RequestBody WorkflowWindowRuleUpsert in) {
+        return windowRules.upsert(sessionId, in);
+    }
+
+    @PostMapping("/{targetSessionId}/configuration-copy/preview")
+    @PreAuthorize("@perm.canAction('SESSION_VIEW')")
+    public ConfigurationCopyPreview previewConfigurationCopy(@PathVariable UUID targetSessionId,
+                                                              @Valid @RequestBody ConfigurationCopyPreviewRequest in) {
+        return configurationCopy.preview(targetSessionId, in);
+    }
+
+    @PostMapping("/{targetSessionId}/configuration-copy/apply")
+    @PreAuthorize("@perm.canAction('SESSION_MANAGE')")
+    public ConfigurationCopyPreview applyConfigurationCopy(@PathVariable UUID targetSessionId,
+                                                            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+                                                            @Valid @RequestBody ConfigurationCopyApplyRequest in) {
+        return idempotency.execute("academic-session-configuration-copy:" + targetSessionId,
+                idempotencyKey, in, ConfigurationCopyPreview.class,
+                () -> configurationCopy.apply(targetSessionId, in));
     }
 
     @PostMapping("/{sessionId}/reporting-periods")

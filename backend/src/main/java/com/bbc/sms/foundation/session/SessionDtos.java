@@ -6,6 +6,7 @@ import jakarta.validation.constraints.NotNull;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 public final class SessionDtos {
@@ -134,7 +135,81 @@ public final class SessionDtos {
 
     public record SessionReadinessView(UUID academicSessionId, String sessionStatus,
                                        String phase, boolean ready, String nextAction,
-                                       List<String> blockers, List<String> actions) {}
+                                       List<String> blockers, List<String> actions,
+                                       List<ReadinessSectionView> sections) {
+        public SessionReadinessView(UUID academicSessionId, String sessionStatus,
+                                    String phase, boolean ready, String nextAction,
+                                    List<String> blockers, List<String> actions) {
+            this(academicSessionId, sessionStatus, phase, ready, nextAction, blockers, actions, List.of());
+        }
+    }
+
+    public record ReadinessIssueView(String code, String severity, String label,
+                                     String detail, String repairTarget, int count) {}
+
+    public record ReadinessSectionView(String key, String label, String status, boolean ready,
+                                       List<ReadinessIssueView> issues) {}
+
+    public record WorkflowWindowRuleView(UUID id, UUID academicSessionId, String scopeType,
+                                         UUID academicTermId, UUID reportingPeriodId,
+                                         String action, String mode, Instant opensAt,
+                                         Instant closesAt, String timezone, long version,
+                                         String effectiveMode, String inheritedFrom) {}
+
+    public record WorkflowWindowRuleUpsert(@NotBlank String scopeType, UUID academicTermId,
+                                           UUID reportingPeriodId, @NotBlank String action,
+                                           @NotBlank String mode, Instant opensAt,
+                                           Instant closesAt, String timezone, Long version) {}
+
+    public record CopyScopeSelection(boolean terms, boolean reportingPeriods,
+                                     boolean dependencies, boolean workflowWindows) {
+        public static CopyScopeSelection all() { return new CopyScopeSelection(true, true, true, true); }
+    }
+
+    public record ConfigurationCopyEdit(@NotBlank String key, @NotBlank String field,
+                                        String value) {}
+
+    public record ConfigurationCopyPreviewRequest(@NotNull UUID sourceSessionId,
+                                                   String dateStrategy, String mergeMode,
+                                                   CopyScopeSelection scopes,
+                                                   List<ConfigurationCopyEdit> edits,
+                                                   List<String> selectedKeys) {
+        public ConfigurationCopyPreviewRequest(UUID sourceSessionId, String dateStrategy, String mergeMode,
+                                               CopyScopeSelection scopes, List<ConfigurationCopyEdit> edits) {
+            this(sourceSessionId, dateStrategy, mergeMode, scopes, edits, List.of());
+        }
+    }
+
+    public record ConfigurationCopyRow(String key, String kind, String code, String label,
+                                       String status, Map<String, Object> source,
+                                       Map<String, Object> proposed, Map<String, Object> existing,
+                                       List<String> warnings, List<String> blockers) {}
+
+    public record ConfigurationCopyPreview(UUID sourceSessionId, UUID targetSessionId,
+                                           String sourceLabel, String targetLabel,
+                                           String dateStrategy, String mergeMode,
+                                           CopyScopeSelection scopes,
+                                           List<ConfigurationCopyRow> terms,
+                                           List<ConfigurationCopyRow> reportingPeriods,
+                                           List<ConfigurationCopyRow> dependencies,
+                                           List<ConfigurationCopyRow> workflowWindows,
+                                           List<String> warnings, List<String> blockers,
+                                           String fingerprint, int createCount,
+                                           int updateCount, int keepCount) {}
+
+    public record ConfigurationCopyApplyRequest(@NotNull UUID sourceSessionId,
+                                                String dateStrategy, String mergeMode,
+                                                CopyScopeSelection scopes,
+                                                List<ConfigurationCopyEdit> edits,
+                                                List<String> selectedKeys,
+                                                @NotBlank String reason,
+                                                @NotBlank String previewFingerprint) {
+        public ConfigurationCopyApplyRequest(UUID sourceSessionId, String dateStrategy, String mergeMode,
+                                             CopyScopeSelection scopes, List<ConfigurationCopyEdit> edits,
+                                             String reason, String previewFingerprint) {
+            this(sourceSessionId, dateStrategy, mergeMode, scopes, edits, List.of(), reason, previewFingerprint);
+        }
+    }
 
     public record StandardStructureView(UUID academicSessionId, List<ReportingPeriodView> periods,
                                         List<String> warnings, boolean applied,

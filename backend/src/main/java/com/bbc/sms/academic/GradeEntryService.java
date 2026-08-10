@@ -74,7 +74,6 @@ public class GradeEntryService {
                 ? available.get(0).code() : requestedSubject.trim().toUpperCase(Locale.ROOT);
         GradeEntrySubjectView subject = available.stream().filter(x -> x.code().equalsIgnoreCase(subjectCode)).findFirst()
                 .orElseThrow(() -> ApiException.forbidden("Cette matière n'est pas affectée à la classe ou ne vous est pas attribuée"));
-        assertResolvedSubject(subject);
         assertSubjectAccess(classId, schoolClass.getName(), period.getAcademicSessionId(), period.getStartDate(), subjectCode);
 
         List<GradeEntryAssessmentView> definition = assessments.findApplicable(
@@ -106,11 +105,40 @@ public class GradeEntryService {
                     c == null ? null : c.getComment(), workflow);
         }).toList();
         List<String> blockers = blockers(definition, rows, subject.remarkRequired());
+        List<GradeEntryBlockerView> completionBlockers = completionBlockers(blockers, subjectCode);
+        List<GradeEntryBlockerView> submissionBlockers = new ArrayList<>(completionBlockers);
+        TeacherAssignmentReadinessView readiness = subject.assignmentReadiness();
+        if (!subjectReady(subject)) submissionBlockers.add(new GradeEntryBlockerView(
+                subject.errorCode() == null ? "ASSIGNMENT_MISSING" : subject.errorCode(), subject.code(), null,
+                subject.message() == null ? "A responsible teacher assignment is required before submission." : subject.message(),
+                subject.message() == null ? "A responsible teacher assignment is required before submission." : subject.message(),
+                "class-subjects", "BLOCKER"));
+        boolean restricted = restrictedTeacher();
+        boolean editableStatus = packet == null || Set.of("DRAFT", "RETURNED").contains(packet.getStatus());
+        boolean canEdit = editableStatus && (!restricted || subjectReady(subject));
+        boolean submissionWindowOpen = false;
+        AcademicWindowPolicyService.WindowView submissionWindow = null;
+        if (subjectReady(subject)) {
+            submissionWindow = windows.effective(period.getId(), AcademicWindowPolicyService.Action.TEACHER_SUBMISSION);
+            submissionWindowOpen = submissionWindow.open();
+            if (!submissionWindowOpen) {
+                String code = Set.of("SCHEDULED", "CLOSED").contains(submissionWindow.state())
+                        ? "WINDOW_CLOSED" : "WINDOW_NOT_CONFIGURED";
+                submissionBlockers.add(new GradeEntryBlockerView(code, subject.code(), null,
+                        "La fenÃªtre de soumission des enseignants n'est pas ouverte.",
+                        "The teacher-submission window is not open.", "academic-sessions", "BLOCKER"));
+            }
+        }
+        boolean canSubmit = canEdit && submissionWindowOpen && submissionBlockers.isEmpty();
+        boolean canReview = Set.of("admin", "principal", "dean_of_studies", "censor").contains(currentRole());
         int completed = (int) rows.stream().filter(r -> rowComplete(definition, r, subject.remarkRequired())).count();
         return new GradeEntryView(period.getAcademicSessionId(), periodId, classId, schoolClass.getName(),
                 subject.code(), subject.label(), subject.coefficient(), subject.teacherId(), subject.teacherName(),
                 packet == null ? "DRAFT" : packet.getStatus(), packet == null ? 0 : packet.getVersion(),
-                definition, rows, rows.size(), completed, blockers, available);
+                definition, rows, rows.size(), completed, blockers, available, completionBlockers,
+                submissionBlockers, List.of(), readiness,
+                new GradeEntryCapabilitiesView(canEdit, canSubmit, canReview, restricted,
+                        restricted && !subjectReady(subject) ? "Repair the responsible teacher assignment before editing or submitting." : null));
     }
 
     @Transactional
@@ -123,11 +151,11 @@ public class GradeEntryService {
         GradeEntrySubjectView subject = availableSubjects(period.getAcademicSessionId(), in.classId(), schoolClass.getName(), period.getStartDate()).stream()
                 .filter(x -> x.code().equalsIgnoreCase(subjectCode)).findFirst()
                 .orElseThrow(() -> ApiException.badRequest("La matière n'est pas affectée à cette classe"));
-        assertResolvedSubject(subject);
         assertSubjectAccess(in.classId(), schoolClass.getName(), period.getAcademicSessionId(), period.getStartDate(), subjectCode);
         invalidateValidatedBulletins(period.getId(), period.getAcademicSessionId(), in.classId());
-        AcademicGradePacket packet = packet(period, in.classId(), subjectCode, subject.teacherId());
+        AcademicGradePacket packet = packet(period, in.classId(), subjectCode, subject);
         String previousPacketStatus = packet.getStatus();
+        adoptAssignment(packet, subject);
         if ("ACCEPTED".equals(packet.getStatus()) || "LOCKED".equals(packet.getStatus())) {
             windows.assertOpen(period.getId(), AcademicWindowPolicyService.Action.CORRECTION);
             packet.setStatus("DRAFT");
@@ -171,7 +199,7 @@ public class GradeEntryService {
             comment.setComment(row.comment() == null ? null : row.comment().trim()); comment.setWorkflowStatus("DRAFT"); comment.setTeacherId(subject.teacherId());
             comments.save(comment);
         }
-        packet.setStatus("DRAFT"); packets.saveAndFlush(packet);
+        packet.setStatus("DRAFT"); packet.setLastSavedBy(currentUserId()); packet.setLastSavedAt(Instant.now()); packets.saveAndFlush(packet);
         recordPacketTransition(packet, previousPacketStatus, "DRAFT", "Correction draft saved");
         return view(period.getId(), in.classId(), subjectCode);
     }
@@ -209,9 +237,8 @@ public class GradeEntryService {
         teacherScope.assertClass(in.classId());
         String subjectCode = in.subjectCode().trim().toUpperCase(Locale.ROOT);
         GradeEntrySubjectView subject = availableSubjects(period.getAcademicSessionId(), in.classId(), schoolClass.getName(), period.getStartDate()).stream().filter(x -> x.code().equalsIgnoreCase(subjectCode)).findFirst().orElseThrow(() -> ApiException.badRequest("La matière n'est pas affectée à cette classe"));
-        assertResolvedSubject(subject);
         assertSubjectAccess(in.classId(), schoolClass.getName(), period.getAcademicSessionId(), period.getStartDate(), subjectCode);
-        AcademicGradePacket packet = packet(period, in.classId(), subjectCode, subject.teacherId());
+        AcademicGradePacket packet = packet(period, in.classId(), subjectCode, subject);
         String previousPacketStatus = packet.getStatus();
         if (in.packetVersion() != null && packet.getId() != null && in.packetVersion() != packet.getVersion()) throw ApiException.conflict("La feuille de saisie a été modifiée entre-temps. Rechargez-la.");
         if ("SUBMIT".equalsIgnoreCase(in.action())) {
@@ -220,7 +247,9 @@ public class GradeEntryService {
             }
             windows.assertOpen(period.getId(), AcademicWindowPolicyService.Action.TEACHER_SUBMISSION);
             GradeEntryView current = view(period.getId(), in.classId(), subjectCode);
-            if (!current.blockers().isEmpty()) throw ApiException.conflict("La saisie est incomplète : " + String.join("; ", current.blockers()));
+            if (!current.submissionBlockers().isEmpty()) throw ApiException.conflict(
+                    "La saisie ne peut pas être soumise tant que les éléments requis ne sont pas corrigés.");
+            adoptAssignment(packet, subject);
             packet.setStatus("SUBMITTED"); packet.setSubmittedBy(currentUserId()); packet.setSubmittedAt(Instant.now());
             updateWorkflow(period.getId(), in.classId(), subjectCode, "SUBMITTED");
         } else {
@@ -239,6 +268,7 @@ public class GradeEntryService {
             packet.setReviewedBy(currentUserId()); packet.setReviewedAt(Instant.now());
             updateWorkflow(period.getId(), in.classId(), subjectCode, packet.getStatus());
         }
+        packet.setLastSavedBy(currentUserId()); packet.setLastSavedAt(Instant.now());
         packets.saveAndFlush(packet);
         recordPacketTransition(packet, previousPacketStatus, packet.getStatus(), in.reason());
         return view(period.getId(), in.classId(), subjectCode);
@@ -267,16 +297,15 @@ public class GradeEntryService {
                     TeachingAssignmentResolver.Resolution resolved = assignments.resolve(sessionId, classId, code, effectiveDate);
                     return new GradeEntrySubjectView(code, rs.getString(2), rs.getInt(3), resolved.teacherId(),
                             resolved.teacherName(), resolved.status(), resolved.code(),
-                            resolved.messageFr(), rs.getBoolean(4));
+                            resolved.messageFr(), rs.getBoolean(4), assignmentReadiness(resolved));
                 }, TenantContext.get(), sessionId, classId, effectiveDate, effectiveDate);
     }
 
     private void assertSubjectAccess(UUID classId, String className, UUID sessionId,
                                      java.time.LocalDate effectiveDate, String subjectCode) {
+        if (!restrictedTeacher()) return;
         UUID employeeId = currentEmployeeId();
-        if (employeeId == null) return;
-        Boolean restricted = jdbc.queryForObject("SELECT ? IN ('teacher','form_teacher')", Boolean.class, currentRole());
-        if (!Boolean.TRUE.equals(restricted)) return;
+        if (employeeId == null) throw ApiException.forbidden("Votre compte enseignant n'est pas relié à un employé actif.");
         TeachingAssignmentResolver.Resolution resolved = assignments.resolve(sessionId, classId, subjectCode, effectiveDate);
         if (!resolved.available()) {
             throw ApiException.coded(org.springframework.http.HttpStatus.CONFLICT, resolved.code(),
@@ -287,12 +316,24 @@ public class GradeEntryService {
         }
     }
 
-    private void assertResolvedSubject(GradeEntrySubjectView subject) {
-        if (!"RESOLVED".equals(subject.status()) || subject.teacherId() == null) {
-            throw ApiException.coded(org.springframework.http.HttpStatus.CONFLICT,
-                    subject.errorCode() == null ? "ASSIGNMENT_MISSING" : subject.errorCode(),
-                    subject.message() == null ? "Affectation enseignant manquante." : subject.message());
-        }
+    private boolean subjectReady(GradeEntrySubjectView subject) {
+        return "RESOLVED".equals(subject.status()) && subject.teacherId() != null;
+    }
+
+    private boolean restrictedTeacher() {
+        return Set.of("teacher", "form_teacher").contains(currentRole().toLowerCase(Locale.ROOT));
+    }
+
+    private TeacherAssignmentReadinessView assignmentReadiness(TeachingAssignmentResolver.Resolution resolved) {
+        return new TeacherAssignmentReadinessView(resolved.status(), resolved.code(), resolved.teacherId(),
+                resolved.teacherName(), resolved.teacherCode(), resolved.assignmentId(), resolved.assignmentVersion(),
+                resolved.source(), resolved.source(), null, null, resolved.messageFr(), resolved.messageEn(),
+                !resolved.available());
+    }
+
+    private List<GradeEntryBlockerView> completionBlockers(List<String> blockers, String subjectCode) {
+        return blockers.stream().map(message -> new GradeEntryBlockerView(
+                "GRADE_ENTRY_INCOMPLETE", subjectCode, null, message, message, "grade-entry", "BLOCKER")).toList();
     }
 
     private List<RosterStudent> roster(UUID sessionId, UUID classId) {
@@ -306,11 +347,52 @@ public class GradeEntryService {
                 TenantContext.get(), sessionId, classId);
     }
 
-    private AcademicGradePacket packet(AcademicReportingPeriod period, UUID classId, String subjectCode, UUID teacherId) {
+    private AcademicGradePacket packet(AcademicReportingPeriod period, UUID classId, String subjectCode,
+                                       GradeEntrySubjectView subject) {
         return packets.findBySchoolIdAndReportingPeriodIdAndClassIdAndSubjectCode(TenantContext.get(), period.getId(), classId, subjectCode).orElseGet(() -> {
             AcademicGradePacket p = new AcademicGradePacket(); p.setSchoolId(TenantContext.get()); p.setAcademicSessionId(period.getAcademicSessionId());
-            p.setReportingPeriodId(period.getId()); p.setClassId(classId); p.setSubjectCode(subjectCode); p.setTeacherId(teacherId); return p;
+            p.setReportingPeriodId(period.getId()); p.setClassId(classId); p.setSubjectCode(subjectCode); return p;
         });
+    }
+
+    /** Assignment identity is adopted only by a mutable draft. Historical
+     * accepted/locked packets retain their provenance and cannot be silently
+     * reassigned when setup changes. */
+    private void adoptAssignment(AcademicGradePacket packet, GradeEntrySubjectView subject) {
+        if (packet.getId() != null && Set.of("ACCEPTED", "LOCKED").contains(packet.getStatus())) {
+            if (subjectReady(subject)
+                    && (!Objects.equals(packet.getTeacherId(), subject.teacherId())
+                    || !Objects.equals(packet.getResponsibleAssignmentId(), subject.assignmentReadiness().assignmentId())
+                    || !Objects.equals(packet.getResponsibleAssignmentVersion(), subject.assignmentReadiness().assignmentVersion()))) {
+                throw ApiException.conflict("Cette feuille historique conserve l'affectation utilisée lors de sa validation. Ouvrez une correction explicite avant toute nouvelle affectation.");
+            }
+            return;
+        }
+        packet.setTeacherId(subject.teacherId());
+        packet.setResponsibleAssignmentId(subject.assignmentReadiness() == null ? null : subject.assignmentReadiness().assignmentId());
+        packet.setResponsibleAssignmentVersion(subject.assignmentReadiness() == null ? null : subject.assignmentReadiness().assignmentVersion());
+        if (packet.getId() != null && subjectReady(subject)) syncMutableDraftOwnership(packet, subject.teacherId());
+    }
+
+    private void syncMutableDraftOwnership(AcademicGradePacket packet, UUID teacherId) {
+        jdbc.update("""
+                UPDATE academic_grade g SET teacher_id=?
+                 WHERE g.school_id=? AND g.academic_session_id=? AND g.reporting_period_id=?
+                   AND g.subject_code=? AND g.workflow_status IN ('DRAFT','RETURNED')
+                   AND g.student_id IN (SELECT e.student_id FROM student_enrollment e
+                                         WHERE e.school_id=? AND e.academic_session_id=?
+                                           AND e.school_class_id=? AND e.status='ACTIVE')
+                """, teacherId, TenantContext.get(), packet.getAcademicSessionId(), packet.getReportingPeriodId(),
+                packet.getSubjectCode(), TenantContext.get(), packet.getAcademicSessionId(), packet.getClassId());
+        jdbc.update("""
+                UPDATE subject_result_comment c SET teacher_id=?
+                 WHERE c.school_id=? AND c.academic_session_id=? AND c.reporting_period_id=?
+                   AND c.subject_code=? AND c.workflow_status IN ('DRAFT','RETURNED')
+                   AND c.student_id IN (SELECT e.student_id FROM student_enrollment e
+                                         WHERE e.school_id=? AND e.academic_session_id=?
+                                           AND e.school_class_id=? AND e.status='ACTIVE')
+                """, teacherId, TenantContext.get(), packet.getAcademicSessionId(), packet.getReportingPeriodId(),
+                packet.getSubjectCode(), TenantContext.get(), packet.getAcademicSessionId(), packet.getClassId());
     }
 
     private void recordPacketTransition(AcademicGradePacket packet, String from, String to, String reason) {
