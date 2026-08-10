@@ -10,6 +10,7 @@ import java.util.UUID;
 
 public interface TimetableSlotRepository extends JpaRepository<TimetableSlot, UUID> {
     List<TimetableSlot> findBySchoolIdAndClassId(UUID schoolId, UUID classId);
+    List<TimetableSlot> findBySchoolIdAndAcademicSessionId(UUID schoolId, UUID academicSessionId);
     List<TimetableSlot> findBySchoolIdAndAcademicSessionIdAndClassId(UUID schoolId, UUID academicSessionId, UUID classId);
     List<TimetableSlot> findBySchoolIdAndAcademicSessionIdAndTeacherIdOrderByDayIdxAscSlotIdxAsc(UUID schoolId, UUID academicSessionId, UUID teacherId);
     Optional<TimetableSlot> findBySchoolIdAndClassIdAndDayIdxAndSlotIdx(UUID schoolId, UUID classId, int dayIdx, int slotIdx);
