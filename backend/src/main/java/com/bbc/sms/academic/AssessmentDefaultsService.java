@@ -196,13 +196,22 @@ public class AssessmentDefaultsService {
                         TenantContext.get(), period.getId(), data.scope().classId(), subject.subjectCode());
                 AcademicAssessment current = existing.isEmpty() ? null : existing.get(0);
                 AssessmentDefaultsRowInput input = inputs.get(clientRowId);
-                String proposedCode = input != null && input.code() != null && !input.code().isBlank()
+                // Existing rows are a read model of what was actually saved. Do not
+                // reconstruct defaults here: an administrator may have changed the
+                // code, label, scale, weight, or submission requirement before the
+                // assessment was created.
+                String proposedCode = current != null ? current.getCode()
+                        : input != null && input.code() != null && !input.code().isBlank()
                         ? input.code() : defaultCode(period, subject);
-                String proposedLabel = input != null && input.label() != null && !input.label().isBlank()
+                String proposedLabel = current != null ? current.getLabel()
+                        : input != null && input.label() != null && !input.label().isBlank()
                         ? input.label() : defaultLabel(period, subject, data.scope().contentLanguage());
-                BigDecimal maxScore = input != null && input.maxScore() != null ? input.maxScore() : subject.maxScore();
-                BigDecimal weight = input != null && input.weight() != null ? input.weight() : BigDecimal.ONE;
-                boolean mandatory = input != null && input.mandatory() != null ? input.mandatory() : subject.mandatory();
+                BigDecimal maxScore = current != null ? current.getMaxScore()
+                        : input != null && input.maxScore() != null ? input.maxScore() : subject.maxScore();
+                BigDecimal weight = current != null ? current.getWeight()
+                        : input != null && input.weight() != null ? input.weight() : BigDecimal.ONE;
+                boolean mandatory = current != null ? current.isMandatory()
+                        : input != null && input.mandatory() != null ? input.mandatory() : subject.mandatory();
                 List<String> errors = current == null ? validate(proposedCode, proposedLabel, maxScore, weight) : List.of();
                 rows.add(new AssessmentDefaultsRow(clientRowId, period.getId(), period.getCode(), period.getLabel(),
                         subject.curriculumSubjectId(), subject.subjectCode().toUpperCase(Locale.ROOT),
