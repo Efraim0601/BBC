@@ -26,7 +26,7 @@ interface ResultMeta { fr: string; en: string; badge: string; }
       <bbc-page-header [title]="i18n.t('journey')"
         [subtitle]="fr() ? 'Parcours scolaire complet — année par année' : 'Full school journey — year by year'">
         @if (canWrite()) {
-          <a action routerLink="/journey/promotions"
+          <a right routerLink="/journey/promotions"
             class="inline-flex items-center gap-2 h-9 px-4 text-sm font-semibold rounded-lg bg-brand-600 text-white hover:bg-brand-700">
             <bbc-icon name="route" [s]="16" /> {{ fr() ? 'Promotions de fin d’année' : 'End-of-year promotions' }}
           </a>

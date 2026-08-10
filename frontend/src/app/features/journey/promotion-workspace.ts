@@ -17,7 +17,7 @@ import { JourneyApi, ProgressionGraphView, ProgressionPathView, PromotionBatchLi
     <div class="fade-in max-w-7xl mx-auto space-y-5">
       <bbc-page-header [title]="fr() ? 'Promotion de fin d’année' : 'End-of-year promotion'"
         [subtitle]="fr() ? 'Configurer le passage des classes, contrôler les recommandations et valider le transfert vers la prochaine session.' : 'Configure class progression, review recommendations and commit next-session enrollment.'">
-        <a action routerLink="/journey" class="h-9 px-4 rounded-lg border border-slate-300 bg-white text-sm font-semibold text-ink inline-flex items-center gap-2 hover:bg-slate-50">
+        <a right routerLink="/journey" class="h-9 px-4 rounded-lg border border-slate-300 bg-white text-sm font-semibold text-ink inline-flex items-center gap-2 hover:bg-slate-50">
           <bbc-icon name="book" [s]="16" /> {{ fr() ? 'Chronologie élève' : 'Student timeline' }}
         </a>
       </bbc-page-header>

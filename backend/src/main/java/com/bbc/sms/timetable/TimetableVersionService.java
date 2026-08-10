@@ -110,6 +110,7 @@ public class TimetableVersionService {
         jdbc.queryForObject("SELECT pg_advisory_xact_lock(hashtext(?))", Object.class,
                 school + ":timetable-version-publish:" + sessionId);
         List<Map<String, Object>> assignmentConflicts = new ArrayList<>();
+        Map<UUID, UUID> canonicalHomerooms = new LinkedHashMap<>();
         List<Map<String, Object>> slots = jdbc.queryForList(
                 "SELECT id,class_id,subject_code,day_idx,slot_idx FROM timetable_slot WHERE school_id=? AND timetable_version_id=? ORDER BY class_id,day_idx,slot_idx",
                 school, id);
@@ -131,9 +132,17 @@ public class TimetableVersionService {
                  WHERE id=? AND school_id=? AND timetable_version_id=?
                 """, resolved.teacherId(), resolved.assignmentId(), resolved.assignmentVersion(),
                     slot.get("id"), school, id);
+            if ("HOMEROOM".equals(resolved.source())) {
+                canonicalHomerooms.put((UUID) slot.get("class_id"), resolved.teacherId());
+            }
         }
         if (!assignmentConflicts.isEmpty()) throw ApiException.conflict("TIMETABLE_ASSIGNMENT_BLOCKED",
                 "Le planning contient des cours sans affectation canonique résolue.", assignmentConflicts);
+        canonicalHomerooms.forEach((classId, teacherId) -> jdbc.update("""
+            UPDATE timetable_class_config
+               SET homeroom_teacher_id=?, version=version+1, updated_at=now()
+             WHERE school_id=? AND academic_session_id=? AND class_id=? AND status='DRAFT'
+            """, teacherId, school, sessionId, classId));
         List<Map<String, Object>> resourceConflicts = resourceBlockers(sessionId, id);
         if (!resourceConflicts.isEmpty()) throw ApiException.conflict("TIMETABLE_RESOURCES_BLOCKED",
                 "Le planning contient des ressources indisponibles ou des salles trop petites.", resourceConflicts);

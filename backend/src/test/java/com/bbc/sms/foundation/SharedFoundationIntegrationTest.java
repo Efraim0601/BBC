@@ -20,6 +20,8 @@ import com.bbc.sms.journey.dto.JourneyPromotionDtos.PromotionActivationRequest;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.student.StudentService;
+import com.bbc.sms.timetable.TimetableVersionService;
+import com.bbc.sms.timetable.dto.TimetableVersionDtos.TimetableVersionActionRequest;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -66,6 +68,7 @@ class SharedFoundationIntegrationTest {
     @Autowired AttendanceWorkflowService attendance;
     @Autowired JourneyPromotionService promotions;
     @Autowired StudentService students;
+    @Autowired TimetableVersionService timetables;
 
     @BeforeEach
     void tenant() {
@@ -174,6 +177,46 @@ class SharedFoundationIntegrationTest {
 
         assertThat(roster).extracting(v -> v.id()).containsExactly(enrolledStudent);
         assertThat(roster.getFirst().className()).isEqualTo("CE1");
+    }
+
+    @Test
+    void timetablePublicationPersistsCanonicalPrimaryHomeroomAndPublishedSnapshot() {
+        UUID academicId = UUID.randomUUID();
+        UUID classId = UUID.randomUUID();
+        UUID teacherId = UUID.randomUUID();
+        UUID subjectId = UUID.randomUUID();
+        UUID assignmentId = UUID.randomUUID();
+        UUID versionId = UUID.randomUUID();
+        UUID slotId = UUID.randomUUID();
+        String sectionId = "t" + schoolId.toString().substring(0, 8);
+        jdbc.update("INSERT INTO section(id,school_id,label,subsystem,level) VALUES (?,?,?,'FR','primary')",
+                sectionId, schoolId, "Timetable");
+        jdbc.update("INSERT INTO school_class(id,school_id,section_id,name,subsystem,level) VALUES (?,?,?,'CE1 Timetable','FR','primary')",
+                classId, schoolId, sectionId);
+        jdbc.update("INSERT INTO academic_session(id,school_id,code,label,start_date,end_date,status,is_current) VALUES (?,?, '2026-2027','2026-2027','2026-09-01','2027-07-31','OPEN',true)",
+                academicId, schoolId);
+        jdbc.update("INSERT INTO employee(id,school_id,code,name,type,active,level) VALUES (?,?,?,'Primary Homeroom','Permanent',true,'primary')",
+                teacherId, schoolId, "TH-" + schoolId.toString().substring(0, 8));
+        jdbc.update("INSERT INTO subject(id,school_id,code,label,coef,subsystem) VALUES (?,?,?,'{\"fr\":\"Anglais\",\"en\":\"English\"}'::jsonb,1,'FR')",
+                subjectId, schoolId, "EN");
+        jdbc.update("INSERT INTO academic_curriculum_subject(id,school_id,academic_session_id,class_id,subject_id) VALUES (?,?,?,?,?)",
+                UUID.randomUUID(), schoolId, academicId, classId, subjectId);
+        jdbc.update("INSERT INTO class_teacher_assignment(id,school_id,academic_session_id,class_id,employee_id,role,effective_from,status,source) VALUES (?,?,?,?,?,'HOMEROOM','2026-09-01','ACTIVE','ACADEMIC_SETUP')",
+                assignmentId, schoolId, academicId, classId, teacherId);
+        jdbc.update("INSERT INTO timetable_class_config(id,school_id,academic_session_id,class_id,model,status) VALUES (?,?,?,?,'HOMEROOM','DRAFT')",
+                UUID.randomUUID(), schoolId, academicId, classId);
+        jdbc.update("INSERT INTO timetable_version(id,school_id,academic_session_id,version_no,status,effective_from,effective_to) VALUES (?,?,?,1,'DRAFT','2026-09-01','2027-07-31')",
+                versionId, schoolId, academicId);
+        jdbc.update("INSERT INTO timetable_slot(id,school_id,class_id,academic_session_id,day_idx,slot_idx,subject_code,timetable_version_id) VALUES (?,?,?,?,0,0,'EN',?)",
+                slotId, schoolId, classId, academicId, versionId);
+
+        var published = timetables.publish(versionId, new TimetableVersionActionRequest("Canonical publication", 0L));
+
+        assertThat(published.status()).isEqualTo("PUBLISHED");
+        assertThat(jdbc.queryForObject("SELECT homeroom_teacher_id FROM timetable_class_config WHERE id IS NOT NULL AND school_id=? AND academic_session_id=? AND class_id=?", UUID.class,
+                schoolId, academicId, classId)).isEqualTo(teacherId);
+        assertThat(jdbc.queryForObject("SELECT published_teacher_id FROM timetable_slot WHERE id=?", UUID.class, slotId)).isEqualTo(teacherId);
+        assertThat(jdbc.queryForObject("SELECT published_assignment_id FROM timetable_slot WHERE id=?", UUID.class, slotId)).isEqualTo(assignmentId);
     }
 
     @Test
