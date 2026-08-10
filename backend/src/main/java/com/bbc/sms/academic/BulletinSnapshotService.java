@@ -559,7 +559,7 @@ public class BulletinSnapshotService {
             List<AssessmentEvidenceView> secondaryEvidence = secondaryClass
                     ? secondaryCompetencyEvidence(studentId, period, classId, subjectCode, competencyLocale)
                     : List.of();
-            if (secondaryClass) {
+            if (secondaryClass && applicable.isEmpty()) {
                 if (!secondaryEvidence.isEmpty()) {
                     // Secondary classes use the published, versioned competency model
                     // as their evidence source.  The primary APC assessment catalog is

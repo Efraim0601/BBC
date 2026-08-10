@@ -1,5 +1,7 @@
 package com.bbc.sms.foundation.session;
 
+import com.bbc.sms.academic.AcademicPeriodRules;
+
 import com.bbc.sms.foundation.audit.AuditService;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.tenant.TenantContext;
@@ -307,6 +309,7 @@ public class AcademicSessionService {
             if (periods.stream().noneMatch(p -> code.equals(p.code()))) blockers.add("PERIOD_MISSING:" + code);
         }
         for (ReportingPeriodView p : periods) {
+            if (!AcademicPeriodRules.SEQUENCE.equalsIgnoreCase(p.periodType())) continue;
             if (p.teacherSubmissionOpensAt() == null || p.teacherSubmissionClosesAt() == null
                     || !p.teacherSubmissionClosesAt().isAfter(p.teacherSubmissionOpensAt())) {
                 blockers.add("TEACHER_WINDOW_NOT_CONFIGURED:" + p.code());
@@ -349,6 +352,13 @@ public class AcademicSessionService {
                 throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST, "PERIOD_TYPE_INVALID",
                         "Le type de période est invalide.", "periodType", "Use SEQUENCE, TERM_RESULT, or ANNUAL_RESULT.");
             }
+            if (!AcademicPeriodRules.SEQUENCE.equalsIgnoreCase(period.periodType())
+                    && (period.gradeEntryOpensAt() != null || period.gradeEntryClosesAt() != null
+                    || period.teacherSubmissionOpensAt() != null || period.teacherSubmissionClosesAt() != null)) {
+                throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST, "RAW_WINDOW_NOT_APPLICABLE",
+                        "Les fenÃªtres de saisie et de soumission ne s'appliquent qu'aux sÃ©quences.",
+                        "gradeEntryOpensAt", "Les rÃ©sultats calculÃ©s n'acceptent pas de notes brutes.");
+            }
             if (period.academicTermId() != null) {
                 Integer termCount = jdbc.queryForObject("SELECT count(*) FROM academic_term WHERE id=? AND school_id=? AND academic_session_id=?",
                         Integer.class, period.academicTermId(), session.getSchoolId(), session.getId());
@@ -366,6 +376,7 @@ public class AcademicSessionService {
         }
         if (dependencies == null || dependencies.isEmpty()) return;
         Set<String> edges = new HashSet<>();
+        validateDependencyGraph(periods, dependencies);
         for (StructureDependencyView dependency : dependencies) {
             String parent = dependency.parentCode() == null ? "" : dependency.parentCode().trim().toUpperCase(Locale.ROOT);
             String child = dependency.childCode() == null ? "" : dependency.childCode().trim().toUpperCase(Locale.ROOT);
@@ -386,6 +397,47 @@ public class AcademicSessionService {
                         "La dépendance est dupliquée.", "dependencies", "Duplicate reporting dependency.");
             }
         }
+    }
+
+    private static void validateDependencyGraph(List<ReportingPeriodView> periods,
+                                                List<StructureDependencyView> dependencies) {
+        Map<String, String> types = new LinkedHashMap<>();
+        periods.forEach(p -> types.put(p.code().trim().toUpperCase(Locale.ROOT), p.periodType()));
+        Map<String, Set<String>> graph = new LinkedHashMap<>();
+        for (StructureDependencyView dependency : dependencies) {
+            String parent = dependency.parentCode() == null ? "" : dependency.parentCode().trim().toUpperCase(Locale.ROOT);
+            String child = dependency.childCode() == null ? "" : dependency.childCode().trim().toUpperCase(Locale.ROOT);
+            String parentType = types.get(parent), childType = types.get(child);
+            if (AcademicPeriodRules.SEQUENCE.equalsIgnoreCase(parentType)
+                    || (AcademicPeriodRules.TERM_RESULT.equalsIgnoreCase(parentType)
+                    && !AcademicPeriodRules.SEQUENCE.equalsIgnoreCase(childType))
+                    || (AcademicPeriodRules.ANNUAL_RESULT.equalsIgnoreCase(parentType)
+                    && !AcademicPeriodRules.TERM_RESULT.equalsIgnoreCase(childType))) {
+                throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST, "DEPENDENCY_TYPE_INVALID",
+                        "Les rÃ©sultats calculÃ©s doivent dÃ©pendre du niveau de rÃ©sultat prÃ©cÃ©dent.", "dependencies",
+                        "Use sequence children for trimester results and trimester children for the annual result.");
+            }
+            graph.computeIfAbsent(parent, ignored -> new HashSet<>()).add(child);
+        }
+        Set<String> visiting = new HashSet<>(), visited = new HashSet<>();
+        for (String node : graph.keySet()) if (hasCycle(node, graph, visiting, visited)) {
+            throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST, "DEPENDENCY_CYCLE",
+                    "Les dÃ©pendances de rÃ©sultats ne peuvent pas former de cycle.", "dependencies",
+                    "Reporting period dependencies must be acyclic.");
+        }
+    }
+
+    private static boolean hasCycle(String node, Map<String, Set<String>> graph,
+                                    Set<String> visiting, Set<String> visited) {
+        if (visiting.contains(node)) return true;
+        if (visited.contains(node)) return false;
+        visiting.add(node);
+        for (String child : graph.getOrDefault(node, Set.of())) {
+            if (hasCycle(child, graph, visiting, visited)) return true;
+        }
+        visiting.remove(node);
+        visited.add(node);
+        return false;
     }
 
     private List<StructureDependencyView> normalizeDependencies(List<ReportingPeriodView> actual,
@@ -675,6 +727,11 @@ public class AcademicSessionService {
     }
 
     private static void validateWindows(AcademicReportingPeriod p) {
+        if (!AcademicPeriodRules.SEQUENCE.equalsIgnoreCase(p.getPeriodType())
+                && (p.getGradeEntryOpensAt() != null || p.getGradeEntryClosesAt() != null
+                || p.getTeacherSubmissionOpensAt() != null || p.getTeacherSubmissionClosesAt() != null)) {
+            throw ApiException.badRequest("Les fenÃªtres de saisie et de soumission ne s'appliquent qu'aux sÃ©quences");
+        }
         validateWindow(p.getGradeEntryOpensAt(), p.getGradeEntryClosesAt(), "saisie des notes");
         validateWindow(p.getReviewOpensAt(), p.getReviewClosesAt(), "revue");
         validateWindow(p.getValidationOpensAt(), p.getValidationClosesAt(), "validation");

@@ -27,7 +27,7 @@ public final class SecondaryCompetencyDtos {
 
     public record ModelRequest(@NotNull UUID academicSessionId, @NotNull UUID reportingPeriodId,
                                @NotNull UUID classId, @NotNull UUID subjectId,
-                               @NotBlank String locale, @NotBlank String name,
+                               String locale, @NotBlank String name,
                                @Valid @NotNull List<CompetencyInput> competencies) {}
 
     public record CompetencyInput(@NotBlank String code, @NotBlank String description,

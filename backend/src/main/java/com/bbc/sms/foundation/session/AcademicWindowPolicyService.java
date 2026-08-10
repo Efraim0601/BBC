@@ -1,5 +1,6 @@
 package com.bbc.sms.foundation.session;
 
+import com.bbc.sms.academic.AcademicPeriodRules;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.tenant.TenantContext;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -32,6 +33,11 @@ public class AcademicWindowPolicyService {
 
     public void assertOpen(UUID periodId, Action action) {
         AcademicReportingPeriod period = period(periodId);
+        if (AcademicPeriodRules.isComputed(period) && isRawAction(action)) {
+            throw ApiException.coded(org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "ASSESSMENT_SEQUENCE_ONLY",
+                    "Les évaluations et les notes ne peuvent être configurées que pour les séquences S1 à S6. Les résultats calculés sont en lecture seule.");
+        }
         WindowSelection selected = effectiveWindow(period, action);
         if (selected.open() == null || selected.close() == null) {
             throw ApiException.coded(org.springframework.http.HttpStatus.CONFLICT, "WINDOW_NOT_CONFIGURED",
@@ -58,6 +64,11 @@ public class AcademicWindowPolicyService {
         AcademicReportingPeriod period = period(periodId);
         if (sessionId != null && !sessionId.equals(period.getAcademicSessionId())) {
             throw ApiException.notFound("Période de résultat");
+        }
+        if (AcademicPeriodRules.isComputed(period) && isRawAction(action)) {
+            return new WindowView(period.getId(), period.getCode(), period.getLabel(), action.name(),
+                    null, null, "NOT_APPLICABLE", null, null, false, "NOT_APPLICABLE",
+                    "NOT_APPLICABLE", null, List.of("COMPUTED_RESULT_PERIOD"), period.getTimezone());
         }
         WindowSelection configured = configuredWindow(period, action);
         WindowSelection selected = effectiveWindow(period, action);
@@ -202,6 +213,10 @@ public class AcademicWindowPolicyService {
             case PUBLICATION -> "publication";
             case CORRECTION -> "correction";
         };
+    }
+
+    private static boolean isRawAction(Action action) {
+        return action == Action.GRADE_ENTRY || action == Action.TEACHER_SUBMISSION;
     }
 
     private record WindowSelection(Instant open, Instant close, String source, String timezone) {

@@ -63,6 +63,7 @@ public class GradeEntryService {
     @Transactional(readOnly = true)
     public GradeEntryView view(UUID periodId, UUID classId, String requestedSubject) {
         AcademicReportingPeriod period = period(periodId);
+        AcademicPeriodRules.assertRawGradePeriod(period);
         SchoolClass schoolClass = schoolClass(classId);
         teacherScope.assertClass(classId);
         List<GradeEntrySubjectView> available = availableSubjects(period.getAcademicSessionId(), classId, schoolClass.getName(), period.getStartDate());
@@ -115,6 +116,7 @@ public class GradeEntryService {
     @Transactional
     public GradeEntryView save(GradeEntrySaveRequest in) {
         AcademicReportingPeriod period = period(in.reportingPeriodId());
+        AcademicPeriodRules.assertRawGradePeriod(period);
         SchoolClass schoolClass = schoolClass(in.classId());
         teacherScope.assertClass(in.classId());
         String subjectCode = in.subjectCode().trim().toUpperCase(Locale.ROOT);
@@ -202,6 +204,7 @@ public class GradeEntryService {
     @Transactional
     public GradeEntryView submit(GradeEntryReviewRequest in) {
         AcademicReportingPeriod period = period(in.reportingPeriodId());
+        AcademicPeriodRules.assertRawGradePeriod(period);
         SchoolClass schoolClass = schoolClass(in.classId());
         teacherScope.assertClass(in.classId());
         String subjectCode = in.subjectCode().trim().toUpperCase(Locale.ROOT);

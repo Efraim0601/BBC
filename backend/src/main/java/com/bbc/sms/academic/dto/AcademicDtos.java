@@ -39,6 +39,47 @@ public class AcademicDtos {
                                    boolean mandatory, @Min(1) int displayOrder, Long version,
                                    UUID classId, String subjectCode) {}
 
+    public record AssessmentDefaultsPreviewRequest(@NotNull UUID academicSessionId,
+                                                   @NotNull UUID classId,
+                                                   @NotBlank String mode,
+                                                   UUID reportingPeriodId,
+                                                   List<AssessmentDefaultsRowInput> rows,
+                                                   String scopeFingerprint) {}
+
+    public record AssessmentDefaultsRowInput(@NotBlank String clientRowId,
+                                             @NotNull UUID reportingPeriodId,
+                                             @NotBlank String subjectCode,
+                                             String code, String label,
+                                             BigDecimal maxScore, BigDecimal weight,
+                                             Boolean mandatory) {}
+
+    public record AssessmentDefaultsRow(String clientRowId, UUID reportingPeriodId,
+                                        String reportingPeriodCode, String reportingPeriodLabel,
+                                        UUID curriculumSubjectId, String subjectCode,
+                                        String subjectLabel, int coefficient,
+                                        BigDecimal maxScore, BigDecimal weight,
+                                        boolean mandatory, UUID teacherId,
+                                        String teacherName, String teacherStatus,
+                                        String proposedCode, String proposedLabel,
+                                        String status, List<String> errors,
+                                        UUID existingAssessmentId, long existingVersion) {}
+
+    public record AssessmentDefaultsPeriod(UUID reportingPeriodId, String code,
+                                           String label, List<AssessmentDefaultsRow> rows) {}
+
+    public record AssessmentDefaultsPreview(UUID academicSessionId, UUID classId,
+                                            String className, String subsystem,
+                                            String contentLanguage, String mode,
+                                            String scopeFingerprint,
+                                            List<AssessmentDefaultsPeriod> periods,
+                                            int totalRows, int proposedRows,
+                                            int existingRows, int excludedRows) {}
+
+    public record AssessmentDefaultsApplyResponse(AssessmentDefaultsPreview preview,
+                                                  UUID generationBatchId,
+                                                  int createdCount, int existingCount,
+                                                  int skippedCount) {}
+
     public record AcademicGradeView(UUID id, UUID academicSessionId, UUID reportingPeriodId,
                                     UUID assessmentId, UUID studentId, UUID enrollmentId,
                                     String subjectCode, BigDecimal mark, String valueStatus,

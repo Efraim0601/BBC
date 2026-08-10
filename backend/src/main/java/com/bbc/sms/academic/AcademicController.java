@@ -3,6 +3,7 @@ package com.bbc.sms.academic;
 import com.bbc.sms.academic.dto.AcademicDtos.*;
 import com.bbc.sms.documents.OfficialDocumentDtos.GeneratedDocumentView;
 import com.bbc.sms.documents.OfficialDocumentService;
+import com.bbc.sms.foundation.idempotency.IdempotencyService;
 import jakarta.validation.Valid;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
@@ -28,8 +29,10 @@ public class AcademicController {
     private final ReportCardBatchJobService reportCardBatchJobService;
     private final ReportCardPdfService reportCardPdfService;
     private final OfficialDocumentService officialDocuments;
+    private final AssessmentDefaultsService assessmentDefaults;
+    private final IdempotencyService idempotency;
 
-    public AcademicController(AcademicService service, SessionAcademicService sessionService, BulletinSnapshotService snapshotService, GradeEntryService gradeEntryService, ReportCardInputService reportCardInputService, ReportCardBatchService reportCardBatchService, ReportCardBatchJobService reportCardBatchJobService, ReportCardPdfService reportCardPdfService, OfficialDocumentService officialDocuments) { this.service = service; this.sessionService = sessionService; this.snapshotService = snapshotService; this.gradeEntryService = gradeEntryService; this.reportCardInputService = reportCardInputService; this.reportCardBatchService = reportCardBatchService; this.reportCardBatchJobService = reportCardBatchJobService; this.reportCardPdfService = reportCardPdfService; this.officialDocuments = officialDocuments; }
+    public AcademicController(AcademicService service, SessionAcademicService sessionService, BulletinSnapshotService snapshotService, GradeEntryService gradeEntryService, ReportCardInputService reportCardInputService, ReportCardBatchService reportCardBatchService, ReportCardBatchJobService reportCardBatchJobService, ReportCardPdfService reportCardPdfService, OfficialDocumentService officialDocuments, AssessmentDefaultsService assessmentDefaults, IdempotencyService idempotency) { this.service = service; this.sessionService = sessionService; this.snapshotService = snapshotService; this.gradeEntryService = gradeEntryService; this.reportCardInputService = reportCardInputService; this.reportCardBatchService = reportCardBatchService; this.reportCardBatchJobService = reportCardBatchJobService; this.reportCardPdfService = reportCardPdfService; this.officialDocuments = officialDocuments; this.assessmentDefaults = assessmentDefaults; this.idempotency = idempotency; }
 
     @GetMapping("/students/{studentId}/grades")
     @PreAuthorize("@perm.can('academic','read') and @perm.staffOnly()")
@@ -55,6 +58,35 @@ public class AcademicController {
     @PostMapping("/assessments")
     @PreAuthorize("@perm.can('academic','write') and @perm.staffOnly()")
     public AssessmentView createAssessment(@Valid @RequestBody AssessmentUpsert in) { return sessionService.createAssessment(in); }
+
+    @PutMapping("/assessments/{id}")
+    @PreAuthorize("@perm.can('academic','write') and @perm.staffOnly()")
+    public AssessmentView updateAssessment(@PathVariable UUID id, @Valid @RequestBody AssessmentUpsert in) {
+        return sessionService.updateAssessment(id, in);
+    }
+
+    @DeleteMapping("/assessments/{id}")
+    @PreAuthorize("@perm.can('academic','write') and @perm.staffOnly()")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteAssessment(@PathVariable UUID id, @RequestParam(required = false) Long version) {
+        sessionService.deleteAssessment(id, version);
+    }
+
+    @PostMapping("/assessment-defaults/preview")
+    @PreAuthorize("@perm.can('academic','read') and @perm.staffOnly()")
+    public AssessmentDefaultsPreview previewAssessmentDefaults(
+            @Valid @RequestBody AssessmentDefaultsPreviewRequest request) {
+        return assessmentDefaults.preview(request);
+    }
+
+    @PostMapping("/assessment-defaults/apply")
+    @PreAuthorize("@perm.can('academic','write') and @perm.staffOnly()")
+    public AssessmentDefaultsApplyResponse applyAssessmentDefaults(
+            @Valid @RequestBody AssessmentDefaultsPreviewRequest request,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+        return idempotency.execute("academic.assessment-defaults.apply", idempotencyKey, request,
+                AssessmentDefaultsApplyResponse.class, () -> assessmentDefaults.apply(request, idempotencyKey));
+    }
 
     @GetMapping("/students/{studentId}/session-grades")
     @PreAuthorize("@perm.can('academic','read') and @perm.staffOnly()")
