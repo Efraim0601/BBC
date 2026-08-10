@@ -188,6 +188,7 @@ class SharedFoundationIntegrationTest {
         UUID assignmentId = UUID.randomUUID();
         UUID versionId = UUID.randomUUID();
         UUID slotId = UUID.randomUUID();
+        UUID unrelatedClassId = UUID.randomUUID();
         String sectionId = "t" + schoolId.toString().substring(0, 8);
         jdbc.update("INSERT INTO section(id,school_id,label,subsystem,level) VALUES (?,?,?,'FR','primary')",
                 sectionId, schoolId, "Timetable");
@@ -205,6 +206,10 @@ class SharedFoundationIntegrationTest {
                 assignmentId, schoolId, academicId, classId, teacherId);
         jdbc.update("INSERT INTO timetable_class_config(id,school_id,academic_session_id,class_id,model,status) VALUES (?,?,?,?,'HOMEROOM','DRAFT')",
                 UUID.randomUUID(), schoolId, academicId, classId);
+        jdbc.update("INSERT INTO school_class(id,school_id,section_id,name,subsystem,level) VALUES (?,?,?,'CP Unrelated','FR','primary')",
+                unrelatedClassId, schoolId, sectionId);
+        jdbc.update("INSERT INTO timetable_class_config(id,school_id,academic_session_id,class_id,model,status) VALUES (?,?,?,?,'HOMEROOM','DRAFT')",
+                UUID.randomUUID(), schoolId, academicId, unrelatedClassId);
         jdbc.update("INSERT INTO timetable_version(id,school_id,academic_session_id,version_no,status,effective_from,effective_to) VALUES (?,?,?,1,'DRAFT','2026-09-01','2027-07-31')",
                 versionId, schoolId, academicId);
         jdbc.update("INSERT INTO timetable_slot(id,school_id,class_id,academic_session_id,day_idx,slot_idx,subject_code,timetable_version_id) VALUES (?,?,?,?,0,0,'EN',?)",
@@ -217,6 +222,8 @@ class SharedFoundationIntegrationTest {
                 schoolId, academicId, classId)).isEqualTo(teacherId);
         assertThat(jdbc.queryForObject("SELECT published_teacher_id FROM timetable_slot WHERE id=?", UUID.class, slotId)).isEqualTo(teacherId);
         assertThat(jdbc.queryForObject("SELECT published_assignment_id FROM timetable_slot WHERE id=?", UUID.class, slotId)).isEqualTo(assignmentId);
+        assertThat(jdbc.queryForObject("SELECT status FROM timetable_class_config WHERE school_id=? AND academic_session_id=? AND class_id=?", String.class,
+                schoolId, academicId, unrelatedClassId)).isEqualTo("DRAFT");
     }
 
     @Test

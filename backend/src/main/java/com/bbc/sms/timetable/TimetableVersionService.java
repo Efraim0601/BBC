@@ -167,8 +167,10 @@ public class TimetableVersionService {
         jdbc.update("UPDATE timetable_version SET status='ARCHIVED',archive_reason=?,version=version+1,updated_at=now() WHERE school_id=? AND academic_session_id=? AND status='PUBLISHED'", "Replaced by version " + current.get("version_no"), school, sessionId);
         int changed = jdbc.update("UPDATE timetable_version SET status='PUBLISHED',published_at=now(),published_by=?,version=version+1,updated_at=now() WHERE id=? AND school_id=? AND status='DRAFT'", currentUser(), id, school);
         if (changed == 0) throw ApiException.conflict("La version du planning a changé. Rechargez avant de publier.");
-        jdbc.update("UPDATE timetable_class_config SET status='PUBLISHED',published_at=now(),published_by=?,version=version+1,updated_at=now() "
-                        + "WHERE school_id=? AND academic_session_id=?", currentUser(), school, sessionId);
+        jdbc.update("UPDATE timetable_class_config c SET status='PUBLISHED',published_at=now(),published_by=?,version=version+1,updated_at=now() "
+                        + "WHERE c.school_id=? AND c.academic_session_id=? AND EXISTS "
+                        + "(SELECT 1 FROM timetable_slot s WHERE s.school_id=c.school_id AND s.timetable_version_id=? AND s.class_id=c.class_id)",
+                currentUser(), school, sessionId, id);
         jdbc.update("""
             UPDATE timetable_slot SET published_teacher_id=teacher_id,
                    published_assignment_id=assignment_id,
