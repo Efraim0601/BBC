@@ -10,6 +10,8 @@ import {
   EffectiveWindowView, WindowOverrideView, WindowOverrideUpsert, WorkflowAction,
 } from '../../core/foundation.api';
 import { CardComponent, EmptyComponent, IconComponent } from '../../core/ui';
+import { SessionConfigurationCopyComponent } from './session-configuration-copy';
+import { WorkflowWindowRulesComponent } from './workflow-window-rules';
 
 const cleanDisplay = (value: string | null | undefined): string => {
   if (!value) return value ?? '';
@@ -43,7 +45,7 @@ const cleanDisplay = (value: string | null | undefined): string => {
 @Component({
   selector: 'bbc-foundation-settings',
   standalone: true,
-  imports: [FormsModule, CardComponent, EmptyComponent, IconComponent],
+  imports: [FormsModule, CardComponent, EmptyComponent, IconComponent, SessionConfigurationCopyComponent, WorkflowWindowRulesComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="space-y-5">
@@ -128,6 +130,11 @@ const cleanDisplay = (value: string | null | undefined): string => {
                   <p class="text-xs mt-1">{{ r.nextAction }}</p>
                   @if (r.blockers.length) { <div class="mt-2 text-xs text-rose-800">@for (b of r.blockers; track b) { <div>• {{ b }}</div> }</div> }
                 </section>
+              }
+
+              @if (canManage() && s.status !== 'CLOSED' && s.status !== 'ARCHIVED') {
+                <bbc-session-configuration-copy [target]="s" [sessions]="sessions()" [canManage]="canManage()" (applied)="select(s)" />
+                <bbc-workflow-window-rules class="block mt-4" [target]="s" [terms]="s.terms" [periods]="reportingPeriods()" [canManage]="canManage()" />
               }
 
               @if (canManage() && s.status !== 'CLOSED' && s.status !== 'ARCHIVED') {

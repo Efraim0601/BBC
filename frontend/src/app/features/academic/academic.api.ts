@@ -121,6 +121,7 @@ export interface AssessmentDefaultsApplyResponse {
 export interface GradeEntrySubject {
   code: string; label: string; coefficient: number; teacherId: string | null; teacherName: string | null;
   status?: string; errorCode?: string; message?: string | null; remarkRequired?: boolean;
+  assignmentReadiness?: { status: string; code: string; teacherId: string | null; teacherName: string | null; teacherCode?: string | null; assignmentId?: string | null; assignmentVersion?: number; source?: string | null; role?: string | null; messageFr?: string | null; messageEn?: string | null; repairable?: boolean };
 }
 export interface GradeEntryCell {
   assessmentId: string; mark: number | null; valueStatus: 'SCORED' | 'MISSING' | 'ABSENT' | 'EXEMPT'; version: number;
@@ -135,6 +136,11 @@ export interface GradeEntryView {
   packetStatus: 'DRAFT' | 'SUBMITTED' | 'RETURNED' | 'ACCEPTED' | 'LOCKED'; packetVersion: number;
   assessments: GradeEntryAssessment[]; students: GradeEntryStudent[]; totalStudents: number;
   completedStudents: number; blockers: string[]; availableSubjects: GradeEntrySubject[];
+  completionBlockers?: Array<{ code: string; subjectCode: string; studentName?: string | null; messageFr: string; messageEn: string; repairTarget: string; severity: string }>;
+  submissionBlockers?: Array<{ code: string; subjectCode: string; studentName?: string | null; messageFr: string; messageEn: string; repairTarget: string; severity: string }>;
+  warnings?: Array<{ code: string; subjectCode: string; studentName?: string | null; messageFr: string; messageEn: string; repairTarget: string; severity: string }>;
+  assignmentReadiness?: GradeEntrySubject['assignmentReadiness'];
+  capabilities?: { canEditDraft: boolean; canSubmit: boolean; canReview: boolean; restrictedTeacher: boolean; explanation?: string | null };
 }
 export interface GradeEntryCellUpsert { assessmentId: string; mark: number | null; valueStatus: string; version?: number; }
 export interface GradeEntryStudentUpsert { studentId: string; values: GradeEntryCellUpsert[]; comment: string | null; }

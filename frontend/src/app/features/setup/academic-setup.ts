@@ -1,6 +1,6 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
 import { ScopeService } from '../../core/scope.service';
@@ -11,6 +11,7 @@ import {
 import { FoundationApi, AcademicSessionView, AcademicReportingPeriodView, DocumentDesignView } from '../../core/foundation.api';
 import { AcademicApi, SecondaryCompetencyModelView } from '../academic/academic.api';
 import { AssessmentDefaultsComponent } from './assessment-defaults/assessment-defaults';
+import { CurriculumCopyComponent } from './curriculum-copy';
 import { defaultSubjects } from './subject-defaults';
 import { forkJoin } from 'rxjs';
 import { IconComponent, CardComponent, TabsComponent, EmptyComponent } from '../../core/ui';
@@ -25,7 +26,7 @@ import { downloadCsv } from '../../core/csv';
   selector: 'bbc-academic-setup',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, IconComponent, CardComponent, TabsComponent, EmptyComponent, AssessmentDefaultsComponent],
+  imports: [FormsModule, IconComponent, CardComponent, TabsComponent, EmptyComponent, AssessmentDefaultsComponent, CurriculumCopyComponent],
   template: `
     <bbc-tabs [tabs]="displayedSubTabs()" [value]="sub()" (change)="switchTo($any($event))" />
 
@@ -256,6 +257,15 @@ import { downloadCsv } from '../../core/csv';
             }
           </div>
 
+          @if (assignmentFocusCode()) {
+            <div class="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-3 text-sm text-rose-900" role="alert">
+              <div class="font-bold">{{ fr() ? 'Réparation demandée pour ' + assignmentFocusCode() : 'Repair requested for ' + assignmentFocusCode() }}</div>
+              <div class="mt-1">{{ fr() ? 'Choisissez un enseignant RESPONSIBLE pour cette matière, puis utilisez Enregistrer.' : 'Choose a RESPONSIBLE teacher for this subject, then use Save.' }}</div>
+            </div>
+          }
+
+          <bbc-curriculum-copy [targetSessionId]="curriculumSessionId()" [sessions]="academicSessions()" [classId]="assignmentClassId()" [canWrite]="canWrite" (applied)="refreshCurriculum()" />
+
           <div class="mb-5 rounded-xl border border-brand-100 bg-brand-50/40 p-4">
             <div class="mb-3">
               <div class="font-semibold text-ink">{{ fr() ? 'Ajouter une matière à une classe' : 'Add a subject to a class' }}</div>
@@ -403,8 +413,8 @@ import { downloadCsv } from '../../core/csv';
               <div class="text-xs text-mute mt-1 mb-3">{{ fr() ? 'Ces valeurs sont enregistrées pour la combinaison session + classe + matière. Le coefficient ci-dessus est celui qui sera calculé sur le bulletin.' : 'These values are saved for the session + class + subject combination. The coefficient above is the one used on the report card.' }}</div>
               <div class="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"><span class="font-bold">{{ fr() ? 'Règle de passage :' : 'Promotion rule:' }}</span> {{ fr() ? 'Obligatoire contrôle la complétude des notes : il faut saisir une note, une absence ou une exemption pour valider le résultat. Cela ne rend pas la matière décisive pour le passage. Le passage utilise la moyenne annuelle globale, calculée sur toutes les matières incluses, et la décision du conseil.' : 'Required controls result completeness: a mark, absence, or exemption must be entered before the result can be validated. It does not make this subject independently decisive for promotion. Promotion uses the overall annual average across included subjects and the council decision.' }}</div>
               <div class="space-y-2">
-                @for (row of assignmentRows(); track row.subjectId) {
-                  <div class="grid grid-cols-1 md:grid-cols-8 gap-2 items-center rounded-lg bg-white border border-slate-200 p-2">
+                  @for (row of assignmentRows(); track row.subjectId) {
+                    <div class="grid grid-cols-1 md:grid-cols-8 gap-2 items-center rounded-lg bg-white border p-2" [class.border-rose-300]="assignmentFocusCode() === row.subjectCode.toUpperCase()" [class.border-slate-200]="assignmentFocusCode() !== row.subjectCode.toUpperCase()">
                     <div class="font-semibold text-sm md:col-span-2">{{ row.subjectCode }} · {{ assignmentSubjectLabel(row) }}</div>
                     <label><span class="meta">{{ fr() ? 'Groupe' : 'Group' }}</span><select [ngModel]="row.groupId ?? ''" (ngModelChange)="setSubjectGroup(row, $event)" class="field"><option value="">{{ fr() ? 'Aucun' : 'None' }}</option>@for (group of (curriculum()?.groups ?? []); track group.id) { <option [value]="group.id">{{ groupLabel(group) }}</option> }</select></label>
                     <label><span class="meta">{{ fr() ? 'Barème' : 'Max score' }}</span><input type="number" min="1" [ngModel]="row.maxScore" (ngModelChange)="row.maxScore = +$event" class="field" /></label>
@@ -745,6 +755,8 @@ export class AcademicSetupComponent {
   private foundation = inject(FoundationApi);
   private scopeSvc = inject(ScopeService);
   private route = inject(ActivatedRoute);
+  private router = inject(Router);
+  private repairReturnUrl: string | null = null;
 
   protected fr = () => this.i18n.lang() === 'fr';
   protected canWrite = this.auth.can('settings', 'write');
@@ -844,6 +856,7 @@ export class AcademicSetupComponent {
   protected coefResult = signal<CoefImportResult | null>(null);
   protected coefError = signal<string | null>(null);
   protected assignmentClassId = signal('');
+  protected assignmentFocusCode = signal('');
   protected assignmentSubjectId = signal('');
   protected assignmentCoef = signal(1);
   protected assignmentNotice = signal<{ ok: boolean; text: string } | null>(null);
@@ -913,8 +926,12 @@ export class AcademicSetupComponent {
     }
     const requestedSessionId = params.get('sessionId');
     const requestedClassId = params.get('classId');
+    const requestedSubjectCode = params.get('subjectCode');
+    const requestedReturnUrl = params.get('returnUrl');
     if (requestedSessionId) this.curriculumSessionId.set(requestedSessionId);
     if (requestedClassId) this.assignmentClassId.set(requestedClassId);
+    if (requestedSubjectCode) this.assignmentFocusCode.set(requestedSubjectCode.toUpperCase());
+    if (requestedReturnUrl?.startsWith('/') && !requestedReturnUrl.startsWith('//')) this.repairReturnUrl = requestedReturnUrl;
     this.loadSections();
     this.loadClasses();
     this.loadSubjects();
@@ -958,6 +975,8 @@ export class AcademicSetupComponent {
     this.groupNotice.set(null);
     this.loadCurriculum();
   }
+
+  protected refreshCurriculum(): void { this.loadCurriculum(); }
 
   private loadCurriculum(): void {
     const sessionId = this.curriculumSessionId();
@@ -1107,7 +1126,7 @@ export class AcademicSetupComponent {
   protected saveSubjectTeacher(row: CurriculumSubjectView, employeeId: string): void {
     if (!employeeId) return;
     this.api.upsertCurriculumTeacher({ academicSessionId: this.curriculumSessionId(), classId: this.assignmentClassId(), subjectId: row.subjectId, employeeId, role: 'RESPONSIBLE', source: 'MANUAL' }).subscribe({
-      next: (teacher) => { this.curriculum.update((current) => current ? { ...current, subjects: current.subjects.map((x) => x.subjectId === row.subjectId ? { ...x, responsibleTeacher: teacher } : x) } : current); this.assignmentBusy.set(false); this.cancelAssignmentImpact(); },
+      next: (teacher) => { this.curriculum.update((current) => current ? { ...current, subjects: current.subjects.map((x) => x.subjectId === row.subjectId ? { ...x, responsibleTeacher: teacher } : x) } : current); this.assignmentBusy.set(false); this.cancelAssignmentImpact(); this.returnToGradeEntryIfRequested(); },
       error: (e) => { this.assignmentBusy.set(false); this.assignmentError(e); },
     });
   }
@@ -1120,9 +1139,16 @@ export class AcademicSetupComponent {
       employeeId,
       version: this.curriculum()?.homeroomTeacher?.version,
     }).subscribe({
-      next: (teacher) => { this.curriculum.update((current) => current ? { ...current, homeroomTeacher: teacher } : current); this.assignmentBusy.set(false); this.cancelAssignmentImpact(); },
+      next: (teacher) => { this.curriculum.update((current) => current ? { ...current, homeroomTeacher: teacher } : current); this.assignmentBusy.set(false); this.cancelAssignmentImpact(); this.returnToGradeEntryIfRequested(); },
       error: (e) => { this.assignmentBusy.set(false); this.assignmentError(e); },
     });
+  }
+
+  private returnToGradeEntryIfRequested(): void {
+    const url = this.repairReturnUrl;
+    if (!url) return;
+    this.repairReturnUrl = null;
+    void this.router.navigateByUrl(url);
   }
 
   protected createGroup(): void {
@@ -1394,7 +1420,13 @@ export class AcademicSetupComponent {
     }
   };
   private loadSections(): void { this.api.listSections().subscribe((r) => this.sections.set(r)); }
-  private loadClasses(): void { this.api.listClasses().subscribe((r) => this.classes.set(r)); }
+  private loadClasses(): void {
+    this.api.listClasses().subscribe((r) => {
+      this.classes.set(r);
+      const selected = r.find((klass) => klass.id === this.assignmentClassId());
+      if (selected) this.api.assignableTeachers(selected.level).subscribe((teachers) => this.allTeachers.set(teachers));
+    });
+  }
   private loadSubjects(): void { this.api.listSubjects().subscribe((r) => this.subjects.set(r)); }
 
   // ---- Sections ----

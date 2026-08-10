@@ -17,4 +17,27 @@ describe('FoundationApi', () => {
     req.flush({});
     http.verify();
   });
+
+  it('sends normalized workflow-window rules and configuration-copy idempotency', () => {
+    TestBed.configureTestingModule({ providers: [FoundationApi, provideHttpClient(), provideHttpClientTesting()] });
+    const api = TestBed.inject(FoundationApi);
+    const http = TestBed.inject(HttpTestingController);
+    api.saveWorkflowWindowRule('session', {
+      scopeType: 'SESSION', action: 'TEACHER_SUBMISSION', mode: 'LIMITED',
+      opensAt: null, closesAt: '2026-10-01T16:00:00Z', timezone: 'Africa/Douala', version: 2,
+    }).subscribe();
+    const rule = http.expectOne(`${environment.apiUrl}/settings/academic-sessions/session/window-rules`);
+    expect(rule.request.method).toBe('PUT');
+    expect(rule.request.body.mode).toBe('LIMITED');
+    rule.flush({});
+
+    api.applyConfigurationCopy('target', {
+      sourceSessionId: 'source', mergeMode: 'FILL_MISSING', selectedKeys: [], edits: [],
+      reason: 'Reuse approved structure', previewFingerprint: 'fingerprint',
+    }, 'session-key').subscribe();
+    const copy = http.expectOne(`${environment.apiUrl}/settings/academic-sessions/target/configuration-copy/apply`);
+    expect(copy.request.headers.get('Idempotency-Key')).toBe('session-key');
+    copy.flush({});
+    http.verify();
+  });
 });

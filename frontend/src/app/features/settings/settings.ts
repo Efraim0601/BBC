@@ -1,5 +1,6 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { ActivatedRoute, Router } from '@angular/router';
 import {
   SettingsApi, PermissionMatrix, RoleView, RoleUpsert, MailConfigUpdate,
   SchoolProfileView, SchoolProfileUpdate, HolidayView, CatalogItemView, CatalogItemUpsert,
@@ -602,6 +603,8 @@ export class SettingsComponent {
   protected i18n = inject(I18nService);
   protected auth = inject(AuthService);
   private api = inject(SettingsApi);
+  private route = inject(ActivatedRoute);
+  private router = inject(Router);
 
   protected matrix = signal<PermissionMatrix | null>(null);
   protected canWrite = this.auth.can('settings', 'write');
@@ -684,6 +687,8 @@ export class SettingsComponent {
   };
 
   constructor() {
+    const requestedTab = this.route.snapshot.queryParamMap.get('tab') as SettingsTab | null;
+    if (requestedTab && ['academic', 'sessions', 'general', 'perms', 'roles', 'mail', 'calendar', 'discipline'].includes(requestedTab)) this.tab.set(requestedTab);
     this.reload();
     this.loadMail();
     this.loadSchool();
@@ -693,6 +698,7 @@ export class SettingsComponent {
 
   protected onTab(id: SettingsTab): void {
     this.tab.set(id);
+    this.router.navigate([], { relativeTo: this.route, queryParams: { ...this.route.snapshot.queryParams, tab: id }, queryParamsHandling: 'merge' });
   }
 
   private reload(): void {

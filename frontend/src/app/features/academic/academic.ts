@@ -1,7 +1,7 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { forkJoin, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { StudentApi } from '../students/students.api';
@@ -218,6 +218,16 @@ const appreciation = (avg: number, fr: boolean): string => {
                 <div class="rounded-lg border border-slate-200 bg-slate-50 p-3"><div class="text-[11px] uppercase text-mute font-semibold">{{ fr() ? 'Saisie complète' : 'Completed' }}</div><div class="text-xl font-bold text-emerald-700 mt-1">{{ entry.completedStudents }}/{{ entry.totalStudents }}</div></div>
                 <div class="rounded-lg border border-slate-200 bg-slate-50 p-3"><div class="text-[11px] uppercase text-mute font-semibold">{{ fr() ? 'Colonnes de notes' : 'Mark columns' }}</div><div class="text-xl font-bold text-ink mt-1">{{ entry.assessments.length }}</div></div>
               </div>
+              @if (entry.assignmentReadiness && entry.assignmentReadiness.status !== 'RESOLVED') {
+                <div class="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-3 text-sm text-rose-950" role="alert">
+                  <div class="font-bold">{{ fr() ? 'Affectation enseignant à réparer' : 'Teacher assignment needs repair' }}</div>
+                  <div class="mt-1">{{ fr() ? 'Le brouillon peut rester enregistré, mais l’envoi est bloqué tant qu’un enseignant responsable unique n’est pas configuré.' : 'The draft can stay saved, but submission is blocked until exactly one responsible teacher is configured.' }}</div>
+                  <div class="mt-2 flex flex-wrap items-center gap-2">
+                    <span class="text-xs font-semibold text-rose-800">{{ display(entry.assignmentReadiness.messageEn || entry.assignmentReadiness.messageFr) }}</span>
+                    <button type="button" (click)="openAssignmentRepair(entry)" class="h-9 px-3 rounded-lg bg-white border border-rose-300 text-rose-800 text-sm font-semibold hover:bg-rose-100">{{ fr() ? 'Réparer l’affectation' : 'Repair assignment' }}</button>
+                  </div>
+                </div>
+              }
               @if (entry.blockers.length) {
                 <div class="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-950" role="status">
                   <div class="font-bold">{{ fr() ? 'Il reste des champs à compléter avant l’envoi' : 'Some fields still need to be completed before sending' }}</div>
@@ -300,8 +310,8 @@ const appreciation = (avg: number, fr: boolean): string => {
               <div class="flex flex-wrap gap-2 items-center mt-5 pt-4 border-t border-slate-100 print:hidden">
                 <div class="flex-1 min-w-[260px] text-xs text-mute">{{ entry.packetStatus === 'SUBMITTED' ? (fr() ? 'Cette feuille est en attente de vérification par la direction.' : 'This sheet is waiting for management review.') : entry.packetStatus === 'ACCEPTED' ? (fr() ? 'Cette feuille a été acceptée et est verrouillée.' : 'This sheet was accepted and is locked.') : (fr() ? 'Enregistrer = garder votre travail. Envoyer à la direction = demander la vérification.' : 'Save = keep your work. Send to management = request review.') }}</div>
                 @if (canWrite && (entry.packetStatus === 'DRAFT' || entry.packetStatus === 'RETURNED')) {
-                  <button type="button" (click)="saveGradeEntry()" [disabled]="gradeBusy()" class="h-10 px-4 rounded-lg border border-slate-300 text-sm font-semibold text-ink hover:bg-slate-50 disabled:opacity-50">{{ gradeBusy() ? '…' : (fr() ? 'Enregistrer sans envoyer' : 'Save without sending') }}</button>
-                  <button type="button" (click)="submitGradeEntry()" [disabled]="gradeBusy() || entry.blockers.length > 0 || !entry.assessments.length" [title]="entry.blockers.length ? (fr() ? 'Complétez les champs indiqués avant l’envoi.' : 'Complete the highlighted fields before sending.') : ''" class="h-10 px-4 rounded-lg bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700 disabled:opacity-50">{{ fr() ? 'Envoyer à la direction' : 'Send to management' }}</button>
+                  <button type="button" (click)="saveGradeEntry()" [disabled]="gradeBusy() || entry.capabilities?.canEditDraft === false" class="h-10 px-4 rounded-lg border border-slate-300 text-sm font-semibold text-ink hover:bg-slate-50 disabled:opacity-50">{{ gradeBusy() ? '…' : (fr() ? 'Enregistrer sans envoyer' : 'Save without sending') }}</button>
+                  <button type="button" (click)="submitGradeEntry()" [disabled]="gradeBusy() || entry.blockers.length > 0 || !entry.assessments.length || !canSubmitGrade(entry)" [title]="entry.submissionBlockers?.length ? (fr() ? 'Réparez l’affectation et complétez les champs indiqués avant l’envoi.' : 'Repair the assignment and complete the highlighted fields before sending.') : ''" class="h-10 px-4 rounded-lg bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700 disabled:opacity-50">{{ fr() ? 'Envoyer à la direction' : 'Send to management' }}</button>
                 }
                 @if (canReview() && entry.packetStatus === 'SUBMITTED') {
                   <button type="button" (click)="reviewGradeEntry('RETURN')" [disabled]="gradeBusy()" class="h-10 px-4 rounded-lg border border-rose-200 text-rose-700 text-sm font-semibold hover:bg-rose-50 disabled:opacity-50">{{ fr() ? 'Retourner pour correction' : 'Return for correction' }}</button>
@@ -850,6 +860,7 @@ export class AcademicComponent {
   private scope = inject(ScopeService);
   private foundationApi = inject(FoundationApi);
   private route = inject(ActivatedRoute);
+  private router = inject(Router);
 
   protected canWrite = this.auth.can('academic', 'write');
 
@@ -904,6 +915,7 @@ export class AcademicComponent {
   protected batchBusy = signal(false);
   private batchPollId: string | null = null;
   private rosterRequestKey = '';
+  private gradeEntryRequestId = 0;
   protected notice = signal<{ ok: boolean; text: string } | null>(null);
   private photoApi = inject(PhotoApi);
 
@@ -933,9 +945,11 @@ export class AcademicComponent {
     const requestedMode = this.route.snapshot.queryParamMap.get('mode') as Mode | null;
     const requestedClassId = this.route.snapshot.queryParamMap.get('classId');
     const requestedPeriodId = this.route.snapshot.queryParamMap.get('periodId');
+    const requestedSubjectCode = this.route.snapshot.queryParamMap.get('subjectCode');
+    if (requestedSubjectCode) this.selectedGradeSubjectCode.set(requestedSubjectCode.toUpperCase());
     if (requestedMode && ['bulletin', 'grade-entry', 'inputs', 'pv', 'batch'].includes(requestedMode)) this.mode.set(requestedMode);
     this.setupApi.listClasses().subscribe({
-      next: (c) => { this.classes.set(c); const klass = c.find((item) => item.id === requestedClassId); if (klass && this.academicSessionId()) this.onClassChange(klass.name); },
+      next: (c) => { this.classes.set(c); const klass = c.find((item) => item.id === requestedClassId); if (klass && this.academicSessionId()) this.onClassChange(klass.name, !!requestedSubjectCode); },
       error: () => this.classes.set([]),
     });
     this.foundationApi.currentSession().subscribe({
@@ -943,7 +957,7 @@ export class AcademicComponent {
         this.academicSessionId.set(s.id);
         this.foundationApi.reportingDependencies(s.id).subscribe({ next: (rows) => this.reportingDependencies.set(rows), error: () => this.reportingDependencies.set([]) });
         this.foundationApi.reportingPeriods(s.id).subscribe({
-        next: (periods) => { const readablePeriods = periods.map((p) => ({ ...p, label: cleanDisplay(p.label) })); this.reportingPeriods.set(readablePeriods); const first = readablePeriods.find((p) => p.id === requestedPeriodId && (this.mode() !== 'grade-entry' || p.periodType === 'SEQUENCE')) ?? readablePeriods.find((p) => p.code === 'S1') ?? readablePeriods[0]; if (first) { this.selectedReportingPeriodId.set(first.id); this.sequence.set(this.periodSequence(first)); } const klass = this.classes().find((c) => c.id === requestedClassId); if (klass) this.onClassChange(klass.name); },
+        next: (periods) => { const readablePeriods = periods.map((p) => ({ ...p, label: cleanDisplay(p.label) })); this.reportingPeriods.set(readablePeriods); const first = readablePeriods.find((p) => p.id === requestedPeriodId && (this.mode() !== 'grade-entry' || p.periodType === 'SEQUENCE')) ?? readablePeriods.find((p) => p.code === 'S1') ?? readablePeriods[0]; if (first) { this.selectedReportingPeriodId.set(first.id); this.sequence.set(this.periodSequence(first)); } const klass = this.classes().find((c) => c.id === requestedClassId); if (klass) this.onClassChange(klass.name, !!requestedSubjectCode); },
         error: () => this.reportingPeriods.set([]),
         });
       },
@@ -969,7 +983,7 @@ export class AcademicComponent {
     if (m === 'batch' && this.selectedClassId() && this.selectedReportingPeriodId()) this.loadBatchJobs();
   }
 
-  protected onClassChange(name: string): void {
+  protected onClassChange(name: string, preserveSubjectCode = false): void {
     this.notice.set(null);
     this.gradeEntryError.set(null);
     this.selectedClass.set(name);
@@ -978,10 +992,11 @@ export class AcademicComponent {
     this.clearBulletinState();
     this.pv.set(null);
     this.bulkBulletins.set([]);
+    this.gradeEntryRequestId++;
     this.gradeEntry.set(null);
     this.reportInputs.set(null);
     this.inputDrafts.set({});
-    this.selectedGradeSubjectCode.set('');
+    if (!preserveSubjectCode) this.selectedGradeSubjectCode.set('');
     this.studentQuery.set('');
     this.classStudents.set([]);
     this.batchJob.set(null); this.batchJobs.set([]); this.batchItems.set([]);
@@ -1033,6 +1048,7 @@ export class AcademicComponent {
     if (this.mode() === 'grade-entry' && selected && selected.periodType !== 'SEQUENCE') return;
     this.notice.set(null);
     this.gradeEntryError.set(null);
+    this.gradeEntryRequestId++;
     this.selectedReportingPeriodId.set(id);
     this.clearBulletinState();
     this.pv.set(null);
@@ -1182,10 +1198,12 @@ export class AcademicComponent {
   protected loadGradeEntry(subjectCode?: string): void {
     const classId = this.selectedClassId(); const periodId = this.selectedReportingPeriodId();
     if (!classId || !periodId) { this.gradeEntry.set(null); return; }
+    const requestId = ++this.gradeEntryRequestId;
+    const requestedSubjectCode = subjectCode || this.selectedGradeSubjectCode() || undefined;
     this.gradeEntryError.set(null);
-    this.api.gradeEntry(periodId, classId, subjectCode || this.selectedGradeSubjectCode() || undefined).subscribe({
-      next: (entry) => { this.gradeEntry.set(this.refreshGradeProgress(entry)); this.gradeEntryError.set(null); this.selectedGradeSubjectCode.set(entry.subjectCode); },
-      error: (e) => { this.gradeEntry.set(null); this.gradeEntryError.set(this.explainError(e, 'grade-entry')); },
+    this.api.gradeEntry(periodId, classId, requestedSubjectCode).subscribe({
+      next: (entry) => { if (requestId !== this.gradeEntryRequestId || this.selectedClassId() !== classId || this.selectedReportingPeriodId() !== periodId) return; this.gradeEntry.set(this.refreshGradeProgress(entry)); this.gradeEntryError.set(null); this.selectedGradeSubjectCode.set(entry.subjectCode); },
+      error: (e) => { if (requestId !== this.gradeEntryRequestId || this.selectedClassId() !== classId || this.selectedReportingPeriodId() !== periodId) return; this.gradeEntry.set(null); this.gradeEntryError.set(this.explainError(e, 'grade-entry')); },
     });
   }
 
@@ -1347,10 +1365,29 @@ export class AcademicComponent {
 
   protected submitGradeEntry(): void {
     const entry = this.gradeEntry(); if (!entry) return;
+    if (!this.canSubmitGrade(entry)) return;
     this.gradeBusy.set(true);
     this.api.gradeEntryWorkflow(entry.reportingPeriodId, entry.classId, entry.subjectCode, 'SUBMIT', undefined, entry.packetVersion).subscribe({
       next: (updated) => { this.gradeEntry.set(updated); this.gradeBusy.set(false); this.notice.set({ ok: true, text: this.fr() ? 'Saisie soumise à la direction.' : 'Grades submitted to management.' }); },
       error: (e) => { this.gradeBusy.set(false); this.fail(e); },
+    });
+  }
+
+  protected canSubmitGrade(entry: GradeEntryView): boolean {
+    const assignmentReady = entry.assignmentReadiness?.status === undefined || entry.assignmentReadiness?.status === 'RESOLVED';
+    const editable = entry.capabilities?.canEditDraft !== false;
+    const serverReady = entry.capabilities?.canSubmit !== false;
+    return assignmentReady && editable && serverReady && entry.packetStatus !== 'SUBMITTED'
+      && entry.packetStatus !== 'ACCEPTED' && entry.packetStatus !== 'LOCKED';
+  }
+
+  protected openAssignmentRepair(entry: GradeEntryView): void {
+    this.router.navigate(['/settings'], {
+      queryParams: {
+        tab: 'academic', subtab: 'class-subjects', sessionId: entry.academicSessionId,
+        classId: entry.classId, subjectCode: entry.subjectCode,
+        returnUrl: `/academic?mode=grade-entry&classId=${encodeURIComponent(entry.classId)}&periodId=${encodeURIComponent(entry.reportingPeriodId)}&subjectCode=${encodeURIComponent(entry.subjectCode)}`,
+      },
     });
   }
 

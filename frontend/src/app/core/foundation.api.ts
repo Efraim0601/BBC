@@ -44,6 +44,7 @@ export interface StructureDependencyView {
 export interface SessionReadinessView {
   academicSessionId: string; sessionStatus: string; phase: string; ready: boolean;
   nextAction: string; blockers: string[]; actions: string[];
+  sections?: Array<{ key: string; label: string; status: string; ready: boolean; issues: Array<{ code: string; severity: string; label: string; detail: string; repairTarget: string; count: number }> }>;
 }
 export type WorkflowAction = 'GRADE_ENTRY' | 'TEACHER_SUBMISSION' | 'REVIEW' | 'VALIDATION' | 'PUBLICATION' | 'CORRECTION';
 export interface EffectiveWindowView {
@@ -51,7 +52,37 @@ export interface EffectiveWindowView {
   configuredOpensAt: string | null; configuredClosesAt: string | null; configuredSource: string;
   opensAt: string | null; closesAt: string | null; open: boolean; source: string; state: string;
   nextTransition: string | null; blockers: string[]; timezone: string;
+  configuredMode?: string; effectiveMode?: string; inheritedFrom?: string | null;
 }
+export type WindowMode = 'INHERIT' | 'UNRESTRICTED' | 'LIMITED';
+export interface WorkflowWindowRuleView {
+  id: string; academicSessionId: string; scopeType: 'SESSION' | 'TERM' | 'PERIOD';
+  academicTermId: string | null; reportingPeriodId: string | null; action: WorkflowAction;
+  mode: WindowMode; opensAt: string | null; closesAt: string | null; timezone: string; version: number;
+  effectiveMode?: string | null; inheritedFrom?: string | null;
+}
+export interface WorkflowWindowRuleUpsert {
+  scopeType: 'SESSION' | 'TERM' | 'PERIOD'; academicTermId?: string | null; reportingPeriodId?: string | null;
+  action: WorkflowAction; mode: WindowMode; opensAt?: string | null; closesAt?: string | null;
+  timezone?: string; version?: number;
+}
+export interface ConfigurationCopyScopeSelection { terms: boolean; reportingPeriods: boolean; dependencies: boolean; workflowWindows: boolean; }
+export interface ConfigurationCopyEdit { key: string; field: string; value: string | null; }
+export interface ConfigurationCopyRow {
+  key: string; kind: string; code: string; label: string; status: string;
+  source: Record<string, unknown>; proposed: Record<string, unknown>; existing: Record<string, unknown> | null;
+  warnings: string[]; blockers: string[];
+}
+export interface ConfigurationCopyPreview {
+  sourceSessionId: string; targetSessionId: string; sourceLabel: string; targetLabel: string;
+  dateStrategy: string; mergeMode: string; scopes: ConfigurationCopyScopeSelection;
+  terms: ConfigurationCopyRow[]; reportingPeriods: ConfigurationCopyRow[]; dependencies: ConfigurationCopyRow[]; workflowWindows: ConfigurationCopyRow[];
+  warnings: string[]; blockers: string[]; fingerprint: string; createCount: number; updateCount: number; keepCount: number;
+}
+export interface ConfigurationCopyPreviewRequest {
+  sourceSessionId: string; dateStrategy?: string; mergeMode?: string; scopes?: ConfigurationCopyScopeSelection; edits?: ConfigurationCopyEdit[]; selectedKeys?: string[];
+}
+export interface ConfigurationCopyApplyRequest extends ConfigurationCopyPreviewRequest { reason: string; previewFingerprint: string; }
 export interface WindowOverrideView {
   id: string; academicSessionId: string; reportingPeriodId: string | null;
   action: WorkflowAction; scope: string; reason: string;
@@ -142,6 +173,14 @@ export class FoundationApi {
   deleteTerm(id: string, reason?: string): Observable<void> { return this.http.delete<void>(`${this.settings}/academic-sessions/terms/${id}`, { params: reason ? { reason } : {} }); }
   reportingPeriods(sessionId: string): Observable<AcademicReportingPeriodView[]> { return this.http.get<AcademicReportingPeriodView[]>(`${this.settings}/academic-sessions/${sessionId}/reporting-periods`); }
   readiness(sessionId: string): Observable<SessionReadinessView> { return this.http.get<SessionReadinessView>(`${this.settings}/academic-sessions/${sessionId}/readiness`); }
+  workflowWindowRules(sessionId: string): Observable<WorkflowWindowRuleView[]> { return this.http.get<WorkflowWindowRuleView[]>(`${this.settings}/academic-sessions/${sessionId}/window-rules`); }
+  saveWorkflowWindowRule(sessionId: string, body: WorkflowWindowRuleUpsert): Observable<WorkflowWindowRuleView> { return this.http.put<WorkflowWindowRuleView>(`${this.settings}/academic-sessions/${sessionId}/window-rules`, body); }
+  previewConfigurationCopy(targetSessionId: string, body: ConfigurationCopyPreviewRequest): Observable<ConfigurationCopyPreview> {
+    return this.http.post<ConfigurationCopyPreview>(`${this.settings}/academic-sessions/${targetSessionId}/configuration-copy/preview`, body);
+  }
+  applyConfigurationCopy(targetSessionId: string, body: ConfigurationCopyApplyRequest, key: string): Observable<ConfigurationCopyPreview> {
+    return this.http.post<ConfigurationCopyPreview>(`${this.settings}/academic-sessions/${targetSessionId}/configuration-copy/apply`, body, { headers: { 'Idempotency-Key': key } });
+  }
   reportingDependencies(sessionId: string): Observable<StructureDependencyView[]> { return this.http.get<StructureDependencyView[]>(`${this.settings}/academic-sessions/${sessionId}/reporting-periods/dependencies`); }
   effectiveWindow(sessionId: string, periodId: string, action: WorkflowAction): Observable<EffectiveWindowView> {
     return this.http.get<EffectiveWindowView>(`${this.settings}/academic-sessions/${sessionId}/reporting-periods/${periodId}/effective-window`, { params: { action } });
