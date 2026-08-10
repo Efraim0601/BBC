@@ -85,7 +85,8 @@ class SharedFoundationIntegrationTest {
                 "school_calendar_day","expected_school_session","audit_event","idempotency_key",
                 "document_template","generated_document","permission_action_grant",
                 "attendance_policy","attendance_session","attendance_mark","attendance_session_event",
-                "attendance_notification"}) {
+                "attendance_notification","secondary_competency_model","secondary_competency",
+                "secondary_competency_mark","bulletin_batch_artifact"}) {
             assertThat(jdbc.queryForObject("SELECT to_regclass(?) IS NOT NULL", Boolean.class, table)).isTrue();
         }
         var session = sessionService.create(new SessionUpsert("2026-2027", "Session 2026-2027",

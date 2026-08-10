@@ -13,11 +13,17 @@ import org.apache.pdfbox.pdmodel.font.PDFont;
 import org.apache.pdfbox.pdmodel.font.PDType0Font;
 import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
+import org.apache.pdfbox.pdmodel.graphics.image.LosslessFactory;
+import com.google.zxing.BarcodeFormat;
+import com.google.zxing.client.j2se.MatrixToImageWriter;
+import com.google.zxing.common.BitMatrix;
+import com.google.zxing.qrcode.QRCodeWriter;
 import org.springframework.stereotype.Service;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.awt.image.BufferedImage;
 import java.util.List;
 import java.util.Locale;
 
@@ -45,6 +51,9 @@ public class ReportCardPdfService {
         byte[] photoBytes = snapshotPhoto(b);
         BrandingRenderData branding = branding(b);
         boolean secondary = isSecondary(b);
+        boolean annual = annual(b);
+        String templateFamily = b.evidence() == null || b.evidence().documentDesign() == null
+                ? null : b.evidence().documentDesign().templateFamily();
         try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             NORMAL_FONT.set(loadFont(doc, "/usr/share/fonts/dejavu/DejaVuSans.ttf"));
             BOLD_FONT.set(loadFont(doc, "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf"));
@@ -54,21 +63,25 @@ public class ReportCardPdfService {
                 PDImageXObject logo = imageOrNull(doc, branding == null ? null : branding.logoBytes(), "school-logo");
                 PDImageXObject stamp = imageOrNull(doc, branding == null ? null : branding.stampBytes(), "school-stamp");
                 float y = header(doc, page, b, french, image, secondary, branding, logo);
-                y = tableHeader(doc, page, y, french, secondary);
+                y = tableHeader(doc, page, y, french, secondary, annual, templateFamily);
                 for (BulletinLineView line : b.lines()) {
-                    if (y < 88) {
+                    float rowHeight = secondary ? secondaryRowHeight(line, annual) : 22;
+                    if (y - rowHeight < 78) {
                         footer(doc, page, french);
                         page = new PDPage(PDRectangle.A4); doc.addPage(page);
                         y = header(doc, page, b, french, image, secondary, branding, logo);
-                        y = tableHeader(doc, page, y, french, secondary);
+                        y = tableHeader(doc, page, y, french, secondary, annual, templateFamily);
                     }
-                    row(doc, page, y, line, french, secondary);
-                    y -= 22;
+                    if (secondary) y -= secondaryRow(doc, page, y, line, french, annual);
+                    else { row(doc, page, y, line, french, false); y -= 22; }
                 }
                 y -= 5;
                 if (y < 230) { footer(doc, page, french); page = new PDPage(PDRectangle.A4); doc.addPage(page); y = header(doc, page, b, french, image, secondary, branding, logo) - 10; }
                 summary(doc, page, y, b, french, secondary);
                 signatureBoxes(doc, page, y - 148, french, branding, stamp);
+                // Keep the verification mark in the footer band so it never
+                // obscures the result table, conduct block, or signatures.
+                drawQr(doc, page, b, 485, 58);
                 footer(doc, page, french);
                 doc.save(out);
                 return out.toByteArray();
@@ -115,8 +128,9 @@ public class ReportCardPdfService {
         return 592;
     }
 
-    private float tableHeader(PDDocument doc, PDPage page, float y, boolean fr, boolean secondary) throws Exception {
-        if (secondary) return secondaryTableHeader(doc, page, y, fr);
+    private float tableHeader(PDDocument doc, PDPage page, float y, boolean fr, boolean secondary,
+                              boolean annual, String templateFamily) throws Exception {
+        if (secondary) return secondaryTableHeader(doc, page, y, fr, annual, templateFamily);
         try (PDPageContentStream cs = new PDPageContentStream(doc, page, PDPageContentStream.AppendMode.APPEND, true)) {
             cs.setNonStrokingColor(BLUE, 0.48f, 0.70f);
             cs.addRect(LEFT, y - 18, RIGHT - LEFT, 22);
@@ -148,41 +162,103 @@ public class ReportCardPdfService {
         return y - 18;
     }
 
-    private float secondaryTableHeader(PDDocument doc, PDPage page, float y, boolean fr) throws Exception {
+    private float secondaryTableHeader(PDDocument doc, PDPage page, float y, boolean fr,
+                                       boolean annual, String templateFamily) throws Exception {
         try (PDPageContentStream cs = new PDPageContentStream(doc, page, PDPageContentStream.AppendMode.APPEND, true)) {
             cs.setNonStrokingColor(BLUE, 0.34f, 0.57f);
             cs.addRect(LEFT, y - 18, RIGHT - LEFT, 22); cs.fill();
             cs.setNonStrokingColor(1, 1, 1);
             text(cs, bold(), 7, 48, y - 10, fr ? "MATIERE / PROF." : "SUBJECT / TEACHER");
-            text(cs, bold(), 7, 150, y - 10, fr ? "EVALUATIONS" : "ASSESSMENTS");
-            text(cs, bold(), 7, 256, y - 10, "MOY");
-            text(cs, bold(), 7, 303, y - 10, "COEF");
-            text(cs, bold(), 7, 350, y - 10, "TOTAL");
-            text(cs, bold(), 7, 405, y - 10, fr ? "APPRECIATION" : "REMARK");
+            if (annual) {
+                text(cs, bold(), 7, 146, y - 10, "T1");
+                text(cs, bold(), 7, 178, y - 10, "T2");
+                text(cs, bold(), 7, 210, y - 10, "T3");
+                text(cs, bold(), 7, 247, y - 10, fr ? "MOY" : "AV/20");
+            } else {
+                text(cs, bold(), 7, 142, y - 10, fr ? "COMPETENCES EVALUEES" : "COMPETENCIES EVALUATED");
+                text(cs, bold(), 7, 247, y - 10, fr ? "M/20" : "MK/20");
+            }
+            text(cs, bold(), 7, 292, y - 10, "COEF");
+            text(cs, bold(), 7, 337, y - 10, fr ? "PROD" : "PRODUCT");
+            text(cs, bold(), 7, 392, y - 10, fr ? "COTE" : "GRADE");
+            text(cs, bold(), 7, 450, y - 10, fr ? "APPRECIATION" : "REMARKS");
             cs.setNonStrokingColor(0, 0, 0);
-            for (float x : new float[]{42, 142, 247, 292, 337, 392, 553}) line(cs, x, y + 4, x, y - 18, 0.6f);
+            for (float x : new float[]{42, 142, 247, 292, 337, 392, 450, 553}) line(cs, x, y + 4, x, y - 18, 0.6f);
             line(cs, LEFT, y - 18, RIGHT, y - 18, 0.8f);
         }
         return y - 18;
     }
 
-    private void secondaryRow(PDDocument doc, PDPage page, float y, BulletinLineView l, boolean fr) throws Exception {
+    /** Draw a secondary row with wrapped competency evidence and return its exact height. */
+    private float secondaryRow(PDDocument doc, PDPage page, float y, BulletinLineView l,
+                               boolean fr, boolean annual) throws Exception {
+        float height = secondaryRowHeight(l, annual);
+        List<String> competencies = new java.util.ArrayList<>();
+        if (!annual && l.assessments() != null) {
+            for (AssessmentEvidenceView a : l.assessments()) {
+                String label = a.label() == null || a.label().isBlank() ? a.code() : a.label();
+                String mark = a.mark() == null ? "" : "  " + number(a.mark());
+                competencies.addAll(wrap(label + mark, 17));
+            }
+        }
+        if (competencies.isEmpty() && !annual) competencies.add(componentText(l));
+        int lines = Math.max(1, competencies.size());
+        height = Math.max(height, Math.max(22, 8 + lines * 9));
+        String remark = l.teacherRemark() == null ? l.appreciation() : l.teacherRemark();
+        List<String> remarkLines = wrap(remark, 17);
+        height = Math.max(height, 8 + Math.max(1, remarkLines.size()) * 9);
         try (PDPageContentStream cs = new PDPageContentStream(doc, page, PDPageContentStream.AppendMode.APPEND, true)) {
             text(cs, bold(), 7, 48, y - 12, clip(l.subjectLabel(), 16));
             if (l.teacherName() != null && !l.teacherName().isBlank()) text(cs, normal(), 6, 48, y - 20, clip(l.teacherName(), 17));
-            text(cs, normal(), 7, 150, y - 14, clip(componentText(l), 18));
-            text(cs, normal(), 9, 256, y - 14, number(l.mark()));
+            // Annual rows have dedicated T1/T2/T3 cells.  Do not draw the
+            // textual period labels into that same band or they overlap the
+            // numeric marks and make the right-most columns unreadable.
+            if (annual) {
+                drawAnnualMarks(cs, l, y - 12);
+            } else {
+                drawWrapped(cs, competencies, 150, y - 12, 7, 9);
+                text(cs, normal(), 9, 256, y - 14, number(l.mark()));
+            }
             text(cs, normal(), 9, 303, y - 14, String.valueOf(l.coefficient()));
             text(cs, normal(), 9, 350, y - 14, number(l.weighted()));
-            String remark = l.teacherRemark() == null ? l.appreciation() : l.teacherRemark();
-            text(cs, normal(), 7, 405, y - 14, clip(remark, 26));
-            for (float x : new float[]{42, 142, 247, 292, 337, 392, 553}) line(cs, x, y, x, y - 22, 0.35f);
-            line(cs, LEFT, y - 22, RIGHT, y - 22, 0.35f);
+            text(cs, bold(), 8, 398, y - 14, grade(l.mark()));
+            drawWrapped(cs, remarkLines, 456, y - 12, 7, 9);
+            for (float x : new float[]{42, 142, 247, 292, 337, 392, 450, 553}) line(cs, x, y, x, y - height, 0.35f);
+            line(cs, LEFT, y - height, RIGHT, y - height, 0.35f);
         }
+        return height;
+    }
+
+    private float secondaryRowHeight(BulletinLineView l, boolean annual) {
+        List<String> competencies = new java.util.ArrayList<>();
+        if (!annual && l.assessments() != null) {
+            for (AssessmentEvidenceView a : l.assessments()) {
+                String label = a.label() == null || a.label().isBlank() ? a.code() : a.label();
+                String mark = a.mark() == null ? "" : "  " + number(a.mark());
+                competencies.addAll(wrap(label + mark, 17));
+            }
+        }
+        if (competencies.isEmpty() && !annual) competencies.add(componentText(l));
+        String remark = l.teacherRemark() == null ? l.appreciation() : l.teacherRemark();
+        List<String> remarkLines = wrap(remark, 17);
+        return Math.max(Math.max(22, 8 + Math.max(1, competencies.size()) * 9),
+                8 + Math.max(1, remarkLines.size()) * 9);
+    }
+
+    private void drawAnnualMarks(PDPageContentStream cs, BulletinLineView l, float y) throws Exception {
+        int index = 0;
+        if (l.periodMarks() != null) {
+            for (PeriodMarkView mark : l.periodMarks()) {
+                if (index >= 3) break;
+                text(cs, normal(), 8, 150 + index * 32, y, number(mark.mark()));
+                index++;
+            }
+        }
+        text(cs, bold(), 8, 247, y, number(l.mark()));
     }
 
     private void row(PDDocument doc, PDPage page, float y, BulletinLineView l, boolean fr, boolean secondary) throws Exception {
-        if (secondary) { secondaryRow(doc, page, y, l, fr); return; }
+        if (secondary) { secondaryRow(doc, page, y, l, fr, false); return; }
         try (PDPageContentStream cs = new PDPageContentStream(doc, page, PDPageContentStream.AppendMode.APPEND, true)) {
             String subject = l.subjectGroupLabel() == null || l.subjectGroupLabel().isBlank()
                     ? l.subjectLabel() : l.subjectGroupLabel() + " / " + l.subjectLabel();
@@ -348,6 +424,63 @@ public class ReportCardPdfService {
         catch (Exception ignored) { return null; }
     }
 
+    private static boolean annual(BulletinSnapshotView b) {
+        String code = b.reportingPeriodCode() == null ? "" : b.reportingPeriodCode().toUpperCase(Locale.ROOT);
+        String label = b.reportingPeriodLabel() == null ? "" : b.reportingPeriodLabel().toUpperCase(Locale.ROOT);
+        String family = b.evidence() == null || b.evidence().documentDesign() == null ? "" :
+                String.valueOf(b.evidence().documentDesign().templateFamily()).toUpperCase(Locale.ROOT);
+        return code.contains("ANNUAL") || label.contains("ANNUAL") || label.contains("ANNUEL") || family.endsWith("ANNUAL");
+    }
+
+    private static String grade(java.math.BigDecimal mark) {
+        if (mark == null) return "-";
+        if (mark.compareTo(java.math.BigDecimal.valueOf(18)) >= 0) return "A+";
+        if (mark.compareTo(java.math.BigDecimal.valueOf(16)) >= 0) return "A";
+        if (mark.compareTo(java.math.BigDecimal.valueOf(14)) >= 0) return "B+";
+        if (mark.compareTo(java.math.BigDecimal.TEN) >= 0) return "B";
+        if (mark.compareTo(java.math.BigDecimal.valueOf(8)) >= 0) return "C";
+        return "D";
+    }
+
+    private static List<String> wrap(String value, int width) {
+        String clean = safeText(value);
+        if (clean.isBlank()) return List.of("");
+        List<String> out = new java.util.ArrayList<>();
+        for (String paragraph : clean.split("\\R", -1)) {
+            String remaining = paragraph.trim();
+            if (remaining.isEmpty()) { out.add(""); continue; }
+            while (remaining.length() > width) {
+                int cut = remaining.lastIndexOf(' ', width);
+                if (cut < 1) cut = width;
+                out.add(remaining.substring(0, cut).trim());
+                remaining = remaining.substring(cut).trim();
+            }
+            out.add(remaining);
+        }
+        return out;
+    }
+
+    private static void drawWrapped(PDPageContentStream cs, List<String> lines, float x, float y,
+                                    float size, float leading) throws Exception {
+        float at = y;
+        for (String line : lines) { text(cs, normal(), size, x, at, line); at -= leading; }
+    }
+
+    /** QR payload is deliberately limited to an opaque snapshot checksum/id. */
+    private static void drawQr(PDDocument doc, PDPage page, BulletinSnapshotView b, float x, float y) {
+        String hash = b.snapshotHash() == null ? "" : b.snapshotHash();
+        if (b.id() == null || hash.isBlank()) return;
+        try {
+            String payload = "/api/public/report-card-verification/" + b.id() + "?checksum=" + hash;
+            BitMatrix matrix = new QRCodeWriter().encode(payload, BarcodeFormat.QR_CODE, 96, 96);
+            BufferedImage qr = MatrixToImageWriter.toBufferedImage(matrix);
+            PDImageXObject image = LosslessFactory.createFromImage(doc, qr);
+            try (PDPageContentStream cs = new PDPageContentStream(doc, page, PDPageContentStream.AppendMode.APPEND, true)) {
+                cs.drawImage(image, x, y, 58, 58);
+            }
+        } catch (Exception ignored) { /* QR must never make a bulletin unprintable. */ }
+    }
+
     private static String blankJoin(String first, String second, String fallback) {
         String left = first == null ? "" : first.trim();
         String right = second == null ? "" : second.trim();
@@ -438,7 +571,7 @@ public class ReportCardPdfService {
         StringBuilder out = new StringBuilder(normalized.length());
         normalized.codePoints().filter(cp -> !Character.isISOControl(cp) && cp != 0xfffd)
                 .forEach(out::appendCodePoint);
-        return out.toString();
+        return out.toString().replace("NaN", "-").replace("nan", "-");
     }
     private static boolean looksLikeMojibake(String value) {
         return value.indexOf('\u00c3') >= 0 || value.indexOf('\u00c2') >= 0

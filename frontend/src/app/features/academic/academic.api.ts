@@ -156,6 +156,36 @@ export interface BulletinBatchItemView {
   attempts: number; fileName: string; sizeBytes: number; error: string;
 }
 
+export interface SecondaryCompetencyView {
+  id: string; code: string; description: string; maxScore: number;
+  displayOrder: number; active: boolean;
+}
+export interface SecondaryCompetencyMarkView {
+  id: string; competencyId: string; reportingPeriodId: string; studentId: string;
+  enrollmentId?: string | null; teacherId?: string | null; mark: number | null;
+  valueStatus: 'SCORED' | 'ABSENT' | 'EXEMPT' | 'MISSING'; version: number;
+}
+export interface SecondaryCompetencyModelView {
+  id: string; academicSessionId: string; reportingPeriodId: string; classId: string;
+  subjectId: string; locale: string; name: string; version: number;
+  status: 'DRAFT' | 'PUBLISHED' | 'RETIRED'; source: 'MANUAL' | 'IMPORT' | 'SEED';
+  competencies: SecondaryCompetencyView[];
+}
+export interface SecondaryCompetencyModelRequest {
+  academicSessionId: string; reportingPeriodId: string; classId: string;
+  subjectId: string; locale: string; name: string; reason?: string;
+  competencies: Array<{ code: string; description: string; maxScore?: number; displayOrder?: number }>;
+}
+export interface SecondaryCompetencyMarkRequest {
+  modelId: string; competencyId: string; reportingPeriodId: string; studentId: string;
+  enrollmentId?: string | null; teacherId?: string | null; mark?: number | null;
+  valueStatus?: string; version?: number;
+}
+export interface SecondaryCompetencyImportRequest {
+  modelId: string; reportingPeriodId: string;
+  rows: Array<{ studentId: string; competencyCode: string; mark?: number | null; valueStatus?: string }>;
+}
+
 @Injectable({ providedIn: 'root' })
 export class AcademicApi {
   private http = inject(HttpClient);
@@ -261,5 +291,33 @@ export class AcademicApi {
   }
   downloadBulletinBatchJob(id: string): Observable<Blob> {
     return this.http.get(`${this.base}/bulletin-batch-jobs/${encodeURIComponent(id)}/download`, { responseType: 'blob' });
+  }
+
+  secondaryCompetencyModels(params: { reportingPeriodId?: string; classId?: string; subjectId?: string; locale?: string } = {}): Observable<SecondaryCompetencyModelView[]> {
+    return this.http.get<SecondaryCompetencyModelView[]>(`${this.base}/secondary-competencies`, { params: params as Record<string, string> });
+  }
+  secondaryCompetencyModel(id: string): Observable<SecondaryCompetencyModelView> {
+    return this.http.get<SecondaryCompetencyModelView>(`${this.base}/secondary-competencies/${encodeURIComponent(id)}`);
+  }
+  createSecondaryCompetencyModel(body: SecondaryCompetencyModelRequest): Observable<SecondaryCompetencyModelView> {
+    return this.http.post<SecondaryCompetencyModelView>(`${this.base}/secondary-competencies/models`, body);
+  }
+  copySecondaryCompetencyModel(id: string, reason: string): Observable<SecondaryCompetencyModelView> {
+    return this.http.post<SecondaryCompetencyModelView>(`${this.base}/secondary-competencies/models/${encodeURIComponent(id)}/copy`, {}, { params: { reason } });
+  }
+  publishSecondaryCompetencyModel(id: string, reason: string): Observable<SecondaryCompetencyModelView> {
+    return this.http.post<SecondaryCompetencyModelView>(`${this.base}/secondary-competencies/models/${encodeURIComponent(id)}/publish`, {}, { params: { reason } });
+  }
+  secondaryCompetencyMarks(modelId: string, reportingPeriodId: string, studentId?: string): Observable<SecondaryCompetencyMarkView[]> {
+    const params: Record<string, string> = {};
+    params['reportingPeriodId'] = reportingPeriodId;
+    if (studentId) params['studentId'] = studentId;
+    return this.http.get<SecondaryCompetencyMarkView[]>(`${this.base}/secondary-competencies/${encodeURIComponent(modelId)}/marks`, { params });
+  }
+  saveSecondaryCompetencyMark(body: SecondaryCompetencyMarkRequest): Observable<SecondaryCompetencyMarkView> {
+    return this.http.put<SecondaryCompetencyMarkView>(`${this.base}/secondary-competencies/marks`, body);
+  }
+  importSecondaryCompetencyMarks(body: SecondaryCompetencyImportRequest): Observable<SecondaryCompetencyMarkView[]> {
+    return this.http.post<SecondaryCompetencyMarkView[]>(`${this.base}/secondary-competencies/marks/import`, body);
   }
 }

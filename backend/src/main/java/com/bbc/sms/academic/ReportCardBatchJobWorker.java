@@ -8,6 +8,11 @@ import com.bbc.sms.platform.tenant.TenantContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.PDPage;
+import org.apache.pdfbox.pdmodel.PDPageContentStream;
+import org.apache.pdfbox.pdmodel.common.PDRectangle;
+import org.apache.pdfbox.pdmodel.font.PDType1Font;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
@@ -82,7 +87,9 @@ public class ReportCardBatchJobWorker {
         jdbc.update("UPDATE bulletin_batch_item SET status='RUNNING',attempts=?,started_at=now(),error=NULL,version=version+1 WHERE school_id=? AND id=? AND status='QUEUED'", attempts + 1, schoolId, item.id());
         try {
             UUID snapshotId = publishedOrValidated(schoolId, item.studentId(), scope.reportingPeriodId(), scope.classId());
-            // Draft snapshots are intentionally excluded: only validated/published results enter an archive.
+            // Parent-visible archives are intentionally published-only.  A
+            // validated draft may be reviewed by staff but must never become a
+            // parent document until the publication transition is complete.
             if (snapshotId == null) {
                 markTerminal(schoolId, item.id(), "BLOCKED", null, null, null, null, null, null, null, "No validated or published snapshot");
                 refreshCounts(schoolId, jobId);
@@ -110,10 +117,9 @@ public class ReportCardBatchJobWorker {
         return jdbc.query("""
                 SELECT v.id FROM bulletin_version v
                  JOIN student_enrollment e ON e.id=v.enrollment_id
-                 WHERE v.school_id=? AND v.student_id=? AND v.reporting_period_id=? AND v.state IN ('PUBLISHED','VALIDATED')
+                 WHERE v.school_id=? AND v.student_id=? AND v.reporting_period_id=? AND v.state='PUBLISHED'
                    AND e.school_id=? AND e.school_class_id=?
-                 ORDER BY CASE WHEN v.state='PUBLISHED' THEN 0 ELSE 1 END,
-                          v.published_at DESC NULLS LAST,v.created_at DESC LIMIT 1
+                ORDER BY v.published_at DESC NULLS LAST,v.created_at DESC LIMIT 1
                 """, rs -> rs.next() ? rs.getObject(1, UUID.class) : null,
                 schoolId, studentId, periodId, schoolId, classId);
     }
@@ -172,6 +178,7 @@ public class ReportCardBatchJobWorker {
                 manifest.add(csv(item.studentId().toString(), item.studentName(), item.status(), item.fileName(), item.sha256(), String.valueOf(item.sizeBytes()),
                         String.valueOf(item.snapshotId()), String.valueOf(item.snapshotVersion()), item.snapshotHash(), String.valueOf(item.documentId()), item.error()));
             }
+            addCompanionArtifacts(zip, manifest, files, scope, schoolId);
             zip.putNextEntry(new ZipEntry("manifest.csv")); zip.write(String.join("\n", manifest).getBytes(StandardCharsets.UTF_8)); zip.closeEntry(); zip.finish();
             byte[] archive = out.toByteArray();
             String key = storage.store(schoolId.toString(), "bulletin-batch/" + jobId + "/archive", "zip", archive);
@@ -180,6 +187,45 @@ public class ReportCardBatchJobWorker {
             jdbc.update("UPDATE bulletin_batch_job SET status='FAILED',completed_at=now(),last_error=?,version=version+1 WHERE school_id=? AND id=?", clip(ex.getMessage()), schoolId, jobId);
         }
     }
+
+    private void addCompanionArtifacts(ZipOutputStream zip, List<String> manifest,
+                                       List<ArchiveItem> items, JobScope scope, UUID schoolId) throws Exception {
+        List<BulletinSnapshotView> snapshots = new ArrayList<>();
+        for (ArchiveItem item : items) {
+            if (item.snapshotId() != null) {
+                try { snapshots.add(this.snapshots.byId(item.snapshotId())); } catch (Exception ignored) { }
+            }
+        }
+        List<BulletinSnapshotView> honors = snapshots.stream().filter(x -> x.conduct() != null && x.conduct().honorRoll()).toList();
+        for (BulletinSnapshotView snapshot : honors) {
+            String file = "honor-roll/" + safeFile(snapshot.studentName()) + "-certificate.pdf";
+            byte[] bytes = companionPdf("en".equalsIgnoreCase(scope.locale()) ? "HONOR ROLL" : "TABLEAU D'HONNEUR",
+                    List.of(snapshot.studentName(), "Average: " + number(snapshot.average()) + " / 20"));
+            zip.putNextEntry(new ZipEntry(file)); zip.write(bytes); zip.closeEntry(); manifest.add(companionManifest(file, bytes, "HONOR_CERTIFICATE"));
+        }
+        List<String> stats = new ArrayList<>(); stats.add("CLASS STATISTICS " + scope.reportingPeriodId());
+        if (!snapshots.isEmpty() && snapshots.get(0).classStats() != null) {
+            var x = snapshots.get(0).classStats(); stats.add("Average: " + number(x.average()) + " / 20"); stats.add("Pass rate: " + number(x.successRate()) + "%");
+        }
+        byte[] statsPdf = companionPdf(stats.get(0), stats.subList(1, stats.size())); zip.putNextEntry(new ZipEntry("class-statistics.pdf")); zip.write(statsPdf); zip.closeEntry(); manifest.add(companionManifest("class-statistics.pdf", statsPdf, "CLASS_STATISTICS"));
+        List<String> pv = new ArrayList<>(); pv.add("CLASS PV / REGISTER " + scope.reportingPeriodId()); snapshots.stream().sorted(Comparator.comparing(BulletinSnapshotView::studentName, String.CASE_INSENSITIVE_ORDER)).forEach(x -> pv.add(x.studentName() + " | " + number(x.average()) + " | " + String.valueOf(x.rank())));
+        byte[] pvPdf = companionPdf(pv.get(0), pv.subList(1, pv.size())); zip.putNextEntry(new ZipEntry("pv-register.pdf")); zip.write(pvPdf); zip.closeEntry(); manifest.add(companionManifest("pv-register.pdf", pvPdf, "PV_REGISTER"));
+    }
+
+    private static String companionManifest(String file, byte[] bytes, String kind) { return csv("", kind, "COMPANION", file, sha256(bytes), String.valueOf(bytes.length), "", "", "", "", ""); }
+    private static byte[] companionPdf(String title, List<String> lines) {
+        try (PDDocument document = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.A4); document.addPage(page);
+            try (PDPageContentStream cs = new PDPageContentStream(document, page)) {
+                cs.beginText(); cs.setFont(PDType1Font.HELVETICA_BOLD, 15); cs.newLineAtOffset(52, 790); cs.showText(pdfSafe(title)); cs.setFont(PDType1Font.HELVETICA, 10);
+                for (String line : lines) { cs.newLineAtOffset(0, -18); cs.showText(pdfSafe(line)); }
+                cs.endText();
+            }
+            document.save(out); return out.toByteArray();
+        } catch (Exception ex) { throw new IllegalStateException("Companion document generation failed", ex); }
+    }
+    private static String pdfSafe(String value) { return value == null ? "" : value.replace('é','e').replace('è','e').replace('ê','e').replace('à','a').replace('ù','u').replace('ô','o').replace('î','i').replace('ç','c'); }
+    private static String number(java.math.BigDecimal value) { return value == null ? "-" : value.setScale(2, java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString(); }
 
     private static String csv(String... values) { return Arrays.stream(values).map(v -> "\"" + (v == null ? "" : v.replace("\"", "\"\"")) + "\"").reduce((a,b)->a+","+b).orElse(""); }
     private static String safeFile(String value) { return value == null ? "student" : value.replaceAll("[^A-Za-z0-9_-]+", "_").replaceAll("_+", "_"); }

@@ -7,7 +7,8 @@ import {
   SetupApi, SectionView, SectionUpsert, ClassView, ClassUpsert, SubjectView, SubjectUpsert, TeacherOption,
   ClassCoefView, CoefImportRow, CoefImportResult, CurriculumView, CurriculumSubjectView, SubjectGroupView, AssignmentImpactView,
 } from '../../core/setup.api';
-import { FoundationApi, AcademicSessionView, DocumentDesignView } from '../../core/foundation.api';
+import { FoundationApi, AcademicSessionView, AcademicReportingPeriodView, DocumentDesignView } from '../../core/foundation.api';
+import { AcademicApi, SecondaryCompetencyModelView } from '../academic/academic.api';
 import { defaultSubjects } from './subject-defaults';
 import { forkJoin } from 'rxjs';
 import { IconComponent, CardComponent, TabsComponent, EmptyComponent } from '../../core/ui';
@@ -548,6 +549,86 @@ import { downloadCsv } from '../../core/csv';
 
       }
 
+      <!-- ===================== SECONDARY COMPETENCIES ===================== -->
+      @case ('competencies') {
+        <bbc-card [title]="fr() ? 'Compétences du secondaire' : 'Secondary competencies'"
+          [subtitle]="fr() ? 'Définissez manuellement les compétences évaluées ou importez les notes par fichier CSV. Chaque modèle est versionné par session, période, classe et matière.' : 'Define assessed competencies manually or import marks from CSV. Each model is versioned by session, period, class and subject.'">
+          <div class="mb-4 rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-950 leading-relaxed">
+            <strong>{{ fr() ? 'Flux conseillé :' : 'Recommended flow:' }}</strong>
+            {{ fr() ? 'choisissez une classe secondaire, une matière et une période, créez les descriptions puis publiez le modèle. Les notes peuvent ensuite être saisies ou importées avec les colonnes studentId, competencyCode, mark, valueStatus.' : 'choose a secondary class, subject and period, create descriptions, then publish the model. Marks can then be entered or imported with studentId, competencyCode, mark, valueStatus columns.' }}
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-5 gap-3">
+            <label class="block"><span class="field-label">{{ fr() ? 'Session' : 'Session' }} *</span>
+              <select [ngModel]="competencySessionId()" (ngModelChange)="selectCompetencySession($event)" class="field" required>
+                <option value="">{{ fr() ? 'Choisir' : 'Choose' }}</option>
+                @for (session of academicSessions(); track session.id) { <option [value]="session.id">{{ session.label }}</option> }
+              </select>
+            </label>
+            <label class="block"><span class="field-label">{{ fr() ? 'Période' : 'Period' }} *</span>
+              <select [ngModel]="competencyPeriodId()" (ngModelChange)="selectCompetencyPeriod($event)" class="field" required>
+                <option value="">{{ fr() ? 'Choisir' : 'Choose' }}</option>
+                @for (period of competencyPeriods(); track period.id) { <option [value]="period.id">{{ period.code }} · {{ period.label }}</option> }
+              </select>
+            </label>
+            <label class="block"><span class="field-label">{{ fr() ? 'Classe secondaire' : 'Secondary class' }} *</span>
+              <select [ngModel]="competencyClassId()" (ngModelChange)="selectCompetencyClass($event)" class="field" required>
+                <option value="">{{ fr() ? 'Choisir' : 'Choose' }}</option>
+                @for (klass of secondaryClasses(); track klass.id) { <option [value]="klass.id">{{ klass.name }} · {{ klass.subsystem }}</option> }
+              </select>
+            </label>
+            <label class="block"><span class="field-label">{{ fr() ? 'Matière' : 'Subject' }} *</span>
+              <select [ngModel]="competencySubjectId()" (ngModelChange)="selectCompetencySubject($event)" class="field" required>
+                <option value="">{{ fr() ? 'Choisir' : 'Choose' }}</option>
+                @for (subject of secondarySubjects(); track subject.id) { <option [value]="subject.id">{{ subject.code }} · {{ subjectLabel(subject) }}</option> }
+              </select>
+            </label>
+            <label class="block"><span class="field-label">{{ fr() ? 'Langue du modèle' : 'Model language' }} *</span>
+              <select [ngModel]="competencyLocale()" (ngModelChange)="competencyLocale.set($event); loadCompetencyModels()" class="field" required>
+                <option value="fr">Français</option><option value="en">English</option>
+              </select>
+            </label>
+          </div>
+          @if (competencyNotice(); as notice) { <div class="mt-3 rounded-lg border px-3 py-2 text-sm" [class]="notice.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-800'">{{ notice.text }}</div> }
+          @if (!secondaryClasses().length) {
+            <div class="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">{{ fr() ? 'Aucune classe secondaire n’est configurée. Créez d’abord une section et une classe secondaire.' : 'No secondary class is configured. Create a secondary section and class first.' }}</div>
+          } @else if (competencyClassId() && competencySubjectId() && competencyPeriodId()) {
+            <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 mt-5">
+              <section class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div class="flex items-start justify-between gap-3"><div><h3 class="font-semibold text-ink">{{ fr() ? 'Saisie manuelle du modèle' : 'Manual model entry' }}</h3><p class="text-xs text-mute mt-1">{{ fr() ? 'Les champs obligatoires sont signalés par *.' : 'Required fields are marked with *.' }}</p></div><button type="button" (click)="addCompetencyRow()" class="btn-secondary">+ {{ fr() ? 'Compétence' : 'Competency' }}</button></div>
+                <label class="block mt-3"><span class="field-label">{{ fr() ? 'Nom du modèle' : 'Model name' }} *</span><input [(ngModel)]="competencyName" class="field" required [placeholder]="fr() ? 'Évaluations du trimestre' : 'Term competencies'" /></label>
+                <div class="space-y-2 mt-3">
+                  @for (row of competencyRows; track $index; let i = $index) {
+                    <div class="grid grid-cols-[90px_1fr_80px_32px] gap-2 items-start">
+                      <input [(ngModel)]="row.code" [name]="'competency-code-' + i" class="field" required placeholder="CODE" aria-label="{{ fr() ? 'Code' : 'Code' }}" />
+                      <textarea [(ngModel)]="row.description" [name]="'competency-description-' + i" class="field min-h-[42px]" required rows="2" placeholder="{{ fr() ? 'Description de la compétence évaluée' : 'Assessed competency description' }}"></textarea>
+                      <input [(ngModel)]="row.maxScore" [name]="'competency-max-' + i" class="field" type="number" min="1" max="100" required aria-label="{{ fr() ? 'Barème' : 'Max score' }}" />
+                      <button type="button" (click)="removeCompetencyRow(i)" class="h-10 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-rose-600" [disabled]="competencyRows.length === 1" aria-label="{{ fr() ? 'Supprimer' : 'Remove' }}">×</button>
+                    </div>
+                  }
+                </div>
+                <div class="flex justify-end mt-4"><button type="button" (click)="saveCompetencyModel()" [disabled]="competencyBusy() || !canWrite" class="btn-primary">{{ competencyBusy() ? '…' : (fr() ? 'Enregistrer le brouillon' : 'Save draft') }}</button></div>
+              </section>
+              <section class="rounded-xl border border-slate-200 bg-white p-4">
+                <div class="flex items-start justify-between gap-3"><div><h3 class="font-semibold text-ink">{{ fr() ? 'Versions et import des notes' : 'Versions and mark import' }}</h3><p class="text-xs text-mute mt-1">{{ fr() ? 'Publiez une version, puis importez un CSV sans supprimer la saisie manuelle.' : 'Publish a version, then import CSV marks without removing manual entry.' }}</p></div><label class="btn-secondary cursor-pointer">{{ fr() ? 'Importer CSV' : 'Import CSV' }}<input type="file" accept=".csv,text/csv,text/plain" class="hidden" (change)="onCompetencyMarksFile($event)" /></label></div>
+                @if (competencyModels().length) {
+                  <div class="space-y-2 mt-3">
+                    @for (model of competencyModels(); track model.id) {
+                      <div class="rounded-lg border border-slate-200 p-3" [class.border-brand-300]="competencyModelId() === model.id">
+                        <button type="button" (click)="competencyModelId.set(model.id)" class="w-full text-left"><div class="flex items-center justify-between gap-2"><strong>{{ model.name }}</strong><span class="chip" [class]="model.status === 'PUBLISHED' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'">v{{ model.version }} · {{ model.status }}</span></div><div class="text-xs text-mute mt-1">{{ model.competencies.length }} {{ fr() ? 'compétences' : 'competencies' }} · {{ model.source }}</div></button>
+                        @if (canWrite && model.status === 'DRAFT') { <button type="button" (click)="publishCompetencyModel(model)" class="mt-2 text-xs font-semibold text-brand-700">{{ fr() ? 'Publier cette version' : 'Publish this version' }}</button> }
+                      </div>
+                    }
+                  </div>
+                } @else { <div class="mt-4 rounded-lg border border-dashed border-slate-300 p-4 text-sm text-mute">{{ fr() ? 'Aucun modèle pour cette sélection. Créez le premier à gauche.' : 'No model for this selection. Create the first one on the left.' }}</div> }
+                <div class="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-mute"><strong class="text-ink">CSV :</strong> studentId, competencyCode, mark, valueStatus. {{ fr() ? 'Les statuts acceptés sont SCORED, ABSENT, EXEMPT et MISSING.' : 'Accepted statuses are SCORED, ABSENT, EXEMPT and MISSING.' }}</div>
+              </section>
+            </div>
+          } @else {
+            <div class="mt-5 rounded-lg border border-dashed border-slate-300 p-5 text-center text-sm text-mute">{{ fr() ? 'Choisissez les quatre champs de contexte pour gérer un modèle secondaire.' : 'Choose the four context fields to manage a secondary model.' }}</div>
+          }
+        </bbc-card>
+      }
+
       <!-- ===================== DOCUMENT DESIGN ===================== -->
       @case ('design') {
         <bbc-card [title]="fr() ? 'Modèles de bulletins et identité de l’établissement' : 'Report templates and school identity'"
@@ -583,6 +664,20 @@ import { downloadCsv } from '../../core/csv';
                       <tr class="border-t border-slate-100 align-top"><td class="p-2"><strong>{{ template.name }}</strong><div class="text-slate-500 mt-0.5">{{ designTemplateTypeLabel(template) }}</div></td><td class="p-2"><div class="font-semibold text-ink">{{ designProductLabel(template) }}</div><div class="text-slate-500">{{ designLocaleLabel(template.locale) }} · {{ designSubsystemLabel(template.subsystem) }}</div><div class="text-slate-500 mt-0.5">{{ designFamilyLabel(template.referenceFamily) }}</div></td><td class="p-2"><span class="chip bg-emerald-50 text-emerald-700">v{{ template.version }} · {{ designStatusLabel(template.status) }}</span><div class="text-slate-500 mt-1">{{ fr() ? 'Utilisée pour les nouveaux documents' : 'Used for new documents' }}</div></td><td class="p-2"><div class="font-mono" [title]="template.checksum || ''">{{ template.checksum ? template.checksum.slice(0, 12) + '…' : '—' }}</div><div class="text-slate-500 mt-1">{{ fr() ? 'Contrôle d’intégrité' : 'Integrity check' }}</div></td><td class="p-2 text-right whitespace-nowrap">@if (canWrite && template.status === 'PUBLISHED') { <button type="button" (click)="openDesignPublish('template', template.id, template.name)" class="text-brand-700 font-semibold" [title]="fr() ? 'Copier la définition actuelle dans une nouvelle version' : 'Copy the current definition into a new version'">{{ fr() ? 'Créer une version' : 'Create version' }}</button> }</td></tr>
                     } @empty { <tr><td colspan="5" class="p-4 text-center text-mute">{{ fr() ? 'Aucun modèle versionné.' : 'No versioned templates.' }}</td></tr> }
                   </tbody></table>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
+                  @for (template of design.templates; track template.id) {
+                    <article class="rounded-xl border border-slate-200 bg-slate-50 p-3" aria-label="Report card live sample preview">
+                      <div class="flex items-center justify-between gap-2 mb-2"><strong class="text-sm">{{ template.name }}</strong><span class="chip bg-white text-slate-600">{{ template.locale.toUpperCase() }} · v{{ template.version }}</span></div>
+                      <div class="rounded-lg border border-slate-300 bg-white p-3 shadow-inner min-h-[150px]">
+                        <div class="flex items-start justify-between border-b border-slate-200 pb-2"><div><div class="text-[9px] uppercase tracking-wide text-slate-500">{{ fr() ? 'République du Cameroun · établissement' : 'Republic of Cameroon · school' }}</div><div class="font-bold text-xs mt-1">{{ template.referenceFamily === 'SECONDARY' ? (fr() ? 'Bulletin secondaire' : 'Secondary report card') : (fr() ? 'Bulletin scolaire' : 'School report card') }}</div></div><div class="h-8 w-8 rounded bg-brand-100"></div></div>
+                        <div class="grid grid-cols-3 gap-1 mt-3"><div class="h-2 rounded bg-slate-200"></div><div class="h-2 rounded bg-slate-200"></div><div class="h-2 rounded bg-slate-200"></div></div>
+                        <div class="mt-2 space-y-1">@for (row of [1,2,3,4]; track row) { <div class="grid grid-cols-6 gap-1"><div class="col-span-2 h-2 rounded bg-slate-100"></div><div class="h-2 rounded bg-slate-100"></div><div class="h-2 rounded bg-slate-100"></div><div class="h-2 rounded bg-slate-100"></div><div class="h-2 rounded bg-slate-100"></div></div> }</div>
+                        <div class="mt-3 flex justify-between"><span class="h-2 w-20 rounded bg-brand-100"></span><span class="h-2 w-12 rounded bg-slate-200"></span></div>
+                      </div>
+                      <p class="text-[11px] text-mute mt-2">{{ template.referenceFamily === 'SECONDARY' ? (fr() ? 'Aperçu : compétences, notes /20, coefficient, produit, cote et appréciation.' : 'Preview: competencies, marks /20, coefficient, product, grade and remarks.') : (fr() ? 'Aperçu primaire conservé.' : 'Primary preview preserved.') }}</p>
+                    </article>
+                  }
                 </div>
               </section>
               <section>
@@ -640,6 +735,7 @@ export class AcademicSetupComponent {
   protected i18n = inject(I18nService);
   private auth = inject(AuthService);
   private api = inject(SetupApi);
+  private academicApi = inject(AcademicApi);
   private foundation = inject(FoundationApi);
   private scopeSvc = inject(ScopeService);
 
@@ -663,7 +759,7 @@ export class AcademicSetupComponent {
       : `Active parcours: ${lvl} · ${sub}. Other parcours data is hidden — switch from the top bar.`;
   });
 
-  protected sub = signal<'sections' | 'classes' | 'subjects' | 'class-subjects' | 'design'>('sections');
+  protected sub = signal<'sections' | 'classes' | 'subjects' | 'class-subjects' | 'competencies' | 'design'>('sections');
   protected sections = signal<SectionView[]>([]);
   protected classes = signal<ClassView[]>([]);
   protected subjects = signal<SubjectView[]>([]);
@@ -674,6 +770,7 @@ export class AcademicSetupComponent {
     { id: 'classes', label: this.fr() ? 'Classes' : 'Classes' },
     { id: 'subjects', label: this.fr() ? 'Matières' : 'Subjects' },
     { id: 'class-subjects', label: this.fr() ? 'Matières par classe' : 'Class subjects' },
+    { id: 'competencies', label: this.fr() ? 'Compétences secondaire' : 'Secondary competencies' },
     { id: 'design', label: this.fr() ? 'Modèles / marque' : 'Templates / branding' },
   ]);
 
@@ -760,6 +857,28 @@ export class AcademicSetupComponent {
   protected designReason = '';
   protected designBusy = signal(false);
 
+  protected competencyPeriods = signal<AcademicReportingPeriodView[]>([]);
+  protected competencySessionId = signal('');
+  protected competencyPeriodId = signal('');
+  protected competencyClassId = signal('');
+  protected competencySubjectId = signal('');
+  protected competencyLocale = signal<'fr' | 'en'>('fr');
+  protected competencyName = '';
+  protected competencyRows: Array<{ code: string; description: string; maxScore: number }> = [
+    { code: 'UNDERSTAND', description: '', maxScore: 20 },
+    { code: 'APPLY', description: '', maxScore: 20 },
+  ];
+  protected competencyModels = signal<SecondaryCompetencyModelView[]>([]);
+  protected competencyModelId = signal('');
+  protected competencyBusy = signal(false);
+  protected competencyNotice = signal<{ ok: boolean; text: string } | null>(null);
+
+  protected secondaryClasses = computed(() => this.classes().filter((klass) => klass.level.toLowerCase() === 'secondary'));
+  protected secondarySubjects = computed(() => {
+    const klass = this.secondaryClasses().find((item) => item.id === this.competencyClassId());
+    return this.subjects().filter((subject) => !klass || !subject.subsystem || subject.subsystem === klass.subsystem);
+  });
+
   protected selectedAssignmentClass = computed(() =>
     this.classes().find((c) => c.id === this.assignmentClassId()) ?? null,
   );
@@ -788,6 +907,7 @@ export class AcademicSetupComponent {
       if (current) {
         this.curriculumSessionId.set(current.id);
         this.loadCurriculum();
+        this.selectCompetencySession(current.id);
       }
     });
   }
@@ -1062,7 +1182,7 @@ export class AcademicSetupComponent {
     return out;
   }
 
-  protected switchTo(t: 'sections' | 'classes' | 'subjects' | 'class-subjects' | 'design'): void {
+  protected switchTo(t: 'sections' | 'classes' | 'subjects' | 'class-subjects' | 'competencies' | 'design'): void {
     this.sub.set(t);
     this.secForm.set(false); this.clsForm.set(false); this.subjForm.set(false);
     this.assignmentNotice.set(null);
@@ -1070,6 +1190,102 @@ export class AcademicSetupComponent {
 
   private loadDocumentDesign(): void {
     this.foundation.documentDesign().subscribe({ next: (design) => this.documentDesign.set(design), error: (error) => this.fail(error) });
+  }
+
+  protected selectCompetencySession(sessionId: string): void {
+    this.competencySessionId.set(sessionId);
+    this.competencyPeriodId.set('');
+    this.competencyModels.set([]);
+    this.competencyModelId.set('');
+    if (!sessionId) { this.competencyPeriods.set([]); return; }
+    this.foundation.reportingPeriods(sessionId).subscribe({
+      next: (periods) => {
+        this.competencyPeriods.set(periods);
+        const first = periods.find((period) => period.code === 'S1') ?? periods[0];
+        if (first) { this.competencyPeriodId.set(first.id); this.loadCompetencyModels(); }
+      },
+      error: (error) => this.fail(error),
+    });
+  }
+
+  protected selectCompetencyPeriod(periodId: string): void { this.competencyPeriodId.set(periodId); this.loadCompetencyModels(); }
+  protected selectCompetencyClass(classId: string): void {
+    this.competencyClassId.set(classId);
+    const klass = this.secondaryClasses().find((item) => item.id === classId);
+    if (klass && this.competencyLocale() !== (klass.subsystem === 'EN' ? 'en' : 'fr')) this.competencyLocale.set(klass.subsystem === 'EN' ? 'en' : 'fr');
+    this.competencySubjectId.set('');
+    this.loadCompetencyModels();
+  }
+  protected selectCompetencySubject(subjectId: string): void { this.competencySubjectId.set(subjectId); this.loadCompetencyModels(); }
+
+  protected loadCompetencyModels(): void {
+    const reportingPeriodId = this.competencyPeriodId();
+    const classId = this.competencyClassId();
+    const subjectId = this.competencySubjectId();
+    if (!reportingPeriodId || !classId || !subjectId) { this.competencyModels.set([]); this.competencyModelId.set(''); return; }
+    this.academicApi.secondaryCompetencyModels({ reportingPeriodId, classId, subjectId, locale: this.competencyLocale() }).subscribe({
+      next: (models) => {
+        this.competencyModels.set(models);
+        const selected = models.find((model) => model.status === 'DRAFT') ?? models.find((model) => model.status === 'PUBLISHED') ?? models[0];
+        this.competencyModelId.set(selected?.id ?? '');
+      },
+      error: (error) => this.fail(error),
+    });
+  }
+
+  protected addCompetencyRow(): void { this.competencyRows = [...this.competencyRows, { code: '', description: '', maxScore: 20 }]; }
+  protected removeCompetencyRow(index: number): void { if (this.competencyRows.length > 1) this.competencyRows = this.competencyRows.filter((_, i) => i !== index); }
+
+  protected saveCompetencyModel(): void {
+    const sessionId = this.competencySessionId();
+    const reportingPeriodId = this.competencyPeriodId();
+    const classId = this.competencyClassId();
+    const subjectId = this.competencySubjectId();
+    const rows = this.competencyRows.map((row, index) => ({ code: row.code.trim(), description: row.description.trim(), maxScore: Number(row.maxScore), displayOrder: index + 1 }));
+    if (!this.canWrite || !sessionId || !reportingPeriodId || !classId || !subjectId || !this.competencyName.trim() || rows.some((row) => !row.code || !row.description || !Number.isFinite(row.maxScore) || row.maxScore <= 0)) {
+      this.competencyNotice.set({ ok: false, text: this.fr() ? 'Renseignez tous les champs obligatoires du modèle.' : 'Complete all required model fields.' });
+      return;
+    }
+    this.competencyBusy.set(true);
+    this.academicApi.createSecondaryCompetencyModel({ academicSessionId: sessionId, reportingPeriodId, classId, subjectId, locale: this.competencyLocale(), name: this.competencyName.trim(), competencies: rows }).subscribe({
+      next: () => { this.competencyBusy.set(false); this.competencyNotice.set({ ok: true, text: this.fr() ? 'Brouillon de modèle enregistré. Publiez-le pour l’utiliser dans un bulletin.' : 'Model draft saved. Publish it before using it in a report card.' }); this.loadCompetencyModels(); },
+      error: (error) => { this.competencyBusy.set(false); this.fail(error); },
+    });
+  }
+
+  protected publishCompetencyModel(model: SecondaryCompetencyModelView): void {
+    if (!this.canWrite || this.competencyBusy()) return;
+    this.competencyBusy.set(true);
+    this.academicApi.publishSecondaryCompetencyModel(model.id, this.fr() ? 'Publication du modèle de compétences secondaire' : 'Publish secondary competency model').subscribe({
+      next: () => { this.competencyBusy.set(false); this.competencyNotice.set({ ok: true, text: this.fr() ? 'Modèle publié. Les nouveaux snapshots utiliseront cette version.' : 'Model published. New snapshots will use this version.' }); this.loadCompetencyModels(); },
+      error: (error) => { this.competencyBusy.set(false); this.fail(error); },
+    });
+  }
+
+  protected onCompetencyMarksFile(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    const modelId = this.competencyModelId();
+    const reportingPeriodId = this.competencyPeriodId();
+    if (!file || !modelId || !reportingPeriodId) { this.competencyNotice.set({ ok: false, text: this.fr() ? 'Choisissez une version de modèle avant l’import.' : 'Choose a model version before importing.' }); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const lines = String(reader.result ?? '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+      if (!lines.length) { this.competencyNotice.set({ ok: false, text: this.fr() ? 'Le fichier CSV est vide.' : 'The CSV file is empty.' }); return; }
+      const cells = (line: string) => line.split(/[;,]/).map((value) => value.trim());
+      const header = cells(lines[0]).map((value) => value.toLowerCase());
+      const index = (name: string, fallback: number) => { const found = header.indexOf(name); return found >= 0 ? found : fallback; };
+      const studentIndex = index('studentid', 0), competencyIndex = index('competencycode', 1), markIndex = index('mark', 2), statusIndex = index('valuestatus', 3);
+      const data = (header.includes('studentid') || header.includes('competencycode')) ? lines.slice(1) : lines;
+      const rows = data.map((line) => { const row = cells(line); const rawMark = row[markIndex] ?? ''; return { studentId: row[studentIndex] ?? '', competencyCode: row[competencyIndex] ?? '', mark: rawMark === '' ? null : Number(rawMark), valueStatus: row[statusIndex] || undefined }; }).filter((row) => row.studentId && row.competencyCode);
+      if (!rows.length || rows.some((row) => row.mark !== null && !Number.isFinite(row.mark))) { this.competencyNotice.set({ ok: false, text: this.fr() ? 'Aucune ligne valide trouvée. Utilisez studentId, competencyCode, mark, valueStatus.' : 'No valid rows found. Use studentId, competencyCode, mark, valueStatus.' }); return; }
+      this.competencyBusy.set(true);
+      this.academicApi.importSecondaryCompetencyMarks({ modelId, reportingPeriodId, rows }).subscribe({
+        next: (saved) => { this.competencyBusy.set(false); this.competencyNotice.set({ ok: true, text: `${saved.length} ${this.fr() ? 'note(s) importée(s).' : 'mark(s) imported.'}` }); input.value = ''; },
+        error: (error) => { this.competencyBusy.set(false); this.fail(error); },
+      });
+    };
+    reader.readAsText(file);
   }
 
   protected openDesignPublish(kind: 'template' | 'branding', id: string | undefined, label: string): void {
@@ -1133,6 +1349,7 @@ export class AcademicSetupComponent {
     const value = (family || '').toUpperCase();
     if (value === 'REFERENCE') return this.fr() ? 'Modèle de référence' : 'Reference template';
     if (value === 'GENERIC') return this.fr() ? 'Modèle générique' : 'Generic template';
+    if (value === 'SECONDARY') return this.fr() ? 'Modèle secondaire' : 'Secondary template';
     return family || (this.fr() ? 'Modèle' : 'Template');
   }
   protected designStatusLabel(status: string | null | undefined): string {

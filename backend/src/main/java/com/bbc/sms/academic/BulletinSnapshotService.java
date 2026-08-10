@@ -89,6 +89,7 @@ public class BulletinSnapshotService {
         version.setSnapshotHash(sha256(json)); version.setAverage(calculation.average()); version.setRank(calculation.rank()); version.setClassSize(calculation.classSize());
         version.setCalculationPolicy(period.getCalculationPolicy()); version.setCreatedBy(currentUserId());
         version.setTemplateVersion(templateReference(trace));
+        freezeDesign(version, trace, enrollment);
         return view(versions.save(version), period, student, calculation, attendance, conduct, trace);
     }
 
@@ -140,6 +141,7 @@ public class BulletinSnapshotService {
         replacement.setCorrectionRequestedBy(currentUserId());
         replacement.setCorrectionRequestedAt(Instant.now());
         replacement.setTemplateVersion(templateReference(trace));
+        freezeDesign(replacement, trace, enrollment);
         return view(versions.save(replacement), period, student, calculation, attendance, conduct, trace);
     }
 
@@ -369,13 +371,15 @@ public class BulletinSnapshotService {
         List<DependencyRow> dependencies = dependencies(period);
         Map<String, List<BigDecimal>> bySubject = new LinkedHashMap<>();
         Map<String, List<PeriodMarkView>> componentMarks = new LinkedHashMap<>();
+        Map<String, List<AssessmentEvidenceView>> componentEvidence = new LinkedHashMap<>();
         Map<String, List<String>> componentRemarks = new LinkedHashMap<>();
         Map<String, Map<String, List<String>>> childBlockers = new LinkedHashMap<>();
         List<String> blockers = new ArrayList<>();
         Map<String, DependencyRow> byCode = dependencies.stream().collect(Collectors.toMap(
                 d -> d.childCode().toUpperCase(Locale.ROOT), d -> d, (first, ignored) -> first, LinkedHashMap::new));
+        boolean publishedOnly = "ANNUAL_RESULT".equals(period.getPeriodType());
         for (DependencyRow dependency : dependencies) {
-            BulletinVersion frozen = frozenChild(studentId, dependency.childPeriodId());
+            BulletinVersion frozen = frozenChild(studentId, dependency.childPeriodId(), publishedOnly);
             if (frozen == null) {
                 if (!dependency.optional()) blockers.add(dependency.childCode() + ":FROZEN_SNAPSHOT_REQUIRED");
                 continue;
@@ -388,6 +392,9 @@ public class BulletinSnapshotService {
             for (BulletinLineView line : child.lines() == null ? List.<BulletinLineView>of() : child.lines()) {
                 bySubject.computeIfAbsent(line.subjectCode(), k -> new ArrayList<>()).add(line.mark());
                 componentMarks.computeIfAbsent(line.subjectCode(), k -> new ArrayList<>()).add(new PeriodMarkView(dependency.childCode(), line.mark()));
+                if (line.assessments() != null && !line.assessments().isEmpty()) {
+                    componentEvidence.computeIfAbsent(line.subjectCode(), k -> new ArrayList<>()).addAll(line.assessments());
+                }
                 if (line.teacherRemark() != null && !line.teacherRemark().isBlank()) componentRemarks.computeIfAbsent(line.subjectCode(), k -> new ArrayList<>()).add(line.teacherRemark());
                 childBlockers.computeIfAbsent(line.subjectCode(), k -> new LinkedHashMap<>()).put(dependency.childCode(), childEvidenceBlockers);
             }
@@ -400,16 +407,42 @@ public class BulletinSnapshotService {
             for (PeriodMarkView component : componentMarks.getOrDefault(e.getKey(), List.of())) {
                 subjectChildValues.put(component.periodCode(), component.mark());
             }
-            AcademicCalculationEngine.Result result = "TERM_RESULT".equals(period.getPeriodType())
-                    ? AcademicCalculationEngine.term(
-                        childResult(subjectChildValues, subjectChildBlockers, "S1", AcademicCalculationEngine.Product.SEQUENCE), weight(byCode, "S1", BigDecimal.ONE),
-                        childResult(subjectChildValues, subjectChildBlockers, "S2", AcademicCalculationEngine.Product.SEQUENCE), weight(byCode, "S2", BigDecimal.ONE),
-                        subjectChildValues.containsKey("COMP") ? childResult(subjectChildValues, subjectChildBlockers, "COMP", AcademicCalculationEngine.Product.SEQUENCE) : null,
-                        weight(byCode, "COMP", BigDecimal.ONE))
-                    : AcademicCalculationEngine.annual(
-                        childResult(subjectChildValues, subjectChildBlockers, "T1_RESULT", AcademicCalculationEngine.Product.TERM), weight(byCode, "T1_RESULT", BigDecimal.ONE),
-                        childResult(subjectChildValues, subjectChildBlockers, "T2_RESULT", AcademicCalculationEngine.Product.TERM), weight(byCode, "T2_RESULT", BigDecimal.ONE),
-                        childResult(subjectChildValues, subjectChildBlockers, "T3_RESULT", AcademicCalculationEngine.Product.TERM), weight(byCode, "T3_RESULT", BigDecimal.ONE));
+            List<DependencyRow> requiredChildren = dependencies.stream()
+                    .filter(child -> !child.optional())
+                    .sorted(Comparator.comparingInt(DependencyRow::displayOrder).thenComparing(DependencyRow::childCode))
+                    .toList();
+            AcademicCalculationEngine.Result result;
+            if ("TERM_RESULT".equals(period.getPeriodType())) {
+                // Never hard-code S1/S2 here: the dependency graph is the
+                // source of truth for T1 (S1+S2), T2 (S3+S4), and T3 (S5+S6).
+                String firstCode = requiredChildren.size() > 0 ? requiredChildren.get(0).childCode() : "S1";
+                String secondCode = requiredChildren.size() > 1 ? requiredChildren.get(1).childCode() : "S2";
+                DependencyRow optionalComponent = dependencies.stream()
+                        .filter(DependencyRow::optional)
+                        .findFirst().orElse(null);
+                String optionalCode = optionalComponent == null ? null : optionalComponent.childCode();
+                result = AcademicCalculationEngine.term(
+                        childResult(subjectChildValues, subjectChildBlockers, firstCode, AcademicCalculationEngine.Product.SEQUENCE),
+                        weight(byCode, firstCode, BigDecimal.ONE),
+                        childResult(subjectChildValues, subjectChildBlockers, secondCode, AcademicCalculationEngine.Product.SEQUENCE),
+                        weight(byCode, secondCode, BigDecimal.ONE),
+                        optionalCode != null && subjectChildValues.containsKey(optionalCode)
+                                ? childResult(subjectChildValues, subjectChildBlockers, optionalCode, AcademicCalculationEngine.Product.SEQUENCE) : null,
+                        optionalCode == null ? BigDecimal.ONE : weight(byCode, optionalCode, BigDecimal.ONE));
+            } else {
+                // Annual products likewise follow the configured T1/T2/T3
+                // dependency rows, preserving frozen publication semantics.
+                String firstCode = requiredChildren.size() > 0 ? requiredChildren.get(0).childCode() : "T1_RESULT";
+                String secondCode = requiredChildren.size() > 1 ? requiredChildren.get(1).childCode() : "T2_RESULT";
+                String thirdCode = requiredChildren.size() > 2 ? requiredChildren.get(2).childCode() : "T3_RESULT";
+                result = AcademicCalculationEngine.annual(
+                        childResult(subjectChildValues, subjectChildBlockers, firstCode, AcademicCalculationEngine.Product.TERM),
+                        weight(byCode, firstCode, BigDecimal.ONE),
+                        childResult(subjectChildValues, subjectChildBlockers, secondCode, AcademicCalculationEngine.Product.TERM),
+                        weight(byCode, secondCode, BigDecimal.ONE),
+                        childResult(subjectChildValues, subjectChildBlockers, thirdCode, AcademicCalculationEngine.Product.TERM),
+                        weight(byCode, thirdCode, BigDecimal.ONE));
+            }
             for (String blocker : result.blockers()) addDistinct(blockers, e.getKey() + ":" + blocker);
             BigDecimal mark = result.exempt() ? null : result.value();
             Subject subject = subjects.findBySchoolIdAndCode(TenantContext.get(), e.getKey()).orElse(null);
@@ -418,7 +451,8 @@ public class BulletinSnapshotService {
             CurriculumMetadata metadata = curriculumMetadata(studentId, period.getAcademicSessionId(), e.getKey());
             if (metadata.remarkRequired() && (remark == null || remark.isBlank())) addDistinct(blockers, e.getKey() + ":REMARK_REQUIRED");
             lines.add(new BulletinLineView(e.getKey(), subjectLabel(subject, e.getKey()), coef, mark,
-                    mark == null ? null : mark.multiply(BigDecimal.valueOf(coef)), remark, appreciation(mark), List.of(),
+                    mark == null ? null : mark.multiply(BigDecimal.valueOf(coef)), remark, appreciation(mark),
+                    uniqueEvidence(componentEvidence.getOrDefault(e.getKey(), List.of())),
                     componentMarks.getOrDefault(e.getKey(), List.of()), metadata.teacherName(), metadata.groupCode(), metadata.groupLabel()));
         }
         if (lines.isEmpty()) blockers.add("Aucune note calculable dans les périodes précédentes");
@@ -455,12 +489,21 @@ public class BulletinSnapshotService {
         return row == null || row.weight() == null ? fallback : row.weight();
     }
 
-    /** Only accepted/validated child products may feed a term or Annual product. */
+    /**
+     * Term products may consume a validated or published sequence snapshot;
+     * annual products are intentionally stricter and consume published terms
+     * only, matching the school publication workflow.
+     */
     private BulletinVersion frozenChild(UUID studentId, UUID periodId) {
+        return frozenChild(studentId, periodId, false);
+    }
+
+    private BulletinVersion frozenChild(UUID studentId, UUID periodId, boolean publishedOnly) {
         UUID school = TenantContext.get();
         BulletinVersion published = versions.findFirstBySchoolIdAndStudentIdAndReportingPeriodIdAndStateOrderByPublishedAtDesc(
                 school, studentId, periodId, "PUBLISHED").orElse(null);
         if (published != null) return published;
+        if (publishedOnly) return null;
         return versions.findFirstBySchoolIdAndStudentIdAndReportingPeriodIdOrderByCreatedAtDesc(school, studentId, periodId)
                 .filter(v -> "VALIDATED".equals(v.getState())).orElse(null);
     }
@@ -502,6 +545,8 @@ public class BulletinSnapshotService {
         List<BulletinLineView> lines = new ArrayList<>();
         List<String> blockers = new ArrayList<>();
         Map<String, Integer> coefficients = effectiveCoefficients(studentId, period.getAcademicSessionId());
+        boolean secondaryClass = enrollment != null && "secondary".equalsIgnoreCase(enrollment.getLevelSnapshot());
+        String competencyLocale = enrollment != null && "EN".equalsIgnoreCase(enrollment.getSubsystemSnapshot()) ? "en" : "fr";
         for (String subjectCode : subjectCodes) {
             List<AcademicAssessment> applicable = definition.stream()
                     .filter(a -> a.getSubjectCode() == null || a.getSubjectCode().equalsIgnoreCase(subjectCode))
@@ -511,24 +556,48 @@ public class BulletinSnapshotService {
                     .collect(Collectors.toMap(AcademicGrade::getAssessmentId, g -> g, (first, last) -> last));
             List<AcademicCalculationEngine.AssessmentInput> inputs = new ArrayList<>();
             List<AssessmentEvidenceView> evidence = new ArrayList<>();
-            for (AcademicAssessment assessment : applicable) {
-                AcademicGrade grade = gradesByAssessment.get(assessment.getId());
-                String status = grade == null || grade.getValueStatus() == null || grade.getValueStatus().isBlank()
-                        ? "MISSING" : grade.getValueStatus().trim().toUpperCase(Locale.ROOT);
-                if (grade == null && !assessment.isMandatory()) continue;
-                if (grade != null && "MISSING".equals(status) && !assessment.isMandatory()) continue;
-                AcademicCalculationEngine.MarkStatus engineStatus = switch (status) {
-                    case "SCORED" -> AcademicCalculationEngine.MarkStatus.SCORED;
-                    case "ABSENT" -> AcademicCalculationEngine.MarkStatus.ABSENT;
-                    case "EXEMPT" -> AcademicCalculationEngine.MarkStatus.EXEMPT;
-                    default -> AcademicCalculationEngine.MarkStatus.MISSING;
-                };
-                evidence.add(new AssessmentEvidenceView(assessment.getCode(), assessment.getLabel(),
-                        grade == null ? null : grade.getMark(), assessment.getMaxScore(), assessment.getWeight(), status));
-                inputs.add(new AcademicCalculationEngine.AssessmentInput(grade == null ? null : grade.getMark(),
-                        assessment.getMaxScore(), assessment.getWeight(), engineStatus));
+            List<AssessmentEvidenceView> secondaryEvidence = secondaryClass
+                    ? secondaryCompetencyEvidence(studentId, period, classId, subjectCode, competencyLocale)
+                    : List.of();
+            if (secondaryClass) {
+                if (!secondaryEvidence.isEmpty()) {
+                    // Secondary classes use the published, versioned competency model
+                    // as their evidence source.  The primary APC assessment catalog is
+                    // deliberately not substituted or silently mixed into this path.
+                    evidence.addAll(secondaryEvidence);
+                    for (AssessmentEvidenceView competency : secondaryEvidence) {
+                        String status = competency.status() == null || competency.status().isBlank()
+                                ? "MISSING" : competency.status().trim().toUpperCase(Locale.ROOT);
+                        AcademicCalculationEngine.MarkStatus engineStatus = switch (status) {
+                            case "SCORED" -> AcademicCalculationEngine.MarkStatus.SCORED;
+                            case "ABSENT" -> AcademicCalculationEngine.MarkStatus.ABSENT;
+                            case "EXEMPT" -> AcademicCalculationEngine.MarkStatus.EXEMPT;
+                            default -> AcademicCalculationEngine.MarkStatus.MISSING;
+                        };
+                        inputs.add(new AcademicCalculationEngine.AssessmentInput(competency.mark(),
+                                competency.maxScore(), competency.weight(), engineStatus));
+                    }
+                } else {
+                    addDistinct(blockers, subjectCode + ":SECONDARY_COMPETENCY_MODEL_MISSING");
+                }
+            } else for (AcademicAssessment assessment : applicable) {
+                    AcademicGrade grade = gradesByAssessment.get(assessment.getId());
+                    String status = grade == null || grade.getValueStatus() == null || grade.getValueStatus().isBlank()
+                            ? "MISSING" : grade.getValueStatus().trim().toUpperCase(Locale.ROOT);
+                    if (grade == null && !assessment.isMandatory()) continue;
+                    if (grade != null && "MISSING".equals(status) && !assessment.isMandatory()) continue;
+                    AcademicCalculationEngine.MarkStatus engineStatus = switch (status) {
+                        case "SCORED" -> AcademicCalculationEngine.MarkStatus.SCORED;
+                        case "ABSENT" -> AcademicCalculationEngine.MarkStatus.ABSENT;
+                        case "EXEMPT" -> AcademicCalculationEngine.MarkStatus.EXEMPT;
+                        default -> AcademicCalculationEngine.MarkStatus.MISSING;
+                    };
+                    evidence.add(new AssessmentEvidenceView(assessment.getCode(), assessment.getLabel(),
+                            grade == null ? null : grade.getMark(), assessment.getMaxScore(), assessment.getWeight(), status));
+                    inputs.add(new AcademicCalculationEngine.AssessmentInput(grade == null ? null : grade.getMark(),
+                            assessment.getMaxScore(), assessment.getWeight(), engineStatus));
             }
-            if (applicable.isEmpty()) addDistinct(blockers, subjectCode + ":ASSESSMENT_NOT_CONFIGURED");
+            if (applicable.isEmpty() && secondaryEvidence.isEmpty()) addDistinct(blockers, subjectCode + ":ASSESSMENT_NOT_CONFIGURED");
             AcademicCalculationEngine.Result result = AcademicCalculationEngine.sequence(inputs);
             result.blockers().forEach(blocker -> addDistinct(blockers, subjectCode + ":" + blocker));
             BigDecimal mark = result.exempt() ? null : result.value();
@@ -546,9 +615,59 @@ public class BulletinSnapshotService {
                     appreciation(mark), evidence, List.of(new PeriodMarkView(period.getCode(), mark)),
                     metadata.teacherName(), metadata.groupCode(), metadata.groupLabel()));
         }
-        if (definition.isEmpty()) blockers.add("ASSESSMENT_DEFINITIONS_MISSING");
+        if (definition.isEmpty() && !secondaryClass) blockers.add("ASSESSMENT_DEFINITIONS_MISSING");
+        if (secondaryClass && lines.stream().allMatch(line -> line.assessments() == null || line.assessments().isEmpty())) {
+            blockers.add("SECONDARY_COMPETENCY_MODEL_MISSING");
+        }
         if (lines.isEmpty()) blockers.add("NO_SUBJECT_RESULT");
         return finish(lines, blockers, studentId, period);
+    }
+
+    /**
+     * Resolve the highest published secondary competency model for one class,
+     * subject, locale, and sequence period.  The mark row is optional so a
+     * missing mark is retained as immutable evidence instead of disappearing.
+     */
+    private List<AssessmentEvidenceView> secondaryCompetencyEvidence(UUID studentId,
+                                                                      AcademicReportingPeriod period,
+                                                                      UUID classId,
+                                                                      String subjectCode,
+                                                                      String locale) {
+        if (classId == null) return List.of();
+        return jdbc.query("""
+                SELECT c.code,c.description,mk.mark,c.max_score,
+                       coalesce(mk.value_status,'MISSING')
+                  FROM secondary_competency_model model
+                  JOIN subject s ON s.id=model.subject_id
+                  JOIN secondary_competency c ON c.model_id=model.id AND c.active
+                  LEFT JOIN secondary_competency_mark mk
+                    ON mk.model_id=model.id AND mk.competency_id=c.id
+                   AND mk.reporting_period_id=model.reporting_period_id
+                   AND mk.student_id=? AND mk.school_id=model.school_id
+                 WHERE model.id=(
+                       SELECT latest.id
+                         FROM secondary_competency_model latest
+                         JOIN subject latest_subject ON latest_subject.id=latest.subject_id
+                        WHERE latest.school_id=? AND latest.reporting_period_id=?
+                          AND latest.class_id=? AND latest.locale=?
+                          AND latest.status='PUBLISHED'
+                          AND upper(latest_subject.code)=upper(?)
+                        ORDER BY latest.version DESC, latest.created_at DESC
+                        LIMIT 1)
+                 ORDER BY c.display_order,c.code
+                """, (rs, n) -> new AssessmentEvidenceView(rs.getString(1), rs.getString(2),
+                        rs.getBigDecimal(3), rs.getBigDecimal(4), BigDecimal.ONE, rs.getString(5)),
+                studentId, TenantContext.get(), period.getId(), classId, locale, subjectCode);
+    }
+
+    private static List<AssessmentEvidenceView> uniqueEvidence(List<AssessmentEvidenceView> evidence) {
+        if (evidence == null || evidence.isEmpty()) return List.of();
+        Map<String, AssessmentEvidenceView> unique = new LinkedHashMap<>();
+        for (AssessmentEvidenceView value : evidence) {
+            if (value == null) continue;
+            unique.putIfAbsent((value.code() == null ? "" : value.code()).toUpperCase(Locale.ROOT), value);
+        }
+        return List.copyOf(unique.values());
     }
 
     /** Retained temporarily as a read-only compatibility reference during migration. */
@@ -777,9 +896,22 @@ public class BulletinSnapshotService {
     private String templateReference(SnapshotTrace trace) {
         if (trace == null || trace.documentDesign() == null) return null;
         DocumentDesignTrace design = trace.documentDesign();
-        String template = design.templateId() == null ? "none" : design.templateId() + ":v" + design.templateVersion();
-        String branding = design.brandingId() == null ? "none" : design.brandingId() + ":v" + design.brandingVersion();
-        return "template=" + template + ";branding=" + branding;
+        // bulletin_version.template_version is a compact display/reference
+        // field; the immutable snapshot trace carries the full UUIDs and
+        // checksums.  Keep this value within the historical VARCHAR(64) bound.
+        String template = design.templateId() == null ? "none" :
+                (design.templateFamily() == null ? "template" : design.templateFamily()) + ":v" + design.templateVersion();
+        String branding = design.brandingId() == null ? "none" : "branding:v" + design.brandingVersion();
+        return "template=" + template + ";" + branding;
+    }
+
+    private void freezeDesign(BulletinVersion version, SnapshotTrace trace, StudentEnrollment enrollment) {
+        if (trace == null || trace.documentDesign() == null) return;
+        DocumentDesignTrace design = trace.documentDesign();
+        version.setTemplateId(design.templateId());
+        version.setBrandingId(design.brandingId());
+        version.setSnapshotLocale(design.locale());
+        version.setEvidenceGeneratedAt(Instant.now());
     }
 
     private ProfileAssetTrace profilePhotoTrace(UUID studentId, UUID schoolId) {
@@ -813,15 +945,16 @@ public class BulletinSnapshotService {
                  WHERE school_id=? AND active AND status='PUBLISHED' AND locale=?
                    AND product IN (?, 'GENERIC') AND (subsystem=? OR subsystem IS NULL)
                  ORDER BY CASE
-                            WHEN product=? AND template_family='REFERENCE' AND subsystem=? THEN 0
-                            WHEN product=? AND template_family='GENERIC' THEN 1
-                            WHEN product='GENERIC' AND template_family='GENERIC' THEN 2
-                            ELSE 3 END,
+                            WHEN product=? AND subsystem=? AND reference_family='SECONDARY' THEN 0
+                            WHEN product=? AND template_family='REFERENCE' AND subsystem=? THEN 1
+                            WHEN product=? AND template_family='GENERIC' THEN 2
+                            WHEN product='GENERIC' AND template_family='GENERIC' THEN 3
+                            ELSE 4 END,
                           template_version DESC
                  LIMIT 1
                 """, (rs, n) -> new TemplateCandidate(rs.getObject("id", UUID.class), rs.getString("template_family"),
                         rs.getString("product"), rs.getString("locale"), rs.getInt("template_version"),
-                        rs.getString("body_template")), schoolId, locale, product, subsystem, product, subsystem, product);
+                        rs.getString("body_template")), schoolId, locale, product, subsystem, product, subsystem, product, subsystem, product);
         TemplateCandidate template = candidates.isEmpty() ? null : candidates.get(0);
         BrandingCandidate branding = jdbc.query("""
                 SELECT id,version,content_hash,principal_name,principal_title,class_master_title,council_title
@@ -845,8 +978,9 @@ public class BulletinSnapshotService {
 
     private List<ChildSnapshotTrace> childSnapshotTrace(AcademicReportingPeriod period, UUID studentId) {
         if ("SEQUENCE".equals(period.getPeriodType())) return List.of();
+        boolean publishedOnly = "ANNUAL_RESULT".equals(period.getPeriodType());
         return dependencies(period).stream().map(dependency -> {
-            BulletinVersion frozen = frozenChild(studentId, dependency.childPeriodId());
+            BulletinVersion frozen = frozenChild(studentId, dependency.childPeriodId(), publishedOnly);
             return frozen == null ? null : new ChildSnapshotTrace(dependency.childPeriodId(), dependency.childCode(),
                     frozen.getId(), frozen.getVersion(), frozen.getState(), frozen.getSnapshotHash());
         }).filter(Objects::nonNull).toList();
