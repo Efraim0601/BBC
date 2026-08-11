@@ -21,6 +21,22 @@ Do not:
 
 The implementation is complete only after focused backend and frontend tests, production builds, Docker deployment on the current acceptance ports, and live browser verification using the reproduced 4eme A/S1 student.
 
+## 0.1 Repository and worktree context
+
+This handoff belongs to the batch/report-card work already integrated on the following branch:
+
+- branch: `codex/report-card-fidelity`;
+- current handoff baseline: commit `ae08371`;
+- previous integrated computed-result commits: `8a3d36a` and `447a351`;
+- handoff path: `docs/BATCH_REPORT_CARD_GENERATION_DIAGNOSTICS_HANDOFF.md`;
+- remote branch: `origin/codex/report-card-fidelity`.
+
+The implementer must create a new implementation branch from `codex/report-card-fidelity`, not from the user's separate main worktree. The acceptance application may be running from another checkout, so verify which checkout is used by Docker before rebuilding containers.
+
+The main workspace at `C:\Users\joe tech\bbcomplex` was on `feature/BAY-11-student-journey-promotions` during this investigation and contained unrelated modified and untracked files, including timetable work, presentation files, PDFs, `output/`, `tmp/`, and another handoff document. Those files are outside this batch scope. Do not delete, reset, clean, or overwrite them. Inspect them only if the user explicitly asks to reconcile that branch.
+
+The batch investigation itself was performed in the separate clean worktree `C:\Users\joe tech\.codex\worktrees\4f3d\bbcomplex`. The reported job and the diagnostic reproduction are existing database evidence; do not fabricate replacement rows or delete them to make tests pass.
+
 ## 1. User-visible objective
 
 An administrator must know whether a class is ready before starting batch generation. If one or more students are not ready, the screen must state exactly:
