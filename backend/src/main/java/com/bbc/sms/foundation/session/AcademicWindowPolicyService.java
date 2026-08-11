@@ -46,7 +46,7 @@ public class AcademicWindowPolicyService {
         if (window.open()) return window;
 
         String milestones = String.join(", ", window.governedPeriodCodes());
-        String repair = "Settings → Sessions & terms → trimester access";
+        String repair = "Paramètres → Années et périodes → accès du trimestre";
         Map<String, Object> details = new LinkedHashMap<>();
         details.put("governingTrimester", window.governingTermCode());
         details.put("governingTrimesterLabel", window.governingTermLabel());
