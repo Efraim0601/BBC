@@ -9,9 +9,9 @@ describe('SessionConfigurationCopyComponent', () => {
     const preview = {
       sourceSessionId: 'source', targetSessionId: 'target', sourceLabel: 'Previous', targetLabel: 'Target',
       dateStrategy: 'SHIFT_FROM_SESSION_START', mergeMode: 'FILL_MISSING',
-      scopes: { terms: true, reportingPeriods: true, dependencies: true, workflowWindows: true },
+      scopes: { terms: true, reportingPeriods: true, dependencies: true, termManagementWindows: true },
       terms: [{ key: 'TERM:T1', kind: 'TERM', code: 'T1', label: 'Term 1', status: 'CREATE', source: {}, proposed: { startDate: '2026-09-01' }, existing: null, warnings: [], blockers: [] }],
-      reportingPeriods: [], dependencies: [], workflowWindows: [], warnings: [], blockers: [],
+      reportingPeriods: [], dependencies: [], termManagementWindows: [], warnings: [], blockers: [],
       fingerprint: 'fingerprint', createCount: 1, updateCount: 0, keepCount: 0,
     };
     const api = {

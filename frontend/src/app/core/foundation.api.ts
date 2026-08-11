@@ -10,6 +10,20 @@ export interface AcademicTermView {
   bulletinPublishClosesAt: string | null; teacherSubmissionOpensAt: string | null;
   teacherSubmissionClosesAt: string | null; timezone: string; version: number;
 }
+export interface TermManagementWindowView {
+  academicSessionId: string; termId: string; termCode: string; termLabel: string;
+  termSequenceNo: number; termStartDate: string; termEndDate: string;
+  limited: boolean; opensAt: string | null; closesAt: string | null; timezone: string;
+  governedPeriodCodes: string[]; state: 'OPEN' | 'SCHEDULED' | 'CLOSED' | 'INVALID' | string;
+  nextTransition: string | null; version: number;
+}
+export interface TermManagementWindowUpsert {
+  limited: boolean; opensAt: string | null; closesAt: string | null; version: number;
+}
+export interface TermManagementWindowProposal {
+  sequenceNo: number; code: string; limited: boolean; opensAt: string | null;
+  closesAt: string | null; timezone: string; version?: number;
+}
 export interface AcademicReportingPeriodView {
   id: string; academicSessionId: string; academicTermId: string | null;
   code: string; label: string; periodType: 'SEQUENCE' | 'TERM_RESULT' | 'ANNUAL_RESULT';
@@ -36,6 +50,7 @@ export interface AcademicReportingPeriodUpsert {
 export interface StandardStructureView {
   academicSessionId: string; periods: AcademicReportingPeriodView[]; warnings: string[]; applied: boolean;
   fingerprint: string; dependencies: StructureDependencyView[];
+  termManagementWindows: TermManagementWindowProposal[];
 }
 export interface StructureDependencyView {
   parentPeriodId: string; parentCode: string; childPeriodId: string; childCode: string;
@@ -66,7 +81,7 @@ export interface WorkflowWindowRuleUpsert {
   action: WorkflowAction; mode: WindowMode; opensAt?: string | null; closesAt?: string | null;
   timezone?: string; version?: number;
 }
-export interface ConfigurationCopyScopeSelection { terms: boolean; reportingPeriods: boolean; dependencies: boolean; workflowWindows: boolean; }
+export interface ConfigurationCopyScopeSelection { terms: boolean; reportingPeriods: boolean; dependencies: boolean; termManagementWindows: boolean; }
 export interface ConfigurationCopyEdit { key: string; field: string; value: string | null; }
 export interface ConfigurationCopyRow {
   key: string; kind: string; code: string; label: string; status: string;
@@ -76,7 +91,7 @@ export interface ConfigurationCopyRow {
 export interface ConfigurationCopyPreview {
   sourceSessionId: string; targetSessionId: string; sourceLabel: string; targetLabel: string;
   dateStrategy: string; mergeMode: string; scopes: ConfigurationCopyScopeSelection;
-  terms: ConfigurationCopyRow[]; reportingPeriods: ConfigurationCopyRow[]; dependencies: ConfigurationCopyRow[]; workflowWindows: ConfigurationCopyRow[];
+  terms: ConfigurationCopyRow[]; reportingPeriods: ConfigurationCopyRow[]; dependencies: ConfigurationCopyRow[]; termManagementWindows: ConfigurationCopyRow[];
   warnings: string[]; blockers: string[]; fingerprint: string; createCount: number; updateCount: number; keepCount: number;
 }
 export interface ConfigurationCopyPreviewRequest {
@@ -172,6 +187,10 @@ export class FoundationApi {
   updateTerm(id: string, body: AcademicTermUpsert): Observable<AcademicTermView> { return this.http.put<AcademicTermView>(`${this.settings}/academic-sessions/terms/${id}`, body); }
   deleteTerm(id: string, reason?: string): Observable<void> { return this.http.delete<void>(`${this.settings}/academic-sessions/terms/${id}`, { params: reason ? { reason } : {} }); }
   reportingPeriods(sessionId: string): Observable<AcademicReportingPeriodView[]> { return this.http.get<AcademicReportingPeriodView[]>(`${this.settings}/academic-sessions/${sessionId}/reporting-periods`); }
+  termManagementWindows(sessionId: string): Observable<TermManagementWindowView[]> { return this.http.get<TermManagementWindowView[]>(`${this.settings}/academic-sessions/${sessionId}/term-management-windows`); }
+  updateTermManagementWindow(sessionId: string, termId: string, body: TermManagementWindowUpsert): Observable<TermManagementWindowView> {
+    return this.http.put<TermManagementWindowView>(`${this.settings}/academic-sessions/${sessionId}/terms/${termId}/management-window`, body);
+  }
   readiness(sessionId: string): Observable<SessionReadinessView> { return this.http.get<SessionReadinessView>(`${this.settings}/academic-sessions/${sessionId}/readiness`); }
   workflowWindowRules(sessionId: string): Observable<WorkflowWindowRuleView[]> { return this.http.get<WorkflowWindowRuleView[]>(`${this.settings}/academic-sessions/${sessionId}/window-rules`); }
   saveWorkflowWindowRule(sessionId: string, body: WorkflowWindowRuleUpsert): Observable<WorkflowWindowRuleView> { return this.http.put<WorkflowWindowRuleView>(`${this.settings}/academic-sessions/${sessionId}/window-rules`, body); }
@@ -199,7 +218,8 @@ export class FoundationApi {
   previewStandardStructure(sessionId: string): Observable<StandardStructureView> { return this.http.post<StandardStructureView>(`${this.settings}/academic-sessions/${sessionId}/reporting-periods/standard/preview`, {}); }
   applyStandardStructure(sessionId: string, reason: string, fingerprint?: string, proposal?: StandardStructureView | null): Observable<StandardStructureView> {
     return this.http.post<StandardStructureView>(`${this.settings}/academic-sessions/${sessionId}/reporting-periods/standard/apply`, {
-      reason, fingerprint: fingerprint ?? null, periods: proposal?.periods ?? [], dependencies: proposal?.dependencies ?? []
+      reason, fingerprint: fingerprint ?? null, periods: proposal?.periods ?? [], dependencies: proposal?.dependencies ?? [],
+      termManagementWindows: proposal?.termManagementWindows ?? []
     });
   }
   updateReportingPeriod(sessionId: string, periodId: string, body: AcademicReportingPeriodUpsert): Observable<AcademicReportingPeriodView> {

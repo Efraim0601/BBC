@@ -40,4 +40,26 @@ describe('FoundationApi', () => {
     copy.flush({});
     http.verify();
   });
+
+  it('lists and updates one trimester management window through the new endpoints', () => {
+    TestBed.configureTestingModule({ providers: [FoundationApi, provideHttpClient(), provideHttpClientTesting()] });
+    const api = TestBed.inject(FoundationApi);
+    const http = TestBed.inject(HttpTestingController);
+
+    api.termManagementWindows('session').subscribe();
+    const list = http.expectOne(`${environment.apiUrl}/settings/academic-sessions/session/term-management-windows`);
+    expect(list.request.method).toBe('GET');
+    list.flush([]);
+
+    api.updateTermManagementWindow('session', 'term', {
+      limited: true, opensAt: '2026-09-15T08:00:00Z', closesAt: null, version: 4,
+    }).subscribe();
+    const update = http.expectOne(`${environment.apiUrl}/settings/academic-sessions/session/terms/term/management-window`);
+    expect(update.request.method).toBe('PUT');
+    expect(update.request.body).toEqual({
+      limited: true, opensAt: '2026-09-15T08:00:00Z', closesAt: null, version: 4,
+    });
+    update.flush({});
+    http.verify();
+  });
 });

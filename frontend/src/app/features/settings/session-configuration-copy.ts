@@ -15,7 +15,7 @@ import {
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 class="font-bold text-ink">Reuse a previous session</h3>
-          <p class="text-xs text-mute mt-1">Preview terms, reporting milestones, dependencies, and workflow rules. Existing target values stay unchanged until you choose an update mode.</p>
+          <p class="text-xs text-mute mt-1">Preview terms, reporting milestones, dependencies, and trimester access limits. Existing target values stay unchanged until you choose an update mode.</p>
         </div>
         <button type="button" (click)="preview()" [disabled]="busy() || !sourceId" class="h-9 px-3 rounded-lg bg-violet-600 text-white text-sm font-semibold disabled:opacity-50">{{ busy() ? '…' : 'Preview reuse' }}</button>
       </div>
@@ -28,7 +28,7 @@ import {
         <label><input type="checkbox" [(ngModel)]="scopes.terms" /> Terms</label>
         <label><input type="checkbox" [(ngModel)]="scopes.reportingPeriods" /> Reporting milestones</label>
         <label><input type="checkbox" [(ngModel)]="scopes.dependencies" /> Dependencies</label>
-        <label><input type="checkbox" [(ngModel)]="scopes.workflowWindows" /> Workflow windows</label>
+        <label><input type="checkbox" [(ngModel)]="scopes.termManagementWindows" /> Trimester access limits</label>
       </div>
       @if (message(); as m) { <div class="mt-3 rounded-lg px-3 py-2 text-xs" [class]="m.ok ? 'bg-emerald-50 text-emerald-800' : 'bg-rose-50 text-rose-800'">{{ m.text }}</div> }
       @if (proposal(); as p) {
@@ -43,7 +43,17 @@ import {
                 @if (row.existing && mergeMode === 'UPDATE_SELECTED') { <label class="flex items-center gap-2 mt-2 text-[10px] text-amber-800"><input type="checkbox" [checked]="selectedKeys.includes(row.key)" (change)="toggle(row.key, $event)" /> Replace target value</label> }
                 @if (row.proposed['startDate']) { <label class="block mt-2"><span class="text-[10px] text-mute">Start date</span><input type="date" [ngModel]="row.proposed['startDate']" (ngModelChange)="edit(row, 'startDate', $event)" class="h-8 w-full px-2 border border-slate-200 rounded" /></label> }
                 @if (row.proposed['endDate']) { <label class="block mt-2"><span class="text-[10px] text-mute">End date</span><input type="date" [ngModel]="row.proposed['endDate']" (ngModelChange)="edit(row, 'endDate', $event)" class="h-8 w-full px-2 border border-slate-200 rounded" /></label> }
-                @if (row.kind === 'WORKFLOW_WINDOW') { <label class="block mt-2"><span class="text-[10px] text-mute">Window mode</span><select [ngModel]="row.proposed['mode']" (ngModelChange)="edit(row, 'mode', $event)" class="h-8 w-full px-2 border border-slate-200 rounded"><option value="INHERIT">Inherit</option><option value="UNRESTRICTED">Unrestricted</option><option value="LIMITED">Limited</option></select></label> }
+                 @if (row.kind === 'TERM_MANAGEMENT_WINDOW') {
+                   <div class="mt-2 space-y-1 text-[10px] text-mute">
+                     <div>Source: {{ row.proposed['sourceTermCode'] || row.code }} · Target: {{ row.proposed['targetTermCode'] || 'Conflict' }}</div>
+                     <div>{{ readableList(row.proposed['governedPeriodCodes']) }}</div>
+                     <label class="flex items-center gap-2"><input type="checkbox" [checked]="row.proposed['limited'] === true || row.proposed['limited'] === 'true'" (change)="edit(row, 'limited', ($any($event.target)).checked)" /> Limit management dates</label>
+                     @if (row.proposed['limited'] === true || row.proposed['limited'] === 'true') {
+                       <label class="block"><span>Available from</span><input type="datetime-local" [value]="local(row.proposed['opensAt'])" (input)="edit(row, 'opensAt', ($any($event.target)).value)" class="h-8 w-full px-2 border border-slate-200 rounded" /></label>
+                       <label class="block"><span>Available until</span><input type="datetime-local" [value]="local(row.proposed['closesAt'])" (input)="edit(row, 'closesAt', ($any($event.target)).value)" class="h-8 w-full px-2 border border-slate-200 rounded" /></label>
+                     }
+                   </div>
+                 }
               </div>
             }
           </div>
@@ -66,7 +76,7 @@ export class SessionConfigurationCopyComponent {
   protected sourceId = '';
   protected mergeMode = 'FILL_MISSING';
   protected dateStrategy = 'SHIFT_FROM_SESSION_START';
-  protected scopes = { terms: true, reportingPeriods: true, dependencies: true, workflowWindows: true };
+   protected scopes = { terms: true, reportingPeriods: true, dependencies: true, termManagementWindows: true };
   protected reason = '';
   protected edits: ConfigurationCopyEdit[] = [];
   protected selectedKeys: string[] = [];
@@ -75,12 +85,16 @@ export class SessionConfigurationCopyComponent {
     return this.sessions.filter((s) => s.id !== this.target?.id).sort((a, b) => b.startDate.localeCompare(a.startDate));
   }
 
-  protected allRows(p: ConfigurationCopyPreview) { return [...p.terms, ...p.reportingPeriods, ...p.dependencies, ...p.workflowWindows]; }
+  protected allRows(p: ConfigurationCopyPreview) { return [...p.terms, ...p.reportingPeriods, ...p.dependencies, ...p.termManagementWindows]; }
   protected readable(value: string): string { return value.replaceAll('_', ' ').toLowerCase(); }
+  protected readableList(value: unknown): string { return this.readable(Array.isArray(value) ? value.join(', ') : String(value ?? '')); }
+  protected local(value: unknown): string { if (!value) return ''; const d = new Date(String(value)); return Number.isNaN(d.getTime()) ? String(value) : new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); }
   protected edit(row: { key: string; proposed: Record<string, unknown> }, field: string, value: unknown): void {
+    const normalized = value == null || value === '' ? null
+      : (field === 'opensAt' || field === 'closesAt') && typeof value === 'string' ? new Date(value).toISOString() : String(value);
     this.edits = [
       ...this.edits.filter((edit) => !(edit.key === row.key && edit.field === field)),
-      { key: row.key, field, value: value == null || value === '' ? null : String(value) },
+      { key: row.key, field, value: normalized },
     ];
     this.loadPreview(this.edits);
   }
