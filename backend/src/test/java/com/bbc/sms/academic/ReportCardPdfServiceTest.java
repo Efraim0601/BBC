@@ -14,10 +14,10 @@ import com.bbc.sms.timetable.SchoolClassRepository;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -48,9 +48,6 @@ class ReportCardPdfServiceTest {
                 new ClassStatsView(new BigDecimal("14"), new BigDecimal("14"), new BigDecimal("14"), 1,
                         new BigDecimal("100"), 1), null, null, null, null, null, List.of(), null);
         when(snapshots.byId(snapshotId)).thenReturn(view);
-        when(photos.findByOwnerTypeAndOwnerIdAndSchoolId("student", view.studentId(), schoolId))
-                .thenReturn(Optional.empty());
-
         TenantContext.set(schoolId);
         byte[] bytes;
         try {
@@ -64,5 +61,6 @@ class ReportCardPdfServiceTest {
             assertThat(document.getNumberOfPages()).isGreaterThanOrEqualTo(1);
             assertThat(document.getPage(0).getMediaBox().getWidth()).isCloseTo(595.27563f, org.assertj.core.data.Offset.offset(0.01f));
         }
+        verifyNoInteractions(photos);
     }
 }

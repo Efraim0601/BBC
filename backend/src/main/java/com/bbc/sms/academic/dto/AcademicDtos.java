@@ -129,7 +129,8 @@ public class AcademicDtos {
                                        SnapshotEvidenceView evidence,
                                        String reportingPeriodType, String product,
                                        BulletinWorkflowMetaView workflowMeta,
-                                       List<BulletinIssueView> issues) {
+                                       List<BulletinIssueView> issues,
+                                       AuthoritativeSnapshotView snapshot) {
         public BulletinSnapshotView {
             lines = lines == null ? List.of() : List.copyOf(lines);
             blockers = blockers == null ? List.of() : List.copyOf(blockers);
@@ -157,7 +158,7 @@ public class AcademicDtos {
                     average, rank, classSize, state, complete, blockers, snapshotHash, calculationPolicy,
                     generalAppreciation, attendance, conduct, version, classStats, supersedesId,
                     correctsBulletinVersionId, correctionReason, correctionRequestedBy, correctionRequestedAt,
-                    groupStats, evidence, null, null, null, null);
+                    groupStats, evidence, null, null, null, null, null);
         }
 
         private static String productFor(String periodType) {
@@ -168,6 +169,144 @@ public class AcademicDtos {
             };
         }
     }
+
+    /**
+     * The single typed contract serialized into bulletin_version.snapshot_json.
+     * Product/read-model DTOs may add presentation fields, but they must not
+     * invent values outside this envelope.
+     */
+    public record AuthoritativeSnapshotView(
+            int contractVersion,
+            UUID schoolId,
+            UUID academicSessionId,
+            UUID reportingPeriodId,
+            String reportingPeriodCode,
+            String reportingPeriodLabel,
+            String product,
+            SnapshotStudentView student,
+            SnapshotEnrollmentView enrollment,
+            SnapshotGuardianView permittedGuardian,
+            SnapshotStaffView staff,
+            SnapshotPhotoView profilePhoto,
+            SnapshotSchoolView school,
+            SnapshotCurriculumView curriculum,
+            SnapshotResultView result,
+            SnapshotEvidenceView evidence,
+            AttendanceSummaryView attendance,
+            ConductSummaryView conduct,
+            SnapshotTemplateView template,
+            String formulaVersion,
+            String calculationPolicy,
+            UUID generationActorId,
+            Instant generationTime,
+            List<SnapshotSourceVersionView> sourceVersions,
+            String canonicalSnapshotHash) {
+        public AuthoritativeSnapshotView {
+            sourceVersions = sourceVersions == null ? List.of() : List.copyOf(sourceVersions);
+        }
+    }
+
+    public record SnapshotStudentView(UUID id, String name, String firstName, String lastName,
+                                      String matricule, LocalDate dateOfBirth, String placeOfBirth,
+                                      String gender, boolean repeater) {}
+
+    public record SnapshotEnrollmentView(UUID id, UUID classId, String classLabel,
+                                         String level, String subsystem, int classSize) {}
+
+    public record SnapshotGuardianView(UUID id, String displayName, String relationshipType) {}
+
+    public record SnapshotStaffView(SnapshotTeacherView classMaster,
+                                    List<SnapshotTeacherView> subjectTeachers) {
+        public SnapshotStaffView {
+            subjectTeachers = subjectTeachers == null ? List.of() : List.copyOf(subjectTeachers);
+        }
+    }
+
+    public record SnapshotTeacherView(UUID id, String code, String name, String role,
+                                      String subjectCode, long assignmentVersion) {}
+
+    public record SnapshotPhotoView(UUID assetVersionId, String contentType, String sha256,
+                                    Integer width, Integer height, String fallbackDecision,
+                                    Instant capturedAt) {}
+
+    public record SnapshotSchoolView(UUID id, String code, String name, String authority,
+                                     String address, String city, String country, String phone,
+                                     String email, String website, DocumentDesignEvidenceView branding) {}
+
+    public record SnapshotCurriculumView(UUID versionId, int versionNumber, String state,
+                                         String contentHash, List<SnapshotCurriculumRowView> rows) {
+        public SnapshotCurriculumView {
+            rows = rows == null ? List.of() : List.copyOf(rows);
+        }
+    }
+
+    public record SnapshotCurriculumRowView(UUID id, UUID subjectId, String subjectCode,
+                                            String subjectLabel, UUID groupId, String groupCode,
+                                            String groupLabel, int displayOrder, int coefficient,
+                                            BigDecimal maxScore, boolean mandatory,
+                                            BigDecimal passThreshold, boolean showSubjectRank,
+                                            boolean remarkRequired) {}
+
+    public record SnapshotResultView(BigDecimal preciseAverage, BigDecimal displayAverage,
+                                     Integer overallRank, int classSize,
+                                     List<SnapshotSubjectResultView> subjects,
+                                     List<GroupStatsView> groups, ClassStatsView classStats,
+                                     List<String> blockers, List<BulletinIssueView> issues) {
+        public SnapshotResultView {
+            subjects = subjects == null ? List.of() : List.copyOf(subjects);
+            groups = groups == null ? List.of() : List.copyOf(groups);
+            blockers = blockers == null ? List.of() : List.copyOf(blockers);
+            issues = issues == null ? List.of() : List.copyOf(issues);
+        }
+    }
+
+    public record SnapshotSubjectResultView(String subjectCode, String subjectLabel,
+                                            int coefficient, BigDecimal preciseValue,
+                                            BigDecimal displayValue, BigDecimal preciseWeighted,
+                                            BigDecimal displayWeighted, String status,
+                                            String teacherRemark, String appreciation,
+                                            List<PeriodMarkView> components,
+                                            List<AssessmentEvidenceView> assessments,
+                                            Integer subjectRank, String groupCode,
+                                            String groupLabel) {
+        public SnapshotSubjectResultView {
+            components = components == null ? List.of() : List.copyOf(components);
+            assessments = assessments == null ? List.of() : List.copyOf(assessments);
+        }
+    }
+
+    public record SnapshotTemplateView(UUID templateId, String templateFamily, String product,
+                                       String locale, int version, String contentHash,
+                                       UUID brandingId, int brandingVersion, String brandingHash) {}
+
+    public record SnapshotSourceVersionView(String sourceType, UUID sourceId, Long sourceVersion,
+                                            String sourceHash, String label) {}
+
+    public record FormulaDrilldownView(UUID snapshotId, long snapshotVersion, String snapshotHash,
+                                       String formulaVersion, String calculationPolicy,
+                                       String product, List<FormulaStepView> steps,
+                                       List<SnapshotSourceVersionView> sourceVersions) {
+        public FormulaDrilldownView {
+            steps = steps == null ? List.of() : List.copyOf(steps);
+            sourceVersions = sourceVersions == null ? List.of() : List.copyOf(sourceVersions);
+        }
+    }
+
+    public record FormulaStepView(String subjectCode, String componentCode,
+                                  BigDecimal preciseInput, BigDecimal displayInput,
+                                  BigDecimal weight, BigDecimal preciseContribution,
+                                  BigDecimal displayContribution, String status,
+                                  String sourceVersion) {}
+
+    public record SnapshotDiffView(UUID fromSnapshotId, UUID toSnapshotId,
+                                   String fromHash, String toHash, boolean identical,
+                                   List<SnapshotDiffEntryView> changes) {
+        public SnapshotDiffView {
+            changes = changes == null ? List.of() : List.copyOf(changes);
+        }
+    }
+
+    public record SnapshotDiffEntryView(String path, String fromValue, String toValue) {}
 
     public record BulletinWorkflowMetaView(
             String inputReadiness,
@@ -236,7 +375,16 @@ public class AcademicDtos {
 
     public record ProfileAssetEvidenceView(UUID assetVersionId, String ownerType, UUID ownerId,
                                            String contentType, long byteSize,
-                                           Instant capturedAt, String sha256) {}
+                                           Instant capturedAt, String sha256,
+                                           Integer width, Integer height,
+                                           String fallbackDecision) {
+        public ProfileAssetEvidenceView(UUID assetVersionId, String ownerType, UUID ownerId,
+                                        String contentType, long byteSize, Instant capturedAt,
+                                        String sha256) {
+            this(assetVersionId, ownerType, ownerId, contentType, byteSize, capturedAt,
+                    sha256, null, null, "PHOTO");
+        }
+    }
 
     public record DocumentDesignEvidenceView(UUID templateId, String templateFamily,
                                              String product, String locale,

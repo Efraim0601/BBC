@@ -83,7 +83,28 @@ export interface BulletinSnapshotView {
   groupStats?: Array<{ code: string; label: string | null; average: number; total: number; coefficient: number; subjectCount: number }> | null;
   reportingPeriodType?: string; product?: string; workflowMeta?: BulletinWorkflowMeta;
   issues?: BulletinIssue[];
+  snapshot?: AuthoritativeSnapshotView | null;
 }
+
+export interface AuthoritativeSnapshotView {
+  contractVersion: number; schoolId: string; academicSessionId: string; reportingPeriodId: string;
+  reportingPeriodCode: string; reportingPeriodLabel: string; product: string;
+  student: { id: string; name: string; firstName: string; lastName: string; matricule: string; dateOfBirth: string | null; placeOfBirth: string | null; gender: string | null; repeater: boolean };
+  enrollment: { id: string; classId: string | null; classLabel: string | null; level: string | null; subsystem: string | null; classSize: number };
+  permittedGuardian: { id: string; displayName: string; relationshipType: string } | null;
+  staff: { classMaster: SnapshotTeacher | null; subjectTeachers: SnapshotTeacher[] };
+  profilePhoto: { assetVersionId: string | null; contentType: string | null; sha256: string | null; width: number | null; height: number | null; fallbackDecision: string; capturedAt: string | null };
+  school: { id: string; code: string | null; name: string | null; authority: string | null; address: string | null; city: string | null; country: string | null; phone: string | null; email: string | null; website: string | null; branding: unknown };
+  curriculum: { versionId: string | null; versionNumber: number; state: string; contentHash: string | null; rows: unknown[] };
+  result: { preciseAverage: number | null; displayAverage: number | null; overallRank: number | null; classSize: number; subjects: unknown[]; groups: unknown[]; classStats: unknown; blockers: string[]; issues: BulletinIssue[] };
+  evidence: unknown; attendance: BulletinView['attendance']; conduct: BulletinView['conduct']; template: unknown;
+  formulaVersion: string; calculationPolicy: string; generationActorId: string | null; generationTime: string | null;
+  sourceVersions: Array<{ sourceType: string; sourceId: string | null; sourceVersion: number | null; sourceHash: string | null; label: string | null }>;
+  canonicalSnapshotHash: string;
+}
+export interface SnapshotTeacher { id: string; code: string; name: string; role: string; subjectCode: string | null; assignmentVersion: number; }
+export interface FormulaDrilldownView { snapshotId: string; snapshotVersion: number; snapshotHash: string; formulaVersion: string; calculationPolicy: string; product: string; steps: unknown[]; sourceVersions: AuthoritativeSnapshotView['sourceVersions']; }
+export interface SnapshotDiffView { fromSnapshotId: string; toSnapshotId: string; fromHash: string; toHash: string; identical: boolean; changes: Array<{ path: string; fromValue: string | null; toValue: string | null }>; }
 
 export interface PvRow {
   studentId: string;
@@ -321,6 +342,12 @@ export class AcademicApi {
   }
   previewBulletinSnapshot(studentId: string, reportingPeriodId: string): Observable<BulletinSnapshotView> {
     return this.http.get<BulletinSnapshotView>(`${this.base}/students/${encodeURIComponent(studentId)}/bulletin-snapshots/preview`, { params: { reportingPeriodId } });
+  }
+  bulletinFormula(id: string): Observable<FormulaDrilldownView> {
+    return this.http.get<FormulaDrilldownView>(`${this.base}/bulletin-snapshots/${encodeURIComponent(id)}/formula`);
+  }
+  bulletinSourceVersionDiff(id: string, fromId: string): Observable<SnapshotDiffView> {
+    return this.http.get<SnapshotDiffView>(`${this.base}/bulletin-snapshots/${encodeURIComponent(id)}/source-version-diff`, { params: { fromId } });
   }
 
   validateSnapshot(id: string): Observable<BulletinSnapshotView> {

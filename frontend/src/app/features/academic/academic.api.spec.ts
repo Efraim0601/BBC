@@ -45,4 +45,21 @@ describe('AcademicApi batch diagnostics contract', () => {
     diagnostic.flush(new Blob(['csv'], { type: 'text/csv' }));
     http.verify();
   });
+
+  it('uses the authoritative snapshot for formula drill-down and source diffs', () => {
+    TestBed.configureTestingModule({ providers: [AcademicApi, provideHttpClient(), provideHttpClientTesting()] });
+    const api = TestBed.inject(AcademicApi);
+    const http = TestBed.inject(HttpTestingController);
+
+    api.bulletinFormula('to').subscribe();
+    const formula = http.expectOne(`${environment.apiUrl}/academic/bulletin-snapshots/to/formula`);
+    expect(formula.request.method).toBe('GET');
+    formula.flush({ snapshotId: 'to', steps: [], sourceVersions: [] });
+
+    api.bulletinSourceVersionDiff('to', 'from').subscribe();
+    const diff = http.expectOne((request) => request.url === `${environment.apiUrl}/academic/bulletin-snapshots/to/source-version-diff` && request.params.get('fromId') === 'from');
+    expect(diff.request.method).toBe('GET');
+    diff.flush({ fromSnapshotId: 'from', toSnapshotId: 'to', identical: true, changes: [] });
+    http.verify();
+  });
 });

@@ -120,6 +120,16 @@ public class AcademicController {
     @PreAuthorize("@perm.can('academic','read') and @perm.staffOnly()")
     public BulletinSnapshotView latestSnapshot(@PathVariable UUID studentId, @RequestParam UUID reportingPeriodId) { return snapshotService.latest(studentId, reportingPeriodId); }
 
+    @GetMapping("/bulletin-snapshots/{id}/formula")
+    @PreAuthorize("@perm.can('academic','read') and @perm.staffOnly()")
+    public FormulaDrilldownView formula(@PathVariable UUID id) { return snapshotService.formula(id); }
+
+    @GetMapping("/bulletin-snapshots/{id}/source-version-diff")
+    @PreAuthorize("@perm.can('academic','read') and @perm.staffOnly()")
+    public SnapshotDiffView sourceVersionDiff(@PathVariable UUID id, @RequestParam UUID fromId) {
+        return snapshotService.diff(fromId, id);
+    }
+
     @PostMapping("/bulletin-snapshots/{id}/correction")
     @PreAuthorize("@perm.can('academic','write') and @perm.staffOnly()")
     public BulletinSnapshotView startCorrection(@PathVariable UUID id, @Valid @RequestBody BulletinCorrectionRequest request) {

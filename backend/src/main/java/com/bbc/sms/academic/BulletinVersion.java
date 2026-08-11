@@ -23,6 +23,11 @@ public class BulletinVersion {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "snapshot_json", columnDefinition = "jsonb", nullable = false) private String snapshotJson;
     @Column(name = "snapshot_hash", nullable = false) private String snapshotHash;
+    @Column(name = "snapshot_contract_version", nullable = false) private int snapshotContractVersion = 1;
+    @Column(name = "generation_actor_id") private UUID generationActorId;
+    @Column(name = "generation_time") private Instant generationTime;
+    @Column(name = "canonical_snapshot_hash") private String canonicalSnapshotHash;
+    @Column(name = "source_version_fingerprint") private String sourceVersionFingerprint;
     @Column(nullable = false) private BigDecimal average = BigDecimal.ZERO;
     private Integer rank;
     @Column(name = "class_size", nullable = false) private int classSize;

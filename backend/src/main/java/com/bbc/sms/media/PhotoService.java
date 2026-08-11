@@ -10,6 +10,9 @@ import java.time.OffsetDateTime;
 import java.util.Base64;
 import java.util.Set;
 import java.util.UUID;
+import javax.imageio.ImageIO;
+import java.io.ByteArrayInputStream;
+import java.awt.image.BufferedImage;
 
 /**
  * Photos de profil (élève / employé).
@@ -53,13 +56,16 @@ public class PhotoService {
         p.setByteSize(img.bytes().length);
         p.setUpdatedAt(OffsetDateTime.now());
         repo.save(p);
+        BufferedImage dimensions = readDimensions(img.bytes());
         jdbc.update("""
                 INSERT INTO profile_photo_version
-                    (school_id,owner_type,owner_id,content_type,bytes,byte_size,sha256,captured_at)
-                VALUES (?,?,?,?,?,?,encode(digest(?, 'sha256'),'hex'),now())
+                    (school_id,owner_type,owner_id,content_type,bytes,byte_size,sha256,captured_at,
+                     width_px,height_px,fallback_decision)
+                VALUES (?,?,?,?,?,?,encode(digest(?, 'sha256'),'hex'),now(),?,?, 'PHOTO')
                 ON CONFLICT (school_id,owner_type,owner_id,sha256) DO NOTHING
                 """, schoolId, ownerType, ownerId, img.contentType(), img.bytes(), img.bytes().length,
-                img.bytes());
+                img.bytes(), dimensions == null ? null : dimensions.getWidth(),
+                dimensions == null ? null : dimensions.getHeight());
     }
 
     /** La photo, ou null quand la personne n'en a pas. */
@@ -79,6 +85,11 @@ public class PhotoService {
     }
 
     private record Decoded(String contentType, byte[] bytes) {}
+
+    private static BufferedImage readDimensions(byte[] bytes) {
+        try { return ImageIO.read(new ByteArrayInputStream(bytes)); }
+        catch (Exception ignored) { return null; }
+    }
 
     /** Découpe et valide {@code data:<type>;base64,<données>}. */
     private static Decoded decode(String dataUrl) {

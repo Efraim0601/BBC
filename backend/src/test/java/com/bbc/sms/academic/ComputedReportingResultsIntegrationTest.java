@@ -145,6 +145,14 @@ class ComputedReportingResultsIntegrationTest {
         });
         assertThat(term.evidence().dependencySources()).extracting(d -> d.childPeriodCode())
                 .containsExactly("S1", "S2");
+        assertThat(term.snapshot()).isNotNull();
+        assertThat(term.snapshot().contractVersion()).isEqualTo(1);
+        assertThat(term.snapshot().student().matricule()).isEqualTo("CMP-1615");
+        assertThat(term.snapshot().curriculum().rows()).singleElement()
+                .satisfies(row -> assertThat(row.coefficient()).isEqualTo(3));
+        assertThat(term.snapshot().result().preciseAverage()).isEqualByComparingTo("13");
+        assertThat(term.snapshot().result().displayAverage()).isEqualByComparingTo("13.00");
+        assertThat(term.snapshot().canonicalSnapshotHash()).isNotBlank();
         assertThat(term.workflowMeta().inputReadiness()).isEqualTo("READY");
         assertThat(term.workflowMeta().dependencies()).allMatch(d -> d.acceptedPacketCount() == 1);
         assertThat(term.blockers()).isEmpty();
@@ -162,6 +170,7 @@ class ComputedReportingResultsIntegrationTest {
         assertThat(annual.evidence().dependencySources()).extracting(d -> d.childPeriodCode())
                 .containsExactly("T1_RESULT", "T2_RESULT", "T3_RESULT");
         assertThat(annual.evidence().dependencySources()).allMatch(d -> !d.packetTraces().isEmpty());
+        assertThat(annual.snapshot().sourceVersions()).anyMatch(source -> "DEPENDENCY".equals(source.sourceType()));
         assertThat(annual.blockers()).isEmpty();
     }
 

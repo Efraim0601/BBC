@@ -483,8 +483,10 @@ public class ReportCardPdfService {
                     (rs, n) -> rs.getBytes(1), asset.assetVersionId(), TenantContext.get());
             if (!bytes.isEmpty()) return bytes.get(0);
         }
-        return photos.findByOwnerTypeAndOwnerIdAndSchoolId("student", bulletin.studentId(), TenantContext.get())
-                .map(ProfilePhoto::getBytes).orElse(null);
+        // A snapshot with no captured asset deliberately renders initials.
+        // Never substitute the mutable current profile photo for historical
+        // evidence, even when the old asset was deleted or unavailable.
+        return null;
     }
 
     private BrandingRenderData branding(BulletinSnapshotView bulletin) {
