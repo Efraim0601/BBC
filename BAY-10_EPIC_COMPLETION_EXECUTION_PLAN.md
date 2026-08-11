@@ -23,7 +23,7 @@ These decisions supersede older wording where a Linear description or the origin
 1. An academic year has three trimesters. T1 contains S1/S2, T2 contains S3/S4, and T3 contains S5/S6. Annual consumes T1/T2/T3.
 2. A trimester result is computed from its sequence results. It is not a separate raw grade-entry period.
 3. T3 and Annual remain separate snapshots, documents, validation records, and parent-visible products, even when selected together in one batch action.
-4. Academic access uses at most one optional management window per trimester. If both dates are absent, all milestones governed by that trimester are unrestricted. Do not restore per-action entry/review/publication windows.
+4. Academic access uses at most one optional management window per trimester. Each boundary is independently optional: null/null is unrestricted, opening-only begins restriction until that instant and is open afterward, closing-only is open until that instant, and both dates form a bounded window. Do not restore per-action entry/review/publication windows.
 5. A class sees only its assigned class-subject curriculum. Class language/subsystem prevents irrelevant French/English duplicate subjects from appearing.
 6. The coefficient printed and calculated is the coefficient on the session/class/subject relationship. A subject-level coefficient is only a default when assigning it to a class.
 7. The responsible teacher comes from the effective class-subject assignment. The timetable and grade-entry UI must not accept an arbitrary client-selected teacher.
@@ -104,7 +104,7 @@ Dispatch rules:
 - Do not add back per-action windows. V85's `academic_term.management_opens_at` and `management_closes_at` remain authoritative.
 - Confirm T1 governs S1/S2/T1_RESULT, T2 governs S3/S4/T2_RESULT, and T3 governs S5/S6/T3_RESULT/ANNUAL.
 - If a batch-policy audit record needs persistence, add a new additive migration after V87. Store action, effective window mode, governing term, actor, server time, and override evidence; do not duplicate old window columns.
-- Preserve null/null as `UNRESTRICTED`; reject half-filled or inverted windows with a field-specific error.
+- Preserve all four valid modes: null/null `UNRESTRICTED`, opening-only, closing-only, and bounded opening+closing. Reject only an invalid bounded range whose closing instant is not after its opening instant, with field-specific errors.
 
 ### 6.2 Backend
 
