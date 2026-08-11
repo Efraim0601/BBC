@@ -1,0 +1,19 @@
+# Acceptance overlay for the simplified trimester-management-window release.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.acceptance.yml up -d --build
+services:
+  db:
+    # The acceptance browser only needs the application ports; keep Postgres
+    # on the Compose network so host port 5433 cannot collide with other stacks.
+    ports: !override []
+
+  backend:
+    environment:
+      BBC_ADMIN_USERNAME: admin
+      BBC_ADMIN_PASSWORD: admin
+      BBC_CORS_ORIGINS: http://localhost:8085,http://localhost:4200
+    ports: !override
+      - "8084:8080"
+
+  frontend:
+    ports: !override
+      - "8085:80"
