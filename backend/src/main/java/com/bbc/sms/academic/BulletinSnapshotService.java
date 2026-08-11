@@ -323,19 +323,25 @@ public class BulletinSnapshotService {
                 .orElseThrow(() -> ApiException.notFound("Ã‰lÃ¨ve"));
         StudentEnrollment enrollment = enrollment(studentId, period);
         if (enrollment == null) throw ApiException.conflict("Cet élève n'est pas inscrit dans la session académique sélectionnée.");
+        BulletinVersion active = latestActive(studentId, periodId);
+        // An official result is a historical document. Do not calculate from
+        // mutable curriculum, assignment, profile, attendance, or conduct data
+        // merely to decide how to render it. The frozen payload is authoritative
+        // once no editable draft is active.
+        if (active == null) {
+            BulletinVersion official = latestOfficial(studentId, periodId);
+            if (official != null) return viewFromSnapshot(official, period, student);
+        }
         // A preview never creates a version. If an explicit draft/correction already
         // exists, show that durable version so the user can continue its workflow;
-        // otherwise expose the latest frozen result before calculating an in-memory
-        // preview from the current authoritative inputs.
+        // otherwise calculate an in-memory preview from the current authoritative
+        // inputs.
         CurrentSnapshot current = currentSnapshot(studentId, period, student, enrollment);
-        BulletinVersion active = latestActive(studentId, periodId);
         if (active != null) {
             if (Objects.equals(active.getSnapshotHash(), current.hash()))
                 return persistedView(active, period, student, current, "CURRENT", false);
             return currentView(current, period, student, active, "STALE", true);
         }
-        BulletinVersion official = latestOfficial(studentId, periodId);
-        if (official != null) return viewFromSnapshot(official, period, student);
         return currentView(current, period, student, null, "NONE", false);
     }
 
