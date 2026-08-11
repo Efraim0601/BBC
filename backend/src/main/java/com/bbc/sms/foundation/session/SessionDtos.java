@@ -152,17 +152,25 @@ public final class SessionDtos {
 
     public record SessionReadinessView(UUID academicSessionId, String sessionStatus,
                                        String phase, boolean ready, String nextAction,
-                                       List<String> blockers, List<String> actions,
+                                       List<String> blockers, List<String> warnings, List<String> actions,
                                        List<ReadinessSectionView> sections) {
         public SessionReadinessView(UUID academicSessionId, String sessionStatus,
                                     String phase, boolean ready, String nextAction,
                                     List<String> blockers, List<String> actions) {
-            this(academicSessionId, sessionStatus, phase, ready, nextAction, blockers, actions, List.of());
+            this(academicSessionId, sessionStatus, phase, ready, nextAction, blockers, List.of(), actions, List.of());
         }
     }
 
     public record ReadinessIssueView(String code, String severity, String label,
-                                     String detail, String repairTarget, int count) {}
+                                     String detail, String repairTarget, int count,
+                                     String scope, UUID classId, UUID subjectId, String subjectCode,
+                                     String messageFr, String messageEn) {
+        public ReadinessIssueView(String code, String severity, String label,
+                                  String detail, String repairTarget, int count) {
+            this(code, severity, label, detail, repairTarget, count,
+                    null, null, null, null, null, null);
+        }
+    }
 
     public record ReadinessSectionView(String key, String label, String status, boolean ready,
                                        List<ReadinessIssueView> issues) {}

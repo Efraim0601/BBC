@@ -310,6 +310,7 @@ public class AcademicSessionService {
         AcademicSession session = find(sessionId);
         List<ReportingPeriodView> periods = reportingPeriods(sessionId);
         List<String> blockers = new ArrayList<>();
+        List<String> warnings = new ArrayList<>();
         List<String> actions = new ArrayList<>();
         List<ReadinessSectionView> sections = new ArrayList<>();
         List<ReadinessIssueView> structureIssues = new ArrayList<>();
@@ -370,47 +371,132 @@ public class AcademicSessionService {
         sections.add(new ReadinessSectionView("TERM_ACCESS", "Trimester access", accessStatus,
                 accessIssues.isEmpty(), accessIssues));
 
-        int curriculumClasses = jdbc.queryForObject("""
-                SELECT count(DISTINCT class_id) FROM academic_curriculum_subject
-                 WHERE school_id=? AND academic_session_id=?
-                """, Integer.class, TenantContext.get(), sessionId);
         List<ReadinessIssueView> curriculumIssues = new ArrayList<>();
-        if (curriculumClasses == 0) {
-            blockers.add("CURRICULUM_MISSING");
-            curriculumIssues.add(new ReadinessIssueView("CURRICULUM_MISSING", "BLOCKER", "Class-subject curricula missing",
-                    "Reuse or configure each class's subjects before grade entry.", "class-subjects", 1));
+        List<ReadinessClassRow> activeClassesWithoutCurriculum = jdbc.query("""
+                SELECT c.id, c.name
+                  FROM school_class c
+                 WHERE c.school_id=?
+                   AND EXISTS (
+                       SELECT 1
+                         FROM student_enrollment se
+                        WHERE se.school_id=c.school_id
+                          AND se.academic_session_id=?
+                          AND se.school_class_id=c.id
+                          AND se.status='ACTIVE'
+                   )
+                   AND NOT EXISTS (
+                       SELECT 1
+                         FROM academic_curriculum_subject cur
+                        WHERE cur.school_id=c.school_id
+                          AND cur.academic_session_id=?
+                          AND cur.class_id=c.id
+                   )
+                 ORDER BY c.name
+                """, (rs, rowNum) -> new ReadinessClassRow(
+                rs.getObject("id", UUID.class), rs.getString("name")),
+                TenantContext.get(), sessionId, sessionId);
+        for (ReadinessClassRow row : activeClassesWithoutCurriculum) {
+            if (!blockers.contains("CURRICULUM_MISSING")) blockers.add("CURRICULUM_MISSING");
+            curriculumIssues.add(new ReadinessIssueView("CURRICULUM_MISSING", "BLOCKER", "Class-subject curriculum missing",
+                    "Configure subjects for the actively enrolled class before entering grades or generating reports.",
+                    "class-subjects", 1, row.className(), row.classId(), null, null,
+                    "Aucune matière n'est configurée pour la classe " + row.className()
+                            + " qui compte des élèves actifs. Configurez ses matières dans Paramètres → Scolarité → Matières par classe avant la saisie des notes ou les bulletins.",
+                    "No class-subject curriculum is configured for " + row.className()
+                            + ", which has active enrollments. Configure its subjects in Settings → Academics → Class subjects before grade entry or report cards."));
         }
-        Integer missingAssignments = jdbc.queryForObject("""
-                SELECT count(*) FROM academic_curriculum_subject cur JOIN school_class c ON c.id=cur.class_id
-                 WHERE cur.school_id=? AND cur.academic_session_id=? AND (
-                   (lower(c.level)='secondary' AND NOT EXISTS (
-                      SELECT 1 FROM academic_class_subject_teacher ast
-                       WHERE ast.school_id=cur.school_id AND ast.academic_session_id=cur.academic_session_id
-                         AND ast.class_id=cur.class_id AND ast.subject_id=cur.subject_id
-                         AND ast.role='RESPONSIBLE' AND ast.active=true
-                         AND EXISTS (SELECT 1 FROM employee e WHERE e.id=ast.employee_id AND e.active=true)))
-                   OR (lower(c.level)<>'secondary' AND NOT EXISTS (
-                      SELECT 1 FROM class_teacher_assignment a
-                       WHERE a.school_id=cur.school_id AND a.academic_session_id=cur.academic_session_id
-                         AND a.class_id=cur.class_id AND a.role='HOMEROOM' AND a.status='ACTIVE')))
-                """, Integer.class, TenantContext.get(), sessionId);
-        if (missingAssignments != null && missingAssignments > 0) {
-            blockers.add("CURRICULUM_ASSIGNMENT_MISSING");
-            curriculumIssues.add(new ReadinessIssueView("CURRICULUM_ASSIGNMENT_MISSING", "BLOCKER",
-                    "Teacher assignment needs repair", "Some class subjects have no authoritative responsible teacher.",
-                    "class-subjects", missingAssignments));
+        List<ReadinessCurriculumRow> missingAssignments = jdbc.query("""
+                SELECT cur.class_id, c.name AS class_name, c.level, cur.subject_id,
+                       s.code AS subject_code,
+                       COALESCE(s.label->>'fr', s.label->>'en', s.code) AS subject_label,
+                       EXISTS (
+                           SELECT 1
+                             FROM student_enrollment se
+                            WHERE se.school_id=cur.school_id
+                              AND se.academic_session_id=cur.academic_session_id
+                              AND se.school_class_id=cur.class_id
+                              AND se.status='ACTIVE'
+                       ) AS has_active_enrollment
+                  FROM academic_curriculum_subject cur
+                  JOIN school_class c ON c.id=cur.class_id AND c.school_id=cur.school_id
+                  JOIN subject s ON s.id=cur.subject_id AND s.school_id=cur.school_id
+                 WHERE cur.school_id=?
+                   AND cur.academic_session_id=?
+                   AND (
+                       (lower(c.level)='secondary' AND NOT EXISTS (
+                           SELECT 1
+                             FROM academic_class_subject_teacher ast
+                            WHERE ast.school_id=cur.school_id
+                              AND ast.academic_session_id=cur.academic_session_id
+                              AND ast.class_id=cur.class_id
+                              AND ast.subject_id=cur.subject_id
+                              AND ast.role='RESPONSIBLE'
+                              AND ast.active=true
+                              AND EXISTS (
+                                  SELECT 1 FROM employee e
+                                   WHERE e.id=ast.employee_id
+                                     AND e.school_id=cur.school_id
+                                     AND e.active=true
+                              )
+                       ))
+                       OR (lower(c.level)<>'secondary' AND NOT EXISTS (
+                           SELECT 1
+                             FROM class_teacher_assignment a
+                            WHERE a.school_id=cur.school_id
+                              AND a.academic_session_id=cur.academic_session_id
+                              AND a.class_id=cur.class_id
+                              AND a.role='HOMEROOM'
+                              AND a.status='ACTIVE'
+                              AND EXISTS (
+                                  SELECT 1 FROM employee e
+                                   WHERE e.id=a.employee_id
+                                     AND e.school_id=cur.school_id
+                                     AND e.active=true
+                              )
+                       ))
+                   )
+                 ORDER BY c.name, cur.display_order, s.code
+                """, (rs, rowNum) -> new ReadinessCurriculumRow(
+                rs.getObject("class_id", UUID.class), rs.getString("class_name"), rs.getString("level"),
+                rs.getObject("subject_id", UUID.class), rs.getString("subject_code"),
+                rs.getString("subject_label"), rs.getBoolean("has_active_enrollment")),
+                TenantContext.get(), sessionId);
+        for (ReadinessCurriculumRow row : missingAssignments) {
+            if (!warnings.contains("CURRICULUM_ASSIGNMENT_MISSING")) warnings.add("CURRICULUM_ASSIGNMENT_MISSING");
+            boolean secondary = "secondary".equalsIgnoreCase(row.level());
+            String roleFr = secondary ? "enseignant responsable" : "titulaire";
+            String roleEn = secondary ? "responsible teacher" : "homeroom teacher";
+            String messageFr = row.hasActiveEnrollment()
+                    ? "Aucun " + roleFr + " actif n'est affecté à " + row.subjectLabel() + " pour la classe " + row.className()
+                        + ". Configurez cette affectation dans Paramètres → Scolarité → Matières par classe avant l'envoi des notes."
+                    : "Aucun " + roleFr + " actif n'est affecté à " + row.subjectLabel() + " pour la classe " + row.className()
+                        + ". Cette classe n'a actuellement aucun élève actif : cela n'empêche pas la préparation de la session, mais l'affectation devra être configurée avant son utilisation.";
+            String messageEn = row.hasActiveEnrollment()
+                    ? "No active " + roleEn + " is assigned to " + row.subjectLabel() + " for " + row.className()
+                        + ". Configure this assignment in Settings → Academics → Class subjects before sending grades."
+                    : "No active " + roleEn + " is assigned to " + row.subjectLabel() + " for " + row.className()
+                        + ". This class has no active enrollments, so it does not block session readiness; configure the assignment before the class is used.";
+            curriculumIssues.add(new ReadinessIssueView("CURRICULUM_ASSIGNMENT_MISSING", "WARNING",
+                    "Teacher assignment needs repair", "The class subject has no active authoritative teacher assignment.",
+                    "class-subjects", 1, row.className() + " · " + row.subjectCode(), row.classId(),
+                    row.subjectId(), row.subjectCode(), messageFr, messageEn));
         }
+        boolean curriculumBlocked = curriculumIssues.stream().anyMatch(issue -> "BLOCKER".equals(issue.severity()));
         sections.add(new ReadinessSectionView("CURRICULUM", "Curriculum and assignments",
-                curriculumIssues.isEmpty() ? "READY" : "BLOCKED", curriculumIssues.isEmpty(), curriculumIssues));
+                curriculumBlocked ? "BLOCKED" : curriculumIssues.isEmpty() ? "READY" : "WARNING",
+                !curriculumBlocked, curriculumIssues));
         if ("DRAFT".equals(session.getStatus())) {
             actions.add("Ouvrez la session après validation de la structure et des droits d'accès.");
         } else if ("OPEN".equals(session.getStatus()) && blockers.isEmpty()) {
+            if (!warnings.isEmpty()) {
+                actions.add("La session est prête ; vérifiez les avertissements de configuration des classes avant les soumissions.");
+            }
             actions.add("Les opérations restent soumises à vos droits, à l'état de la session et aux prérequis du dossier.");
         }
         String phase = blockers.isEmpty() ? ("OPEN".equals(session.getStatus()) ? "READY" : "CONFIGURED") : "BLOCKED";
         String next = blockers.isEmpty() ? actions.stream().findFirst().orElse("Aucune action requise")
                 : actions.stream().findFirst().orElse("Corrigez les blocages affichés");
-        return new SessionReadinessView(sessionId, session.getStatus(), phase, blockers.isEmpty(), next, blockers, actions, sections);
+        return new SessionReadinessView(sessionId, session.getStatus(), phase, blockers.isEmpty(), next, blockers, warnings, actions, sections);
     }
 
     private void validateProposedStructure(AcademicSession session, List<ReportingPeriodView> periods,
@@ -955,6 +1041,12 @@ public class AcademicSessionService {
         if (!List.of("DRAFT", "OPEN", "CLOSED", "PUBLISHED", "ARCHIVED").contains(status)) throw ApiException.badRequest("Statut de période de résultat invalide");
         return status;
     }
+
+    private record ReadinessClassRow(UUID classId, String className) {}
+
+    private record ReadinessCurriculumRow(UUID classId, String className, String level,
+                                          UUID subjectId, String subjectCode, String subjectLabel,
+                                          boolean hasActiveEnrollment) {}
 
     private ReportingPeriodView reportingPeriodView(AcademicReportingPeriod p) {
         return new ReportingPeriodView(p.getId(), p.getAcademicSessionId(), p.getAcademicTermId(), p.getCode(), p.getLabel(),

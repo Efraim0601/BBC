@@ -12,6 +12,7 @@ import {
 import { CardComponent, EmptyComponent, IconComponent } from '../../core/ui';
 import { SessionConfigurationCopyComponent } from './session-configuration-copy';
 import { TermManagementWindowsComponent } from './term-management-windows';
+import { ReadinessIssue, readinessIssueLabel, readinessIssueMessage, readinessIssues, readinessNextAction, readinessRepairUrl } from './session-readiness';
 
 const cleanDisplay = (value: string | null | undefined): string => {
   if (!value) return value ?? '';
@@ -85,12 +86,32 @@ const cleanDisplay = (value: string | null | undefined): string => {
 
               <!-- 2. Readiness -->
               @if (readiness(); as r) {
-                <section class="rounded-xl border p-3" [class]="r.ready ? 'border-emerald-200 bg-emerald-50' : 'border-rose-200 bg-rose-50'">
+                <section class="rounded-xl border p-3" [class]="r.ready ? 'border-emerald-200 bg-emerald-50' : 'border-rose-200 bg-rose-50'" [attr.role]="r.ready ? 'status' : 'region'" [attr.aria-label]="fr() ? 'État de préparation de la session' : 'Session readiness'">
                   <div class="flex items-center justify-between gap-3"><strong class="text-sm">{{ fr() ? 'État de préparation' : 'Readiness' }}</strong><span class="chip" [class]="r.ready ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'">{{ r.phase }}</span></div>
-                  <p class="text-xs mt-1">{{ r.nextAction }}</p>
-                  @if (allAccessUnrestricted()) { <p class="text-xs mt-1 font-semibold text-emerald-800">{{ fr() ? 'Aucune restriction de date n’est configurée pour les trimestres.' : 'No date restriction is configured for the trimesters.' }}</p> }
-                  @if (r.blockers.length) { <div class="mt-2 text-xs text-rose-800">@for (b of r.blockers; track b) { <div>• {{ b }}</div> }</div> }
+                  <p class="text-xs mt-1">{{ readinessNextAction(r) }}</p>
+                  @for (issue of readinessIssues(r, 'BLOCKER'); track $index) {
+                    <div class="mt-2 rounded-lg border border-rose-200 bg-white/70 px-3 py-2 text-xs text-rose-900" role="alert">
+                      <div class="font-bold">{{ readinessIssueLabel(issue) }}</div>
+                      @if (issue.scope) { <div class="font-semibold mt-0.5">{{ issue.scope }}</div> }
+                      <div class="mt-0.5">{{ readinessIssueMessage(issue) }}</div>
+                      @if (readinessRepairUrl(r, issue); as repairUrl) { <a class="inline-flex mt-2 font-semibold text-brand-700 underline" [href]="repairUrl">{{ fr() ? 'Configurer maintenant' : 'Configure now' }}</a> }
+                    </div>
+                  }
                 </section>
+                @if (allAccessUnrestricted()) {
+                  <div class="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800" role="status">
+                    <span class="font-semibold">{{ fr() ? 'Accès par trimestre :' : 'Trimester access:' }}</span>
+                    {{ fr() ? 'Aucune restriction de date n’est configurée pour les trimestres. Il s’agit d’un état informatif, pas d’un blocage.' : 'No date restriction is configured for the trimesters. This is informational, not a blocker.' }}
+                  </div>
+                }
+                @for (issue of readinessIssues(r, 'WARNING'); track $index) {
+                  <div class="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950" role="status">
+                    <div class="font-bold">{{ readinessIssueLabel(issue) }}</div>
+                    @if (issue.scope) { <div class="font-semibold mt-0.5">{{ issue.scope }}</div> }
+                    <div class="mt-0.5">{{ readinessIssueMessage(issue) }}</div>
+                    @if (readinessRepairUrl(r, issue); as repairUrl) { <a class="inline-flex mt-2 font-semibold text-brand-700 underline" [href]="repairUrl">{{ fr() ? 'Ouvrir Matières par classe' : 'Open Class subjects' }}</a> }
+                  </div>
+                }
               }
 
               <!-- 3. Reuse a previous session -->
@@ -236,6 +257,22 @@ export class FoundationSettingsComponent {
   protected cancelTermRemoval(): void { this.pendingTermRemoval.set(null); this.termRemovalReason = ''; }
   protected confirmTermRemoval(): void { const id = this.pendingTermRemoval(); if (!id || !this.termRemovalReason.trim()) return; this.api.deleteTerm(id, this.termRemovalReason.trim()).subscribe({ next: () => { this.cancelTermRemoval(); this.reload(this.selectedId() ?? undefined); }, error: (e) => this.fail(e) }); }
   protected onTermWindowChanged(updated: TermManagementWindowView): void { this.termManagementWindows.update((rows) => rows.map((row) => row.termId === updated.termId ? updated : row)); this.api.readiness(updated.academicSessionId).subscribe({ next: (r) => this.readiness.set(r), error: () => undefined }); }
+
+  protected readinessIssues(readiness: SessionReadinessView, severity: 'BLOCKER' | 'WARNING'): ReadinessIssue[] {
+    return readinessIssues(readiness, severity);
+  }
+  protected readinessIssueLabel(issue: ReadinessIssue): string {
+    return readinessIssueLabel(issue, this.fr());
+  }
+  protected readinessIssueMessage(issue: ReadinessIssue): string {
+    return readinessIssueMessage(issue, this.fr());
+  }
+  protected readinessNextAction(readiness: SessionReadinessView): string {
+    return readinessNextAction(readiness, this.fr());
+  }
+  protected readinessRepairUrl(readiness: SessionReadinessView, issue: ReadinessIssue): string | null {
+    return readinessRepairUrl(readiness, issue);
+  }
 
   protected previewStandardStructure(): void { const s = this.selected(); if (!s) return; this.api.previewStandardStructure(s.id).subscribe({ next: (p) => { this.setPreview(p); }, error: (e) => this.fail(e) }); }
   protected wizardStepLabel(step: number): string { const labels = this.fr() ? ['Session / trimestres', 'Dates des résultats', 'Dépendances / calculs', 'Accès par trimestre (facultatif)', 'Vérification et confirmation'] : ['Session / trimesters', 'Result dates', 'Dependencies / calculations', 'Trimester access (optional)', 'Verification and confirmation']; return labels[step - 1] ?? ''; }

@@ -58,8 +58,15 @@ export interface StructureDependencyView {
 }
 export interface SessionReadinessView {
   academicSessionId: string; sessionStatus: string; phase: string; ready: boolean;
-  nextAction: string; blockers: string[]; actions: string[];
-  sections?: Array<{ key: string; label: string; status: string; ready: boolean; issues: Array<{ code: string; severity: string; label: string; detail: string; repairTarget: string; count: number }> }>;
+  nextAction: string; blockers: string[]; warnings?: string[]; actions: string[];
+  sections?: Array<{
+    key: string; label: string; status: string; ready: boolean;
+    issues: Array<{
+      code: string; severity: string; label: string; detail: string; repairTarget: string; count: number;
+      scope?: string | null; classId?: string | null; subjectId?: string | null; subjectCode?: string | null;
+      messageFr?: string | null; messageEn?: string | null;
+    }>;
+  }>;
 }
 export type WorkflowAction = 'GRADE_ENTRY' | 'TEACHER_SUBMISSION' | 'REVIEW' | 'VALIDATION' | 'PUBLICATION' | 'CORRECTION';
 export interface EffectiveWindowView {
