@@ -69,9 +69,6 @@ type Field = 'limited' | 'opensAt' | 'closesAt';
 
             <p class="term-summary">{{ summary(term) }}</p>
             <div class="term-card-actions">
-              @if (submitted(term) && draft(term).limited && !draft(term).opensAt && !draft(term).closesAt) {
-                <span class="term-hint">{{ english ? 'Add an opening date, a closing date, or both.' : 'Indiquez une date d’ouverture, une date de fermeture, ou les deux.' }}</span>
-              }
               <button type="button" class="term-save-button" [disabled]="!canManage || savingId() === term.termId" (click)="save(term)">
                 {{ savingId() === term.termId ? '…' : (english ? 'Save ' + term.termCode : 'Enregistrer ' + term.termCode) }}
               </button>
@@ -247,10 +244,7 @@ export class TermManagementWindowsComponent implements OnChanges {
   private validate(row: TermManagementWindowView): boolean {
     const draft = this.draft(row);
     const next: Partial<Record<Field, string>> = {};
-    if (draft.limited && !draft.opensAt && !draft.closesAt) {
-      const message = this.english ? 'Add an opening date, a closing date, or both.' : 'Indiquez une date d’ouverture, une date de fermeture, ou les deux.';
-      next.opensAt = message; next.closesAt = message;
-    } else if (draft.limited && draft.opensAt && draft.closesAt && new Date(draft.closesAt).getTime() <= new Date(draft.opensAt).getTime()) {
+    if (draft.limited && draft.opensAt && draft.closesAt && new Date(draft.closesAt).getTime() <= new Date(draft.opensAt).getTime()) {
       next.closesAt = this.english ? 'The closing date must be after the opening date.' : 'La fermeture doit être postérieure à l’ouverture.';
     }
     this.errors.update((all) => ({ ...all, [row.termId]: next }));
@@ -258,14 +252,16 @@ export class TermManagementWindowsComponent implements OnChanges {
   }
 
   protected badgeLabel(row: TermManagementWindowView): string {
-    if (!this.draft(row).limited) return this.english ? 'No date restriction' : 'Aucune restriction de date';
+    const draft = this.draft(row);
+    if (!draft.limited || (!draft.opensAt && !draft.closesAt)) return this.english ? 'No date restriction' : 'Aucune restriction de date';
     if (row.state === 'SCHEDULED') return this.english ? 'Opening scheduled' : 'Ouverture programmée';
     if (row.state === 'CLOSED') return this.english ? 'Window ended' : 'Fenêtre terminée';
     if (row.state === 'INVALID') return this.english ? 'Fix this limit' : 'Limite à corriger';
     return this.english ? 'Management allowed now' : 'Gestion autorisée maintenant';
   }
   protected badgeClass(row: TermManagementWindowView): string {
-    if (!this.draft(row).limited || row.state === 'OPEN') return 'term-badge-open';
+    const draft = this.draft(row);
+    if (!draft.limited || (!draft.opensAt && !draft.closesAt) || row.state === 'OPEN') return 'term-badge-open';
     if (row.state === 'SCHEDULED') return 'term-badge-scheduled';
     if (row.state === 'CLOSED') return 'term-badge-closed';
     return 'term-badge-invalid';
@@ -274,7 +270,7 @@ export class TermManagementWindowsComponent implements OnChanges {
     const codes = row.governedPeriodCodes ?? [];
     const label = this.milestoneSentence(codes);
     const draft = this.draft(row);
-    if (!draft.limited) return this.english ? `${label} have no date restriction.` : `${label} n’ont aucune restriction de date.`;
+    if (!draft.limited || (!draft.opensAt && !draft.closesAt)) return this.english ? `${label} have no date restriction.` : `${label} n’ont aucune restriction de date.`;
     if (draft.opensAt && draft.closesAt) return this.english
       ? `Available from ${this.display(draft.opensAt, row.timezone)} until ${this.display(draft.closesAt, row.timezone)}.`
       : `Disponibles du ${this.display(draft.opensAt, row.timezone)} au ${this.display(draft.closesAt, row.timezone)}.`;

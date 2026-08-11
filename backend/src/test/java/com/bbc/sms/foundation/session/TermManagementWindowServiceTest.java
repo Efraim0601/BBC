@@ -34,17 +34,25 @@ class TermManagementWindowServiceTest {
     void clearTenant() { TenantContext.clear(); }
 
     @Test
-    void limitedWindowRequiresAtLeastOneEndpointAndReturnsFieldErrors() {
+    void nullDatesRemainUnrestrictedAndOneSidedWindowsAreAllowed() {
         givenOpenSessionAndTerm();
+        when(terms.saveAndFlush(any(AcademicTerm.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        assertThatThrownBy(() -> service.update(sessionId, termId,
-                new TermManagementWindowUpsert(true, null, null, 4L)))
-                .isInstanceOf(ApiException.class)
-                .satisfies(error -> {
-                    ApiException api = (ApiException) error;
-                    assertThat(api.getCode()).isEqualTo("TERM_WINDOW_ENDPOINT_REQUIRED");
-                    assertThat(api.getFieldErrors()).containsKeys("opensAt", "closesAt");
-                });
+        var unrestricted = service.update(sessionId, termId,
+                new TermManagementWindowUpsert(true, null, null, 4L));
+        assertThat(unrestricted.state()).isEqualTo("OPEN");
+        assertThat(unrestricted.opensAt()).isNull();
+        assertThat(unrestricted.closesAt()).isNull();
+
+        var openingOnly = service.update(sessionId, termId,
+                new TermManagementWindowUpsert(true, Instant.parse("2026-10-01T08:00:00Z"), null, 4L));
+        assertThat(openingOnly.opensAt()).isNotNull();
+        assertThat(openingOnly.closesAt()).isNull();
+
+        var closingOnly = service.update(sessionId, termId,
+                new TermManagementWindowUpsert(true, null, Instant.parse("2026-12-01T17:00:00Z"), 4L));
+        assertThat(closingOnly.opensAt()).isNull();
+        assertThat(closingOnly.closesAt()).isNotNull();
     }
 
     @Test

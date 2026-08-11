@@ -10,8 +10,10 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -20,7 +22,7 @@ import java.util.UUID;
  */
 @Service
 public class AcademicWindowPolicyService {
-    public enum Action { GRADE_ENTRY, TEACHER_SUBMISSION, REVIEW, VALIDATION, PUBLICATION, CORRECTION }
+    public enum Action { GRADE_ENTRY, TEACHER_SUBMISSION, REVIEW, VALIDATION, PUBLICATION, CORRECTION, BATCH_GENERATION }
 
     private final AcademicReportingPeriodRepository periods;
     private final TermManagementWindowService termWindows;
@@ -35,30 +37,44 @@ public class AcademicWindowPolicyService {
     }
 
     public void assertOpen(UUID periodId, Action action) {
+        assertAllowed(periodId, action);
+    }
+
+    /** Returns the decision captured for a new mutation, or throws a structured policy denial. */
+    public WindowView assertAllowed(UUID periodId, Action action) {
         WindowView window = effective(null, periodId, action);
-        if (window.open()) return;
+        if (window.open()) return window;
 
         String milestones = String.join(", ", window.governedPeriodCodes());
-        String repair = "Paramètres → Années & périodes → Accès par trimestre";
+        String repair = "Settings → Sessions & terms → trimester access";
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("governingTrimester", window.governingTermCode());
+        details.put("governingTrimesterLabel", window.governingTermLabel());
+        details.put("affectedMilestones", window.governedPeriodCodes());
+        details.put("serverTimezone", window.timezone());
+        details.put("serverTime", window.serverTime());
+        details.put("configuredOpensAt", window.configuredOpensAt());
+        details.put("configuredClosesAt", window.configuredClosesAt());
+        details.put("repairTarget", Map.of("route", "/settings", "query", Map.of("tab", "sessions")));
         if ("SCHEDULED".equals(window.state())) {
-            throw ApiException.coded(HttpStatus.CONFLICT, "TRIMESTER_WINDOW_SCHEDULED",
+            throw ApiException.conflictWithDetails("TRIMESTER_WINDOW_SCHEDULED",
                     "La gestion du trimestre " + window.governingTermCode() + " sera disponible à partir du "
                             + format(window.nextTransition(), window.timezone()) + " (" + window.timezone()
-                            + "). Cette restriction concerne " + milestones + ". Ouvrez " + repair + ".");
+                            + "). Cette restriction concerne " + milestones + ". Ouvrez " + repair + ".", details);
         }
         if ("CLOSED".equals(window.state())) {
-            throw ApiException.coded(HttpStatus.CONFLICT, "TRIMESTER_WINDOW_CLOSED",
+            throw ApiException.conflictWithDetails("TRIMESTER_WINDOW_CLOSED",
                     "La fenêtre de gestion du trimestre " + window.governingTermCode() + " est fermée depuis le "
                             + format(window.closesAt(), window.timezone()) + " (" + window.timezone()
-                            + "). Elle concerne " + milestones + ". Modifiez-la dans " + repair + ".");
+                            + "). Elle concerne " + milestones + ". Modifiez-la dans " + repair + ".", details);
         }
         if ("INVALID".equals(window.state())) {
-            throw ApiException.coded(HttpStatus.CONFLICT, "TERM_WINDOW_INVALID",
+            throw ApiException.conflictWithDetails("TERM_WINDOW_INVALID",
                     "La limite d'accès du trimestre " + window.governingTermCode()
-                            + " est invalide. Corrigez-la dans " + repair + ".");
+                            + " est invalide. Corrigez-la dans " + repair + ".", details);
         }
-        throw ApiException.coded(HttpStatus.CONFLICT, "TRIMESTER_WINDOW_CLOSED",
-                "La gestion du trimestre " + window.governingTermCode() + " n'est pas disponible. Consultez " + repair + ".");
+        throw ApiException.conflictWithDetails("TRIMESTER_WINDOW_CLOSED",
+                "La gestion du trimestre " + window.governingTermCode() + " n'est pas disponible. Consultez " + repair + ".", details);
     }
 
     public WindowView effective(UUID periodId, Action action) {
@@ -77,14 +93,15 @@ public class AcademicWindowPolicyService {
 
         AcademicTerm governingTerm = termWindows.resolveForPeriod(periodId);
         TermManagementWindowService.WindowState state = termWindows.state(governingTerm, clock.instant());
-        String mode = governingTerm.isManagementWindowLimited() ? "LIMITED" : "UNRESTRICTED";
+        boolean unrestricted = governingTerm.getManagementOpensAt() == null && governingTerm.getManagementClosesAt() == null;
+        String mode = unrestricted ? "UNRESTRICTED" : "LIMITED";
         List<String> governed = governedPeriodCodes(governingTerm);
         return new WindowView(period.getId(), period.getCode(), period.getLabel(), action.name(),
                 governingTerm.getManagementOpensAt(), governingTerm.getManagementClosesAt(), "TERM_MANAGEMENT_WINDOW",
                 governingTerm.getManagementOpensAt(), governingTerm.getManagementClosesAt(), state.open(),
                 "TERM_MANAGEMENT_WINDOW", state.state(), state.nextTransition(), List.of(),
                 timezone(governingTerm.getTimezone()), mode, mode, null,
-                governingTerm.getCode(), governingTerm.getLabel(), governed);
+                governingTerm.getCode(), governingTerm.getLabel(), governed, clock.instant());
     }
 
     public record WindowView(UUID periodId, String periodCode, String periodLabel, String action,
@@ -93,13 +110,13 @@ public class AcademicWindowPolicyService {
                              Instant nextTransition, List<String> blockers, String timezone,
                              String configuredMode, String effectiveMode, String inheritedFrom,
                              String governingTermCode, String governingTermLabel,
-                             List<String> governedPeriodCodes) {}
+                             List<String> governedPeriodCodes, Instant serverTime) {}
 
     private WindowView notApplicable(AcademicReportingPeriod period, Action action) {
         return new WindowView(period.getId(), period.getCode(), period.getLabel(), action.name(),
                 null, null, "NOT_APPLICABLE", null, null, false, "NOT_APPLICABLE", "NOT_APPLICABLE",
                 null, List.of("COMPUTED_RESULT_PERIOD"), timezone(period.getTimezone()),
-                "NOT_APPLICABLE", "NOT_APPLICABLE", null, null, null, List.of());
+                "NOT_APPLICABLE", "NOT_APPLICABLE", null, null, null, List.of(), clock.instant());
     }
 
     private static List<String> governedPeriodCodes(AcademicTerm term) {

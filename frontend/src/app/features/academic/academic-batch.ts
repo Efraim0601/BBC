@@ -1,4 +1,32 @@
-import { BulletinBatchItemView, BulletinBatchJobView, BulletinBatchPreviewRow, BulletinBatchRepairTarget } from './academic.api';
+import { BulletinBatchItemView, BulletinBatchJobView, BulletinBatchPreviewRow, BulletinBatchRepairTarget, BulletinBatchWindowView } from './academic.api';
+
+export function batchWindowLabel(window: Pick<BulletinBatchWindowView, 'state'>, fr: boolean): string {
+  switch (window.state) {
+    case 'UNRESTRICTED': return fr ? 'Sans restriction' : 'Unrestricted';
+    case 'SCHEDULED': return fr ? 'Programmée' : 'Scheduled';
+    case 'OPEN': return fr ? 'Ouverte' : 'Open';
+    case 'CLOSED': return fr ? 'Fermée' : 'Closed';
+    default: return fr ? 'À corriger' : 'Needs repair';
+  }
+}
+
+export function batchWindowDisabled(window: Pick<BulletinBatchWindowView, 'launchAllowed'> | null | undefined): boolean {
+  return window?.launchAllowed !== true;
+}
+
+export function batchWindowExplanation(window: BulletinBatchWindowView, fr: boolean): string {
+  const trimester = window.governingTrimesterCode || (fr ? 'le trimestre sélectionné' : 'the selected trimester');
+  if (window.state === 'UNRESTRICTED') return fr ? `${trimester} est sans restriction de date.` : `${trimester} is unrestricted.`;
+  if (window.state === 'OPEN') return fr ? `La fenêtre de ${trimester} est ouverte.` : `${trimester} is currently open.`;
+  if (window.state === 'SCHEDULED') return fr
+    ? `La génération restera désactivée jusqu’à l’ouverture de ${trimester}. Réparez-la dans Paramètres → Sessions & termes.`
+    : `Generation stays disabled until ${trimester} opens. Repair it in Settings → Sessions & terms.`;
+  if (window.state === 'CLOSED') return fr
+    ? `La fenêtre de ${trimester} est fermée. Modifiez-la dans Paramètres → Sessions & termes.`
+    : `${trimester} is closed. Change it in Settings → Sessions & terms.`;
+  return fr ? `La limite de ${trimester} doit être corrigée dans Paramètres → Sessions & termes.`
+    : `${trimester} needs repair in Settings → Sessions & terms.`;
+}
 
 const arg = (row: { messageArgs?: Record<string, unknown>; headlineArgs?: Record<string, unknown> } | null | undefined, key: string, fallback: string): string => {
   const value = row?.messageArgs?.[key] ?? row?.headlineArgs?.[key];

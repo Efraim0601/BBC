@@ -6,6 +6,7 @@ import com.bbc.sms.foundation.session.AcademicReportingPeriod;
 import com.bbc.sms.foundation.session.AcademicReportingPeriodRepository;
 import com.bbc.sms.foundation.session.AcademicSession;
 import com.bbc.sms.foundation.session.AcademicSessionRepository;
+import com.bbc.sms.foundation.session.AcademicWindowPolicyService;
 import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.student.Student;
@@ -57,6 +58,7 @@ class ReportCardBatchEligibilityServiceTest {
     @Mock StudentRepository students;
     @Mock TeacherScopeService teacherScope;
     @Mock BulletinSnapshotService snapshots;
+    @Mock AcademicWindowPolicyService windows;
 
     private AcademicReportingPeriod period;
     private AcademicSession session;
@@ -106,6 +108,12 @@ class ReportCardBatchEligibilityServiceTest {
         when(students.findByIdAndSchoolId(studentId, schoolId)).thenReturn(Optional.of(student));
         when(enrollments.findBySchoolIdAndStudentIdAndAcademicSessionIdAndSchoolClassIdAndStatusOrderByEnrolledOnDescCreatedAtDesc(
                 schoolId, studentId, sessionId, classId, "ACTIVE")).thenReturn(List.of(enrollment));
+        org.mockito.Mockito.lenient().when(windows.effective(eq(periodId), eq(AcademicWindowPolicyService.Action.BATCH_GENERATION)))
+                .thenReturn(new AcademicWindowPolicyService.WindowView(periodId, "S1", "Sequence 1",
+                        "BATCH_GENERATION", null, null, "TERM_MANAGEMENT_WINDOW", null, null, true,
+                        "TERM_MANAGEMENT_WINDOW", "UNRESTRICTED", null, List.of(), "Africa/Douala",
+                        "UNRESTRICTED", "UNRESTRICTED", null, "T1", "Trimester 1",
+                        List.of("S1", "S2", "T1_RESULT"), Instant.parse("2026-09-15T10:00:00Z")));
     }
 
     @AfterEach
@@ -183,7 +191,7 @@ class ReportCardBatchEligibilityServiceTest {
 
     private ReportCardBatchEligibilityService service() {
         return new ReportCardBatchEligibilityService(jdbc, enrollments, periods, sessions, classes, students,
-                teacherScope, snapshots, new ObjectMapper());
+                teacherScope, snapshots, new ObjectMapper(), windows);
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})

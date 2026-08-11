@@ -7,8 +7,11 @@ import {
   batchReasonText,
   batchRepairUrl,
   batchResultCategory,
+  batchWindowDisabled,
+  batchWindowExplanation,
+  batchWindowLabel,
 } from './academic-batch';
-import { BulletinBatchJobView, BulletinBatchPreviewRow } from './academic.api';
+import { BulletinBatchJobView, BulletinBatchPreviewRow, BulletinBatchWindowView } from './academic.api';
 
 const job = (patch: Partial<BulletinBatchJobView> = {}): BulletinBatchJobView => ({
   id: 'job', academicSessionId: 'session', reportingPeriodId: 'period', classId: 'class', locale: 'en',
@@ -24,6 +27,26 @@ const row = (studentId: string, code = 'REPORT_NOT_CREATED'): BulletinBatchPrevi
 });
 
 describe('published-only batch presentation', () => {
+  const window = (state: BulletinBatchWindowView['state'], launchAllowed = state === 'OPEN' || state === 'UNRESTRICTED'): BulletinBatchWindowView => ({
+    state, launchAllowed, governingTrimesterCode: 'T1', governingTrimesterLabel: 'Trimester 1',
+    affectedMilestones: ['S1', 'S2', 'T1_RESULT'], timezone: 'Africa/Douala', serverTime: '',
+    repairTarget: { route: '/settings', query: { tab: 'sessions' } },
+  });
+
+  it('shows all approved effective-window states and disables closed launches', () => {
+    expect(batchWindowLabel(window('UNRESTRICTED'), false)).toBe('Unrestricted');
+    expect(batchWindowLabel(window('SCHEDULED', false), false)).toBe('Scheduled');
+    expect(batchWindowLabel(window('OPEN'), false)).toBe('Open');
+    expect(batchWindowLabel(window('CLOSED', false), false)).toBe('Closed');
+    expect(batchWindowDisabled(window('CLOSED', false))).toBe(true);
+    expect(batchWindowDisabled(window('OPEN'))).toBe(false);
+  });
+
+  it('names the governing trimester and Settings repair target in English and French', () => {
+    expect(batchWindowExplanation(window('CLOSED', false), false)).toContain('T1');
+    expect(batchWindowExplanation(window('CLOSED', false), false)).toContain('Settings');
+    expect(batchWindowExplanation(window('SCHEDULED', false), true)).toContain('Paramètres');
+  });
   it('maps stable blocker codes to actionable English and French copy', () => {
     expect(batchReasonText('REPORT_NOT_CREATED', false, 'S1', 'AMANTA')).toContain('S1');
     expect(batchReasonText('REPORT_NOT_CREATED', false, 'S1', 'AMANTA')).toContain('AMANTA');

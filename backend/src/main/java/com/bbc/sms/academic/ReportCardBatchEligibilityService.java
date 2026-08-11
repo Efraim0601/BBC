@@ -4,12 +4,14 @@ import com.bbc.sms.academic.dto.AcademicDtos.BulletinBatchRepairTarget;
 import com.bbc.sms.academic.dto.AcademicDtos.BulletinBatchSnapshotEvidence;
 import com.bbc.sms.academic.dto.AcademicDtos.BulletinBatchReasonCount;
 import com.bbc.sms.academic.dto.AcademicDtos.BulletinBatchPreviewView;
+import com.bbc.sms.academic.dto.AcademicDtos.BulletinBatchWindowView;
 import com.bbc.sms.academic.dto.AcademicDtos.BulletinSnapshotView;
 import com.bbc.sms.foundation.enrollment.StudentEnrollment;
 import com.bbc.sms.foundation.enrollment.StudentEnrollmentRepository;
 import com.bbc.sms.foundation.session.AcademicReportingPeriod;
 import com.bbc.sms.foundation.session.AcademicReportingPeriodRepository;
 import com.bbc.sms.foundation.session.AcademicSessionRepository;
+import com.bbc.sms.foundation.session.AcademicWindowPolicyService;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.tenant.TenantContext;
@@ -58,6 +60,7 @@ public class ReportCardBatchEligibilityService {
     private final TeacherScopeService teacherScope;
     private final BulletinSnapshotService snapshots;
     private final ObjectMapper mapper;
+    private final AcademicWindowPolicyService windows;
 
     public ReportCardBatchEligibilityService(JdbcTemplate jdbc,
                                              StudentEnrollmentRepository enrollments,
@@ -67,7 +70,8 @@ public class ReportCardBatchEligibilityService {
                                              StudentRepository students,
                                              TeacherScopeService teacherScope,
                                              BulletinSnapshotService snapshots,
-                                             ObjectMapper mapper) {
+                                             ObjectMapper mapper,
+                                             AcademicWindowPolicyService windows) {
         this.jdbc = jdbc;
         this.enrollments = enrollments;
         this.periods = periods;
@@ -77,6 +81,7 @@ public class ReportCardBatchEligibilityService {
         this.teacherScope = teacherScope;
         this.snapshots = snapshots;
         this.mapper = mapper;
+        this.windows = windows;
     }
 
     @Transactional(readOnly = true)
@@ -93,6 +98,8 @@ public class ReportCardBatchEligibilityService {
                 .orElseThrow(() -> ApiException.notFound("Classe"));
         AcademicReportingPeriod period = periods.findByIdAndSchoolId(reportingPeriodId, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Période de résultat"));
+        AcademicWindowPolicyService.WindowView window = windows.effective(
+                period.getId(), AcademicWindowPolicyService.Action.BATCH_GENERATION);
         var session = sessions.findByIdAndSchoolId(period.getAcademicSessionId(), schoolId)
                 .orElseThrow(() -> ApiException.notFound("Session académique"));
         List<StudentEnrollment> roster = enrollments
@@ -106,9 +113,10 @@ public class ReportCardBatchEligibilityService {
         List<EligibilityRow> rows = roster.stream()
                 .map(enrollment -> resolveForEnrollment(schoolId, schoolClass, period, enrollment, normalizedLocale))
                 .toList();
+        BulletinBatchWindowView windowView = windowView(window);
         return new EligibilityPreview(POLICY, POLICY_VERSION, period.getAcademicSessionId(), session.getLabel(),
                 classId, schoolClass.getName(), period.getId(), period.getCode(), period.getLabel(),
-                rows, fingerprint(schoolId, schoolClass, period, rows), Instant.now(), normalizedLocale);
+                rows, fingerprint(schoolId, schoolClass, period, rows), window.serverTime(), normalizedLocale, windowView);
     }
 
     /** Resolve one row from the current active enrollment without broadening tenant scope. */
@@ -316,8 +324,9 @@ public class ReportCardBatchEligibilityService {
     public record EligibilityPreview(String policy, String policyVersion, UUID academicSessionId,
                                      String academicSessionLabel, UUID classId, String className,
                                      UUID reportingPeriodId, String reportingPeriodCode,
-                                     String reportingPeriodLabel, List<EligibilityRow> rows,
-                                     String scopeFingerprint, Instant generatedAt, String locale) {
+                                      String reportingPeriodLabel, List<EligibilityRow> rows,
+                                      String scopeFingerprint, Instant generatedAt, String locale,
+                                      BulletinBatchWindowView window) {
         public int totalStudents() { return rows.size(); }
         public int readyStudents() { return (int) rows.stream().filter(row -> "READY".equals(row.eligibility())).count(); }
         public int blockedStudents() { return totalStudents() - readyStudents(); }
@@ -330,8 +339,16 @@ public class ReportCardBatchEligibilityService {
             return new BulletinBatchPreviewView(policy, academicSessionId, academicSessionLabel, classId, className,
                     reportingPeriodId, reportingPeriodCode, reportingPeriodLabel, totalStudents(), readyStudents(),
                     blockedStudents(), reasonCounts(), rows.stream().map(EligibilityRow::view).toList(),
-                    scopeFingerprint, generatedAt);
+                    scopeFingerprint, generatedAt, window);
         }
+    }
+
+    private BulletinBatchWindowView windowView(AcademicWindowPolicyService.WindowView window) {
+        BulletinBatchRepairTarget repair = new BulletinBatchRepairTarget("/settings", Map.of("tab", "sessions"));
+        String state = "UNRESTRICTED".equals(window.effectiveMode()) ? "UNRESTRICTED" : window.state();
+        return new BulletinBatchWindowView(state, window.open(), window.governingTermCode(),
+                window.governingTermLabel(), window.governedPeriodCodes(), window.timezone(), window.serverTime(),
+                window.opensAt(), window.closesAt(), window.nextTransition(), repair);
     }
 
     public record EligibilityRow(UUID studentId, String studentName, String matricule, String eligibility,

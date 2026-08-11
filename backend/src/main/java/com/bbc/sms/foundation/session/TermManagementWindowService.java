@@ -130,7 +130,9 @@ public class TermManagementWindowService {
         if (!term.isManagementWindowLimited()) return new WindowState(true, "OPEN", null);
         Instant opensAt = term.getManagementOpensAt();
         Instant closesAt = term.getManagementClosesAt();
-        if (opensAt == null && closesAt == null) return new WindowState(false, "INVALID", null);
+        // A missing opening and closing date is the explicit unrestricted mode,
+        // including legacy rows whose limited flag was left on.
+        if (opensAt == null && closesAt == null) return new WindowState(true, "OPEN", null);
         if (opensAt != null && closesAt != null && !closesAt.isAfter(opensAt)) {
             return new WindowState(false, "INVALID", null);
         }
@@ -189,11 +191,6 @@ public class TermManagementWindowService {
                         "limited", "Une fenêtre non limitée ne peut pas contenir de dates.");
             }
             return;
-        }
-        if (input.opensAt() == null && input.closesAt() == null) {
-            String message = "Indiquez une date d'ouverture, une date de fermeture, ou les deux.";
-            throw ApiException.fields(HttpStatus.BAD_REQUEST, "TERM_WINDOW_ENDPOINT_REQUIRED", message,
-                    Map.of("opensAt", message, "closesAt", message));
         }
         if (input.opensAt() != null && input.closesAt() != null
                 && !input.closesAt().isAfter(input.opensAt())) {

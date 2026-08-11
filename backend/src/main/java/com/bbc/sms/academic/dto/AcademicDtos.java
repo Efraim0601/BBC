@@ -310,15 +310,35 @@ public class AcademicDtos {
     public record BulletinBatchSnapshotEvidence(UUID id, long version, String hash,
                                                 Instant publishedAt, String state) {}
 
+    public record BulletinBatchWindowView(String state, boolean launchAllowed,
+                                          String governingTrimesterCode, String governingTrimesterLabel,
+                                          List<String> affectedMilestones, String timezone,
+                                          Instant serverTime, Instant opensAt, Instant closesAt,
+                                          Instant nextTransition, BulletinBatchRepairTarget repairTarget) {
+        public BulletinBatchWindowView {
+            affectedMilestones = affectedMilestones == null ? List.of() : List.copyOf(affectedMilestones);
+        }
+    }
+
     public record BulletinBatchPreviewView(String policy, UUID academicSessionId,
                                            String academicSessionLabel, UUID classId, String className,
                                            UUID reportingPeriodId, String reportingPeriodCode,
                                            String reportingPeriodLabel, int totalStudents, int readyStudents,
                                            int blockedStudents, List<BulletinBatchReasonCount> reasonCounts,
-                                           List<Row> rows, String scopeFingerprint, Instant generatedAt) {
+                                           List<Row> rows, String scopeFingerprint, Instant generatedAt,
+                                           BulletinBatchWindowView window) {
         public BulletinBatchPreviewView {
             reasonCounts = reasonCounts == null ? List.of() : List.copyOf(reasonCounts);
             rows = rows == null ? List.of() : List.copyOf(rows);
+        }
+        public BulletinBatchPreviewView(String policy, UUID academicSessionId, String academicSessionLabel,
+                                        UUID classId, String className, UUID reportingPeriodId,
+                                        String reportingPeriodCode, String reportingPeriodLabel, int totalStudents,
+                                        int readyStudents, int blockedStudents, List<BulletinBatchReasonCount> reasonCounts,
+                                        List<Row> rows, String scopeFingerprint, Instant generatedAt) {
+            this(policy, academicSessionId, academicSessionLabel, classId, className, reportingPeriodId,
+                    reportingPeriodCode, reportingPeriodLabel, totalStudents, readyStudents, blockedStudents,
+                    reasonCounts, rows, scopeFingerprint, generatedAt, null);
         }
         public record Row(UUID studentId, String studentName, String matricule, String eligibility,
                           String code, String category, String messageKey, Map<String, Object> messageArgs,
@@ -337,12 +357,13 @@ public class AcademicDtos {
                                        java.time.OffsetDateTime requestedAt, java.time.OffsetDateTime startedAt,
                                        java.time.OffsetDateTime completedAt, boolean archiveAvailable,
                                        String archiveSha256, Long archiveSizeBytes, String lastError, long version,
-                                       String policy, String scopeFingerprint, String resultCategory,
-                                       String headlineCode, Map<String, Object> headlineArgs,
-                                       List<BulletinBatchReasonCount> reasonCounts,
-                                       boolean studentArchiveAvailable, boolean diagnosticReportAvailable,
-                                       int retryableErrorItems, int nowEligibleBlockedItems, int stillBlockedItems,
-                                       String diagnosticSha256, Long diagnosticSizeBytes) {
+                                        String policy, String scopeFingerprint, String resultCategory,
+                                        String headlineCode, Map<String, Object> headlineArgs,
+                                        List<BulletinBatchReasonCount> reasonCounts,
+                                        boolean studentArchiveAvailable, boolean diagnosticReportAvailable,
+                                        int retryableErrorItems, int nowEligibleBlockedItems, int stillBlockedItems,
+                                        String diagnosticSha256, Long diagnosticSizeBytes,
+                                        BulletinBatchWindowView window) {
         public BulletinBatchJobView {
             headlineArgs = headlineArgs == null ? Map.of() : Map.copyOf(headlineArgs);
             reasonCounts = reasonCounts == null ? List.of() : List.copyOf(reasonCounts);
@@ -356,7 +377,7 @@ public class AcademicDtos {
             this(id, academicSessionId, reportingPeriodId, classId, locale, status, totalItems, processedItems,
                     publishedItems, blockedItems, errorItems, progressPercent, requestedAt, startedAt, completedAt,
                     archiveAvailable, archiveSha256, archiveSizeBytes, lastError, version, "PUBLISHED_ONLY", null,
-                    null, null, Map.of(), List.of(), archiveAvailable, false, 0, 0, 0, null, null);
+                     null, null, Map.of(), List.of(), archiveAvailable, false, 0, 0, 0, null, null, null);
         }
     }
 

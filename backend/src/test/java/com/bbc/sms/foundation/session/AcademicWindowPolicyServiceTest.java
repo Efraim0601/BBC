@@ -65,7 +65,35 @@ class AcademicWindowPolicyServiceTest {
         assertThat(closed.state()).isEqualTo("CLOSED");
         assertThatThrownBy(() -> service.assertOpen(periodId, AcademicWindowPolicyService.Action.REVIEW))
                 .isInstanceOf(ApiException.class)
-                .satisfies(error -> assertThat(((ApiException) error).getCode()).isEqualTo("TRIMESTER_WINDOW_CLOSED"));
+                .satisfies(error -> {
+                    ApiException api = (ApiException) error;
+                    assertThat(api.getCode()).isEqualTo("TRIMESTER_WINDOW_CLOSED");
+                    assertThat(api.getDetails()).containsKeys("governingTrimester", "affectedMilestones",
+                            "serverTimezone", "serverTime", "configuredOpensAt", "configuredClosesAt", "repairTarget");
+                    assertThat(api.getDetails().get("governingTrimester")).isEqualTo("T2");
+                });
+    }
+
+    @Test
+    void oneSidedWindowsRemainScheduledOrOpenIndefinitely() {
+        AcademicTerm term = term(1, "T1");
+        term.setManagementWindowLimited(true);
+        term.setManagementOpensAt(NOW.plusSeconds(3600));
+        AcademicReportingPeriod period = period("S1", "SEQUENCE", termId);
+        AcademicWindowPolicyService service = service(period, term);
+
+        assertThat(service.effective(periodId, AcademicWindowPolicyService.Action.BATCH_GENERATION).state())
+                .isEqualTo("SCHEDULED");
+
+        term.setManagementOpensAt(NOW.minusSeconds(3600));
+        assertThat(service.effective(periodId, AcademicWindowPolicyService.Action.BATCH_GENERATION).open()).isTrue();
+
+        term.setManagementOpensAt(null);
+        term.setManagementClosesAt(NOW.plusSeconds(3600));
+        assertThat(service.effective(periodId, AcademicWindowPolicyService.Action.BATCH_GENERATION).open()).isTrue();
+        term.setManagementClosesAt(NOW.minusSeconds(1));
+        assertThat(service.effective(periodId, AcademicWindowPolicyService.Action.BATCH_GENERATION).state())
+                .isEqualTo("CLOSED");
     }
 
     @Test
@@ -81,6 +109,11 @@ class AcademicWindowPolicyServiceTest {
         AcademicWindowPolicyService.WindowView resultAction = service.effective(periodId, AcademicWindowPolicyService.Action.REVIEW);
         assertThat(resultAction.source()).isEqualTo("TERM_MANAGEMENT_WINDOW");
         assertThat(resultAction.governedPeriodCodes()).containsExactly("S5", "S6", "T3_RESULT", "ANNUAL");
+
+        AcademicReportingPeriod annual = period("ANNUAL", "ANNUAL_RESULT", termId);
+        AcademicWindowPolicyService.WindowView annualAction = service(annual, term).effective(periodId, AcademicWindowPolicyService.Action.REVIEW);
+        assertThat(annualAction.governingTermCode()).isEqualTo("T3");
+        assertThat(annualAction.governedPeriodCodes()).contains("ANNUAL");
     }
 
     private AcademicWindowPolicyService service(AcademicReportingPeriod period, AcademicTerm term) {

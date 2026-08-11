@@ -336,13 +336,6 @@ public class AcademicSessionService {
                 session.getSchoolId(), sessionId);
         for (AcademicTerm term : accessTerms) {
             if (term.isManagementWindowLimited()
-                    && term.getManagementOpensAt() == null && term.getManagementClosesAt() == null) {
-                blockers.add("TERM_ACCESS_INVALID:" + term.getCode());
-                accessIssues.add(new ReadinessIssueView("TERM_ACCESS_INVALID", "BLOCKER",
-                        "Trimester access limit is invalid", "Add an opening or closing date for " + term.getCode() + ".",
-                        "term-management-windows", 1));
-            }
-            if (term.isManagementWindowLimited()
                     && term.getManagementOpensAt() != null && term.getManagementClosesAt() != null
                     && !term.getManagementClosesAt().isAfter(term.getManagementOpensAt())) {
                 blockers.add("TERM_ACCESS_INVALID:" + term.getCode());
@@ -916,12 +909,6 @@ public class AcademicSessionService {
             throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST, "TERM_WINDOW_DATES_NOT_ALLOWED",
                     "Désactivez la limite ou retirez les dates avant d'enregistrer.", "limited",
                     "Aucune date n'est permise lorsque la limite est désactivée.");
-        }
-        if (input.limited() && input.opensAt() == null && input.closesAt() == null) {
-            throw ApiException.fields(org.springframework.http.HttpStatus.BAD_REQUEST, "TERM_WINDOW_ENDPOINT_REQUIRED",
-                    "Indiquez une date d'ouverture, une date de fermeture, ou les deux.",
-                    Map.of("opensAt", "Indiquez une date d'ouverture, une date de fermeture, ou les deux.",
-                            "closesAt", "Indiquez une date d'ouverture, une date de fermeture, ou les deux."));
         }
         if (input.opensAt() != null && input.closesAt() != null && !input.closesAt().isAfter(input.opensAt())) {
             throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST, "TERM_WINDOW_RANGE_INVALID",

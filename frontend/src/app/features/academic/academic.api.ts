@@ -214,6 +214,13 @@ export interface BulletinBatchRepairTarget { route: string; query: Record<string
 export interface BulletinBatchSnapshotEvidence {
   id: string; version: number; hash: string; publishedAt?: string | null; state?: string | null;
 }
+export interface BulletinBatchWindowView {
+  state: 'UNRESTRICTED' | 'SCHEDULED' | 'OPEN' | 'CLOSED' | 'INVALID' | string;
+  launchAllowed: boolean; governingTrimesterCode: string; governingTrimesterLabel: string;
+  affectedMilestones: string[]; timezone: string; serverTime: string;
+  opensAt?: string | null; closesAt?: string | null; nextTransition?: string | null;
+  repairTarget?: BulletinBatchRepairTarget | null;
+}
 export interface BulletinBatchPreviewRow {
   studentId: string; studentName: string; matricule: string; eligibility: 'READY' | 'BLOCKED' | string;
   code: string; category: BulletinBatchItemCategory; messageKey: string; messageArgs: Record<string, unknown>;
@@ -225,7 +232,7 @@ export interface BulletinBatchPreviewView {
   classId: string; className: string; reportingPeriodId: string; reportingPeriodCode: string;
   reportingPeriodLabel: string; totalStudents: number; readyStudents: number; blockedStudents: number;
   reasonCounts: BulletinBatchReasonCount[]; rows: BulletinBatchPreviewRow[]; scopeFingerprint: string;
-  generatedAt: string;
+  generatedAt: string; window: BulletinBatchWindowView;
 }
 export interface BulletinBatchJobCreateRequest {
   classId: string; reportingPeriodId: string; locale: string; scopeFingerprint?: string;
@@ -243,7 +250,7 @@ export interface BulletinBatchJobView {
   headlineArgs?: Record<string, unknown>; reasonCounts?: BulletinBatchReasonCount[];
   studentArchiveAvailable?: boolean; diagnosticReportAvailable?: boolean; retryableErrorItems?: number;
   nowEligibleBlockedItems?: number; stillBlockedItems?: number; diagnosticSha256?: string | null;
-  diagnosticSizeBytes?: number | null;
+  diagnosticSizeBytes?: number | null; window?: BulletinBatchWindowView | null;
 }
 export interface BulletinBatchItemView {
   id: string; studentId: string; studentName: string; status: BulletinBatchItemStatus;

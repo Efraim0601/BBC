@@ -3,6 +3,7 @@ package com.bbc.sms.academic;
 import com.bbc.sms.academic.dto.AcademicDtos.*;
 import com.bbc.sms.documents.DocumentStorage;
 import com.bbc.sms.foundation.audit.AuditService;
+import com.bbc.sms.foundation.session.AcademicWindowPolicyService;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AppUserPrincipal;
 import com.bbc.sms.platform.security.TeacherScopeService;
@@ -42,11 +43,13 @@ public class ReportCardBatchJobService {
     private final DocumentStorage storage;
     private final ObjectMapper mapper;
     private final AuditService audit;
+    private final AcademicWindowPolicyService windows;
 
     public ReportCardBatchJobService(JdbcTemplate jdbc, TeacherScopeService teacherScope,
                                      ReportCardBatchEligibilityService eligibility,
                                      ReportCardBatchJobWorker worker, DocumentStorage storage,
-                                     ObjectMapper mapper, AuditService audit) {
+                                     ObjectMapper mapper, AuditService audit,
+                                     AcademicWindowPolicyService windows) {
         this.jdbc = jdbc;
         this.teacherScope = teacherScope;
         this.eligibility = eligibility;
@@ -54,6 +57,7 @@ public class ReportCardBatchJobService {
         this.storage = storage;
         this.mapper = mapper;
         this.audit = audit;
+        this.windows = windows;
     }
 
     @Transactional(readOnly = true)
@@ -72,6 +76,8 @@ public class ReportCardBatchJobService {
         }
         ReportCardBatchEligibilityService.EligibilityPreview preview =
                 eligibility.preview(request.classId(), request.reportingPeriodId(), request.locale());
+        AcademicWindowPolicyService.WindowView authorization = windows.assertAllowed(
+                request.reportingPeriodId(), AcademicWindowPolicyService.Action.BATCH_GENERATION);
         if (request.scopeFingerprint() != null && !request.scopeFingerprint().isBlank()
                 && !request.scopeFingerprint().equals(preview.scopeFingerprint())) {
             throw batchConflict("BATCH_SCOPE_CHANGED", "La préparation du lot a changé. Vérifiez à nouveau les élèves prêts.", preview);
@@ -93,11 +99,11 @@ public class ReportCardBatchJobService {
         int blocked = preview.blockedStudents();
         jdbc.update("""
                 INSERT INTO bulletin_batch_job
-                    (id,school_id,academic_session_id,reporting_period_id,class_id,locale,policy,scope_fingerprint,
+                    (id,school_id,academic_session_id,reporting_period_id,class_id,locale,policy,scope_fingerprint,window_authorization,
                      status,total_items,processed_items,blocked_items,requested_by)
-                VALUES (?,?,?,?,?,?,?,?,'QUEUED',?,?,?,?)
+                VALUES (?,?,?,?,?,?,?,?,?::jsonb,'QUEUED',?,?,?,?)
                 """, id, schoolId, preview.academicSessionId(), preview.reportingPeriodId(), preview.classId(), locale,
-                ReportCardBatchEligibilityService.POLICY, preview.scopeFingerprint(), preview.totalStudents(), blocked,
+                ReportCardBatchEligibilityService.POLICY, preview.scopeFingerprint(), json(windowDetails(authorization)), preview.totalStudents(), blocked,
                 blocked, currentUserId());
         for (ReportCardBatchEligibilityService.EligibilityRow row : preview.rows()) {
             boolean ready = "READY".equals(row.eligibility());
@@ -154,6 +160,7 @@ public class ReportCardBatchJobService {
         if (Set.of("RUNNING", "QUEUED").contains(job.status())) {
             throw ApiException.conflict("La génération est déjà en cours; vérifiez son état après son actualisation.");
         }
+        windows.assertAllowed(job.reportingPeriodId(), AcademicWindowPolicyService.Action.BATCH_GENERATION);
         List<ItemRow> candidates = itemRows(job).stream()
                 .filter(row -> "BLOCKED".equals(row.status()) && (itemId == null || itemId.equals(row.id())))
                 .toList();
@@ -210,6 +217,7 @@ public class ReportCardBatchJobService {
         if (Set.of("RUNNING", "QUEUED").contains(job.status())) {
             throw ApiException.conflict("La génération est déjà en cours.");
         }
+        windows.assertAllowed(job.reportingPeriodId(), AcademicWindowPolicyService.Action.BATCH_GENERATION);
         List<ItemRow> candidates = itemRows(job).stream()
                 .filter(row -> "ERROR".equals(row.status()) && row.retryableNow()
                         && (itemId == null || itemId.equals(row.id())))
@@ -346,7 +354,8 @@ public class ReportCardBatchJobService {
                        j.requested_by,j.requested_at,j.started_at,j.completed_at,j.archive_storage_key,
                        j.archive_sha256,j.archive_size_bytes,j.last_error,j.version,
                        coalesce(j.policy,'PUBLISHED_ONLY'),j.scope_fingerprint,j.diagnostic_storage_key,
-                       j.diagnostic_sha256,j.diagnostic_size_bytes,p.code,p.label,c.name
+                       j.diagnostic_sha256,j.diagnostic_size_bytes,coalesce(j.window_authorization,'{}'::jsonb)::text,
+                       p.code,p.label,c.name
                   FROM bulletin_batch_job j
                   JOIN academic_reporting_period p ON p.id=j.reporting_period_id AND p.school_id=j.school_id
                   JOIN school_class c ON c.id=j.class_id AND c.school_id=j.school_id
@@ -358,8 +367,9 @@ public class ReportCardBatchJobService {
                         rs.getObject(13, UUID.class), rs.getObject(14, OffsetDateTime.class),
                         rs.getObject(15, OffsetDateTime.class), rs.getObject(16, OffsetDateTime.class), rs.getString(17),
                         rs.getString(18), (Long) rs.getObject(19), rs.getString(20), rs.getLong(21),
-                        rs.getString(22), rs.getString(23), rs.getString(24), rs.getString(25),
-                        (Long) rs.getObject(26), rs.getString(27), rs.getString(28), rs.getString(29)) : null,
+                         rs.getString(22), rs.getString(23), rs.getString(24), rs.getString(25),
+                         (Long) rs.getObject(26), rs.getString(27), rs.getString(28), rs.getString(29),
+                         rs.getString(30)) : null,
                 TenantContext.get(), id);
         if (row == null) throw ApiException.notFound("Lot de génération des bulletins");
         return row;
@@ -389,8 +399,8 @@ public class ReportCardBatchJobService {
                 job.status(), job.totalItems(), job.processedItems(), job.publishedItems(), job.blockedItems(), job.errorItems(),
                 progress, job.requestedAt(), job.startedAt(), job.completedAt(), archive, job.archiveSha256(), job.archiveSizeBytes(),
                 job.lastError(), job.version(), job.policy(), job.scopeFingerprint(), category, headlineCode, headlineArgs,
-                reasonCounts, archive, diagnostic, retryable, nowEligible, Math.max(0, stillBlocked),
-                job.diagnosticSha256(), job.diagnosticSizeBytes());
+                 reasonCounts, archive, diagnostic, retryable, nowEligible, Math.max(0, stillBlocked),
+                 job.diagnosticSha256(), job.diagnosticSizeBytes(), currentWindow(job));
     }
 
     private String resultCategory(JobRow job) {
@@ -503,6 +513,32 @@ public class ReportCardBatchJobService {
         return details;
     }
 
+    private Map<String, Object> windowDetails(AcademicWindowPolicyService.WindowView window) {
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("state", window.state());
+        details.put("launchAllowed", window.open());
+        details.put("governingTrimesterCode", window.governingTermCode());
+        details.put("governingTrimesterLabel", window.governingTermLabel());
+        details.put("affectedMilestones", window.governedPeriodCodes());
+        details.put("timezone", window.timezone());
+        details.put("serverTime", window.serverTime());
+        details.put("opensAt", window.opensAt());
+        details.put("closesAt", window.closesAt());
+        details.put("nextTransition", window.nextTransition());
+        details.put("repairTarget", Map.of("route", "/settings", "query", Map.of("tab", "sessions")));
+        return details;
+    }
+
+    private BulletinBatchWindowView currentWindow(JobRow job) {
+        AcademicWindowPolicyService.WindowView window = windows.effective(
+                job.reportingPeriodId(), AcademicWindowPolicyService.Action.BATCH_GENERATION);
+        String state = "UNRESTRICTED".equals(window.effectiveMode()) ? "UNRESTRICTED" : window.state();
+        return new BulletinBatchWindowView(state, window.open(), window.governingTermCode(),
+                window.governingTermLabel(), window.governedPeriodCodes(), window.timezone(), window.serverTime(),
+                window.opensAt(), window.closesAt(), window.nextTransition(),
+                new BulletinBatchRepairTarget("/settings", Map.of("tab", "sessions")));
+    }
+
     private String json(Object value) {
         try { return mapper.writeValueAsString(value); }
         catch (JsonProcessingException ex) { throw new IllegalStateException("Unable to persist batch diagnostics", ex); }
@@ -543,8 +579,8 @@ public class ReportCardBatchJobService {
                           OffsetDateTime startedAt, OffsetDateTime completedAt, String archiveStorageKey,
                           String archiveSha256, Long archiveSizeBytes, String lastError, long version,
                           String policy, String scopeFingerprint, String diagnosticStorageKey,
-                          String diagnosticSha256, Long diagnosticSizeBytes, String periodCode,
-                          String periodLabel, String className) {}
+                           String diagnosticSha256, Long diagnosticSizeBytes, String windowAuthorization,
+                           String periodCode, String periodLabel, String className) {}
 
     private record ItemRow(UUID id, UUID studentId, String studentName, String status, int attempts,
                            String fileName, long sizeBytes, String error, String resultCode,

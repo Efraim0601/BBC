@@ -44,7 +44,7 @@ describe('TermManagementWindowsComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('No date restriction');
   });
 
-  it('shows both precise inline endpoint errors and does not call the API', () => {
+  it('allows null/null and one-sided windows', () => {
     setup([row(1, 'T1', ['S1', 'S2', 'T1_RESULT'])], false);
     const current = component.windows()[0];
 
@@ -52,10 +52,16 @@ describe('TermManagementWindowsComponent', () => {
     component.save(current);
     fixture.detectChanges();
 
-    expect(component.errorFor(current, 'opensAt')).toBe('Indiquez une date d’ouverture, une date de fermeture, ou les deux.');
-    expect(component.errorFor(current, 'closesAt')).toBe('Indiquez une date d’ouverture, une date de fermeture, ou les deux.');
-    expect(fixture.nativeElement.textContent).toContain('Indiquez une date d’ouverture, une date de fermeture, ou les deux.');
-    expect(api.updateTermManagementWindow).not.toHaveBeenCalled();
+    expect(component.errorFor(current, 'opensAt')).toBeNull();
+    expect(component.errorFor(current, 'closesAt')).toBeNull();
+    expect(api.updateTermManagementWindow).toHaveBeenCalledWith('session', 'term-1', expect.objectContaining({ limited: true, opensAt: null, closesAt: null, version: 4 }));
+    component.set(current, 'opensAt', '2026-10-01T10:00');
+    component.save(current);
+    expect(api.updateTermManagementWindow).toHaveBeenLastCalledWith('session', 'term-1', expect.objectContaining({ opensAt: expect.any(String), closesAt: null }));
+    component.set(current, 'opensAt', '');
+    component.set(current, 'closesAt', '2026-11-30T17:00');
+    component.save(current);
+    expect(api.updateTermManagementWindow).toHaveBeenLastCalledWith('session', 'term-1', expect.objectContaining({ opensAt: null, closesAt: expect.any(String) }));
   });
 
   it('validates close-after-open and uses a custom confirmation for removal', () => {
