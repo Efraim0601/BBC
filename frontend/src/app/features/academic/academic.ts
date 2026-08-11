@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@angular/core';
+import { Component, ChangeDetectionStrategy, ElementRef, inject, signal, computed, ViewChild } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -6,7 +6,7 @@ import { forkJoin, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { StudentApi } from '../students/students.api';
 import { SetupApi, ClassView } from '../../core/setup.api';
-import { AcademicApi, BulletinView, BulletinSnapshotView, PvView, GradeEntryView, ReportCardInputsView, ReportCardInputRow, ReportCardInputUpsert, BulletinBatchJobView, BulletinBatchItemView } from './academic.api';
+import { AcademicApi, BulletinView, BulletinSnapshotView, PvView, GradeEntryView, ReportCardInputsView, ReportCardInputRow, ReportCardInputUpsert, BulletinBatchJobView, BulletinBatchItemView, BulletinBatchPreviewView, BulletinBatchPreviewRow } from './academic.api';
 import { FoundationApi, AcademicReportingPeriodView, GeneratedDocumentView } from '../../core/foundation.api';
 import { AuthService } from '../../core/auth.service';
 import { ScopeService } from '../../core/scope.service';
@@ -14,6 +14,7 @@ import { I18nService } from '../../core/i18n.service';
 import { Student } from '../../core/models';
 import { ApcBulletinComponent } from './apc-bulletin';
 import { PhotoApi } from '../../core/photo.api';
+import { batchBlockedRows, batchFormatBytes as formatBatchBytes, batchHeadlineText as formatBatchHeadlineText, batchItemText as formatBatchItemText, batchReasonText as formatBatchReasonText, batchRepairUrl, batchResultCategory } from './academic-batch';
 import {
   IconComponent, CardComponent, PageHeaderComponent, EmptyComponent,
   AvatarComponent, TabsComponent,
@@ -809,7 +810,7 @@ const appreciation = (avg: number, fr: boolean): string => {
       }
 
       <!-- ============ PV ============ -->
-      @if (mode() === 'batch') {
+      @if (mode() === 'batch' && false) {
         @if (!selectedClass()) {
           <bbc-card><bbc-empty icon="users" [label]="fr() ? 'Choisissez une classe pour générer les bulletins.' : 'Pick a class to generate report cards.'" /></bbc-card>
         } @else {
@@ -862,6 +863,43 @@ const appreciation = (avg: number, fr: boolean): string => {
       }
 
       <!-- ============ PV ============ -->
+      @if (mode() === 'batch') {
+        @if (!selectedClass() || !selectedReportingPeriodId()) {
+          <bbc-card><bbc-empty icon="users" [label]="fr() ? 'Choisissez une classe et un jalon.' : 'Choose a class and milestone.'" /></bbc-card>
+        } @else {
+          <bbc-card className="mb-4">
+            @if (batchPreviewLoading()) {
+              <div class="rounded-xl border border-brand-200 bg-brand-50 px-4 py-4 text-sm text-brand-900" role="status" aria-live="polite"><div class="font-bold">{{ fr() ? 'Vérification de la préparation…' : 'Checking readiness…' }}</div><div class="mt-1">{{ fr() ? 'Aucun lot n’est créé pendant cette vérification.' : 'No job is created during this check.' }}</div></div>
+            }
+            @if (batchPreviewError(); as previewError) { <div class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900" role="alert">{{ previewError }}</div> }
+            @if (batchPreview(); as preview) {
+              <section class="rounded-xl border border-slate-200 bg-white p-4" aria-labelledby="batch-readiness-title">
+                <div class="flex items-start justify-between gap-4 flex-wrap"><div><h2 id="batch-readiness-title" class="text-lg font-bold text-ink">{{ preview.reportingPeriodCode }} {{ fr() ? '— préparation des bulletins' : '— report-card readiness' }}</h2><div class="text-sm text-mute mt-1">{{ preview.className }} · {{ display(preview.reportingPeriodLabel) }}</div><div class="text-xs text-mute mt-2">{{ fr() ? 'Export officiel : seuls les bulletins publiés pour ce jalon exact sont éligibles. Un bulletin T1 ne rend pas S1 prêt.' : 'Official export: only published report cards for this exact milestone are eligible. A T1 report card does not make S1 ready.' }}</div></div><div class="rounded-lg border border-brand-200 bg-brand-50 px-3 py-2 text-sm font-bold text-brand-900">{{ preview.readyStudents }} / {{ preview.totalStudents }} {{ fr() ? 'prêts' : 'ready' }}</div></div>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-4 text-sm"><div class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2"><span class="text-emerald-800">{{ fr() ? 'Prêts à générer' : 'Ready to generate' }}</span><div class="text-lg font-bold text-emerald-800">{{ preview.readyStudents }}</div></div><div class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2"><span class="text-amber-900">{{ fr() ? 'À traiter' : 'Needs action' }}</span><div class="text-lg font-bold text-amber-900">{{ preview.blockedStudents }}</div></div><div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"><span class="text-mute">{{ fr() ? 'Périmètre total' : 'Total scope' }}</span><div class="text-lg font-bold text-ink">{{ preview.totalStudents }}</div></div></div>
+                @if (preview.blockedStudents > 0) {
+                  <div class="mt-4 rounded-xl border border-amber-200 bg-amber-50/60 p-3"><div class="font-bold text-amber-950">{{ fr() ? 'Élèves à traiter' : 'Students needing action' }}</div><div class="mt-2 flex flex-wrap gap-2">@for (reason of preview.reasonCounts; track reason.code) { <span class="rounded-full border border-amber-300 bg-white px-2 py-1 text-xs font-semibold text-amber-900">{{ batchReasonLabel(reason.code) }} · {{ reason.count }}</span> }</div><div class="mt-3 space-y-2">@for (row of batchVisibleRows(preview); track row.studentId) { <div class="rounded-lg border border-amber-200 bg-white p-3"><div class="flex items-start justify-between gap-3 flex-wrap"><div><div class="font-bold text-ink">{{ row.studentName }} <span class="font-mono text-xs text-mute">({{ row.matricule }})</span></div><div class="mt-1 text-sm text-amber-950">{{ batchReasonText(row.code, fr(), preview.reportingPeriodCode, row.studentName, row.messageArgs) }}</div><div class="mt-1 text-xs text-mute">{{ fr() ? 'État actuel' : 'Current state' }}: {{ row.currentState || '—' }}</div></div>@if (row.repairTarget) { <button type="button" (click)="openBatchRepair(row)" class="h-9 px-3 rounded-lg bg-amber-700 text-white text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500">{{ fr() ? 'Ouvrir le bulletin' : 'Open report card' }} {{ preview.reportingPeriodCode }}</button> }</div></div> }</div>@if (preview.blockedStudents > batchVisibleRows(preview).length) { <button type="button" (click)="showAllBatchBlockers.set(true)" class="mt-3 text-xs font-semibold text-amber-900 underline">{{ fr() ? 'Afficher tous les élèves concernés' : 'Show all affected students' }}</button> }</div>
+                }
+                <div class="mt-4 flex items-center gap-3 flex-wrap"><button type="button" (click)="startBatchGeneration()" [disabled]="batchBusy() || batchPreviewLoading() || preview.readyStudents === 0" class="inline-flex items-center gap-2 h-10 px-4 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-brand-500"><bbc-icon name="download" [s]="16" />{{ batchBusy() ? (fr() ? 'Lancement…' : 'Starting…') : (fr() ? 'Générer ' + preview.readyStudents + ' bulletin(s) publiés' : 'Generate ' + preview.readyStudents + ' published report card(s)') }}</button>@if (preview.readyStudents === 0) { <span class="text-sm font-semibold text-amber-900">{{ fr() ? 'Aucun bulletin publié n’est prêt — aucun lot ne sera créé.' : 'No published report card is ready — no job will be created.' }}</span> }<button type="button" (click)="recheckBatchReadiness()" [disabled]="batchPreviewLoading() || batchBusy()" class="h-10 px-3 rounded-lg border border-slate-300 bg-white text-sm font-semibold text-ink disabled:opacity-50">{{ fr() ? 'Revérifier la préparation' : 'Recheck readiness' }}</button></div>
+              </section>
+            }
+            @if (!batchPreviewLoading() && !batchPreview() && !batchPreviewError()) { <div class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-mute" role="status">{{ fr() ? 'Sélectionnez une classe et un jalon pour vérifier la préparation.' : 'Select a class and milestone to check readiness.' }}</div> }
+          </bbc-card>
+          @if (batchJob(); as job) {
+            <section class="rounded-xl border border-brand-100 bg-brand-50/50 p-4" aria-labelledby="batch-result-title">
+              <div class="flex items-center justify-between gap-3 flex-wrap"><div class="flex items-center gap-2"><span class="font-bold text-ink">{{ fr() ? 'Lot' : 'Job' }} {{ job.id.slice(0, 8) }}</span><span class="px-2 py-1 rounded-full text-[11px] font-bold" [class]="batchStatusClass(job.status)">{{ batchStatusLabel(job.status) }}</span></div><div class="text-xs text-mute">{{ job.processedItems }}/{{ job.totalItems }} {{ fr() ? 'traités' : 'processed' }}</div></div>
+              @if (job.status !== 'QUEUED' && job.status !== 'RUNNING') { <div #batchResultHeadline id="batch-result-title" tabindex="-1" role="status" aria-live="assertive" class="mt-4 rounded-xl border px-4 py-3 focus:outline-none focus:ring-2 focus:ring-brand-500" [class]="batchResultCalloutClass(job)"><div class="font-bold text-base">{{ batchHeadlineText(job, fr()) }}</div><div class="mt-1 text-sm">{{ batchPrimaryReason(job) }}</div></div> }
+              <div class="h-2 rounded-full bg-white border border-brand-100 overflow-hidden mt-3"><div class="h-full bg-brand-600 transition-all" [style.width.%]="job.progressPercent"></div></div>
+              <div class="grid grid-cols-2 md:grid-cols-5 gap-2 mt-4 text-xs"><div><span class="text-mute">{{ fr() ? 'Générés' : 'Generated' }}</span><div class="font-bold text-emerald-700">{{ job.publishedItems }}</div></div><div><span class="text-mute">{{ fr() ? 'Bloqués' : 'Blocked' }}</span><div class="font-bold text-amber-700">{{ job.blockedItems }}</div></div><div><span class="text-mute">{{ fr() ? 'Erreurs techniques' : 'Technical errors' }}</span><div class="font-bold text-rose-700">{{ job.errorItems }}</div></div><div><span class="text-mute">{{ fr() ? 'Avancement' : 'Progress' }}</span><div class="font-bold text-ink">{{ job.progressPercent }}%</div></div><div><span class="text-mute">{{ fr() ? 'Archive' : 'Archive' }}</span><div class="font-bold text-ink">{{ job.studentArchiveAvailable || job.archiveAvailable ? batchFormatBytes(job.archiveSizeBytes) : '—' }}</div></div></div>
+              @if (job.lastError) { <details class="mt-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-mute"><summary class="cursor-pointer font-semibold">{{ fr() ? 'Détail technique' : 'Technical detail' }}</summary><div class="mt-2">{{ job.lastError }}</div></details> }
+              <div class="flex flex-wrap gap-2 mt-4">@if (job.studentArchiveAvailable || job.archiveAvailable) { <button type="button" (click)="downloadBatchArchive(job)" class="h-9 px-3 rounded-lg bg-emerald-600 text-white text-sm font-semibold">{{ fr() ? 'Télécharger les bulletins générés' : 'Download generated report cards' }}</button> }@if (job.diagnosticReportAvailable) { <button type="button" (click)="downloadBatchDiagnostic(job)" class="h-9 px-3 rounded-lg border border-slate-300 bg-white text-ink text-sm font-semibold">{{ fr() ? 'Télécharger le diagnostic' : 'Download diagnostic report' }}</button> }@if (job.blockedItems > 0 && job.status !== 'RUNNING' && job.status !== 'QUEUED') { <button type="button" (click)="recheckBlockedBatch(job)" [disabled]="batchBusy()" class="h-9 px-3 rounded-lg border border-amber-300 bg-amber-50 text-amber-900 text-sm font-semibold disabled:opacity-50">{{ fr() ? 'Revérifier les élèves bloqués' : 'Recheck blocked students' }}</button> }@if ((job.retryableErrorItems || 0) > 0 && job.status !== 'RUNNING' && job.status !== 'QUEUED') { <button type="button" (click)="retryTechnicalBatch(job)" [disabled]="batchBusy()" class="h-9 px-3 rounded-lg border border-rose-300 bg-rose-50 text-rose-900 text-sm font-semibold disabled:opacity-50">{{ fr() ? 'Relancer les erreurs techniques' : 'Retry technical errors' }}</button> }</div>
+              @if ((job.blockedItems + job.errorItems) > 0) { <div class="mt-4 rounded-xl border border-slate-200 bg-white p-3"><div class="font-bold text-ink">{{ fr() ? 'Élèves concernés' : 'Affected students' }}</div><div class="mt-2 space-y-2">@for (item of batchAffectedItems(); track item.id) { <div class="rounded-lg border border-slate-200 p-3"><div class="flex items-start justify-between gap-3 flex-wrap"><div><div class="font-semibold text-ink">{{ item.studentName }}</div><div class="mt-1 text-sm" [class]="item.category === 'TECHNICAL_ERROR' ? 'text-rose-800' : 'text-amber-900'">{{ batchItemText(item, fr(), selectedReportingPeriodCode()) }}</div><div class="mt-1 text-xs text-mute">{{ fr() ? 'État' : 'State' }}: {{ item.currentState || '—' }} · {{ fr() ? 'Tentatives' : 'Attempts' }}: {{ item.attempts }}</div></div>@if (item.repairTarget) { <button type="button" (click)="openBatchRepair(item)" class="h-8 px-3 rounded-lg border border-amber-300 bg-amber-50 text-amber-900 text-xs font-semibold">{{ fr() ? 'Ouvrir le bulletin' : 'Open report card' }}</button> }</div>@if (item.technicalDetail) { <details class="mt-2 text-xs text-mute"><summary class="cursor-pointer">{{ fr() ? 'Référence technique' : 'Technical reference' }}{{ item.correlationId ? ' · ' + item.correlationId : '' }}</summary><div class="mt-1 break-words">{{ item.technicalDetail }}</div></details> }</div> } @empty { <div class="text-sm text-mute">{{ fr() ? 'Les détails apparaîtront après le traitement.' : 'Details will appear after processing.' }}</div> }</div></div> }
+              <div class="mt-4 overflow-x-auto"><table class="w-full min-w-[620px] text-sm"><thead><tr class="border-b-2 border-slate-200 text-left text-[11px] uppercase text-mute"><th class="py-2">{{ fr() ? 'Élève' : 'Student' }}</th><th class="py-2">{{ fr() ? 'État' : 'Status' }}</th><th class="py-2">{{ fr() ? 'Tentatives' : 'Attempts' }}</th><th class="py-2">{{ fr() ? 'Résultat' : 'Outcome' }}</th></tr></thead><tbody>@for (item of batchItems(); track item.id) { <tr class="border-b border-slate-100"><td class="py-2 font-semibold text-ink">{{ item.studentName }}</td><td class="py-2"><span class="px-2 py-1 rounded-full text-[11px] font-semibold" [class]="batchItemStatusClass(item.status)">{{ batchItemStatusLabel(item.status) }}</span></td><td class="py-2">{{ item.attempts }}</td><td class="py-2 text-xs text-mute">{{ item.resultCode === 'PUBLISHED' ? (item.fileName || (fr() ? 'PDF généré' : 'PDF generated')) : batchItemText(item, fr(), selectedReportingPeriodCode()) }}</td></tr> } @empty { <tr><td colspan="4" class="py-5 text-center text-mute">{{ fr() ? 'Aucune ligne dans ce lot.' : 'No rows in this job.' }}</td></tr> }</tbody></table></div>
+            </section>
+          }
+          @if (batchJobs().length) { <bbc-card title="{{ fr() ? 'Historique des générations' : 'Generation history' }}" subtitle="{{ fr() ? 'Les diagnostics et archives restent liés à chaque lot.' : 'Diagnostics and archives remain linked to each job.' }}"><div class="space-y-2">@for (job of batchJobs(); track job.id) { <button type="button" (click)="selectBatchJob(job)" class="w-full flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 text-left hover:border-brand-300 hover:bg-brand-50/30 focus:outline-none focus:ring-2 focus:ring-brand-500"><span class="font-semibold text-ink">{{ job.id.slice(0, 8) }} · {{ job.requestedAt | date:'short' }}</span><span class="text-xs text-mute">{{ batchStatusLabel(job.status) }} · {{ job.publishedItems }}/{{ job.totalItems }}</span></button> }</div></bbc-card> }
+        }
+      }
+
       @if (mode() === 'pv') {
         @if (pv(); as p) {
           <bbc-card [title]="(fr() ? 'Procès-verbal' : 'Master sheet') + ' — ' + p.className"
@@ -956,6 +994,22 @@ const appreciation = (avg: number, fr: boolean): string => {
           </section>
         </div>
       }
+      @if (batchConfirmDialog(); as preview) {
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" role="presentation">
+          <section class="w-full max-w-lg rounded-xl2 bg-white shadow-pop p-6" role="dialog" aria-modal="true" aria-labelledby="batch-confirm-title">
+            <h3 id="batch-confirm-title" class="text-lg font-bold text-ink">{{ fr() ? 'Générer uniquement les bulletins prêts ?' : 'Generate only the ready report cards?' }}</h3>
+            <p class="mt-2 text-sm text-mute">{{ fr() ? 'Les élèves bloqués resteront dans le diagnostic et aucun bulletin ne sera créé pour eux. Vous pourrez corriger leur état puis revérifier séparément.' : 'Blocked students will remain in the diagnostic and no report card will be created for them. You can repair their state and recheck them separately.' }}</p>
+            <div class="mt-4 grid grid-cols-2 gap-2 text-sm">
+              <div class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2"><span class="text-emerald-800">{{ fr() ? 'Prêts' : 'Ready' }}</span><div class="text-xl font-bold text-emerald-800">{{ preview.readyStudents }}</div></div>
+              <div class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2"><span class="text-amber-900">{{ fr() ? 'Bloqués' : 'Blocked' }}</span><div class="text-xl font-bold text-amber-900">{{ preview.blockedStudents }}</div></div>
+            </div>
+            <div class="mt-5 flex justify-end gap-2">
+              <button type="button" (click)="cancelBatchGeneration()" class="h-9 px-3 rounded-lg border border-slate-200 text-sm font-semibold">{{ fr() ? 'Annuler' : 'Cancel' }}</button>
+              <button type="button" (click)="confirmBatchGeneration()" [disabled]="batchBusy()" class="h-9 px-3 rounded-lg bg-brand-600 text-white text-sm font-semibold disabled:opacity-50">{{ batchBusy() ? '…' : (fr() ? 'Générer les prêts' : 'Generate ready rows') }}</button>
+            </div>
+          </section>
+        </div>
+      }
     </div>
   `,
 })
@@ -1024,8 +1078,16 @@ export class AcademicComponent {
   protected batchJob = signal<BulletinBatchJobView | null>(null);
   protected batchJobs = signal<BulletinBatchJobView[]>([]);
   protected batchItems = signal<BulletinBatchItemView[]>([]);
+  protected batchPreview = signal<BulletinBatchPreviewView | null>(null);
+  protected batchPreviewLoading = signal(false);
+  protected batchPreviewError = signal<string | null>(null);
+  protected showAllBatchBlockers = signal(false);
+  protected batchConfirmDialog = signal<BulletinBatchPreviewView | null>(null);
   protected batchBusy = signal(false);
+  @ViewChild('batchResultHeadline') private batchResultHeadline?: ElementRef<HTMLElement>;
   private batchPollId: string | null = null;
+  private batchPreviewRequestKey = '';
+  private pendingRepairStudentId: string | null = null;
   private rosterRequestKey = '';
   private gradeEntryRequestId = 0;
   protected notice = signal<{ ok: boolean; text: string } | null>(null);
@@ -1056,7 +1118,9 @@ export class AcademicComponent {
   constructor() {
     const requestedMode = this.route.snapshot.queryParamMap.get('mode') as Mode | null;
     const requestedClassId = this.route.snapshot.queryParamMap.get('classId');
-    const requestedPeriodId = this.route.snapshot.queryParamMap.get('periodId');
+    const requestedPeriodId = this.route.snapshot.queryParamMap.get('reportingPeriodId')
+      ?? this.route.snapshot.queryParamMap.get('periodId');
+    this.pendingRepairStudentId = this.route.snapshot.queryParamMap.get('studentId');
     const requestedSubjectCode = this.route.snapshot.queryParamMap.get('subjectCode');
     if (requestedSubjectCode) this.selectedGradeSubjectCode.set(requestedSubjectCode.toUpperCase());
     if (requestedMode && ['bulletin', 'grade-entry', 'inputs', 'pv', 'batch'].includes(requestedMode)) this.mode.set(requestedMode);
@@ -1117,7 +1181,10 @@ export class AcademicComponent {
     this.bulkBulletins.set([]);
     if (m === 'grade-entry' && this.selectedClassId() && this.selectedReportingPeriodId()) this.loadGradeEntry();
     if (m === 'inputs' && this.selectedClassId() && this.selectedReportingPeriodId()) this.loadReportInputs();
-    if (m === 'batch' && this.selectedClassId() && this.selectedReportingPeriodId()) this.loadBatchJobs();
+    if (m === 'batch' && this.selectedClassId() && this.selectedReportingPeriodId()) {
+      this.loadBatchPreview();
+      this.loadBatchJobs();
+    }
   }
 
   protected onClassChange(name: string, preserveSubjectCode = false): void {
@@ -1137,6 +1204,8 @@ export class AcademicComponent {
     this.studentQuery.set('');
     this.classStudents.set([]);
     this.batchJob.set(null); this.batchJobs.set([]); this.batchItems.set([]);
+    this.batchPreview.set(null); this.batchPreviewError.set(null); this.showAllBatchBlockers.set(false);
+    this.batchConfirmDialog.set(null);
     if (!name) return;
     const sessionId = this.academicSessionId();
     const classId = this.selectedClassId();
@@ -1147,6 +1216,12 @@ export class AcademicComponent {
       next: (r) => {
         if (this.rosterRequestKey === requestKey && this.academicSessionId() === sessionId && this.selectedClassId() === classId) {
           this.classStudents.set(r);
+          const repairStudentId = this.pendingRepairStudentId;
+          if (repairStudentId && r.some((student) => student.id === repairStudentId)) {
+            this.pendingRepairStudentId = null;
+            this.selectedStudentId.set(repairStudentId);
+            if (this.mode() === 'bulletin') this.loadBulletin();
+          }
         }
       },
       error: (e) => {
@@ -1159,13 +1234,20 @@ export class AcademicComponent {
     if (this.mode() === 'pv') this.loadPv();
     if (this.mode() === 'grade-entry') this.loadGradeEntry();
     if (this.mode() === 'inputs') this.loadReportInputs();
-    if (this.mode() === 'batch') this.loadBatchJobs();
+    if (this.mode() === 'batch') {
+      this.loadBatchPreview();
+      this.loadBatchJobs();
+    }
   }
 
   protected onStudentChange(id: string): void {
     this.clearBulletinState();
     this.selectedStudentId.set(id);
     this.bulkBulletins.set([]);
+    if (this.mode() === 'batch') {
+      this.batchJob.set(null); this.batchItems.set([]); this.batchPreview.set(null);
+      this.showAllBatchBlockers.set(false); this.batchConfirmDialog.set(null);
+    }
     if (!id) return;
     if (!this.classStudents().some((student) => student.id === id)) {
       this.selectedStudentId.set('');
@@ -1195,7 +1277,10 @@ export class AcademicComponent {
     if (this.mode() === 'bulletin' && this.selectedStudentId()) this.loadBulletin();
     if (this.mode() === 'grade-entry' && this.selectedClassId()) this.loadGradeEntry();
     if (this.mode() === 'inputs' && this.selectedClassId()) this.loadReportInputs();
-    if (this.mode() === 'batch' && this.selectedClassId()) this.loadBatchJobs();
+    if (this.mode() === 'batch' && this.selectedClassId()) {
+      this.loadBatchPreview();
+      this.loadBatchJobs();
+    }
   }
 
   private loadBatchJobs(): void {
@@ -1213,13 +1298,40 @@ export class AcademicComponent {
     });
   }
 
+  private loadBatchPreview(): void {
+    const classId = this.selectedClassId(); const periodId = this.selectedReportingPeriodId();
+    if (!classId || !periodId) {
+      this.batchPreview.set(null);
+      this.batchPreviewError.set(null);
+      return;
+    }
+    const locale = this.fr() ? 'fr' : 'en';
+    const requestKey = `${classId}:${periodId}:${locale}`;
+    this.batchPreviewRequestKey = requestKey;
+    this.batchPreviewLoading.set(true);
+    this.batchPreviewError.set(null);
+    this.api.previewBulletinBatch({ classId, reportingPeriodId: periodId, locale }).subscribe({
+      next: (preview) => {
+        if (this.batchPreviewRequestKey !== requestKey || this.selectedClassId() !== classId || this.selectedReportingPeriodId() !== periodId) return;
+        this.batchPreview.set(preview);
+        this.showAllBatchBlockers.set(false);
+        this.batchPreviewLoading.set(false);
+      },
+      error: (e) => {
+        if (this.batchPreviewRequestKey !== requestKey) return;
+        this.batchPreviewLoading.set(false);
+        this.batchPreviewError.set(this.explainError(e));
+      },
+    });
+  }
+
   protected selectBatchJob(job: BulletinBatchJobView): void {
     this.batchJob.set(job);
     this.api.bulletinBatchJobItems(job.id).subscribe({ next: (items) => this.batchItems.set(items), error: (e) => this.fail(e) });
     if (job.status === 'QUEUED' || job.status === 'RUNNING') this.pollBatch(job.id);
   }
 
-  protected startBatchGeneration(): void {
+  private legacyStartBatchGeneration(): void {
     const classId = this.selectedClassId(); const periodId = this.selectedReportingPeriodId();
     if (!classId || !periodId || this.batchBusy()) return;
     this.batchBusy.set(true);
@@ -1229,7 +1341,52 @@ export class AcademicComponent {
     });
   }
 
-  protected retryBatch(job: BulletinBatchJobView): void {
+  protected startBatchGeneration(): void {
+    const preview = this.batchPreview();
+    if (!preview || this.batchBusy()) return;
+    if (preview.readyStudents === 0) {
+      this.notice.set({ ok: false, text: this.fr() ? 'Aucun bulletin publié n’est prêt. Corrigez les élèves bloqués puis revérifiez.' : 'No published report card is ready. Repair the blocked students and recheck readiness.' });
+      return;
+    }
+    if (preview.blockedStudents > 0) {
+      this.batchConfirmDialog.set(preview);
+      return;
+    }
+    this.createBatchFromPreview(preview, false);
+  }
+
+  protected cancelBatchGeneration(): void { this.batchConfirmDialog.set(null); }
+
+  protected confirmBatchGeneration(): void {
+    const preview = this.batchConfirmDialog();
+    if (!preview || this.batchBusy()) return;
+    this.batchConfirmDialog.set(null);
+    this.createBatchFromPreview(preview, true);
+  }
+
+  private createBatchFromPreview(preview: BulletinBatchPreviewView, partial: boolean): void {
+    const classId = this.selectedClassId(); const periodId = this.selectedReportingPeriodId();
+    if (!classId || !periodId || this.batchBusy()) return;
+    this.batchBusy.set(true);
+    this.api.createBulletinBatchJob({
+      classId, reportingPeriodId: periodId, locale: this.fr() ? 'fr' : 'en',
+      scopeFingerprint: preview.scopeFingerprint,
+      includeReadyStudentsWhenPartiallyBlocked: partial,
+    }).subscribe({
+      next: (job) => {
+        this.batchBusy.set(false);
+        this.batchJob.set(job);
+        this.loadBatchJobs();
+        if (job.status === 'QUEUED' || job.status === 'RUNNING') this.pollBatch(job.id);
+        this.notice.set({ ok: true, text: partial
+          ? (this.fr() ? 'Lot partiel lancé. Les élèves bloqués restent dans le diagnostic.' : 'Partial job started. Blocked students remain in the diagnostic.')
+          : (this.fr() ? 'Lot lancé. Vous pouvez suivre chaque élève ci-dessous.' : 'Job started. Track each student below.') });
+      },
+      error: (e) => { this.batchBusy.set(false); this.fail(e); },
+    });
+  }
+
+  private legacyRetryBatch(job: BulletinBatchJobView): void {
     if (this.batchBusy()) return;
     this.batchBusy.set(true);
     this.api.retryBulletinBatchJob(job.id).subscribe({
@@ -1238,11 +1395,130 @@ export class AcademicComponent {
     });
   }
 
+  protected retryBatch(job: BulletinBatchJobView): void { this.retryTechnicalBatch(job); }
+
+  protected recheckBatchReadiness(): void {
+    if (this.batchBusy() || this.batchPreviewLoading()) return;
+    this.loadBatchPreview();
+  }
+
+  protected recheckBlockedBatch(job: BulletinBatchJobView): void {
+    if (this.batchBusy()) return;
+    this.batchBusy.set(true);
+    this.api.recheckBlockedBatchItems(job.id).subscribe({
+      next: (updated) => {
+        this.batchBusy.set(false);
+        this.applyBatchJob(updated);
+        this.notice.set({ ok: true, text: this.fr() ? 'Les élèves bloqués ont été revérifiés. Seuls les nouveaux prêts sont relancés.' : 'Blocked students were rechecked. Only newly ready rows were queued.' });
+      },
+      error: (e) => { this.batchBusy.set(false); this.fail(e); },
+    });
+  }
+
+  protected retryTechnicalBatch(job: BulletinBatchJobView): void {
+    if (this.batchBusy()) return;
+    this.batchBusy.set(true);
+    this.api.retryBatchErrors(job.id).subscribe({
+      next: (updated) => {
+        this.batchBusy.set(false);
+        this.applyBatchJob(updated);
+        this.notice.set({ ok: true, text: this.fr() ? 'Les erreurs techniques relançables ont été remises en file.' : 'Retryable technical errors were queued again.' });
+      },
+      error: (e) => { this.batchBusy.set(false); this.fail(e); },
+    });
+  }
+
+  private applyBatchJob(job: BulletinBatchJobView): void {
+    this.batchJob.set(job);
+    this.loadBatchJobs();
+    if (job.status === 'QUEUED' || job.status === 'RUNNING') this.pollBatch(job.id);
+    else setTimeout(() => this.batchResultHeadline?.nativeElement.focus(), 0);
+  }
+
   protected downloadBatchArchive(job: BulletinBatchJobView): void {
     this.api.downloadBulletinBatchJob(job.id).subscribe({
       next: (blob) => { const url = URL.createObjectURL(blob); const anchor = window.document.createElement('a'); anchor.href = url; anchor.download = `bulletin-batch-${job.id}.zip`; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); },
       error: (e) => this.fail(e),
     });
+  }
+
+  protected downloadBatchDiagnostic(job: BulletinBatchJobView): void {
+    this.api.downloadBulletinBatchDiagnostic(job.id).subscribe({
+      next: (blob) => {
+        const url = URL.createObjectURL(blob); const anchor = window.document.createElement('a');
+        anchor.href = url; anchor.download = `bulletin-batch-${job.id}-diagnostic.csv`; anchor.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      },
+      error: (e) => this.fail(e),
+    });
+  }
+
+  protected batchReasonText(code: string, fr: boolean, periodCode: string, studentName: string, args?: Record<string, unknown>): string {
+    return formatBatchReasonText(code, fr, periodCode, studentName, args);
+  }
+
+  protected batchItemText(item: BulletinBatchItemView, fr: boolean, periodCode: string): string {
+    return formatBatchItemText(item, fr, periodCode);
+  }
+
+  protected batchHeadlineText(job: BulletinBatchJobView, fr: boolean): string {
+    return formatBatchHeadlineText(job, fr);
+  }
+
+  protected batchFormatBytes(bytes: number | null | undefined): string {
+    return formatBatchBytes(bytes);
+  }
+
+  protected batchVisibleRows(preview: BulletinBatchPreviewView): BulletinBatchPreviewRow[] {
+    return batchBlockedRows(preview.rows, this.showAllBatchBlockers());
+  }
+
+  protected batchAffectedItems(): BulletinBatchItemView[] {
+    return this.batchItems().filter((item) => item.status === 'BLOCKED' || item.status === 'ERROR');
+  }
+
+  protected batchReasonLabel(code: string): string {
+    return formatBatchReasonText(code, this.fr(), this.selectedReportingPeriodCode(), this.fr() ? 'un élève' : 'a student');
+  }
+
+  protected batchPrimaryReason(job: BulletinBatchJobView): string {
+    const first = job.reasonCounts?.[0]?.code;
+    if (first) return this.batchReasonLabel(first);
+    if (job.resultCategory === 'SUCCESS') return this.fr() ? 'Tous les bulletins publiés du périmètre exact ont été générés.' : 'All published report cards in the exact scope were generated.';
+    return this.fr() ? 'Consultez les lignes concernées et utilisez leur action de réparation.' : 'Review the affected rows and use their repair action.';
+  }
+
+  protected batchResultCalloutClass(job: BulletinBatchJobView): string {
+    switch (batchResultCategory(job)) {
+      case 'SUCCESS': return 'border-emerald-200 bg-emerald-50 text-emerald-950';
+      case 'PARTIAL': return 'border-amber-200 bg-amber-50 text-amber-950';
+      case 'BLOCKED': return 'border-amber-300 bg-amber-100 text-amber-950';
+      case 'FAILED': return 'border-rose-200 bg-rose-50 text-rose-950';
+      case 'CANCELLED': return 'border-slate-300 bg-slate-100 text-slate-900';
+      default: return 'border-brand-200 bg-brand-50 text-brand-950';
+    }
+  }
+
+  protected openBatchRepair(row: Pick<BulletinBatchPreviewRow, 'repairTarget'> | BulletinBatchItemView): void {
+    const target = row.repairTarget;
+    if (!target) return;
+    const classId = target.query['classId'];
+    const periodId = target.query['reportingPeriodId'];
+    const studentId = target.query['studentId'];
+    this.pendingRepairStudentId = studentId ?? null;
+    this.router.navigate([target.route], { queryParams: target.query });
+    this.mode.set('bulletin');
+    const klass = this.classes().find((item) => item.id === classId);
+    if (klass && this.selectedClassId() !== classId) {
+      this.selectedReportingPeriodId.set(periodId ?? this.selectedReportingPeriodId());
+      this.onClassChange(klass.name);
+      return;
+    }
+    if (periodId && this.selectedReportingPeriodId() !== periodId) this.onReportingPeriodChange(periodId);
+    if (studentId && this.classStudents().some((student) => student.id === studentId)) {
+      this.pendingRepairStudentId = null;
+      this.onStudentChange(studentId);
+    }
   }
 
   private pollBatch(id: string): void {
@@ -1255,18 +1531,18 @@ export class AcademicComponent {
         this.batchJob.set(job);
         this.api.bulletinBatchJobItems(id).subscribe({ next: (items) => this.batchItems.set(items), error: (e) => this.fail(e) });
         if (job.status === 'QUEUED' || job.status === 'RUNNING') this.pollBatch(id);
-        else this.loadBatchJobs();
+        else { this.loadBatchJobs(); setTimeout(() => this.batchResultHeadline?.nativeElement.focus(), 0); }
       },
       error: (e) => { if (this.batchPollId === id) this.batchPollId = null; this.fail(e); },
     }), 1200);
   }
 
   protected batchStatusLabel(status: BulletinBatchJobView['status']): string {
-    if (!this.fr()) return ({ QUEUED: 'Queued', RUNNING: 'Running', COMPLETED: 'Completed', COMPLETED_ERRORS: 'Completed with issues', FAILED: 'Failed' } as any)[status] ?? status;
+    if (!this.fr()) return ({ QUEUED: 'Queued', RUNNING: 'Running', COMPLETED: 'Completed', COMPLETED_ERRORS: 'Completed with issues', FAILED: 'Failed', CANCELLED: 'Cancelled' } as any)[status] ?? status;
     return ({ QUEUED: 'En attente', RUNNING: 'En cours', COMPLETED: 'Terminé', COMPLETED_ERRORS: 'Terminé avec alertes', FAILED: 'Échec' } as any)[status] ?? status;
   }
   protected batchStatusClass(status: BulletinBatchJobView['status']): string {
-    return status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-700' : status === 'FAILED' ? 'bg-rose-100 text-rose-700' : status === 'COMPLETED_ERRORS' ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-700';
+    return status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-700' : status === 'FAILED' ? 'bg-rose-100 text-rose-700' : status === 'COMPLETED_ERRORS' ? 'bg-amber-100 text-amber-800' : status === 'CANCELLED' ? 'bg-slate-200 text-slate-700' : 'bg-blue-100 text-blue-700';
   }
   protected batchItemStatusLabel(status: BulletinBatchItemView['status']): string {
     if (!this.fr()) return ({ QUEUED: 'Queued', RUNNING: 'Running', PUBLISHED: 'Published', BLOCKED: 'Blocked', ERROR: 'Error' } as any)[status] ?? status;

@@ -205,17 +205,52 @@ export interface ReportCardInputUpsert {
   attendanceVersion?: number; conductVersion?: number;
 }
 
+export type BulletinBatchResultCategory = 'RUNNING' | 'SUCCESS' | 'PARTIAL' | 'BLOCKED' | 'FAILED' | 'CANCELLED' | string;
+export type BulletinBatchItemCategory = 'BUSINESS_BLOCKER' | 'TECHNICAL_ERROR' | 'SUCCESS' | 'RUNNING' | string;
+export type BulletinBatchItemStatus = 'QUEUED' | 'RUNNING' | 'PUBLISHED' | 'BLOCKED' | 'ERROR';
+
+export interface BulletinBatchReasonCount { code: string; count: number; }
+export interface BulletinBatchRepairTarget { route: string; query: Record<string, string>; }
+export interface BulletinBatchSnapshotEvidence {
+  id: string; version: number; hash: string; publishedAt?: string | null; state?: string | null;
+}
+export interface BulletinBatchPreviewRow {
+  studentId: string; studentName: string; matricule: string; eligibility: 'READY' | 'BLOCKED' | string;
+  code: string; category: BulletinBatchItemCategory; messageKey: string; messageArgs: Record<string, unknown>;
+  currentState?: string | null; retryableNow: boolean; repairTarget?: BulletinBatchRepairTarget | null;
+  snapshot?: BulletinBatchSnapshotEvidence | null;
+}
+export interface BulletinBatchPreviewView {
+  policy: 'PUBLISHED_ONLY' | string; academicSessionId: string; academicSessionLabel: string;
+  classId: string; className: string; reportingPeriodId: string; reportingPeriodCode: string;
+  reportingPeriodLabel: string; totalStudents: number; readyStudents: number; blockedStudents: number;
+  reasonCounts: BulletinBatchReasonCount[]; rows: BulletinBatchPreviewRow[]; scopeFingerprint: string;
+  generatedAt: string;
+}
+export interface BulletinBatchJobCreateRequest {
+  classId: string; reportingPeriodId: string; locale: string; scopeFingerprint?: string;
+  includeReadyStudentsWhenPartiallyBlocked?: boolean;
+}
+
 export interface BulletinBatchJobView {
   id: string; academicSessionId: string; reportingPeriodId: string; classId: string; locale: string;
-  status: 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'COMPLETED_ERRORS' | 'FAILED';
+  status: 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'COMPLETED_ERRORS' | 'FAILED' | 'CANCELLED';
   totalItems: number; processedItems: number; publishedItems: number; blockedItems: number; errorItems: number;
   progressPercent: number; requestedAt: string; startedAt?: string | null; completedAt?: string | null;
   archiveAvailable: boolean; archiveSha256?: string | null; archiveSizeBytes?: number | null;
-  lastError?: string | null; version: number;
+  lastError?: string | null; version: number; policy?: 'PUBLISHED_ONLY' | string;
+  scopeFingerprint?: string | null; resultCategory?: BulletinBatchResultCategory; headlineCode?: string;
+  headlineArgs?: Record<string, unknown>; reasonCounts?: BulletinBatchReasonCount[];
+  studentArchiveAvailable?: boolean; diagnosticReportAvailable?: boolean; retryableErrorItems?: number;
+  nowEligibleBlockedItems?: number; stillBlockedItems?: number; diagnosticSha256?: string | null;
+  diagnosticSizeBytes?: number | null;
 }
 export interface BulletinBatchItemView {
-  id: string; studentId: string; studentName: string; status: 'QUEUED' | 'RUNNING' | 'PUBLISHED' | 'BLOCKED' | 'ERROR';
-  attempts: number; fileName: string; sizeBytes: number; error: string;
+  id: string; studentId: string; studentName: string; status: BulletinBatchItemStatus;
+  attempts: number; fileName: string; sizeBytes: number; error: string; resultCode?: string | null;
+  category?: BulletinBatchItemCategory | null; messageKey?: string | null; messageArgs?: Record<string, unknown>;
+  currentState?: string | null; retryableNow?: boolean; repairTarget?: BulletinBatchRepairTarget | null;
+  snapshot?: BulletinBatchSnapshotEvidence | null; correlationId?: string | null; technicalDetail?: string | null;
 }
 
 export interface SecondaryCompetencyView {
@@ -351,7 +386,10 @@ export class AcademicApi {
   bulletinBatchJobs(classId: string, reportingPeriodId: string): Observable<BulletinBatchJobView[]> {
     return this.http.get<BulletinBatchJobView[]>(`${this.base}/bulletin-batch-jobs`, { params: { classId, reportingPeriodId } });
   }
-  createBulletinBatchJob(body: { classId: string; reportingPeriodId: string; locale: string }): Observable<BulletinBatchJobView> {
+  previewBulletinBatch(body: { classId: string; reportingPeriodId: string; locale: string }): Observable<BulletinBatchPreviewView> {
+    return this.http.post<BulletinBatchPreviewView>(`${this.base}/bulletin-batch-jobs/preview`, body);
+  }
+  createBulletinBatchJob(body: BulletinBatchJobCreateRequest): Observable<BulletinBatchJobView> {
     return this.http.post<BulletinBatchJobView>(`${this.base}/bulletin-batch-jobs`, body);
   }
   bulletinBatchJob(id: string): Observable<BulletinBatchJobView> {
@@ -363,8 +401,17 @@ export class AcademicApi {
   retryBulletinBatchJob(id: string, itemId?: string): Observable<BulletinBatchJobView> {
     return this.http.post<BulletinBatchJobView>(`${this.base}/bulletin-batch-jobs/${encodeURIComponent(id)}/retry`, {}, { params: itemId ? { itemId } : {} });
   }
+  recheckBlockedBatchItems(id: string, itemId?: string): Observable<BulletinBatchJobView> {
+    return this.http.post<BulletinBatchJobView>(`${this.base}/bulletin-batch-jobs/${encodeURIComponent(id)}/recheck-blocked`, {}, { params: itemId ? { itemId } : {} });
+  }
+  retryBatchErrors(id: string, itemId?: string): Observable<BulletinBatchJobView> {
+    return this.http.post<BulletinBatchJobView>(`${this.base}/bulletin-batch-jobs/${encodeURIComponent(id)}/retry-errors`, {}, { params: itemId ? { itemId } : {} });
+  }
   downloadBulletinBatchJob(id: string): Observable<Blob> {
     return this.http.get(`${this.base}/bulletin-batch-jobs/${encodeURIComponent(id)}/download`, { responseType: 'blob' });
+  }
+  downloadBulletinBatchDiagnostic(id: string): Observable<Blob> {
+    return this.http.get(`${this.base}/bulletin-batch-jobs/${encodeURIComponent(id)}/diagnostic`, { responseType: 'blob' });
   }
 
   secondaryCompetencyModels(params: { reportingPeriodId?: string; classId?: string; subjectId?: string; locale?: string } = {}): Observable<SecondaryCompetencyModelView[]> {
