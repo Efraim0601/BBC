@@ -46,6 +46,10 @@ public class AcademicWindowOverrideService {
 
     @Transactional
     public WindowOverrideView create(UUID sessionId, WindowOverrideUpsert in) {
+        throw ApiException.coded(org.springframework.http.HttpStatus.CONFLICT, "WORKFLOW_WINDOWS_REPLACED",
+                "Les dérogations par action ont été retirées. Utilisez Paramètres → Années & périodes → Accès par trimestre.");
+        /* Legacy create validation remains below for rollback/reference only. */
+        /*
         ensureSession(sessionId);
         String action = in.action().trim().toUpperCase(Locale.ROOT);
         if (!ACTIONS.contains(action)) {
@@ -76,6 +80,7 @@ public class AcademicWindowOverrideService {
                 (rs, n) -> view(rs), id, TenantContext.get());
         audit.record("ACADEMIC_WINDOW_OVERRIDE_CREATED", "AcademicWindowOverride", id.toString(), null, result, in.reason());
         return result;
+        */
     }
 
     @Transactional

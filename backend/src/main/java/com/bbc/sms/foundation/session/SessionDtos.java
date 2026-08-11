@@ -1,5 +1,6 @@
 package com.bbc.sms.foundation.session;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
@@ -27,6 +28,22 @@ public final class SessionDtos {
                     bulletinPublishOpensAt, bulletinPublishClosesAt, null, null, "Africa/Douala", version);
         }
     }
+
+    /** The one optional date gate that governs all applicable milestones in a trimester. */
+    public record TermManagementWindowView(UUID academicSessionId, UUID termId,
+                                           String termCode, String termLabel, int termSequenceNo,
+                                           LocalDate termStartDate, LocalDate termEndDate,
+                                           boolean limited, Instant opensAt, Instant closesAt,
+                                           String timezone, List<String> governedPeriodCodes,
+                                           String state, Instant nextTransition, long version) {}
+
+    public record TermManagementWindowUpsert(boolean limited, Instant opensAt,
+                                             Instant closesAt, Long version) {}
+
+    /** Staged proposal used by the five-step academic-structure wizard. */
+    public record TermManagementWindowProposal(int sequenceNo, String code, boolean limited,
+                                               Instant opensAt, Instant closesAt,
+                                               String timezone, Long version) {}
 
     public record SessionView(UUID id, String code, String label, LocalDate startDate,
                               LocalDate endDate, String status, boolean current,
@@ -162,7 +179,8 @@ public final class SessionDtos {
                                            Instant closesAt, String timezone, Long version) {}
 
     public record CopyScopeSelection(boolean terms, boolean reportingPeriods,
-                                     boolean dependencies, boolean workflowWindows) {
+                                     boolean dependencies,
+                                     @JsonAlias("workflowWindows") boolean termManagementWindows) {
         public static CopyScopeSelection all() { return new CopyScopeSelection(true, true, true, true); }
     }
 
@@ -192,7 +210,7 @@ public final class SessionDtos {
                                            List<ConfigurationCopyRow> terms,
                                            List<ConfigurationCopyRow> reportingPeriods,
                                            List<ConfigurationCopyRow> dependencies,
-                                           List<ConfigurationCopyRow> workflowWindows,
+                                           @JsonAlias("workflowWindows") List<ConfigurationCopyRow> termManagementWindows,
                                            List<String> warnings, List<String> blockers,
                                            String fingerprint, int createCount,
                                            int updateCount, int keepCount) {}
@@ -213,16 +231,30 @@ public final class SessionDtos {
 
     public record StandardStructureView(UUID academicSessionId, List<ReportingPeriodView> periods,
                                         List<String> warnings, boolean applied,
-                                        String fingerprint, List<StructureDependencyView> dependencies) {
+                                        String fingerprint, List<StructureDependencyView> dependencies,
+                                        List<TermManagementWindowProposal> termManagementWindows) {
         public StandardStructureView(UUID academicSessionId, List<ReportingPeriodView> periods,
                                      List<String> warnings, boolean applied) {
-            this(academicSessionId, periods, warnings, applied, null, List.of());
+            this(academicSessionId, periods, warnings, applied, null, List.of(), List.of());
+        }
+
+        public StandardStructureView(UUID academicSessionId, List<ReportingPeriodView> periods,
+                                     List<String> warnings, boolean applied, String fingerprint,
+                                     List<StructureDependencyView> dependencies) {
+            this(academicSessionId, periods, warnings, applied, fingerprint, dependencies, List.of());
         }
     }
 
     public record StandardStructureApplyRequest(@NotBlank String reason, String fingerprint,
                                                 List<ReportingPeriodView> periods,
-                                                List<StructureDependencyView> dependencies) {}
+                                                List<StructureDependencyView> dependencies,
+                                                List<TermManagementWindowProposal> termManagementWindows) {
+        public StandardStructureApplyRequest(String reason, String fingerprint,
+                                             List<ReportingPeriodView> periods,
+                                             List<StructureDependencyView> dependencies) {
+            this(reason, fingerprint, periods, dependencies, List.of());
+        }
+    }
 
     public record WindowOverrideUpsert(@NotBlank String action, @NotBlank String scope,
                                        @NotBlank String reason, @NotNull Instant opensAt,

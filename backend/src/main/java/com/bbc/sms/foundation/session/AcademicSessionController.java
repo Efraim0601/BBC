@@ -18,12 +18,15 @@ public class AcademicSessionController {
     private final AcademicWindowOverrideService overrides;
     private final AcademicWindowPolicyService windows;
     private final AcademicWindowRuleService windowRules;
+    private final TermManagementWindowService termManagementWindows;
     private final AcademicConfigurationCopyService configurationCopy;
     private final IdempotencyService idempotency;
     public AcademicSessionController(AcademicSessionService service, AcademicWindowOverrideService overrides,
                                      AcademicWindowPolicyService windows, AcademicWindowRuleService windowRules,
+                                     TermManagementWindowService termManagementWindows,
                                      AcademicConfigurationCopyService configurationCopy, IdempotencyService idempotency) {
         this.service = service; this.overrides = overrides; this.windows = windows; this.windowRules = windowRules;
+        this.termManagementWindows = termManagementWindows;
         this.configurationCopy = configurationCopy; this.idempotency = idempotency;
     }
 
@@ -66,6 +69,20 @@ public class AcademicSessionController {
         return service.readiness(sessionId);
     }
 
+    @GetMapping("/{sessionId}/term-management-windows")
+    @PreAuthorize("@perm.canAction('SESSION_VIEW')")
+    public List<TermManagementWindowView> termManagementWindows(@PathVariable UUID sessionId) {
+        return termManagementWindows.list(sessionId);
+    }
+
+    @PutMapping("/{sessionId}/terms/{termId}/management-window")
+    @PreAuthorize("@perm.canAction('SESSION_MANAGE')")
+    public TermManagementWindowView updateTermManagementWindow(@PathVariable UUID sessionId,
+                                                                @PathVariable UUID termId,
+                                                                @RequestBody TermManagementWindowUpsert input) {
+        return termManagementWindows.update(sessionId, termId, input);
+    }
+
     @GetMapping("/{sessionId}/reporting-periods/dependencies")
     @PreAuthorize("@perm.canAction('SESSION_VIEW')")
     public List<StructureDependencyView> dependencies(@PathVariable UUID sessionId) {
@@ -80,6 +97,7 @@ public class AcademicSessionController {
 
     @PutMapping("/{sessionId}/window-rules")
     @PreAuthorize("@perm.canAction('SESSION_MANAGE')")
+    @Deprecated
     public WorkflowWindowRuleView saveWindowRule(@PathVariable UUID sessionId,
                                                   @Valid @RequestBody WorkflowWindowRuleUpsert in) {
         return windowRules.upsert(sessionId, in);
@@ -139,7 +157,8 @@ public class AcademicSessionController {
         String requestedReason = request != null && request.reason() != null ? request.reason() : reason;
         String requestedFingerprint = request != null && request.fingerprint() != null ? request.fingerprint() : fingerprint;
         return service.applyStandardStructure(sessionId, requestedReason, requestedFingerprint,
-                request == null ? null : request.periods(), request == null ? null : request.dependencies());
+                request == null ? null : request.periods(), request == null ? null : request.dependencies(),
+                request == null ? null : request.termManagementWindows());
     }
 
     @GetMapping("/{sessionId}/window-overrides")
@@ -168,6 +187,7 @@ public class AcademicSessionController {
     @PostMapping("/{sessionId}/window-overrides")
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("@perm.canAction('ACADEMIC_WINDOW_OVERRIDE')")
+    @Deprecated
     public WindowOverrideView createWindowOverride(@PathVariable UUID sessionId,
                                                     @Valid @RequestBody WindowOverrideUpsert in) {
         return overrides.create(sessionId, in);

@@ -33,17 +33,17 @@ public class AcademicSessionService {
     private final AcademicReportingPeriodRepository reportingPeriods;
     private final AuditService audit;
     private final JdbcTemplate jdbc;
-    private final AcademicWindowPolicyService windows;
+    private final TermManagementWindowService termManagementWindows;
 
     public AcademicSessionService(AcademicSessionRepository sessions, AcademicTermRepository terms,
                                   AcademicReportingPeriodRepository reportingPeriods, AuditService audit,
-                                  JdbcTemplate jdbc, AcademicWindowPolicyService windows) {
+                                   JdbcTemplate jdbc, TermManagementWindowService termManagementWindows) {
         this.sessions = sessions;
         this.terms = terms;
         this.reportingPeriods = reportingPeriods;
         this.audit = audit;
         this.jdbc = jdbc;
-        this.windows = windows;
+        this.termManagementWindows = termManagementWindows;
     }
 
     @Transactional(readOnly = true)
@@ -185,23 +185,12 @@ public class AcademicSessionService {
         period.setDisplayOrder(in.displayOrder());
         period.setStartDate(in.startDate());
         period.setEndDate(in.endDate());
-        period.setGradeEntryOpensAt(in.gradeEntryOpensAt());
-        period.setGradeEntryClosesAt(in.gradeEntryClosesAt());
-        period.setReviewOpensAt(in.reviewOpensAt());
-        period.setReviewClosesAt(in.reviewClosesAt());
-        period.setValidationOpensAt(in.validationOpensAt());
-        period.setValidationClosesAt(in.validationClosesAt());
-        period.setBulletinPublishOpensAt(in.bulletinPublishOpensAt());
-        period.setBulletinPublishClosesAt(in.bulletinPublishClosesAt());
-        period.setCorrectionOpensAt(in.correctionOpensAt());
-        period.setCorrectionClosesAt(in.correctionClosesAt());
-        period.setTeacherSubmissionOpensAt(in.teacherSubmissionOpensAt());
-        period.setTeacherSubmissionClosesAt(in.teacherSubmissionClosesAt());
+        // V85: action-specific dates are retained for history/rollback but are
+        // no longer written by the normal reporting-period editor.
         period.setTimezone(in.timezone() == null || in.timezone().isBlank() ? "Africa/Douala" : in.timezone().trim());
         period.setCalculationPolicy(in.calculationPolicy() == null || in.calculationPolicy().isBlank()
                 ? "DEFAULT" : in.calculationPolicy().trim().toUpperCase(Locale.ROOT));
         period.setStatus(in.status() == null || in.status().isBlank() ? "DRAFT" : normalizePeriodStatus(in.status()));
-        validateWindows(period);
         ensureUniquePeriod(session, period);
         period = reportingPeriods.saveAndFlush(period);
         refreshStructureFingerprint(session.getId());
@@ -239,24 +228,41 @@ public class AcademicSessionService {
 
     @Transactional
     public StandardStructureView applyStandardStructure(UUID sessionId, String reason, String expectedFingerprint,
-                                                        List<ReportingPeriodView> proposedPeriods,
-                                                        List<StructureDependencyView> proposedDependencies) {
+                                                         List<ReportingPeriodView> proposedPeriods,
+                                                         List<StructureDependencyView> proposedDependencies) {
+        return applyStandardStructure(sessionId, reason, expectedFingerprint, proposedPeriods,
+                proposedDependencies, null);
+    }
+
+    @Transactional
+    public StandardStructureView applyStandardStructure(UUID sessionId, String reason, String expectedFingerprint,
+                                                         List<ReportingPeriodView> proposedPeriods,
+                                                         List<StructureDependencyView> proposedDependencies,
+                                                         List<TermManagementWindowProposal> proposedTermWindows) {
         AcademicSession session = find(sessionId);
         assertMutable(session);
         if (reason == null || reason.isBlank()) {
             throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST, "REASON_REQUIRED",
                     "Le motif est obligatoire.", "reason", "Provide a reason before applying the academic structure.");
         }
-        ensureStandardTerms(session);
-        StandardStructureView preview = standardStructure(session, false);
+        StandardStructureView currentStructure = standardStructure(session, false);
         if (expectedFingerprint != null && !expectedFingerprint.isBlank()
-                && !expectedFingerprint.equals(preview.fingerprint())) {
+                && !expectedFingerprint.equals(currentStructure.fingerprint())) {
             throw ApiException.staleVersion("La structure académique a changé depuis l'aperçu. Rechargez avant de l'appliquer.",
                     0, 0);
         }
-        List<ReportingPeriodView> requestedPeriods = proposedPeriods == null || proposedPeriods.isEmpty()
-                ? preview.periods() : proposedPeriods;
+        // Do not create the standard terms until the stale-preview guard has
+        // passed. Re-read the proposal afterwards so new reporting periods use
+        // the actual persisted term IDs rather than preview-only seed IDs.
+        ensureStandardTerms(session);
+        StandardStructureView preview = standardStructure(session, false);
+        List<ReportingPeriodView> requestedPeriods = normalizeProposedPeriods(
+                proposedPeriods == null || proposedPeriods.isEmpty() ? preview.periods() : proposedPeriods,
+                preview.periods());
         validateProposedStructure(session, requestedPeriods, proposedDependencies);
+        List<TermManagementWindowProposal> requestedTermWindows = proposedTermWindows == null || proposedTermWindows.isEmpty()
+                ? preview.termManagementWindows() : proposedTermWindows;
+        validateProposedTermWindows(session, requestedTermWindows);
         for (ReportingPeriodView view : requestedPeriods) {
             ReportingPeriodUpsert input = new ReportingPeriodUpsert(view.code(), view.label(), view.periodType(),
                     view.academicTermId(), view.displayOrder(), view.startDate(), view.endDate(),
@@ -273,10 +279,12 @@ public class AcademicSessionService {
         List<StructureDependencyView> requestedDependencies = proposedDependencies == null || proposedDependencies.isEmpty()
                 ? standardDependencies(actual) : normalizeDependencies(actual, proposedDependencies);
         replaceStandardDependencies(sessionId, requestedDependencies);
+        applyTermManagementWindows(session, requestedTermWindows);
         audit.record("REPORTING_STRUCTURE_APPLIED", "AcademicSession", sessionId.toString(), null,
-                actual.stream().map(ReportingPeriodView::code).toList(), reason);
+                Map.of("periods", actual.stream().map(ReportingPeriodView::code).toList(),
+                        "termManagementWindows", requestedTermWindows), reason);
         return new StandardStructureView(sessionId, actual, preview.warnings(), true,
-                structureFingerprint(actual), requestedDependencies);
+                structureFingerprint(actual, requestedTermWindows), requestedDependencies, requestedTermWindows);
     }
 
     @Transactional(readOnly = true)
@@ -321,19 +329,46 @@ public class AcademicSessionService {
         }
         sections.add(new ReadinessSectionView("STRUCTURE", "Reporting structure", structureIssues.isEmpty() ? "READY" : "BLOCKED",
                 structureIssues.isEmpty(), structureIssues));
-        List<ReadinessIssueView> windowIssues = new ArrayList<>();
+        List<ReadinessIssueView> accessIssues = new ArrayList<>();
+        boolean scheduled = false;
+        List<AcademicTerm> accessTerms = terms.findBySchoolIdAndAcademicSessionIdOrderBySequenceNo(
+                session.getSchoolId(), sessionId);
+        for (AcademicTerm term : accessTerms) {
+            if (term.isManagementWindowLimited()
+                    && term.getManagementOpensAt() == null && term.getManagementClosesAt() == null) {
+                blockers.add("TERM_ACCESS_INVALID:" + term.getCode());
+                accessIssues.add(new ReadinessIssueView("TERM_ACCESS_INVALID", "BLOCKER",
+                        "Trimester access limit is invalid", "Add an opening or closing date for " + term.getCode() + ".",
+                        "term-management-windows", 1));
+            }
+            if (term.isManagementWindowLimited()
+                    && term.getManagementOpensAt() != null && term.getManagementClosesAt() != null
+                    && !term.getManagementClosesAt().isAfter(term.getManagementOpensAt())) {
+                blockers.add("TERM_ACCESS_INVALID:" + term.getCode());
+                accessIssues.add(new ReadinessIssueView("TERM_ACCESS_INVALID", "BLOCKER",
+                        "Trimester access limit is invalid", "The closing date must be after the opening date for " + term.getCode() + ".",
+                        "term-management-windows", 1));
+            }
+            if (term.isManagementWindowLimited() && term.getManagementOpensAt() != null
+                    && termManagementWindows.now().isBefore(term.getManagementOpensAt())) scheduled = true;
+        }
         for (ReportingPeriodView p : periods) {
-            if (!AcademicPeriodRules.SEQUENCE.equalsIgnoreCase(p.periodType())) continue;
-            AcademicWindowPolicyService.WindowView window = windows.effective(sessionId, p.id(), AcademicWindowPolicyService.Action.TEACHER_SUBMISSION);
-            if ("NOT_CONFIGURED".equals(window.state()) || "INVALID".equals(window.state())) {
-                blockers.add("TEACHER_WINDOW_NOT_CONFIGURED:" + p.code());
-                windowIssues.add(new ReadinessIssueView("TEACHER_WINDOW_NOT_CONFIGURED", "BLOCKER",
-                        "Teacher submission window missing", "Choose unrestricted or add an opening/closing limit for " + p.code() + ".",
-                        "window-rules", 1));
+            try {
+                termManagementWindows.resolveForPeriod(p.id());
+            } catch (ApiException ex) {
+                if ("TERM_MAPPING_MISSING".equals(ex.getCode())) {
+                    blockers.add("TERM_MAPPING_MISSING:" + p.code());
+                    accessIssues.add(new ReadinessIssueView("TERM_MAPPING_MISSING", "BLOCKER",
+                            "Reporting milestone is not linked to a trimester", ex.getMessage(),
+                            "academic-configuration-wizard", 1));
+                } else {
+                    throw ex;
+                }
             }
         }
-        sections.add(new ReadinessSectionView("WINDOWS", "Workflow windows", windowIssues.isEmpty() ? "READY" : "BLOCKED",
-                windowIssues.isEmpty(), windowIssues));
+        String accessStatus = accessIssues.isEmpty() ? (scheduled ? "SCHEDULED" : "READY") : "BLOCKED";
+        sections.add(new ReadinessSectionView("TERM_ACCESS", "Trimester access", accessStatus,
+                accessIssues.isEmpty(), accessIssues));
 
         int curriculumClasses = jdbc.queryForObject("""
                 SELECT count(DISTINCT class_id) FROM academic_curriculum_subject
@@ -368,9 +403,9 @@ public class AcademicSessionService {
         sections.add(new ReadinessSectionView("CURRICULUM", "Curriculum and assignments",
                 curriculumIssues.isEmpty() ? "READY" : "BLOCKED", curriculumIssues.isEmpty(), curriculumIssues));
         if ("DRAFT".equals(session.getStatus())) {
-            actions.add("Ouvrez la session après validation des fenêtres.");
+            actions.add("Ouvrez la session après validation de la structure et des droits d'accès.");
         } else if ("OPEN".equals(session.getStatus()) && blockers.isEmpty()) {
-            actions.add("Les enseignants peuvent soumettre dans les fenêtres configurées.");
+            actions.add("Les opérations restent soumises à vos droits, à l'état de la session et aux prérequis du dossier.");
         }
         String phase = blockers.isEmpty() ? ("OPEN".equals(session.getStatus()) ? "READY" : "CONFIGURED") : "BLOCKED";
         String next = blockers.isEmpty() ? actions.stream().findFirst().orElse("Aucune action requise")
@@ -543,16 +578,7 @@ public class AcademicSessionService {
         s.setEndDate(in.endDate());
         s.setStatus(in.status() == null || in.status().isBlank() ? s.getStatus() : normalizeState(in.status()));
         if (in.current() != null) s.setCurrent(in.current());
-        s.setGradeEntryOpensAt(in.gradeEntryOpensAt());
-        s.setGradeEntryClosesAt(in.gradeEntryClosesAt());
-        s.setBulletinPublishOpensAt(in.bulletinPublishOpensAt());
-        s.setBulletinPublishClosesAt(in.bulletinPublishClosesAt());
-        s.setTeacherSubmissionOpensAt(in.teacherSubmissionOpensAt());
-        s.setTeacherSubmissionClosesAt(in.teacherSubmissionClosesAt());
         s.setTimezone(in.timezone() == null || in.timezone().isBlank() ? "Africa/Douala" : in.timezone().trim());
-        validateWindow(in.gradeEntryOpensAt(), in.gradeEntryClosesAt(), "saisie des notes");
-        validateWindow(in.bulletinPublishOpensAt(), in.bulletinPublishClosesAt(), "publication des bulletins");
-        validateWindow(in.teacherSubmissionOpensAt(), in.teacherSubmissionClosesAt(), "soumission des enseignants");
     }
 
     private void apply(AcademicTerm t, TermUpsert in) {
@@ -561,16 +587,7 @@ public class AcademicSessionService {
         t.setSequenceNo(in.sequenceNo());
         t.setStartDate(in.startDate());
         t.setEndDate(in.endDate());
-        t.setGradeEntryOpensAt(in.gradeEntryOpensAt());
-        t.setGradeEntryClosesAt(in.gradeEntryClosesAt());
-        t.setBulletinPublishOpensAt(in.bulletinPublishOpensAt());
-        t.setBulletinPublishClosesAt(in.bulletinPublishClosesAt());
-        t.setTeacherSubmissionOpensAt(in.teacherSubmissionOpensAt());
-        t.setTeacherSubmissionClosesAt(in.teacherSubmissionClosesAt());
         t.setTimezone(in.timezone() == null || in.timezone().isBlank() ? "Africa/Douala" : in.timezone().trim());
-        validateWindow(in.gradeEntryOpensAt(), in.gradeEntryClosesAt(), "saisie des notes");
-        validateWindow(in.bulletinPublishOpensAt(), in.bulletinPublishClosesAt(), "publication des bulletins");
-        validateWindow(in.teacherSubmissionOpensAt(), in.teacherSubmissionClosesAt(), "soumission des enseignants");
     }
 
     private void validateTerm(AcademicSession s, LocalDate start, LocalDate end, UUID ignoreId) {
@@ -655,9 +672,10 @@ public class AcademicSessionService {
         result.add(new ReportingPeriodView(UUID.randomUUID(), session.getId(), null, "ANNUAL", "Résultat annuel",
                 "ANNUAL_RESULT", order, session.getStartDate(), session.getEndDate(), null, null, null, null,
                 null, null, null, null, null, null, "ANNUAL_T1_T2_T3_EQUAL", "DRAFT", 0));
+        List<TermManagementWindowProposal> termWindows = termWindowProposals(existing, termSeeds);
         return new StandardStructureView(session.getId(), result,
                 existing.size() > 3 ? List.of("Les périodes existantes au-delà des trois trimestres seront conservées.") : List.of(),
-                applied, structureFingerprint(result), standardDependencies(result));
+                applied, structureFingerprint(result, termWindows), standardDependencies(result), termWindows);
     }
 
     private List<StructureDependencyView> standardDependencies(List<ReportingPeriodView> periods) {
@@ -674,6 +692,34 @@ public class AcademicSessionService {
         addDependency(result, byCode, "ANNUAL", "T2_RESULT", "0.3333333333", false, 2);
         addDependency(result, byCode, "ANNUAL", "T3_RESULT", "0.3333333333", false, 3);
         return result;
+    }
+
+    private List<ReportingPeriodView> normalizeProposedPeriods(List<ReportingPeriodView> proposed,
+                                                               List<ReportingPeriodView> persistedPreview) {
+        Map<String, ReportingPeriodView> standardByCode = persistedPreview.stream()
+                .collect(java.util.stream.Collectors.toMap(p -> p.code().toUpperCase(Locale.ROOT), p -> p,
+                        (left, right) -> left, LinkedHashMap::new));
+        return proposed.stream().map(period -> {
+            ReportingPeriodView canonical = period.code() == null ? null
+                    : standardByCode.get(period.code().trim().toUpperCase(Locale.ROOT));
+            UUID academicTermId = period.academicTermId();
+            if (canonical != null && !"ANNUAL_RESULT".equalsIgnoreCase(period.periodType())
+                    && canonical.academicTermId() != null) {
+                // A preview made before the first standard-structure apply uses
+                // seed UUIDs. Replace only those standard rows with the newly
+                // persisted term ID; custom period mappings remain untouched.
+                academicTermId = canonical.academicTermId();
+            } else if ("ANNUAL_RESULT".equalsIgnoreCase(period.periodType())) {
+                academicTermId = null;
+            }
+            return new ReportingPeriodView(period.id(), period.academicSessionId(), academicTermId,
+                    period.code(), period.label(), period.periodType(), period.displayOrder(),
+                    period.startDate(), period.endDate(), period.gradeEntryOpensAt(), period.gradeEntryClosesAt(),
+                    period.reviewOpensAt(), period.reviewClosesAt(), period.validationOpensAt(), period.validationClosesAt(),
+                    period.bulletinPublishOpensAt(), period.bulletinPublishClosesAt(), period.correctionOpensAt(),
+                    period.correctionClosesAt(), period.teacherSubmissionOpensAt(), period.teacherSubmissionClosesAt(),
+                    period.timezone(), period.calculationPolicy(), period.status(), period.version());
+        }).toList();
     }
 
     private void replaceStandardDependencies(UUID sessionId, List<StructureDependencyView> dependencyRows) {
@@ -701,10 +747,20 @@ public class AcademicSessionService {
     }
 
     private String structureFingerprint(List<ReportingPeriodView> periods) {
+        return structureFingerprint(periods, List.of());
+    }
+
+    private String structureFingerprint(List<ReportingPeriodView> periods,
+                                        List<TermManagementWindowProposal> termWindows) {
         String payload = periods.stream()
                 .sorted(java.util.Comparator.comparingInt(ReportingPeriodView::displayOrder))
-                .map(p -> String.join("|", p.code(), p.periodType(), String.valueOf(p.academicTermId()),
+                .map(p -> String.join("|", p.code(), p.periodType(),
                         String.valueOf(p.displayOrder()), String.valueOf(p.startDate()), String.valueOf(p.endDate())))
+                .reduce((a, b) -> a + "\n" + b).orElse("")
+                + "\nTERM_WINDOWS\n"
+                + termWindows.stream().sorted(java.util.Comparator.comparingInt(TermManagementWindowProposal::sequenceNo))
+                .map(w -> String.join("|", String.valueOf(w.sequenceNo()), w.code(), String.valueOf(w.limited()),
+                        String.valueOf(w.opensAt()), String.valueOf(w.closesAt()), String.valueOf(w.timezone())))
                 .reduce((a, b) -> a + "\n" + b).orElse("");
         try {
             return java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
@@ -714,9 +770,88 @@ public class AcademicSessionService {
         }
     }
 
+    private List<TermManagementWindowProposal> termWindowProposals(List<AcademicTerm> existing,
+                                                                   List<TermSeed> seeds) {
+        return seeds.stream().map(seed -> {
+            AcademicTerm term = existing.stream().filter(t -> t.getSequenceNo() == seed.sequence()).findFirst().orElse(null);
+            return new TermManagementWindowProposal(seed.sequence(), seed.code(),
+                    term != null && term.isManagementWindowLimited(),
+                    term == null ? null : term.getManagementOpensAt(),
+                    term == null ? null : term.getManagementClosesAt(),
+                    term == null ? "Africa/Douala" : term.getTimezone(),
+                    term == null ? 0L : term.getVersion());
+        }).toList();
+    }
+
+    private void validateProposedTermWindows(AcademicSession session,
+                                             List<TermManagementWindowProposal> proposals) {
+        if (proposals == null) return;
+        Set<Integer> sequences = new HashSet<>();
+        for (TermManagementWindowProposal proposal : proposals) {
+            if (proposal == null || proposal.code() == null || proposal.code().isBlank()
+                    || proposal.sequenceNo() < 1 || !sequences.add(proposal.sequenceNo())) {
+                throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST,
+                        "TERM_WINDOW_MAPPING_INVALID", "Les limites d'accès doivent contenir un trimestre unique par numéro.",
+                        "termManagementWindows", "Provide one valid proposal for each trimester.");
+            }
+            AcademicTerm term = terms.findBySchoolIdAndAcademicSessionIdOrderBySequenceNo(
+                            session.getSchoolId(), session.getId()).stream()
+                    .filter(t -> t.getSequenceNo() == proposal.sequenceNo()
+                            && t.getCode().equalsIgnoreCase(proposal.code()))
+                    .findFirst().orElse(null);
+            if (term == null) {
+                throw ApiException.coded(org.springframework.http.HttpStatus.CONFLICT, "TERM_MAPPING_MISSING",
+                        "Le trimestre " + proposal.code() + " n'existe pas dans cette session. Corrigez l'assistant de configuration académique.");
+            }
+            TermManagementWindowUpsert input = new TermManagementWindowUpsert(proposal.limited(), proposal.opensAt(),
+                    proposal.closesAt(), proposal.version() == null ? term.getVersion() : proposal.version());
+            validateTermManagementWindowInput(input);
+        }
+    }
+
+    private void applyTermManagementWindows(AcademicSession session,
+                                            List<TermManagementWindowProposal> proposals) {
+        if (proposals == null) return;
+        List<AcademicTerm> current = terms.findBySchoolIdAndAcademicSessionIdOrderBySequenceNo(
+                session.getSchoolId(), session.getId());
+        for (TermManagementWindowProposal proposal : proposals) {
+            AcademicTerm term = current.stream().filter(t -> t.getSequenceNo() == proposal.sequenceNo()
+                    && t.getCode().equalsIgnoreCase(proposal.code())).findFirst()
+                    .orElseThrow(() -> ApiException.coded(org.springframework.http.HttpStatus.CONFLICT,
+                            "TERM_MAPPING_MISSING", "Le trimestre " + proposal.code() + " n'est pas disponible dans la session cible."));
+            Long version = proposal.version() == null ? term.getVersion() : proposal.version();
+            termManagementWindows.update(session.getId(), term.getId(),
+                    new TermManagementWindowUpsert(proposal.limited(), proposal.opensAt(), proposal.closesAt(), version));
+        }
+    }
+
+    private static void validateTermManagementWindowInput(TermManagementWindowUpsert input) {
+        if (!input.limited() && (input.opensAt() != null || input.closesAt() != null)) {
+            throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST, "TERM_WINDOW_DATES_NOT_ALLOWED",
+                    "Désactivez la limite ou retirez les dates avant d'enregistrer.", "limited",
+                    "Aucune date n'est permise lorsque la limite est désactivée.");
+        }
+        if (input.limited() && input.opensAt() == null && input.closesAt() == null) {
+            throw ApiException.fields(org.springframework.http.HttpStatus.BAD_REQUEST, "TERM_WINDOW_ENDPOINT_REQUIRED",
+                    "Indiquez une date d'ouverture, une date de fermeture, ou les deux.",
+                    Map.of("opensAt", "Indiquez une date d'ouverture, une date de fermeture, ou les deux.",
+                            "closesAt", "Indiquez une date d'ouverture, une date de fermeture, ou les deux."));
+        }
+        if (input.opensAt() != null && input.closesAt() != null && !input.closesAt().isAfter(input.opensAt())) {
+            throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST, "TERM_WINDOW_RANGE_INVALID",
+                    "La fermeture doit être postérieure à l'ouverture.", "closesAt",
+                    "La fermeture doit être postérieure à l'ouverture.");
+        }
+    }
+
     private void refreshStructureFingerprint(UUID sessionId) {
         List<ReportingPeriodView> current = reportingPeriods(sessionId);
-        String fingerprint = structureFingerprint(current);
+        List<AcademicTerm> currentTerms = terms.findBySchoolIdAndAcademicSessionIdOrderBySequenceNo(
+                TenantContext.get(), sessionId);
+        List<TermSeed> seeds = currentTerms.stream()
+                .map(t -> new TermSeed(t.getId(), t.getSequenceNo(), t.getCode(), t.getLabel(), t.getStartDate(), t.getEndDate()))
+                .toList();
+        String fingerprint = structureFingerprint(current, termWindowProposals(currentTerms, seeds));
         reportingPeriods.findBySchoolIdAndAcademicSessionIdOrderByDisplayOrder(TenantContext.get(), sessionId)
                 .forEach(p -> p.setStructureFingerprint(fingerprint));
         reportingPeriods.flush();

@@ -19,9 +19,9 @@ import static com.bbc.sms.foundation.session.SessionDtos.WorkflowWindowRuleUpser
 import static com.bbc.sms.foundation.session.SessionDtos.WorkflowWindowRuleView;
 
 /**
- * CRUD for the normalized workflow-window policy.  Legacy session/term/period
- * columns remain readable for compatibility, but new settings writes go
- * through this service so mode and endpoint intent cannot be lost.
+ * Read-only compatibility access for the V83 normalized rule history.  V85
+ * makes trimester management windows authoritative; action-specific writes
+ * must fail rather than silently broadening access.
  */
 @Service
 public class AcademicWindowRuleService {
@@ -59,6 +59,14 @@ public class AcademicWindowRuleService {
 
     @Transactional
     public WorkflowWindowRuleView upsert(UUID sessionId, WorkflowWindowRuleUpsert in) {
+        throw ApiException.coded(HttpStatus.CONFLICT, "WORKFLOW_WINDOWS_REPLACED",
+                "Les fenêtres par action ont été remplacées. Utilisez Paramètres → Années & périodes → Accès par trimestre.");
+        /*
+         * Kept below for one compatibility release so the historical mapping
+         * remains easy to remove after production verification.  It is not a
+         * normal runtime write path after V85.
+         */
+        /*
         UUID schoolId = TenantContext.get();
         MapTarget target = target(sessionId, in);
         String action = normalize(in.action());
@@ -121,6 +129,7 @@ public class AcademicWindowRuleService {
         audit.record(existing == null ? "WORKFLOW_WINDOW_CREATED" : "WORKFLOW_WINDOW_UPDATED",
                 "AcademicWorkflowWindowRule", id.toString(), before, result, null);
         return result;
+        */
     }
 
     private Existing findExisting(UUID schoolId, MapTarget target, String action) {

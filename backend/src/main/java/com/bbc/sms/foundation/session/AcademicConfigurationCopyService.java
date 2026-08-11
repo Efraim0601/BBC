@@ -53,15 +53,15 @@ public class AcademicConfigurationCopyService {
                 ? periodRows(source, target, dayShift, mergeMode, request.edits(), selectedKeys, termBounds) : List.of();
         List<ConfigurationCopyRow> dependencies = scopes.dependencies()
                 ? dependencyRows(source, target, mergeMode, request.edits(), selectedKeys) : List.of();
-        List<ConfigurationCopyRow> windows = scopes.workflowWindows()
-                ? windowRows(source, target, dayShift, mergeMode, request.edits(), selectedKeys) : List.of();
+        List<ConfigurationCopyRow> windows = scopes.termManagementWindows()
+                ? termManagementWindowRows(source, target, mergeMode, request.edits(), selectedKeys, terms) : List.of();
         List<String> warnings = new ArrayList<>();
         List<String> blockers = new ArrayList<>();
         if (source.status().equals("ARCHIVED")) warnings.add("The source session is archived; only configuration is copied.");
         if (!Set.of("DRAFT", "OPEN").contains(target.status())) blockers.add("TARGET_SESSION_NOT_MUTABLE");
         if (terms.stream().anyMatch(r -> !r.blockers().isEmpty())) blockers.add("TERM_REPAIR_REQUIRED");
         if (periods.stream().anyMatch(r -> !r.blockers().isEmpty())) blockers.add("REPORTING_PERIOD_REPAIR_REQUIRED");
-        if (windows.stream().anyMatch(r -> !r.blockers().isEmpty())) blockers.add("WINDOW_RULE_REPAIR_REQUIRED");
+        if (windows.stream().anyMatch(r -> !r.blockers().isEmpty())) blockers.add("TERM_MANAGEMENT_WINDOW_REPAIR_REQUIRED");
         List<ConfigurationCopyRow> all = new ArrayList<>();
         all.addAll(terms); all.addAll(periods); all.addAll(dependencies); all.addAll(windows);
         int create = (int) all.stream().filter(r -> "CREATE".equals(r.status())).count();
@@ -112,10 +112,10 @@ public class AcademicConfigurationCopyService {
                 if (row.existing() == null) created++; else updated++;
             } else skipped++;
         }
-        for (ConfigurationCopyRow row : preview.workflowWindows()) {
+        for (ConfigurationCopyRow row : preview.termManagementWindows()) {
             if ("SKIP".equals(row.status())) { skipped++; continue; }
             if (!shouldApply(row, request.mergeMode(), request.selectedKeys())) { skipped++; continue; }
-            if (applyWindow(target.id(), row.proposed(), termIds, periodIds, request.mergeMode())) {
+            if (applyTermManagementWindow(target.id(), row.proposed(), termIds, request.mergeMode(), row.existing() == null)) {
                 if (row.existing() == null) created++; else updated++;
             } else skipped++;
         }
@@ -182,34 +182,26 @@ public class AcademicConfigurationCopyService {
                  WHERE d.school_id=? AND d.academic_session_id=?
                 """, String.class, schoolId, targetSessionId);
         String windows = jdbc.queryForObject("""
-                SELECT COALESCE(jsonb_agg(jsonb_build_object(
-                    'scopeType',w.scope_type,'scopeCode',upper(COALESCE(t.code,p.code,'SESSION')),
-                    'action',w.action,'mode',w.mode,'opensAt',w.opens_at,
-                    'closesAt',w.closes_at,'timezone',w.timezone
-                ) ORDER BY w.scope_type,w.action,upper(COALESCE(t.code,p.code,'SESSION'))),'[]'::jsonb)::text
-                  FROM academic_workflow_window_rule w
-                  LEFT JOIN academic_term t ON t.id=w.academic_term_id
-                  LEFT JOIN academic_reporting_period p ON p.id=w.reporting_period_id
-                 WHERE w.school_id=? AND w.academic_session_id=?
-                """, String.class, schoolId, targetSessionId);
+                 SELECT COALESCE(jsonb_agg(jsonb_build_object(
+                     'sequenceNo',sequence_no,'code',upper(code),'limited',management_window_limited,
+                     'opensAt',management_opens_at,'closesAt',management_closes_at,'timezone',timezone
+                 ) ORDER BY sequence_no,upper(code)),'[]'::jsonb)::text
+                   FROM academic_term
+                  WHERE school_id=? AND academic_session_id=? AND sequence_no BETWEEN 1 AND 3
+                 """, String.class, schoolId, targetSessionId);
         return fingerprint(targetSessionId, terms, periods, dependencies, windows);
     }
 
     private List<ConfigurationCopyRow> termRows(SessionData source, SessionData target, long shift,
                                                 String mergeMode, List<ConfigurationCopyEdit> edits, List<String> selectedKeys) {
         return jdbc.query("""
-                SELECT id,code,label,sequence_no,start_date,end_date,grade_entry_opens_at,grade_entry_closes_at,
-                       bulletin_publish_opens_at,bulletin_publish_closes_at,teacher_submission_opens_at,
-                       teacher_submission_closes_at,timezone
+                SELECT id,code,label,sequence_no,start_date,end_date,timezone
                   FROM academic_term WHERE school_id=? AND academic_session_id=? ORDER BY sequence_no,code
                 """, (rs, n) -> {
             String code = rs.getString("code").toUpperCase(Locale.ROOT);
             Map<String, Object> src = map("code", code, "label", rs.getString("label"), "sequenceNo", rs.getInt("sequence_no"),
-                    "startDate", date(rs.getObject("start_date")), "endDate", date(rs.getObject("end_date")),
-                    "gradeEntryOpensAt", instant(rs.getTimestamp("grade_entry_opens_at")), "gradeEntryClosesAt", instant(rs.getTimestamp("grade_entry_closes_at")),
-                    "bulletinPublishOpensAt", instant(rs.getTimestamp("bulletin_publish_opens_at")), "bulletinPublishClosesAt", instant(rs.getTimestamp("bulletin_publish_closes_at")),
-                    "teacherSubmissionOpensAt", instant(rs.getTimestamp("teacher_submission_opens_at")), "teacherSubmissionClosesAt", instant(rs.getTimestamp("teacher_submission_closes_at")),
-                    "timezone", rs.getString("timezone"));
+                     "startDate", date(rs.getObject("start_date")), "endDate", date(rs.getObject("end_date")),
+                     "timezone", rs.getString("timezone"));
             Map<String, Object> proposed = shiftDates(src, shift, Objects.toString(src.get("timezone"), source.timezone()), target.timezone());
             applyEdits("TERM:" + code, proposed, edits);
             Map<String, Object> existing = findByCode("academic_term", target.id(), code);
@@ -307,62 +299,143 @@ public class AcademicConfigurationCopyService {
         }, TenantContext.get(), source.id());
     }
 
-    private List<ConfigurationCopyRow> windowRows(SessionData source, SessionData target, long shift,
-                                                  String mergeMode, List<ConfigurationCopyEdit> edits, List<String> selectedKeys) {
+    private List<ConfigurationCopyRow> termManagementWindowRows(SessionData source, SessionData target,
+                                                                 String mergeMode, List<ConfigurationCopyEdit> edits,
+                                                                 List<String> selectedKeys,
+                                                                 List<ConfigurationCopyRow> stagedTerms) {
         return jdbc.query("""
-                SELECT w.scope_type,w.academic_term_id,t.code AS term_code,w.reporting_period_id,p.code AS period_code,p.period_type,
-                       w.action,w.mode,w.opens_at,w.closes_at,w.timezone
-                  FROM academic_workflow_window_rule w
-                  LEFT JOIN academic_term t ON t.id=w.academic_term_id
-                  LEFT JOIN academic_reporting_period p ON p.id=w.reporting_period_id
-                 WHERE w.school_id=? AND w.academic_session_id=?
-                 ORDER BY w.scope_type,w.action,t.code,p.code
+                SELECT code,label,sequence_no,start_date,management_window_limited,
+                       management_opens_at,management_closes_at,timezone
+                  FROM academic_term
+                 WHERE school_id=? AND academic_session_id=? AND sequence_no BETWEEN 1 AND 3
+                 ORDER BY sequence_no,code
                 """, (rs, n) -> {
-            String key = "WINDOW:" + rs.getString("scope_type") + ":"
-                    + Objects.toString(rs.getString("term_code"), Objects.toString(rs.getString("period_code"), "SESSION"))
-                    + ":" + rs.getString("action");
-            Map<String, Object> src = map("scopeType", rs.getString("scope_type"), "termCode", rs.getString("term_code"),
-                    "periodCode", rs.getString("period_code"), "periodType", rs.getString("period_type"), "action", rs.getString("action"), "mode", rs.getString("mode"),
-                    "opensAt", instant(rs.getTimestamp("opens_at")), "closesAt", instant(rs.getTimestamp("closes_at")), "timezone", rs.getString("timezone"));
-            Map<String, Object> proposed = shiftDates(src, shift, Objects.toString(src.get("timezone"), source.timezone()), target.timezone()); applyEdits(key, proposed, edits);
-            Map<String, Object> existing = windowExisting(target.id(), proposed);
+            String code = rs.getString("code").toUpperCase(Locale.ROOT);
+            int sequenceNo = rs.getInt("sequence_no");
+            String key = "TERM_WINDOW:" + sequenceNo + ":" + code;
+            String timezone = Objects.toString(rs.getString("timezone"), source.timezone());
+            Map<String, Object> src = map("sequenceNo", sequenceNo, "code", code,
+                    "sourceTermCode", code, "sourceTermLabel", rs.getString("label"),
+                    "sourceTermStartDate", date(rs.getObject("start_date")),
+                    "limited", rs.getBoolean("management_window_limited"),
+                    "opensAt", instant(rs.getTimestamp("management_opens_at")),
+                    "closesAt", instant(rs.getTimestamp("management_closes_at")), "timezone", timezone,
+                    "governedPeriodCodes", governedCodes(sequenceNo));
+            TargetTerm targetTerm = findTargetTerm(target.id(), sequenceNo, code);
+            if ("TERM_WINDOW_TARGET_NOT_FOUND".equals(targetTerm.blocker())) {
+                targetTerm = stagedTargetTerm(stagedTerms, sequenceNo, code);
+            }
+            Map<String, Object> proposed = new LinkedHashMap<>(src);
             List<String> blockers = new ArrayList<>();
-            boolean notApplicable = "PERIOD".equals(proposed.get("scopeType"))
-                    && !"SEQUENCE".equalsIgnoreCase(String.valueOf(proposed.get("periodType")))
-                    && Set.of("GRADE_ENTRY", "TEACHER_SUBMISSION").contains(String.valueOf(proposed.get("action")));
-            if ("SESSION".equals(proposed.get("scopeType")) && "INHERIT".equals(proposed.get("mode"))) blockers.add("SESSION_WINDOW_CANNOT_INHERIT");
-            if ("LIMITED".equals(proposed.get("mode")) && proposed.get("opensAt") == null && proposed.get("closesAt") == null) blockers.add("WINDOW_ENDPOINT_REQUIRED");
-            if (proposed.get("opensAt") instanceof Instant open && proposed.get("closesAt") instanceof Instant close && !close.isAfter(open)) blockers.add("WINDOW_INVALID");
-            if (notApplicable) blockers.clear();
-            String status = notApplicable ? "SKIP" : existing == null ? "CREATE" : selected(selectedKeys, key, mergeMode) ? "UPDATE" : "KEEP";
-            return new ConfigurationCopyRow(key, "WORKFLOW_WINDOW", String.valueOf(proposed.get("action")),
-                    String.valueOf(proposed.get("scopeType")), status, src, proposed, existing,
-                    notApplicable ? List.of("NOT_APPLICABLE_FOR_COMPUTED_PERIOD") : List.of(), blockers);
+            if (targetTerm.blocker() != null) {
+                blockers.add(targetTerm.blocker());
+            } else {
+                proposed.put("targetTermCode", targetTerm.code());
+                proposed.put("targetTermStartDate", targetTerm.startDate());
+                proposed.put("targetTimezone", targetTerm.timezone());
+                long dayShift = ChronoUnit.DAYS.between(date(src.get("sourceTermStartDate")), targetTerm.startDate());
+                proposed = shiftDates(proposed, dayShift, timezone, targetTerm.timezone());
+                if (!Boolean.TRUE.equals(proposed.get("limited"))) {
+                    proposed.put("opensAt", null);
+                    proposed.put("closesAt", null);
+                }
+            }
+            applyEdits(key, proposed, edits);
+            Map<String, Object> existing = targetTerm.termId() == null ? null : termWindowExisting(targetTerm.termId());
+            if (Boolean.TRUE.equals(proposed.get("limited"))
+                    && proposed.get("opensAt") == null && proposed.get("closesAt") == null) {
+                blockers.add("TERM_WINDOW_ENDPOINT_REQUIRED");
+            }
+            if (proposed.get("opensAt") instanceof Instant open && proposed.get("closesAt") instanceof Instant close
+                    && !close.isAfter(open)) blockers.add("TERM_WINDOW_RANGE_INVALID");
+            String status = blockers.isEmpty()
+                    ? existing == null ? "CREATE" : selected(selectedKeys, key, mergeMode) ? "UPDATE" : "KEEP"
+                    : "CONFLICT";
+            return new ConfigurationCopyRow(key, "TERM_MANAGEMENT_WINDOW", code, String.valueOf(rs.getString("label")),
+                    status, src, proposed, existing, List.of(), blockers);
         }, TenantContext.get(), source.id());
     }
+
+    private TargetTerm stagedTargetTerm(List<ConfigurationCopyRow> stagedTerms, int sequenceNo, String sourceCode) {
+        if (stagedTerms == null) return new TargetTerm(null, sourceCode, null, null, "TERM_WINDOW_TARGET_NOT_FOUND");
+        List<ConfigurationCopyRow> matches = stagedTerms.stream()
+                .filter(row -> row.proposed() != null
+                        && Objects.equals(Integer.valueOf(sequenceNo), row.proposed().get("sequenceNo"))
+                        && sourceCode.equalsIgnoreCase(Objects.toString(row.proposed().get("code"), "")))
+                .toList();
+        if (matches.size() != 1) return new TargetTerm(null, sourceCode, null, null, "TERM_WINDOW_TARGET_NOT_FOUND");
+        Map<String, Object> proposed = matches.getFirst().proposed();
+        return new TargetTerm(null, sourceCode, date(proposed.get("startDate")),
+                Objects.toString(proposed.get("timezone"), "Africa/Douala"), null);
+    }
+
+    private TargetTerm findTargetTerm(UUID targetSessionId, int sequenceNo, String sourceCode) {
+        List<TargetTerm> bySequence = jdbc.query("""
+                SELECT id,code,start_date,timezone FROM academic_term
+                 WHERE school_id=? AND academic_session_id=? AND sequence_no=?
+                """, (rs, n) -> new TargetTerm(rs.getObject("id", UUID.class),
+                rs.getString("code").toUpperCase(Locale.ROOT), date(rs.getObject("start_date")), rs.getString("timezone"), null),
+                TenantContext.get(), targetSessionId, sequenceNo);
+        if (bySequence.size() == 1) {
+            TargetTerm row = bySequence.getFirst();
+            return row.code().equalsIgnoreCase(sourceCode)
+                    ? row : new TargetTerm(null, row.code(), row.startDate(), row.timezone(), "TERM_WINDOW_CODE_MISMATCH");
+        }
+        if (bySequence.size() > 1) {
+            return new TargetTerm(null, sourceCode, null, null, "TERM_WINDOW_TARGET_MAPPING_AMBIGUOUS");
+        }
+        List<TargetTerm> byCode = jdbc.query("""
+                SELECT id,code,start_date,timezone FROM academic_term
+                 WHERE school_id=? AND academic_session_id=? AND upper(code)=upper(?)
+                """, (rs, n) -> new TargetTerm(rs.getObject("id", UUID.class),
+                rs.getString("code").toUpperCase(Locale.ROOT), date(rs.getObject("start_date")), rs.getString("timezone"), null),
+                TenantContext.get(), targetSessionId, sourceCode);
+        if (byCode.size() == 1) return byCode.getFirst();
+        return new TargetTerm(null, sourceCode, null, null,
+                byCode.isEmpty() ? "TERM_WINDOW_TARGET_NOT_FOUND" : "TERM_WINDOW_TARGET_MAPPING_AMBIGUOUS");
+    }
+
+    private Map<String, Object> termWindowExisting(UUID termId) {
+        return jdbc.query("""
+                SELECT id,code,sequence_no,management_window_limited,management_opens_at,
+                       management_closes_at,timezone,version
+                  FROM academic_term WHERE id=? AND school_id=?
+                """, rs -> rs.next() ? map("id", rs.getObject("id", UUID.class),
+                "code", rs.getString("code"), "sequenceNo", rs.getInt("sequence_no"),
+                "limited", rs.getBoolean("management_window_limited"),
+                "opensAt", instant(rs.getTimestamp("management_opens_at")),
+                "closesAt", instant(rs.getTimestamp("management_closes_at")),
+                "timezone", rs.getString("timezone"), "version", rs.getLong("version")) : null,
+                termId, TenantContext.get());
+    }
+
+    private static List<String> governedCodes(int sequenceNo) {
+        return switch (sequenceNo) {
+            case 1 -> List.of("S1", "S2", "T1_RESULT");
+            case 2 -> List.of("S3", "S4", "T2_RESULT");
+            case 3 -> List.of("S5", "S6", "T3_RESULT", "ANNUAL");
+            default -> List.of();
+        };
+    }
+
+    private record TargetTerm(UUID termId, String code, LocalDate startDate, String timezone, String blocker) {}
 
     private UUID insertTerm(SessionData target, Map<String, Object> p) {
         UUID id = UUID.randomUUID();
         jdbc.update("""
-                INSERT INTO academic_term(id,school_id,academic_session_id,code,label,sequence_no,start_date,end_date,
-                    grade_entry_opens_at,grade_entry_closes_at,bulletin_publish_opens_at,bulletin_publish_closes_at,
-                    teacher_submission_opens_at,teacher_submission_closes_at,timezone)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                INSERT INTO academic_term(id,school_id,academic_session_id,code,label,sequence_no,start_date,end_date,timezone)
+                VALUES (?,?,?,?,?,?,?,?,?)
                 """, id, TenantContext.get(), target.id(), p.get("code"), p.get("label"), p.get("sequenceNo"),
-                date(p.get("startDate")), date(p.get("endDate")), ts(p.get("gradeEntryOpensAt")), ts(p.get("gradeEntryClosesAt")),
-                ts(p.get("bulletinPublishOpensAt")), ts(p.get("bulletinPublishClosesAt")), ts(p.get("teacherSubmissionOpensAt")),
-                ts(p.get("teacherSubmissionClosesAt")), p.get("timezone"));
+                 date(p.get("startDate")), date(p.get("endDate")), p.get("timezone"));
         return id;
     }
 
     private void updateTerm(UUID id, SessionData target, Map<String, Object> p) {
         jdbc.update("""
-                UPDATE academic_term SET label=?,sequence_no=?,start_date=?,end_date=?,grade_entry_opens_at=?,grade_entry_closes_at=?,
-                    bulletin_publish_opens_at=?,bulletin_publish_closes_at=?,teacher_submission_opens_at=?,teacher_submission_closes_at=?,
+                UPDATE academic_term SET label=?,sequence_no=?,start_date=?,end_date=?,
                     timezone=?,updated_at=now(),version=version+1 WHERE id=? AND school_id=? AND academic_session_id=?
                 """, p.get("label"), p.get("sequenceNo"), date(p.get("startDate")), date(p.get("endDate")),
-                ts(p.get("gradeEntryOpensAt")), ts(p.get("gradeEntryClosesAt")), ts(p.get("bulletinPublishOpensAt")), ts(p.get("bulletinPublishClosesAt")),
-                ts(p.get("teacherSubmissionOpensAt")), ts(p.get("teacherSubmissionClosesAt")), p.get("timezone"), id, TenantContext.get(), target.id());
+                p.get("timezone"), id, TenantContext.get(), target.id());
     }
 
     private UUID insertPeriod(SessionData target, Map<String, Object> p, Map<String, UUID> termIds) {
@@ -415,24 +488,27 @@ public class AcademicConfigurationCopyService {
         return changed > 0;
     }
 
-    private boolean applyWindow(UUID targetId, Map<String, Object> p, Map<String, UUID> termIds,
-                                Map<String, UUID> periodIds, String requestedMode) {
-        UUID termId = p.get("termCode") == null ? null : termIds.get(String.valueOf(p.get("termCode")));
-        UUID periodId = p.get("periodCode") == null ? null : periodIds.get(String.valueOf(p.get("periodCode")));
-        String scope = String.valueOf(p.get("scopeType"));
-        Map<String, Object> existing = windowExisting(targetId, p);
-        if (existing != null && "FILL_MISSING".equals(mode(requestedMode))) return false;
-        if (existing == null) {
-            jdbc.update("""
-                    INSERT INTO academic_workflow_window_rule(school_id,academic_session_id,scope_type,academic_term_id,reporting_period_id,action,mode,opens_at,closes_at,timezone)
-                    VALUES (?,?,?,?,?,?,?,?,?,?)
-                    """, TenantContext.get(), targetId, scope, termId, periodId, p.get("action"), p.get("mode"),
-                    ts(p.get("opensAt")), ts(p.get("closesAt")), p.get("timezone"));
-        } else {
-            jdbc.update("UPDATE academic_workflow_window_rule SET mode=?,opens_at=?,closes_at=?,timezone=?,version=version+1,updated_at=now() WHERE id=? AND school_id=?",
-                    p.get("mode"), ts(p.get("opensAt")), ts(p.get("closesAt")), p.get("timezone"), existing.get("id"), TenantContext.get());
-        }
-        return true;
+    private boolean applyTermManagementWindow(UUID targetId, Map<String, Object> p,
+                                              Map<String, UUID> termIds, String requestedMode,
+                                              boolean targetTermWasMissingInPreview) {
+        String targetCode = Objects.toString(p.get("targetTermCode"), "").toUpperCase(Locale.ROOT);
+        UUID termId = termIds.get(targetCode);
+        if (termId == null) return false;
+        Map<String, Object> existing = termWindowExisting(termId);
+        if (existing == null) return false;
+        if ("FILL_MISSING".equals(mode(requestedMode))
+                && !targetTermWasMissingInPreview
+                && existing.get("limited") != null) return false;
+        boolean limited = Boolean.TRUE.equals(p.get("limited"));
+        Instant opensAt = limited ? instantValue(p.get("opensAt")) : null;
+        Instant closesAt = limited ? instantValue(p.get("closesAt")) : null;
+        int changed = jdbc.update("""
+                UPDATE academic_term
+                   SET management_window_limited=?,management_opens_at=?,management_closes_at=?,
+                       updated_at=now(),version=version+1
+                 WHERE id=? AND school_id=? AND academic_session_id=?
+                """, limited, ts(opensAt), ts(closesAt), termId, TenantContext.get(), targetId);
+        return changed > 0;
     }
 
     private Map<String, UUID> targetTermIds(UUID sessionId) {
@@ -466,7 +542,7 @@ public class AcademicConfigurationCopyService {
 
     private int warningCount(ConfigurationCopyPreview preview) {
         int count = preview.warnings() == null ? 0 : preview.warnings().size();
-        for (ConfigurationCopyRow row : List.of(preview.terms(), preview.reportingPeriods(), preview.dependencies(), preview.workflowWindows())
+        for (ConfigurationCopyRow row : List.of(preview.terms(), preview.reportingPeriods(), preview.dependencies(), preview.termManagementWindows())
                 .stream().flatMap(Collection::stream).toList()) {
             count += row.warnings() == null ? 0 : row.warnings().size();
         }
@@ -627,19 +703,6 @@ public class AcademicConfigurationCopyService {
         return count != null && count > 0;
     }
 
-    private Map<String, Object> windowExisting(UUID sessionId, Map<String, Object> p) {
-        String scope = String.valueOf(p.get("scopeType"));
-        String sql = "SESSION".equals(scope)
-                ? "SELECT id,version FROM academic_workflow_window_rule WHERE school_id=? AND academic_session_id=? AND scope_type='SESSION' AND action=?"
-                : "TERM".equals(scope)
-                ? "SELECT w.id,w.version FROM academic_workflow_window_rule w JOIN academic_term t ON t.id=w.academic_term_id WHERE w.school_id=? AND w.academic_session_id=? AND w.scope_type='TERM' AND upper(t.code)=upper(?) AND w.action=?"
-                : "SELECT w.id,w.version FROM academic_workflow_window_rule w JOIN academic_reporting_period p2 ON p2.id=w.reporting_period_id WHERE w.school_id=? AND w.academic_session_id=? AND w.scope_type='PERIOD' AND upper(p2.code)=upper(?) AND w.action=?";
-        Object[] args = "SESSION".equals(scope)
-                ? new Object[]{TenantContext.get(), sessionId, p.get("action")}
-                : new Object[]{TenantContext.get(), sessionId, "TERM".equals(scope) ? p.get("termCode") : p.get("periodCode"), p.get("action")};
-        return jdbc.query(sql, rs -> rs.next() ? map("id", rs.getObject(1, UUID.class), "version", rs.getLong(2)) : null, args);
-    }
-
     private SessionData session(UUID id) {
         Map<String, Object> row = jdbc.query("SELECT id,code,label,start_date,end_date,status,timezone FROM academic_session WHERE id=? AND school_id=?",
                 rs -> rs.next() ? map("id", rs.getObject(1, UUID.class), "code", rs.getString(2), "label", rs.getString(3),
@@ -690,7 +753,7 @@ public class AcademicConfigurationCopyService {
                     "correctionOpensAt", "correctionClosesAt").contains(field)) proposed.put(field, value == null || value.isBlank() ? null : Instant.parse(value));
             else if (Set.of("displayOrder", "sequenceNo").contains(field)) proposed.put(field, Integer.valueOf(value));
             else if (Set.of("weight").contains(field)) proposed.put(field, new BigDecimal(value));
-            else if (Set.of("optional").contains(field)) proposed.put(field, Boolean.valueOf(value));
+            else if (Set.of("optional", "limited").contains(field)) proposed.put(field, Boolean.valueOf(value));
             else proposed.put(field, value);
         }
     }
@@ -707,6 +770,11 @@ public class AcademicConfigurationCopyService {
         return LocalDate.parse(String.valueOf(value));
     }
     private static Instant instant(java.sql.Timestamp value) { return value == null ? null : value.toInstant(); }
+    private static Instant instantValue(Object value) {
+        if (value == null) return null;
+        if (value instanceof Instant i) return i;
+        return Instant.parse(String.valueOf(value));
+    }
     private static java.sql.Timestamp ts(Object value) {
         if (value == null) return null;
         if (value instanceof Instant i) return java.sql.Timestamp.from(i);

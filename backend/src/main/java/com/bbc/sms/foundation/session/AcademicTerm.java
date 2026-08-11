@@ -26,6 +26,10 @@ public class AcademicTerm {
     @Column(name = "bulletin_publish_closes_at") private Instant bulletinPublishClosesAt;
     @Column(name = "teacher_submission_opens_at") private Instant teacherSubmissionOpensAt;
     @Column(name = "teacher_submission_closes_at") private Instant teacherSubmissionClosesAt;
+    /** V85 authoritative optional trimester-wide date gate. */
+    @Column(name = "management_window_limited", nullable = false) private boolean managementWindowLimited;
+    @Column(name = "management_opens_at") private Instant managementOpensAt;
+    @Column(name = "management_closes_at") private Instant managementClosesAt;
     @Column(nullable = false) private String timezone = "Africa/Douala";
     @Version private long version;
     @Column(name = "created_at", insertable = false, updatable = false) private Instant createdAt;

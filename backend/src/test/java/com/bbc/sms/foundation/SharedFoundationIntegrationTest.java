@@ -7,7 +7,10 @@ import com.bbc.sms.attendance.dto.AttendanceDtos.ActionRequest;
 import com.bbc.sms.documents.OfficialDocumentDtos.GenerateRequest;
 import com.bbc.sms.documents.OfficialDocumentService;
 import com.bbc.sms.foundation.idempotency.IdempotencyService;
+import com.bbc.sms.foundation.session.AcademicConfigurationCopyService;
 import com.bbc.sms.foundation.session.AcademicSessionService;
+import com.bbc.sms.foundation.session.SessionDtos.ConfigurationCopyPreviewRequest;
+import com.bbc.sms.foundation.session.SessionDtos.CopyScopeSelection;
 import com.bbc.sms.foundation.session.SessionDtos.SessionUpsert;
 import com.bbc.sms.foundation.session.SessionDtos.TermUpsert;
 import com.bbc.sms.journey.JourneyPromotionService;
@@ -63,6 +66,7 @@ class SharedFoundationIntegrationTest {
 
     @Autowired JdbcTemplate jdbc;
     @Autowired AcademicSessionService sessionService;
+    @Autowired AcademicConfigurationCopyService configurationCopy;
     @Autowired IdempotencyService idempotency;
     @Autowired OfficialDocumentService documents;
     @Autowired AttendanceWorkflowService attendance;
@@ -334,6 +338,55 @@ class SharedFoundationIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT status FROM student_enrollment WHERE id=?", String.class, planned)).isEqualTo("ACTIVE");
         assertThat(jdbc.queryForObject("SELECT status FROM student_enrollment WHERE school_id=? AND student_id=? AND academic_session_id=? AND status='COMPLETED'", String.class, schoolId, student, sourceSession)).isEqualTo("COMPLETED");
         assertThat(jdbc.queryForObject("SELECT final_decision FROM journey_entry WHERE school_id=? AND student_id=? AND academic_year='2025-2026'", String.class, schoolId, student)).isEqualTo("HOLD");
+    }
+
+    @Test
+    void trimesterRolloverUsesThreeSequenceRowsAndPreservesLocalWindowTime() {
+        UUID sourceSession = UUID.randomUUID(), targetSession = UUID.randomUUID();
+        jdbc.update("INSERT INTO academic_session(id,school_id,code,label,start_date,end_date,status,is_current) VALUES (?,?,?,'Source','2025-09-01','2026-07-31','OPEN',false)",
+                sourceSession, schoolId, "SRC-" + sourceSession.toString().substring(0, 6));
+        jdbc.update("INSERT INTO academic_session(id,school_id,code,label,start_date,end_date,status,is_current) VALUES (?,?,?,'Target','2026-09-01','2027-07-31','DRAFT',false)",
+                targetSession, schoolId, "TGT-" + targetSession.toString().substring(0, 6));
+        insertRolloverTerm(sourceSession, 1, "T1", "2025-09-01", "2025-11-30", true,
+                java.time.Instant.parse("2025-09-05T08:15:00Z"), null);
+        insertRolloverTerm(sourceSession, 2, "T2", "2025-12-01", "2026-02-28", false, null, null);
+        insertRolloverTerm(sourceSession, 3, "T3", "2026-03-01", "2026-07-31", true,
+                java.time.Instant.parse("2026-03-05T17:45:00Z"), java.time.Instant.parse("2026-07-31T18:00:00Z"));
+
+        var scope = new CopyScopeSelection(true, false, false, true);
+        var request = new ConfigurationCopyPreviewRequest(sourceSession, "SHIFT_FROM_SESSION_START", "UPDATE_ALL", scope, java.util.List.of(), java.util.List.of());
+        var preview = configurationCopy.preview(targetSession, request);
+
+        assertThat(preview.termManagementWindows()).hasSize(3);
+        assertThat(preview.termManagementWindows()).extracting(r -> r.key())
+                .containsExactly("TERM_WINDOW:1:T1", "TERM_WINDOW:2:T2", "TERM_WINDOW:3:T3");
+        assertThat(preview.termManagementWindows()).allMatch(r -> "CREATE".equals(r.status()));
+        assertThat(preview.termManagementWindows().get(0).proposed().get("opensAt"))
+                .isEqualTo(java.time.Instant.parse("2026-09-05T08:15:00Z"));
+        assertThat(preview.termManagementWindows().get(1).proposed().get("limited")).isEqualTo(false);
+
+        var applied = configurationCopy.apply(targetSession, new com.bbc.sms.foundation.session.SessionDtos.ConfigurationCopyApplyRequest(
+                sourceSession, "SHIFT_FROM_SESSION_START", "UPDATE_ALL", scope, java.util.List.of(), java.util.List.of(),
+                "Rollover trimester access", preview.fingerprint()), "rollover-key");
+        assertThat(applied.termManagementWindows()).hasSize(3);
+        assertThat(jdbc.queryForObject("SELECT management_window_limited FROM academic_term WHERE school_id=? AND academic_session_id=? AND code='T1'", Boolean.class,
+                schoolId, targetSession)).isTrue();
+        assertThat(jdbc.queryForObject("SELECT management_opens_at FROM academic_term WHERE school_id=? AND academic_session_id=? AND code='T1'", java.time.Instant.class,
+                schoolId, targetSession)).isEqualTo(java.time.Instant.parse("2026-09-05T08:15:00Z"));
+        assertThat(jdbc.queryForObject("SELECT management_window_limited FROM academic_term WHERE school_id=? AND academic_session_id=? AND code='T2'", Boolean.class,
+                schoolId, targetSession)).isFalse();
+    }
+
+    private void insertRolloverTerm(UUID sessionId, int sequenceNo, String code, String start, String end,
+                                    boolean limited, java.time.Instant opensAt, java.time.Instant closesAt) {
+        jdbc.update("""
+                INSERT INTO academic_term(id,school_id,academic_session_id,code,label,sequence_no,start_date,end_date,timezone,
+                    management_window_limited,management_opens_at,management_closes_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                """, UUID.randomUUID(), schoolId, sessionId, code, "Trimester " + sequenceNo, sequenceNo,
+                java.sql.Date.valueOf(start), java.sql.Date.valueOf(end), "Africa/Douala", limited,
+                opensAt == null ? null : java.sql.Timestamp.from(opensAt),
+                closesAt == null ? null : java.sql.Timestamp.from(closesAt));
     }
 
     @Test

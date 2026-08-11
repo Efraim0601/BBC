@@ -81,6 +81,12 @@ public class ApiException extends RuntimeException {
                 null, null, null, Map.of());
     }
 
+    public static ApiException fields(HttpStatus status, String code, String message,
+                                      Map<String, String> fieldErrors) {
+        return new ApiException(status, code, message, fieldErrors, List.of(), List.of(),
+                null, null, null, Map.of());
+    }
+
     public static ApiException blockers(String code, String message, List<String> blockers) {
         return new ApiException(HttpStatus.CONFLICT, code, message, Map.of(), List.of(), blockers,
                 null, null, null, Map.of());
@@ -90,6 +96,12 @@ public class ApiException extends RuntimeException {
         return new ApiException(HttpStatus.CONFLICT, "STALE_VERSION", message, Map.of(), List.of(), List.of(),
                 currentVersion, staleVersion, "stale_version",
                 Map.of("currentVersion", currentVersion, "staleVersion", staleVersion));
+    }
+
+    public static ApiException staleVersion(String message, long currentVersion, long staleVersion, String field) {
+        return new ApiException(HttpStatus.CONFLICT, "STALE_VERSION", message,
+                Map.of(field, message), List.of(), List.of(), currentVersion, staleVersion,
+                "stale_version", Map.of("currentVersion", currentVersion, "staleVersion", staleVersion));
     }
 
     private static String defaultCode(HttpStatus status) {
