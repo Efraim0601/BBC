@@ -24,6 +24,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.awt.image.BufferedImage;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Locale;
 
@@ -52,6 +53,7 @@ public class ReportCardPdfService {
         BrandingRenderData branding = branding(b);
         boolean secondary = isSecondary(b);
         boolean annual = annual(b);
+        boolean computed = computed(b);
         String templateFamily = b.evidence() == null || b.evidence().documentDesign() == null
                 ? null : b.evidence().documentDesign().templateFamily();
         try (PDDocument doc = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
@@ -63,16 +65,17 @@ public class ReportCardPdfService {
                 PDImageXObject logo = imageOrNull(doc, branding == null ? null : branding.logoBytes(), "school-logo");
                 PDImageXObject stamp = imageOrNull(doc, branding == null ? null : branding.stampBytes(), "school-stamp");
                 float y = header(doc, page, b, french, image, secondary, branding, logo);
-                y = tableHeader(doc, page, y, french, secondary, annual, templateFamily);
+                y = computed ? computedTableHeader(doc, page, y, french, b) : tableHeader(doc, page, y, french, secondary, annual, templateFamily);
                 for (BulletinLineView line : b.lines()) {
-                    float rowHeight = secondary ? secondaryRowHeight(line, annual) : 22;
+                    float rowHeight = computed ? computedRowHeight(line, b) : secondary ? secondaryRowHeight(line, annual) : 22;
                     if (y - rowHeight < 78) {
                         footer(doc, page, french);
                         page = new PDPage(PDRectangle.A4); doc.addPage(page);
                         y = header(doc, page, b, french, image, secondary, branding, logo);
-                        y = tableHeader(doc, page, y, french, secondary, annual, templateFamily);
+                        y = computed ? computedTableHeader(doc, page, y, french, b) : tableHeader(doc, page, y, french, secondary, annual, templateFamily);
                     }
-                    if (secondary) y -= secondaryRow(doc, page, y, line, french, annual);
+                    if (computed) y -= computedRow(doc, page, y, line, french, b);
+                    else if (secondary) y -= secondaryRow(doc, page, y, line, french, annual);
                     else { row(doc, page, y, line, french, false); y -= 22; }
                 }
                 y -= 5;
@@ -149,6 +152,88 @@ public class ReportCardPdfService {
             line(cs, LEFT, y - 18, RIGHT, y - 18, 0.8f);
         }
         return y - 18;
+    }
+
+    private float computedTableHeader(PDDocument doc, PDPage page, float y, boolean fr,
+                                      BulletinSnapshotView bulletin) throws Exception {
+        List<String> periods = dependencyCodes(bulletin);
+        float subjectRight = 145;
+        float currentRight = 145 + Math.max(42, 32 * Math.max(1, periods.size()));
+        float coefficientRight = currentRight + 38;
+        float weightedRight = coefficientRight + 58;
+        float appreciationRight = RIGHT;
+        float componentWidth = periods.isEmpty() ? 0 : (currentRight - subjectRight) / periods.size();
+        try (PDPageContentStream cs = new PDPageContentStream(doc, page, PDPageContentStream.AppendMode.APPEND, true)) {
+            cs.setNonStrokingColor(BLUE, 0.48f, 0.70f);
+            cs.addRect(LEFT, y - 18, RIGHT - LEFT, 22); cs.fill();
+            cs.setNonStrokingColor(1, 1, 1);
+            text(cs, bold(), 7, 48, y - 10, fr ? "MATIERE" : "SUBJECT");
+            for (int i = 0; i < periods.size(); i++) text(cs, bold(), 7,
+                    subjectRight + i * componentWidth + 4, y - 10, clip(periods.get(i), 7));
+            text(cs, bold(), 7, currentRight + 4, y - 10,
+                    bulletin.product() != null && bulletin.product().equalsIgnoreCase("ANNUAL") ? (fr ? "ANNUEL" : "ANNUAL") : (fr ? "TERME" : "TERM"));
+            text(cs, bold(), 7, coefficientRight + 4, y - 10, "COEF");
+            text(cs, bold(), 7, weightedRight + 4, y - 10, fr ? "PONDERE" : "WEIGHTED");
+            text(cs, bold(), 7, weightedRight + 62, y - 10, fr ? "APPRECIATION" : "REMARK");
+            cs.setNonStrokingColor(0, 0, 0);
+            List<Float> boundaries = new java.util.ArrayList<>();
+            boundaries.add(LEFT); boundaries.add(subjectRight);
+            for (int i = 0; i < periods.size(); i++) boundaries.add(subjectRight + (i + 1) * componentWidth);
+            boundaries.add(coefficientRight); boundaries.add(weightedRight); boundaries.add(appreciationRight);
+            for (float x : boundaries) line(cs, x, y + 4, x, y - 18, 0.6f);
+            line(cs, LEFT, y - 18, RIGHT, y - 18, 0.8f);
+        }
+        return y - 18;
+    }
+
+    private float computedRow(PDDocument doc, PDPage page, float y, BulletinLineView line,
+                              boolean fr, BulletinSnapshotView bulletin) throws Exception {
+        List<String> periods = dependencyCodes(bulletin);
+        float subjectRight = 145;
+        float currentRight = 145 + Math.max(42, 32 * Math.max(1, periods.size()));
+        float coefficientRight = currentRight + 38;
+        float weightedRight = coefficientRight + 58;
+        float componentWidth = periods.isEmpty() ? 0 : (currentRight - subjectRight) / periods.size();
+        float height = 24;
+        String remark = line.teacherRemark() == null ? line.appreciation() : line.teacherRemark();
+        if (remark != null && remark.length() > 26) height = 32;
+        try (PDPageContentStream cs = new PDPageContentStream(doc, page, PDPageContentStream.AppendMode.APPEND, true)) {
+            text(cs, bold(), 7, 48, y - 14, clip(line.subjectLabel(), 20));
+            for (int i = 0; i < periods.size(); i++) {
+                String periodCode = periods.get(i);
+                BigDecimal mark = line.periodMarks() == null ? null : line.periodMarks().stream()
+                        .filter(value -> periodCode.equals(value.periodCode())).map(PeriodMarkView::mark).findFirst().orElse(null);
+                text(cs, normal(), 8, subjectRight + i * componentWidth + 4, y - 14, number(mark));
+            }
+            text(cs, bold(), 8, currentRight + 4, y - 14, number(line.mark()));
+            text(cs, normal(), 8, coefficientRight + 4, y - 14, String.valueOf(line.coefficient()));
+            text(cs, normal(), 8, weightedRight + 4, y - 14, number(line.weighted()));
+            text(cs, normal(), 7, weightedRight + 62, y - 14, clip(remark, 26));
+            List<Float> boundaries = new java.util.ArrayList<>();
+            boundaries.add(LEFT); boundaries.add(subjectRight);
+            for (int i = 0; i < periods.size(); i++) boundaries.add(subjectRight + (i + 1) * componentWidth);
+            boundaries.add(coefficientRight); boundaries.add(weightedRight); boundaries.add(RIGHT);
+            for (float x : boundaries) line(cs, x, y, x, y - height, 0.35f);
+            line(cs, LEFT, y - height, RIGHT, y - height, 0.35f);
+        }
+        return height;
+    }
+
+    private float computedRowHeight(BulletinLineView line, BulletinSnapshotView bulletin) {
+        String remark = line.teacherRemark() == null ? line.appreciation() : line.teacherRemark();
+        return remark != null && remark.length() > 26 ? 32 : 24;
+    }
+
+    private List<String> dependencyCodes(BulletinSnapshotView bulletin) {
+        java.util.LinkedHashSet<String> codes = new java.util.LinkedHashSet<>();
+        for (BulletinLineView line : bulletin.lines()) {
+            if (line.periodMarks() == null) continue;
+            for (PeriodMarkView mark : line.periodMarks()) if (mark.periodCode() != null && !mark.periodCode().isBlank()) codes.add(mark.periodCode());
+        }
+        if (!codes.isEmpty()) return List.copyOf(codes);
+        if (bulletin.workflowMeta() != null && bulletin.workflowMeta().dependencies() != null)
+            return bulletin.workflowMeta().dependencies().stream().map(DependencyReadinessView::code).toList();
+        return List.of();
     }
 
     private float tableHeaderLegacy(PDDocument doc, PDPage page, float y, boolean fr) throws Exception {
@@ -425,11 +510,18 @@ public class ReportCardPdfService {
     }
 
     private static boolean annual(BulletinSnapshotView b) {
+        if ("ANNUAL".equalsIgnoreCase(b.product())) return true;
         String code = b.reportingPeriodCode() == null ? "" : b.reportingPeriodCode().toUpperCase(Locale.ROOT);
         String label = b.reportingPeriodLabel() == null ? "" : b.reportingPeriodLabel().toUpperCase(Locale.ROOT);
         String family = b.evidence() == null || b.evidence().documentDesign() == null ? "" :
                 String.valueOf(b.evidence().documentDesign().templateFamily()).toUpperCase(Locale.ROOT);
         return code.contains("ANNUAL") || label.contains("ANNUAL") || label.contains("ANNUEL") || family.endsWith("ANNUAL");
+    }
+
+    private static boolean computed(BulletinSnapshotView b) {
+        return "TERM".equalsIgnoreCase(b.product()) || "ANNUAL".equalsIgnoreCase(b.product())
+                || "TERM_RESULT".equalsIgnoreCase(b.reportingPeriodType())
+                || "ANNUAL_RESULT".equalsIgnoreCase(b.reportingPeriodType());
     }
 
     private static String grade(java.math.BigDecimal mark) {

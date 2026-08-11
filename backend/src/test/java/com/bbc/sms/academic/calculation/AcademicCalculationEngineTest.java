@@ -83,6 +83,45 @@ class AcademicCalculationEngineTest {
     }
 
     @Test
+    void genericTermAggregationUsesConfiguredDependencyCodesAndWeights() {
+        Result result = AcademicCalculationEngine.aggregate(Product.TERM, List.of(
+                new ChildInput("S3", scored("10"), new BigDecimal("0.25"), false),
+                new ChildInput("S4", scored("18"), new BigDecimal("0.75"), false)));
+
+        assertThat(result.value()).isEqualByComparingTo("16");
+        assertThat(result.includedComponents()).containsExactly("S3", "S4");
+    }
+
+    @Test
+    void missingRequiredChildBlocksButDoesNotCreateAZeroValue() {
+        Result result = AcademicCalculationEngine.aggregate(Product.TERM, List.of(
+                new ChildInput("S1", scored("12"), BigDecimal.ONE, false),
+                new ChildInput("S2", new Result(Product.SEQUENCE, null, BigDecimal.ZERO,
+                        List.of("MISSING"), List.of()), BigDecimal.ONE, false)));
+
+        assertThat(result.value()).isEqualByComparingTo("12");
+        assertThat(result.complete()).isFalse();
+        assertThat(result.blockers()).contains("S2:MISSING");
+    }
+
+    @Test
+    void optionalMissingChildDoesNotBlockOrChangeAvailableResult() {
+        Result result = AcademicCalculationEngine.aggregate(Product.TERM, List.of(
+                new ChildInput("S1", scored("12"), BigDecimal.ONE, false),
+                new ChildInput("COMP", null, BigDecimal.ONE, true)));
+
+        assertThat(result.value()).isEqualByComparingTo("12");
+        assertThat(result.blockers()).isEmpty();
+    }
+
+    @Test
+    void competitionRankingTreatsDifferentBigDecimalScalesAsTies() {
+        assertThat(AcademicCalculationEngine.competitionRanks(List.of(
+                new BigDecimal("18.0"), new BigDecimal("18.00"), new BigDecimal("12"))))
+                .containsExactly(1, 1, 3);
+    }
+
+    @Test
     void competitionRankingUsesOneBasedStandardCompetitionRanks() {
         assertThat(AcademicCalculationEngine.competitionRanks(List.of(
                 BigDecimal.valueOf(18), BigDecimal.valueOf(18), BigDecimal.valueOf(12), BigDecimal.valueOf(9))))

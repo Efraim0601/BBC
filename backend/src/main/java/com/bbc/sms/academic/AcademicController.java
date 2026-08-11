@@ -126,9 +126,19 @@ public class AcademicController {
         return snapshotService.startCorrection(id, request);
     }
 
+    @PostMapping("/bulletin-snapshots/{id}/refresh")
+    @PreAuthorize("@perm.can('academic','write') and @perm.staffOnly()")
+    public BulletinSnapshotView refreshSnapshot(@PathVariable UUID id, @Valid @RequestBody BulletinRefreshRequest request) {
+        return snapshotService.refresh(id, request);
+    }
+
     @GetMapping("/bulletin-snapshots/{id}/pdf")
     @PreAuthorize("@perm.can('academic','read') and @perm.staffOnly()")
     public ResponseEntity<byte[]> reportCardPdf(@PathVariable UUID id, @RequestParam(defaultValue = "fr") String locale) {
+        BulletinSnapshotView snapshot = snapshotService.byId(id);
+        if (!"VALIDATED".equals(snapshot.state()) && !"PUBLISHED".equals(snapshot.state())) {
+            throw com.bbc.sms.platform.common.ApiException.badRequest("Le bulletin doit être validé avant la génération du document officiel");
+        }
         byte[] pdf = reportCardPdfService.render(id, !"en".equalsIgnoreCase(locale));
         return ResponseEntity.ok().contentType(MediaType.APPLICATION_PDF)
                 .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=bulletin-" + id + ".pdf")

@@ -16,6 +16,8 @@ import java.util.Objects;
  */
 public final class AcademicCalculationEngine {
     public static final BigDecimal TWENTY = BigDecimal.valueOf(20);
+    /** Internal calculation precision.  Presentation code is responsible for rounding. */
+    public static final int CALCULATION_SCALE = 18;
 
     private AcademicCalculationEngine() {}
 
@@ -43,6 +45,15 @@ public final class AcademicCalculationEngine {
             if (value == null) throw new IllegalArgumentException("value is required");
             weight = weight == null ? BigDecimal.ONE : weight;
             if (weight.signum() <= 0) throw new IllegalArgumentException("weight must be positive");
+        }
+    }
+
+    /** One configured child in a computed reporting-period dependency graph. */
+    public record ChildInput(String code, Result result, BigDecimal weight, boolean optional) {
+        public ChildInput {
+            if (code == null || code.isBlank()) throw new IllegalArgumentException("child code is required");
+            weight = weight == null ? BigDecimal.ONE : weight;
+            if (weight.signum() <= 0) throw new IllegalArgumentException("child weight must be positive");
         }
     }
 
@@ -108,13 +119,11 @@ public final class AcademicCalculationEngine {
         requireProduct(s1, Product.SEQUENCE);
         requireProduct(s2, Product.SEQUENCE);
         if (optionalComp != null) requireProduct(optionalComp, Product.SEQUENCE);
-        List<WeightedValue> values = new ArrayList<>();
-        List<String> blockers = new ArrayList<>();
-        addChild(values, blockers, "S1", s1, s1Weight, false);
-        addChild(values, blockers, "S2", s2, s2Weight, false);
-        if (optionalComp != null && optionalComp.value() != null && optionalComp.blockers().isEmpty())
-            addChild(values, blockers, "COMP", optionalComp, compWeight, true);
-        return weighted(Product.TERM, values, blockers);
+        List<ChildInput> children = new ArrayList<>();
+        children.add(new ChildInput("S1", s1, s1Weight, false));
+        children.add(new ChildInput("S2", s2, s2Weight, false));
+        if (optionalComp != null) children.add(new ChildInput("COMP", optionalComp, compWeight, true));
+        return aggregate(Product.TERM, children);
     }
 
     public static Result annual(Result t1, Result t2, Result t3) {
@@ -128,12 +137,31 @@ public final class AcademicCalculationEngine {
         requireProduct(t1, Product.TERM);
         requireProduct(t2, Product.TERM);
         requireProduct(t3, Product.TERM);
+        return aggregate(Product.ANNUAL, List.of(
+                new ChildInput("T1", t1, t1Weight, false),
+                new ChildInput("T2", t2, t2Weight, false),
+                new ChildInput("T3", t3, t3Weight, false)));
+    }
+
+    /**
+     * Aggregate any configured dependency list.  The service owns graph
+     * traversal and ordering; this method owns only the weighted formula and
+     * the rule that an available provisional child value remains visible while
+     * its workflow blockers are propagated to the parent.
+     */
+    public static Result aggregate(Product product, List<ChildInput> children) {
+        if (product != Product.TERM && product != Product.ANNUAL)
+            throw new IllegalArgumentException("Computed aggregation requires TERM or ANNUAL product");
         List<WeightedValue> values = new ArrayList<>();
         List<String> blockers = new ArrayList<>();
-        addChild(values, blockers, "T1", t1, t1Weight, false);
-        addChild(values, blockers, "T2", t2, t2Weight, false);
-        addChild(values, blockers, "T3", t3, t3Weight, false);
-        return weighted(Product.ANNUAL, values, blockers);
+        for (ChildInput child : children == null ? List.<ChildInput>of() : children) {
+            if (child.result() != null) {
+                Product expected = product == Product.TERM ? Product.SEQUENCE : Product.TERM;
+                requireProduct(child.result(), expected);
+            }
+            addChild(values, blockers, child.code(), child.result(), child.weight(), child.optional());
+        }
+        return weighted(product, values, blockers);
     }
 
     public static BigDecimal weightedOverall(List<WeightedValue> subjects) {
@@ -147,8 +175,10 @@ public final class AcademicCalculationEngine {
                 .filter(Objects::nonNull).sorted(Comparator.reverseOrder()).toList();
         return (values == null ? List.<BigDecimal>of() : values).stream().map(value -> {
             if (value == null) return null;
-            int index = sorted.indexOf(value);
-            return index < 0 ? null : index + 1;
+            for (int index = 0; index < sorted.size(); index++) {
+                if (sorted.get(index).compareTo(value) == 0) return index + 1;
+            }
+            return null;
         }).toList();
     }
 
@@ -166,10 +196,8 @@ public final class AcademicCalculationEngine {
             if (!optional) blockers.add(code + ":MISSING");
             return;
         }
-        if (!child.blockers().isEmpty()) {
-            if (!optional) child.blockers().forEach(blocker -> blockers.add(code + ":" + blocker));
-            return;
-        }
+        if (!child.blockers().isEmpty() && !optional)
+            child.blockers().forEach(blocker -> blockers.add(code + ":" + blocker));
         values.add(new WeightedValue(code, child.value(), weight, optional));
     }
 
@@ -180,7 +208,7 @@ public final class AcademicCalculationEngine {
             numerator = numerator.add(value.value().multiply(value.weight()));
             denominator = denominator.add(value.weight());
         }
-        BigDecimal result = denominator.signum() == 0 ? null : numerator.divide(denominator, 12, RoundingMode.HALF_UP);
+        BigDecimal result = denominator.signum() == 0 ? null : numerator.divide(denominator, CALCULATION_SCALE, RoundingMode.HALF_UP);
         return new Result(product, result, denominator, blockers, values.stream().map(WeightedValue::code).toList());
     }
 

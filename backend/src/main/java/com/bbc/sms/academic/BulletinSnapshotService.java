@@ -4,6 +4,7 @@ import com.bbc.sms.academic.calculation.AcademicCalculationEngine;
 import com.bbc.sms.academic.dto.AcademicDtos.*;
 import com.bbc.sms.foundation.enrollment.StudentEnrollment;
 import com.bbc.sms.foundation.enrollment.StudentEnrollmentRepository;
+import com.bbc.sms.foundation.audit.AuditService;
 import com.bbc.sms.foundation.session.AcademicReportingPeriod;
 import com.bbc.sms.foundation.session.AcademicReportingPeriodRepository;
 import com.bbc.sms.foundation.session.AcademicWindowPolicyService;
@@ -33,9 +34,11 @@ import java.util.stream.Collectors;
 
 @Service
 public class BulletinSnapshotService {
+    private static final String FORMULA_VERSION = "AcademicCalculationEngine/v2-live-dependencies";
     private final AcademicReportingPeriodRepository periods;
     private final AcademicAssessmentRepository assessments;
     private final AcademicGradeRepository grades;
+    private final AcademicGradePacketRepository packets;
     private final SubjectResultCommentRepository comments;
     private final BulletinVersionRepository versions;
     private final StudentEnrollmentRepository enrollments;
@@ -48,18 +51,84 @@ public class BulletinSnapshotService {
     private final TeachingAssignmentResolver assignments;
     private final ObjectMapper mapper;
     private final JdbcTemplate jdbc;
+    private final AuditService audit;
 
     public BulletinSnapshotService(AcademicReportingPeriodRepository periods, AcademicAssessmentRepository assessments,
                                    AcademicGradeRepository grades, SubjectResultCommentRepository comments,
-                                   BulletinVersionRepository versions, StudentEnrollmentRepository enrollments,
+                                   AcademicGradePacketRepository packets, BulletinVersionRepository versions, StudentEnrollmentRepository enrollments,
                                    StudentRepository students, SubjectRepository subjects,
                                    SubjectClassCoefRepository subjectClassCoefs, SchoolClassRepository classes,
                                    AcademicWindowPolicyService windows, TeacherScopeService teacherScope, TeachingAssignmentResolver assignments, ObjectMapper mapper,
-                                   JdbcTemplate jdbc) {
-        this.periods = periods; this.assessments = assessments; this.grades = grades; this.comments = comments;
+                                   JdbcTemplate jdbc, AuditService audit) {
+        this.periods = periods; this.assessments = assessments; this.grades = grades; this.comments = comments; this.packets = packets;
         this.versions = versions; this.enrollments = enrollments; this.students = students; this.subjects = subjects;
         this.subjectClassCoefs = subjectClassCoefs; this.classes = classes;
-        this.windows = windows; this.teacherScope = teacherScope; this.assignments = assignments; this.mapper = mapper; this.jdbc = jdbc;
+        this.windows = windows; this.teacherScope = teacherScope; this.assignments = assignments; this.mapper = mapper; this.jdbc = jdbc; this.audit = audit;
+    }
+
+    private StudentEnrollment enrollment(UUID studentId, AcademicReportingPeriod period) {
+        return enrollments.findFirstBySchoolIdAndStudentIdAndAcademicSessionIdAndStatus(
+                TenantContext.get(), studentId, period.getAcademicSessionId(), "ACTIVE").orElse(null);
+    }
+
+    private BulletinVersion latestOfficial(UUID studentId, UUID periodId) {
+        BulletinVersion published = versions.findFirstBySchoolIdAndStudentIdAndReportingPeriodIdAndStateOrderByPublishedAtDesc(
+                TenantContext.get(), studentId, periodId, "PUBLISHED").orElse(null);
+        if (published != null) return published;
+        return versions.findBySchoolIdAndStudentIdAndReportingPeriodIdAndState(
+                        TenantContext.get(), studentId, periodId, "VALIDATED").stream()
+                .max(Comparator.comparing(BulletinVersion::getCreatedAt,
+                        Comparator.nullsLast(Comparator.naturalOrder())))
+                .orElse(null);
+    }
+
+    private BulletinVersion latestActive(UUID studentId, UUID periodId) {
+        return versions.findBySchoolIdAndStudentIdAndReportingPeriodIdAndStateInOrderByCreatedAtDesc(
+                        TenantContext.get(), studentId, periodId, List.of("DRAFT", "RETURNED"))
+                .stream().findFirst().orElse(null);
+    }
+
+    private CurrentSnapshot currentSnapshot(UUID studentId, AcademicReportingPeriod period,
+                                            Student student, StudentEnrollment enrollment) {
+        CalculationContext context = new CalculationContext();
+        Calculation raw = calculateCurrent(studentId, period, context);
+        Calculation calculation = withClassStatistics(studentId, period, raw, context);
+        AttendanceSummaryView attendance = attendance(period, studentId);
+        ConductSummaryView conduct = conduct(period, studentId);
+        SnapshotTrace trace = snapshotTrace(period, student, enrollment, calculation);
+        String json = writeSnapshot(period, student, enrollment, calculation, attendance, conduct, trace);
+        return new CurrentSnapshot(student, enrollment, calculation, attendance, conduct, trace, json, sha256(json));
+    }
+
+    private List<String> officialBlockers(Calculation calculation, ConductSummaryView conduct) {
+        List<String> blockers = new ArrayList<>(calculation == null ? List.of() : calculation.blockers());
+        if (conduct == null || !"APPROVED".equalsIgnoreCase(conduct.status())) addDistinct(blockers, "CONDUCT_NOT_APPROVED");
+        return blockers;
+    }
+
+    private BulletinSnapshotView persistedView(BulletinVersion version, AcademicReportingPeriod period,
+                                               Student student, CurrentSnapshot current,
+                                               String relation, boolean refreshRequired) {
+        return view(version, period, student, current.calculation(), current.attendance(), current.conduct(),
+                current.trace(), relation, refreshRequired);
+    }
+
+    private BulletinSnapshotView currentView(CurrentSnapshot current, AcademicReportingPeriod period,
+                                             Student student, BulletinVersion persisted,
+                                             String relation, boolean refreshRequired) {
+        BulletinVersion transientVersion = new BulletinVersion();
+        transientVersion.setId(persisted == null ? null : persisted.getId());
+        transientVersion.setState(persisted == null ? "PREVIEW" : persisted.getState());
+        transientVersion.setVersion(persisted == null ? 0 : persisted.getVersion());
+        transientVersion.setSnapshotHash(current.hash());
+        transientVersion.setCalculationPolicy(period.getCalculationPolicy());
+        transientVersion.setSupersedesId(persisted == null ? null : persisted.getSupersedesId());
+        transientVersion.setCorrectsBulletinVersionId(persisted == null ? null : persisted.getCorrectsBulletinVersionId());
+        transientVersion.setCorrectionReason(persisted == null ? null : persisted.getCorrectionReason());
+        transientVersion.setCorrectionRequestedBy(persisted == null ? null : persisted.getCorrectionRequestedBy());
+        transientVersion.setCorrectionRequestedAt(persisted == null ? null : persisted.getCorrectionRequestedAt());
+        return view(transientVersion, period, student, current.calculation(), current.attendance(), current.conduct(),
+                current.trace(), relation, refreshRequired);
     }
 
     @Transactional
@@ -67,30 +136,105 @@ public class BulletinSnapshotService {
         teacherScope.assertStudent(studentId);
         AcademicReportingPeriod period = period(periodId);
         Student student = students.findByIdAndSchoolId(studentId, TenantContext.get()).orElseThrow(() -> ApiException.notFound("Élève"));
-        StudentEnrollment enrollment = enrollments.findFirstBySchoolIdAndStudentIdAndAcademicSessionIdAndStatus(
-                TenantContext.get(), studentId, period.getAcademicSessionId(), "ACTIVE").orElse(null);
+        StudentEnrollment enrollment = enrollment(studentId, period);
         if (enrollment == null) throw ApiException.conflict("Cet élève n'est pas inscrit dans la session académique sélectionnée. Vérifiez son inscription dans Élèves > Inscription.");
-        BulletinVersion published = versions.findFirstBySchoolIdAndStudentIdAndReportingPeriodIdAndStateOrderByPublishedAtDesc(
-                TenantContext.get(), studentId, periodId, "PUBLISHED").orElse(null);
-        if (published != null) return viewFromSnapshot(published, period, student);
-        BulletinVersion existing = versions.findFirstBySchoolIdAndStudentIdAndReportingPeriodIdOrderByCreatedAtDesc(
-                TenantContext.get(), studentId, periodId).orElse(null);
-        if (existing != null && "VALIDATED".equals(existing.getState())) {
-            return viewFromSnapshot(existing, period, student);
+        BulletinVersion official = latestOfficial(studentId, periodId);
+        BulletinVersion active = latestActive(studentId, periodId);
+        if (official != null && active == null) return viewFromSnapshot(official, period, student);
+        CurrentSnapshot current = currentSnapshot(studentId, period, student, enrollment);
+        List<String> officialBlockers = officialBlockers(current.calculation(), current.conduct());
+        if (active != null) {
+            if (Objects.equals(active.getSnapshotHash(), current.hash()) && officialBlockers.isEmpty())
+                return persistedView(active, period, student, current, "CURRENT", false);
+            throw ApiException.blockers("BULLETIN_DRAFT_STALE",
+                    "Le brouillon de " + period.getCode() + " ne correspond plus aux sources actuelles. Actualisez-le avant validation.",
+                    List.of("BULLETIN_DRAFT_STALE"));
         }
-        Calculation calculation = withClassStatistics(studentId, period, calculatePeriod(studentId, period));
-        AttendanceSummaryView attendance = attendance(period, studentId);
-        ConductSummaryView conduct = conduct(period, studentId);
-        SnapshotTrace trace = snapshotTrace(period, student, enrollment);
-        String json = writeSnapshot(period, student, enrollment, calculation, attendance, conduct, trace);
+        if (!officialBlockers.isEmpty()) {
+            throw ApiException.blockers("BULLETIN_NOT_READY",
+                    "Le bulletin ne peut pas être créé tant que les sources académiques et administratives ne sont pas prêtes.",
+                    officialBlockers);
+        }
         BulletinVersion version = new BulletinVersion();
         version.setSchoolId(TenantContext.get()); version.setAcademicSessionId(period.getAcademicSessionId()); version.setReportingPeriodId(periodId);
-        version.setStudentId(studentId); version.setEnrollmentId(enrollment.getId()); version.setState("DRAFT"); version.setSnapshotJson(json);
-        version.setSnapshotHash(sha256(json)); version.setAverage(calculation.average()); version.setRank(calculation.rank()); version.setClassSize(calculation.classSize());
+        version.setStudentId(studentId); version.setEnrollmentId(enrollment.getId()); version.setState("DRAFT");
+        version.setSnapshotJson(current.json());
+        version.setSnapshotHash(current.hash()); version.setAverage(current.calculation().average() == null ? BigDecimal.ZERO : current.calculation().average());
+        version.setRank(current.calculation().rank()); version.setClassSize(current.calculation().classSize());
         version.setCalculationPolicy(period.getCalculationPolicy()); version.setCreatedBy(currentUserId());
-        version.setTemplateVersion(templateReference(trace));
-        freezeDesign(version, trace, enrollment);
-        return view(versions.save(version), period, student, calculation, attendance, conduct, trace);
+        version.setTemplateVersion(templateReference(current.trace()));
+        freezeDesign(version, current.trace(), enrollment);
+        BulletinVersion saved = versions.save(version);
+        audit.record("BULLETIN_DRAFT_CREATED", "BulletinVersion", saved.getId().toString(), null,
+                Map.of("id", saved.getId(), "periodCode", period.getCode(), "studentId", studentId,
+                        "snapshotHash", saved.getSnapshotHash(), "average", saved.getAverage()), null);
+        return view(saved, period, student, current.calculation(), current.attendance(), current.conduct(), current.trace(),
+                "CURRENT", false);
+    }
+
+    @Transactional
+    public BulletinSnapshotView refresh(UUID id, BulletinRefreshRequest request) {
+        BulletinVersion previous = versions.findByIdAndSchoolIdForUpdate(id, TenantContext.get())
+                .orElseThrow(() -> ApiException.notFound("Version de bulletin"));
+        if (!Set.of("DRAFT", "RETURNED").contains(previous.getState())) {
+            throw ApiException.conflict("Seuls les brouillons et les bulletins retournés peuvent être actualisés.");
+        }
+        if (request == null || request.reason() == null || request.reason().isBlank()) {
+            throw ApiException.badRequest("Le motif d'actualisation est obligatoire.");
+        }
+        if (request.version() == null || request.version() != previous.getVersion()) {
+            long supplied = request.version() == null ? -1 : request.version();
+            throw ApiException.staleVersion("Le brouillon a été modifié entre-temps. Rechargez-le avant de l'actualiser.",
+                    previous.getVersion(), supplied);
+        }
+        teacherScope.assertStudent(previous.getStudentId());
+        windows.assertOpen(previous.getReportingPeriodId(), AcademicWindowPolicyService.Action.VALIDATION);
+        AcademicReportingPeriod period = period(previous.getReportingPeriodId());
+        Student student = students.findByIdAndSchoolId(previous.getStudentId(), TenantContext.get())
+                .orElseThrow(() -> ApiException.notFound("Élève"));
+        StudentEnrollment enrollment = enrollment(previous.getStudentId(), period);
+        if (enrollment == null) throw ApiException.conflict("Aucune inscription active pour l'actualisation.");
+        CurrentSnapshot current = currentSnapshot(previous.getStudentId(), period, student, enrollment);
+        List<String> blockers = officialBlockers(current.calculation(), current.conduct());
+        if (!blockers.isEmpty()) {
+            throw ApiException.blockers("BULLETIN_NOT_READY",
+                    "Le brouillon ne peut pas être actualisé tant que ses sources ne sont pas prêtes.", blockers);
+        }
+        if (Objects.equals(previous.getSnapshotHash(), current.hash())) {
+            return persistedView(previous, period, student, current, "CURRENT", false);
+        }
+
+        String oldHash = previous.getSnapshotHash();
+        BigDecimal oldAverage = previous.getAverage();
+        previous.setState("SUPERSEDED");
+        versions.saveAndFlush(previous);
+
+        BulletinVersion replacement = new BulletinVersion();
+        replacement.setSchoolId(TenantContext.get());
+        replacement.setAcademicSessionId(period.getAcademicSessionId());
+        replacement.setReportingPeriodId(period.getId());
+        replacement.setStudentId(previous.getStudentId());
+        replacement.setEnrollmentId(enrollment.getId());
+        replacement.setState("DRAFT");
+        replacement.setSnapshotJson(current.json());
+        replacement.setSnapshotHash(current.hash());
+        replacement.setAverage(current.calculation().average() == null ? BigDecimal.ZERO : current.calculation().average());
+        replacement.setRank(current.calculation().rank());
+        replacement.setClassSize(current.calculation().classSize());
+        replacement.setCalculationPolicy(period.getCalculationPolicy());
+        replacement.setCreatedBy(currentUserId());
+        replacement.setSupersedesId(previous.getId());
+        replacement.setGeneralAppreciation(previous.getGeneralAppreciation());
+        replacement.setTemplateVersion(templateReference(current.trace()));
+        freezeDesign(replacement, current.trace(), enrollment);
+        BulletinVersion saved = versions.saveAndFlush(replacement);
+        Map<String, Object> before = new LinkedHashMap<>();
+        before.put("id", previous.getId()); before.put("state", "DRAFT"); before.put("snapshotHash", oldHash); before.put("average", oldAverage);
+        Map<String, Object> after = new LinkedHashMap<>();
+        after.put("id", saved.getId()); after.put("state", "DRAFT"); after.put("snapshotHash", saved.getSnapshotHash()); after.put("average", saved.getAverage());
+        after.put("supersedesId", previous.getId()); after.put("reason", request.reason().trim());
+        audit.record("BULLETIN_DRAFT_REFRESHED", "BulletinVersion", saved.getId().toString(), before, after, request.reason().trim());
+        return persistedView(saved, period, student, current, "CURRENT", false);
     }
 
     /**
@@ -116,11 +260,12 @@ public class BulletinSnapshotService {
         StudentEnrollment enrollment = enrollments.findFirstBySchoolIdAndStudentIdAndAcademicSessionIdAndStatus(
                 TenantContext.get(), previous.getStudentId(), period.getAcademicSessionId(), "ACTIVE")
                 .orElseThrow(() -> ApiException.conflict("Aucune inscription active pour la correction"));
-        Calculation calculation = withClassStatistics(previous.getStudentId(), period, calculatePeriod(previous.getStudentId(), period));
-        AttendanceSummaryView attendance = attendance(period, previous.getStudentId());
-        ConductSummaryView conduct = conduct(period, previous.getStudentId());
-        SnapshotTrace trace = snapshotTrace(period, student, enrollment);
-        String json = writeSnapshot(period, student, enrollment, calculation, attendance, conduct, trace);
+        CurrentSnapshot current = currentSnapshot(previous.getStudentId(), period, student, enrollment);
+        Calculation calculation = current.calculation();
+        AttendanceSummaryView attendance = current.attendance();
+        ConductSummaryView conduct = current.conduct();
+        SnapshotTrace trace = current.trace();
+        String json = current.json();
         BulletinVersion replacement = new BulletinVersion();
         replacement.setSchoolId(TenantContext.get());
         replacement.setAcademicSessionId(period.getAcademicSessionId());
@@ -129,7 +274,7 @@ public class BulletinSnapshotService {
         replacement.setEnrollmentId(enrollment.getId());
         replacement.setState("DRAFT");
         replacement.setSnapshotJson(json);
-        replacement.setSnapshotHash(sha256(json));
+        replacement.setSnapshotHash(current.hash());
         replacement.setAverage(calculation.average());
         replacement.setRank(calculation.rank());
         replacement.setClassSize(calculation.classSize());
@@ -162,32 +307,22 @@ public class BulletinSnapshotService {
         AcademicReportingPeriod period = period(periodId);
         Student student = students.findByIdAndSchoolId(studentId, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Ã‰lÃ¨ve"));
+        StudentEnrollment enrollment = enrollment(studentId, period);
+        if (enrollment == null) throw ApiException.conflict("Cet élève n'est pas inscrit dans la session académique sélectionnée.");
         // A preview never creates a version. If an explicit draft/correction already
         // exists, show that durable version so the user can continue its workflow;
         // otherwise expose the latest frozen result before calculating an in-memory
         // preview from the current authoritative inputs.
-        BulletinVersion latest = versions.findFirstBySchoolIdAndStudentIdAndReportingPeriodIdOrderByCreatedAtDesc(
-                TenantContext.get(), studentId, periodId).orElse(null);
-        if (latest != null && Set.of("DRAFT", "RETURNED", "CALCULATED", "READY", "VALIDATED", "PUBLISHED").contains(latest.getState())) {
-            return viewFromSnapshot(latest, period, student);
+        CurrentSnapshot current = currentSnapshot(studentId, period, student, enrollment);
+        BulletinVersion active = latestActive(studentId, periodId);
+        if (active != null) {
+            if (Objects.equals(active.getSnapshotHash(), current.hash()))
+                return persistedView(active, period, student, current, "CURRENT", false);
+            return currentView(current, period, student, active, "STALE", true);
         }
-        BulletinVersion published = versions.findFirstBySchoolIdAndStudentIdAndReportingPeriodIdAndStateOrderByPublishedAtDesc(
-                TenantContext.get(), studentId, periodId, "PUBLISHED").orElse(null);
-        if (published != null) return viewFromSnapshot(published, period, student);
-        StudentEnrollment enrollment = enrollments.findFirstBySchoolIdAndStudentIdAndAcademicSessionIdAndStatus(
-                TenantContext.get(), studentId, period.getAcademicSessionId(), "ACTIVE").orElse(null);
-        if (enrollment == null) throw ApiException.conflict("Cet élève n'est pas inscrit dans la session académique sélectionnée. Vérifiez son inscription dans Élèves > Inscription.");
-        Calculation calculation = withClassStatistics(studentId, period, calculatePeriod(studentId, period));
-        AttendanceSummaryView attendance = attendance(period, studentId);
-        ConductSummaryView conduct = conduct(period, studentId);
-        SnapshotTrace trace = snapshotTrace(period, student, enrollment);
-        String json = writeSnapshot(period, student, enrollment, calculation, attendance, conduct, trace);
-        BulletinVersion transientVersion = new BulletinVersion();
-        transientVersion.setState("PREVIEW");
-        transientVersion.setSnapshotHash(sha256(json));
-        transientVersion.setCalculationPolicy(period.getCalculationPolicy());
-        transientVersion.setVersion(0);
-        return view(transientVersion, period, student, calculation, attendance, conduct, trace);
+        BulletinVersion official = latestOfficial(studentId, periodId);
+        if (official != null) return viewFromSnapshot(official, period, student);
+        return currentView(current, period, student, null, "NONE", false);
     }
 
     @Transactional(readOnly = true)
@@ -203,26 +338,33 @@ public class BulletinSnapshotService {
 
     @Transactional
     public BulletinSnapshotView validate(UUID id) {
-        BulletinVersion version = versions.findByIdAndSchoolId(id, TenantContext.get()).orElseThrow(() -> ApiException.notFound("Version de bulletin"));
+        BulletinVersion version = versions.findByIdAndSchoolIdForUpdate(id, TenantContext.get()).orElseThrow(() -> ApiException.notFound("Version de bulletin"));
         if (!"DRAFT".equals(version.getState()) && !"RETURNED".equals(version.getState())) throw ApiException.conflict("Cette version n'est plus un brouillon validable");
         windows.assertOpen(version.getReportingPeriodId(), AcademicWindowPolicyService.Action.VALIDATION);
         AcademicReportingPeriod period = period(version.getReportingPeriodId());
         Student student = students.findByIdAndSchoolId(version.getStudentId(), TenantContext.get()).orElseThrow();
-        BulletinSnapshotView view = viewFromSnapshot(version, period, student);
-        List<String> blockers = new ArrayList<>(view.blockers());
-        if (view.conduct() == null || !"APPROVED".equalsIgnoreCase(view.conduct().status())) {
-            blockers.add("CONDUCT_NOT_APPROVED");
+        StudentEnrollment enrollment = enrollment(version.getStudentId(), period);
+        if (enrollment == null) throw ApiException.conflict("Aucune inscription active pour la validation.");
+        CurrentSnapshot current = currentSnapshot(version.getStudentId(), period, student, enrollment);
+        if (!Objects.equals(version.getSnapshotHash(), current.hash())) {
+            throw ApiException.blockers("BULLETIN_DRAFT_STALE",
+                    "Le brouillon ne correspond plus aux sources actuelles. Actualisez-le avant validation.",
+                    List.of("BULLETIN_DRAFT_STALE"));
         }
+        List<String> blockers = officialBlockers(current.calculation(), current.conduct());
         if (!blockers.isEmpty()) throw ApiException.blockers("BULLETIN_NOT_READY",
                 "Bulletin incomplet ou preuves administratives non approuvées : " + String.join("; ", blockers), blockers);
         version.setState("VALIDATED"); version.setValidatedAt(Instant.now()); version.setValidatedBy(currentUserId());
         versions.saveAndFlush(version);
-        return viewFromSnapshot(version, period, student);
+        audit.record("BULLETIN_VALIDATED", "BulletinVersion", version.getId().toString(),
+                Map.of("state", "DRAFT", "snapshotHash", version.getSnapshotHash()),
+                Map.of("state", "VALIDATED", "snapshotHash", version.getSnapshotHash()), null);
+        return view(version, period, student, current.calculation(), current.attendance(), current.conduct(), current.trace(), "CURRENT", false);
     }
 
     @Transactional
     public BulletinSnapshotView publish(UUID id, BulletinLifecycleRequest request) {
-        BulletinVersion version = versions.findByIdAndSchoolId(id, TenantContext.get())
+        BulletinVersion version = versions.findByIdAndSchoolIdForUpdate(id, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Version de bulletin"));
         if (!"VALIDATED".equals(version.getState())) {
             throw ApiException.conflict("Le bulletin doit être validé avant publication. État actuel : " + version.getState());
@@ -236,6 +378,16 @@ public class BulletinSnapshotService {
         windows.assertOpen(version.getReportingPeriodId(), AcademicWindowPolicyService.Action.PUBLICATION);
         AcademicReportingPeriod period = period(version.getReportingPeriodId());
         Student student = students.findByIdAndSchoolId(version.getStudentId(), TenantContext.get()).orElseThrow();
+        StudentEnrollment enrollment = enrollment(version.getStudentId(), period);
+        if (enrollment == null) throw ApiException.conflict("Aucune inscription active pour la publication.");
+        CurrentSnapshot current = currentSnapshot(version.getStudentId(), period, student, enrollment);
+        if (!Objects.equals(version.getSnapshotHash(), current.hash())) {
+            throw ApiException.blockers("BULLETIN_DRAFT_STALE",
+                    "Le bulletin validé ne correspond plus aux sources actuelles.", List.of("BULLETIN_DRAFT_STALE"));
+        }
+        List<String> blockers = officialBlockers(current.calculation(), current.conduct());
+        if (!blockers.isEmpty()) throw ApiException.blockers("BULLETIN_NOT_READY",
+                "Le bulletin ne peut pas être publié : " + String.join("; ", blockers), blockers);
         version.setState("PUBLISHED");
         version.setPublishedAt(Instant.now());
         version.setPublishedBy(currentUserId());
@@ -247,7 +399,11 @@ public class BulletinSnapshotService {
                 versions.save(previous);
             });
         }
-        return viewFromSnapshot(version, period, student);
+        audit.record("BULLETIN_PUBLISHED", "BulletinVersion", version.getId().toString(),
+                Map.of("state", "VALIDATED", "snapshotHash", version.getSnapshotHash()),
+                Map.of("state", "PUBLISHED", "snapshotHash", version.getSnapshotHash(), "reason", request.reason().trim()),
+                request.reason().trim());
+        return view(version, period, student, current.calculation(), current.attendance(), current.conduct(), current.trace(), "CURRENT", false);
     }
 
     @Transactional(readOnly = true)
@@ -290,234 +446,186 @@ public class BulletinSnapshotService {
             while (rs.next()) result.put(rs.getObject(1, UUID.class), rs.getString(2));
             return result;
         }, TenantContext.get(), period.getAcademicSessionId(), classId);
-        Map<UUID, FrozenPv> frozen = frozenPv(periodId, roster.stream().map(StudentEnrollment::getStudentId).toList());
         Map<UUID, Calculation> calculated = new LinkedHashMap<>();
+        CalculationContext context = new CalculationContext();
         for (StudentEnrollment enrollment : roster) {
-            if (!frozen.containsKey(enrollment.getStudentId())) {
-                calculated.put(enrollment.getStudentId(), calculatePeriod(enrollment.getStudentId(), period));
-            }
+            calculated.put(enrollment.getStudentId(), calculateCurrent(enrollment.getStudentId(), period, context));
         }
         List<BigDecimal> cohortAverages = new ArrayList<>();
         for (StudentEnrollment enrollment : roster) {
-            FrozenPv saved = frozen.get(enrollment.getStudentId());
-            BigDecimal average = saved == null ? calculated.get(enrollment.getStudentId()).average() : saved.average();
-            List<String> blockers = saved == null ? calculated.get(enrollment.getStudentId()).blockers() : saved.blockers();
+            Calculation current = calculated.get(enrollment.getStudentId());
+            BigDecimal average = current.average();
+            List<String> blockers = current.blockers();
             if (blockers.isEmpty() && average != null) cohortAverages.add(average);
         }
         List<SessionPvRow> rows = new ArrayList<>();
         for (StudentEnrollment enrollment : roster) {
             UUID studentId = enrollment.getStudentId();
-            FrozenPv saved = frozen.get(studentId);
             Calculation calculation = calculated.get(studentId);
-            BigDecimal average = saved == null ? calculation.average() : saved.average();
-            List<String> blockers = saved == null ? calculation.blockers() : saved.blockers();
-            Integer rank = saved != null
-                    ? saved.rank()
-                    : blockers.isEmpty() && average != null
+            BigDecimal average = calculation.average();
+            List<String> blockers = calculation.blockers();
+            Integer rank = blockers.isEmpty() && average != null
                     ? 1 + (int) cohortAverages.stream().filter(value -> value.compareTo(average) > 0).count() : null;
-            rows.add(new SessionPvRow(saved == null ? null : saved.id(), studentId, names.getOrDefault(studentId, studentId.toString()),
-                    average, rank, saved == null ? "PREVIEW" : saved.state(), blockers.isEmpty(), blockers));
+            rows.add(new SessionPvRow(null, studentId, names.getOrDefault(studentId, studentId.toString()),
+                    average, rank, "PREVIEW", blockers.isEmpty(), blockers));
         }
         rows.sort(Comparator
                 .comparing(SessionPvRow::complete).reversed()
                 .thenComparing(SessionPvRow::average, Comparator.nullsLast(Comparator.reverseOrder()))
                 .thenComparing(SessionPvRow::studentName, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)));
         List<BigDecimal> completeAverages = rows.stream().filter(SessionPvRow::complete).map(SessionPvRow::average).toList();
-        BigDecimal classAverage = completeAverages.isEmpty() ? BigDecimal.ZERO : completeAverages.stream()
+        BigDecimal classAverage = completeAverages.isEmpty() ? null : completeAverages.stream()
                 .reduce(BigDecimal.ZERO, BigDecimal::add)
                 .divide(BigDecimal.valueOf(completeAverages.size()), 2, RoundingMode.HALF_UP);
         return new SessionPvView(classId, schoolClass.getName(), period.getId(), period.getCode(), period.getLabel(), rows,
                 classAverage, rows.size(), completeAverages.size());
     }
 
-    private record FrozenPv(UUID id, UUID studentId, String state, BigDecimal average, Integer rank,
-                            List<String> blockers) {}
-
-    private Map<UUID, FrozenPv> frozenPv(UUID periodId, List<UUID> studentIds) {
-        if (studentIds.isEmpty()) return Map.of();
-        String placeholders = String.join(",", Collections.nCopies(studentIds.size(), "?"));
-        List<Object> args = new ArrayList<>();
-        args.add(TenantContext.get()); args.add(periodId); args.addAll(studentIds);
-        String sql = """
-                SELECT DISTINCT ON (student_id) id,student_id,state,average,rank,snapshot_json
-                  FROM bulletin_version
-                 WHERE school_id=? AND reporting_period_id=? AND student_id IN (PLACEHOLDERS)
-                   AND state IN ('PUBLISHED','VALIDATED')
-                 ORDER BY student_id, CASE WHEN state='PUBLISHED' THEN 0 ELSE 1 END,
-                          published_at DESC NULLS LAST, created_at DESC
-                """.replace("PLACEHOLDERS", placeholders);
-        return jdbc.query(sql, rs -> {
-            Map<UUID, FrozenPv> result = new HashMap<>();
-            while (rs.next()) {
-                UUID studentId = rs.getObject("student_id", UUID.class);
-                List<String> blockers;
-                try {
-                    var node = mapper.readTree(rs.getString("snapshot_json")).path("blockers");
-                    List<String> parsed = new ArrayList<>();
-                    if (node.isArray()) node.forEach(item -> parsed.add(item.asText()));
-                    blockers = parsed;
-                } catch (Exception ignored) {
-                    blockers = List.of("SNAPSHOT_UNREADABLE");
-                }
-                result.put(studentId, new FrozenPv(rs.getObject("id", UUID.class), studentId, rs.getString("state"),
-                        rs.getBigDecimal("average"), (Integer) rs.getObject("rank"), blockers));
-            }
-            return result;
-        }, args.toArray());
+    private static void addDistinct(List<String> values, String value) {
+        if (!values.contains(value)) values.add(value);
     }
 
-    private Calculation calculatePeriod(UUID studentId, AcademicReportingPeriod period) {
-        if ("SEQUENCE".equals(period.getPeriodType())) return calculateSequence(studentId, period);
-        List<DependencyRow> dependencies = dependencies(period);
-        Map<String, List<BigDecimal>> bySubject = new LinkedHashMap<>();
-        Map<String, List<PeriodMarkView>> componentMarks = new LinkedHashMap<>();
-        Map<String, List<AssessmentEvidenceView>> componentEvidence = new LinkedHashMap<>();
-        Map<String, List<String>> componentRemarks = new LinkedHashMap<>();
-        Map<String, Map<String, List<String>>> childBlockers = new LinkedHashMap<>();
+    /** Request-scoped current-source calculation. Persisted bulletin rows are never used as inputs. */
+    private Calculation calculateCurrent(UUID studentId, AcademicReportingPeriod period, CalculationContext context) {
+        CalcKey key = new CalcKey(studentId, period.getId());
+        Calculation cached = context.calculations.get(key);
+        if (cached != null) return cached;
+        if (!context.visiting.add(key)) return cycleCalculation(studentId, period);
+        try {
+            Calculation calculated = "SEQUENCE".equals(period.getPeriodType())
+                    ? calculateSequence(studentId, period, context)
+                    : calculateComputed(studentId, period, context);
+            context.calculations.put(key, calculated);
+            return calculated;
+        } finally {
+            context.visiting.remove(key);
+        }
+    }
+
+    private Calculation calculateSequence(UUID studentId, AcademicReportingPeriod period, CalculationContext context) {
+        Calculation base = calculateSequence(studentId, period);
+        StudentEnrollment enrollment = enrollment(studentId, period);
+        UUID classId = enrollment.getSchoolClassId();
+        PacketReadiness packet = packetReadiness(period, classId,
+                base.lines().stream().map(BulletinLineView::subjectCode).toList(), context);
+        List<String> blockers = new ArrayList<>(base.blockers());
+        List<BulletinIssueView> issues = new ArrayList<>(base.issues());
+        for (BulletinIssueView issue : packet.issues()) {
+            blockers.add(packetBlocker(period.getCode(), issue.subjectCode(), issue.code()));
+            issues.add(issue);
+        }
+        for (String blocker : base.blockers()) issues.add(issueForBlocker(blocker, period.getCode(), base.lines()));
+        String sourceHash = sourceHash(new CurrentSourceFingerprint(period.getId(), period.getVersion(), period.getPeriodType(),
+                base.lines(), blockers, List.of(), packet.traces()));
+        return rebuild(base, blockers, issues, packet.readinessRows(), List.of(), packet.traces(), sourceHash,
+                readiness(blockers));
+    }
+
+    private Calculation calculateComputed(UUID studentId, AcademicReportingPeriod period, CalculationContext context) {
+        List<DependencyRow> dependencies = dependencies(period, context);
+        if (dependencies.isEmpty()) {
+            return finishWith(List.of(), List.of("DEPENDENCY_MISSING"), List.of(issue("DEPENDENCY_MISSING", "ERROR",
+                    period.getCode(), null, "Aucune periode enfant n'est configuree pour " + period.getCode() + ".",
+                    "No child period is configured for " + period.getCode() + ".", "academic-sessions")),
+                    studentId, period, List.of(), List.of(), List.of(), null, "BLOCKED");
+        }
+
+        StudentEnrollment enrollment = enrollment(studentId, period);
+        Map<String, Calculation> children = new LinkedHashMap<>();
+        List<DependencySourceTrace> sourceTraces = new ArrayList<>();
+        List<PacketTrace> packetTraces = new ArrayList<>();
+        List<DependencyReadinessView> readinessRows = new ArrayList<>();
         List<String> blockers = new ArrayList<>();
-        Map<String, DependencyRow> byCode = dependencies.stream().collect(Collectors.toMap(
-                d -> d.childCode().toUpperCase(Locale.ROOT), d -> d, (first, ignored) -> first, LinkedHashMap::new));
-        boolean publishedOnly = "ANNUAL_RESULT".equals(period.getPeriodType());
+        List<BulletinIssueView> issues = new ArrayList<>();
         for (DependencyRow dependency : dependencies) {
-            BulletinVersion frozen = frozenChild(studentId, dependency.childPeriodId(), publishedOnly);
-            if (frozen == null) {
-                if (!dependency.optional()) blockers.add(dependency.childCode() + ":FROZEN_SNAPSHOT_REQUIRED");
+            AcademicReportingPeriod childPeriod = periods.findByIdAndSchoolId(dependency.childPeriodId(), TenantContext.get()).orElse(null);
+            if (childPeriod == null) {
+                if (!dependency.optional()) blockers.add(dependency.childCode() + ":DEPENDENCY_MISSING");
+                issues.add(issue("DEPENDENCY_MISSING", dependency.optional() ? "WARNING" : "ERROR",
+                        period.getCode(), null, dependency.childCode() + " : periode enfant introuvable.",
+                        dependency.childCode() + ": child period cannot be found.", "academic-sessions"));
                 continue;
             }
-            SnapshotPayload child = readPayload(frozen);
-            List<String> childEvidenceBlockers = child.blockers() == null ? List.of() : child.blockers();
-            if (!childEvidenceBlockers.isEmpty() && !dependency.optional()) {
-                blockers.add(dependency.childCode() + " : " + String.join(", ", childEvidenceBlockers));
+            Calculation child = calculateCurrent(studentId, childPeriod, context);
+            children.put(dependency.childCode().toUpperCase(Locale.ROOT), child);
+            if (!dependency.optional()) {
+                for (String childBlocker : child.blockers()) addDistinct(blockers, dependency.childCode() + ":" + childBlocker);
+                issues.addAll(child.issues());
             }
-            for (BulletinLineView line : child.lines() == null ? List.<BulletinLineView>of() : child.lines()) {
-                bySubject.computeIfAbsent(line.subjectCode(), k -> new ArrayList<>()).add(line.mark());
-                componentMarks.computeIfAbsent(line.subjectCode(), k -> new ArrayList<>()).add(new PeriodMarkView(dependency.childCode(), line.mark()));
-                if (line.assessments() != null && !line.assessments().isEmpty()) {
-                    componentEvidence.computeIfAbsent(line.subjectCode(), k -> new ArrayList<>()).addAll(line.assessments());
-                }
-                if (line.teacherRemark() != null && !line.teacherRemark().isBlank()) componentRemarks.computeIfAbsent(line.subjectCode(), k -> new ArrayList<>()).add(line.teacherRemark());
-                childBlockers.computeIfAbsent(line.subjectCode(), k -> new LinkedHashMap<>()).put(dependency.childCode(), childEvidenceBlockers);
-            }
+            packetTraces.addAll(child.packetTraces());
+            readinessRows.add(readinessFor(dependency, child, childPeriod));
+            sourceTraces.add(new DependencySourceTrace(childPeriod.getId(), childPeriod.getCode(), childPeriod.getVersion(),
+                    dependency.weight(), dependency.optional(), sourceKind(childPeriod), child.sourceHash(), child.packetTraces()));
         }
-        Map<String, Integer> coefficients = effectiveCoefficients(studentId, period.getAcademicSessionId());
+
+        LinkedHashSet<String> subjectCodes = curriculumSubjectCodes(studentId, period, enrollment.getSchoolClassId());
+        if (subjectCodes.isEmpty()) children.values().stream().flatMap(child -> child.lines().stream())
+                .map(BulletinLineView::subjectCode).forEach(subjectCodes::add);
         List<BulletinLineView> lines = new ArrayList<>();
-        for (Map.Entry<String, List<BigDecimal>> e : bySubject.entrySet()) {
-            Map<String, List<String>> subjectChildBlockers = childBlockers.getOrDefault(e.getKey(), Map.of());
-            Map<String, BigDecimal> subjectChildValues = new LinkedHashMap<>();
-            for (PeriodMarkView component : componentMarks.getOrDefault(e.getKey(), List.of())) {
-                subjectChildValues.put(component.periodCode(), component.mark());
+        AcademicCalculationEngine.Product product = product(period);
+        Map<String, Subject> subjectByCode = new HashMap<>();
+        for (String code : subjectCodes) subjects.findBySchoolIdAndCode(TenantContext.get(), code).ifPresent(s -> subjectByCode.put(code, s));
+        Map<String, Integer> coefficients = effectiveCoefficients(studentId, period.getAcademicSessionId());
+        for (String subjectCode : subjectCodes) {
+            List<AcademicCalculationEngine.ChildInput> childInputs = new ArrayList<>();
+            List<PeriodMarkView> periodMarks = new ArrayList<>();
+            List<AssessmentEvidenceView> evidence = new ArrayList<>();
+            for (DependencyRow dependency : dependencies) {
+                Calculation child = children.get(dependency.childCode().toUpperCase(Locale.ROOT));
+                BulletinLineView childLine = child == null ? null : child.lines().stream()
+                        .filter(line -> line.subjectCode().equalsIgnoreCase(subjectCode)).findFirst().orElse(null);
+                BigDecimal mark = childLine == null ? null : childLine.mark();
+                periodMarks.add(new PeriodMarkView(dependency.childCode(), mark));
+                if (childLine != null && childLine.assessments() != null) evidence.addAll(childLine.assessments());
+                List<String> childBlockers = child == null ? List.of("DEPENDENCY_MISSING") : subjectBlockers(child, subjectCode, childPeriodCode(dependency));
+                if (childLine == null) childBlockers = appendDistinct(childBlockers, "MISSING");
+                AcademicCalculationEngine.Product childProduct = child == null
+                        ? (product == AcademicCalculationEngine.Product.ANNUAL ? AcademicCalculationEngine.Product.TERM : AcademicCalculationEngine.Product.SEQUENCE)
+                        : productForPeriodType(childPeriodType(dependency));
+                AcademicCalculationEngine.Result childResult = new AcademicCalculationEngine.Result(childProduct, mark,
+                        mark == null ? BigDecimal.ZERO : BigDecimal.ONE, childBlockers, List.of(dependency.childCode()));
+                childInputs.add(new AcademicCalculationEngine.ChildInput(dependency.childCode(), childResult,
+                        dependency.weight(), dependency.optional()));
             }
-            List<DependencyRow> requiredChildren = dependencies.stream()
-                    .filter(child -> !child.optional())
-                    .sorted(Comparator.comparingInt(DependencyRow::displayOrder).thenComparing(DependencyRow::childCode))
-                    .toList();
             AcademicCalculationEngine.Result result;
-            if ("TERM_RESULT".equals(period.getPeriodType())) {
-                // Never hard-code S1/S2 here: the dependency graph is the
-                // source of truth for T1 (S1+S2), T2 (S3+S4), and T3 (S5+S6).
-                String firstCode = requiredChildren.size() > 0 ? requiredChildren.get(0).childCode() : "S1";
-                String secondCode = requiredChildren.size() > 1 ? requiredChildren.get(1).childCode() : "S2";
-                DependencyRow optionalComponent = dependencies.stream()
-                        .filter(DependencyRow::optional)
-                        .findFirst().orElse(null);
-                String optionalCode = optionalComponent == null ? null : optionalComponent.childCode();
-                result = AcademicCalculationEngine.term(
-                        childResult(subjectChildValues, subjectChildBlockers, firstCode, AcademicCalculationEngine.Product.SEQUENCE),
-                        weight(byCode, firstCode, BigDecimal.ONE),
-                        childResult(subjectChildValues, subjectChildBlockers, secondCode, AcademicCalculationEngine.Product.SEQUENCE),
-                        weight(byCode, secondCode, BigDecimal.ONE),
-                        optionalCode != null && subjectChildValues.containsKey(optionalCode)
-                                ? childResult(subjectChildValues, subjectChildBlockers, optionalCode, AcademicCalculationEngine.Product.SEQUENCE) : null,
-                        optionalCode == null ? BigDecimal.ONE : weight(byCode, optionalCode, BigDecimal.ONE));
-            } else {
-                // Annual products likewise follow the configured T1/T2/T3
-                // dependency rows, preserving frozen publication semantics.
-                String firstCode = requiredChildren.size() > 0 ? requiredChildren.get(0).childCode() : "T1_RESULT";
-                String secondCode = requiredChildren.size() > 1 ? requiredChildren.get(1).childCode() : "T2_RESULT";
-                String thirdCode = requiredChildren.size() > 2 ? requiredChildren.get(2).childCode() : "T3_RESULT";
-                result = AcademicCalculationEngine.annual(
-                        childResult(subjectChildValues, subjectChildBlockers, firstCode, AcademicCalculationEngine.Product.TERM),
-                        weight(byCode, firstCode, BigDecimal.ONE),
-                        childResult(subjectChildValues, subjectChildBlockers, secondCode, AcademicCalculationEngine.Product.TERM),
-                        weight(byCode, secondCode, BigDecimal.ONE),
-                        childResult(subjectChildValues, subjectChildBlockers, thirdCode, AcademicCalculationEngine.Product.TERM),
-                        weight(byCode, thirdCode, BigDecimal.ONE));
+            try {
+                result = AcademicCalculationEngine.aggregate(product, childInputs);
+            } catch (IllegalArgumentException ex) {
+                result = new AcademicCalculationEngine.Result(product, null, BigDecimal.ZERO,
+                        List.of("DEPENDENCY_MISSING"), List.of());
             }
-            for (String blocker : result.blockers()) addDistinct(blockers, e.getKey() + ":" + blocker);
+            for (String resultBlocker : result.blockers()) {
+                addDistinct(blockers, subjectCode + ":" + resultBlocker);
+                issues.add(issueForBlocker(subjectCode + ":" + resultBlocker, period.getCode(),
+                        lines, dependencies));
+            }
             BigDecimal mark = result.exempt() ? null : result.value();
-            Subject subject = subjects.findBySchoolIdAndCode(TenantContext.get(), e.getKey()).orElse(null);
-            int coef = coefficients.getOrDefault(e.getKey(), subject == null ? 1 : subject.getCoef());
-            String remark = componentRemarks.getOrDefault(e.getKey(), List.of()).stream().reduce((first, last) -> last).orElse(null);
-            CurriculumMetadata metadata = curriculumMetadata(studentId, period.getAcademicSessionId(), e.getKey());
-            if (metadata.remarkRequired() && (remark == null || remark.isBlank())) addDistinct(blockers, e.getKey() + ":REMARK_REQUIRED");
-            lines.add(new BulletinLineView(e.getKey(), subjectLabel(subject, e.getKey()), coef, mark,
-                    mark == null ? null : mark.multiply(BigDecimal.valueOf(coef)), remark, appreciation(mark),
-                    uniqueEvidence(componentEvidence.getOrDefault(e.getKey(), List.of())),
-                    componentMarks.getOrDefault(e.getKey(), List.of()), metadata.teacherName(), metadata.groupCode(), metadata.groupLabel()));
+            Subject subject = subjectByCode.get(subjectCode);
+            int coefficient = coefficients.getOrDefault(subjectCode, subject == null ? 1 : subject.getCoef());
+            CurriculumMetadata metadata = curriculumMetadata(studentId, period.getAcademicSessionId(), subjectCode);
+            lines.add(new BulletinLineView(subjectCode, subjectLabel(subject, subjectCode), coefficient, mark,
+                    mark == null ? null : mark.multiply(BigDecimal.valueOf(coefficient)), null, appreciation(mark), uniqueEvidence(evidence),
+                    periodMarks, metadata.teacherName(), metadata.groupCode(), metadata.groupLabel()));
         }
-        if (lines.isEmpty()) blockers.add("Aucune note calculable dans les périodes précédentes");
-        return finish(lines, blockers, studentId, period);
+        if (lines.isEmpty()) addDistinct(blockers, "NO_SUBJECT_RESULT");
+        String sourceHash = sourceHash(new CurrentSourceFingerprint(period.getId(), period.getVersion(), period.getPeriodType(),
+                lines, blockers, sourceTraces, packetTraces));
+        return finishWith(lines, blockers, issues, studentId, period, readinessRows, sourceTraces, packetTraces,
+                sourceHash, readiness(blockers, issues));
     }
 
-    private AcademicCalculationEngine.Result childResult(Map<String, BigDecimal> values,
-                                                          Map<String, List<String>> blockers,
-                                                          String code,
-                                                          AcademicCalculationEngine.Product product) {
-        BigDecimal value = values.get(code);
-        List<String> childBlockers = blockers.getOrDefault(code, List.of());
-        if (value == null) return new AcademicCalculationEngine.Result(
-                product, null, BigDecimal.ZERO,
-                childBlockers, List.of());
-        return new AcademicCalculationEngine.Result(product,
-                value, BigDecimal.ONE, childBlockers, List.of(code));
-    }
-
-    private List<DependencyRow> dependencies(AcademicReportingPeriod period) {
-        return jdbc.query("""
-                SELECT d.parent_period_id,d.child_period_id,child.code,d.weight,d.optional,d.display_order
+    private List<DependencyRow> dependencies(AcademicReportingPeriod period, CalculationContext context) {
+        return context.dependencies.computeIfAbsent(period.getId(), ignored -> jdbc.query("""
+                SELECT d.parent_period_id,d.child_period_id,child.code,child.label,child.period_type,
+                       child.version,d.weight,d.optional,d.display_order
                   FROM academic_reporting_period_dependency d
                   JOIN academic_reporting_period child ON child.id=d.child_period_id
                  WHERE d.school_id=? AND d.academic_session_id=? AND d.parent_period_id=?
                  ORDER BY d.display_order,child.code
                 """, (rs, n) -> new DependencyRow(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class),
-                        rs.getString(3), rs.getBigDecimal(4), rs.getBoolean(5), rs.getInt(6)),
-                TenantContext.get(), period.getAcademicSessionId(), period.getId());
-    }
-
-    private BigDecimal weight(Map<String, DependencyRow> byCode, String code, BigDecimal fallback) {
-        DependencyRow row = byCode.get(code.toUpperCase(Locale.ROOT));
-        return row == null || row.weight() == null ? fallback : row.weight();
-    }
-
-    /**
-     * Term products may consume a validated or published sequence snapshot;
-     * annual products are intentionally stricter and consume published terms
-     * only, matching the school publication workflow.
-     */
-    private BulletinVersion frozenChild(UUID studentId, UUID periodId) {
-        return frozenChild(studentId, periodId, false);
-    }
-
-    private BulletinVersion frozenChild(UUID studentId, UUID periodId, boolean publishedOnly) {
-        UUID school = TenantContext.get();
-        BulletinVersion published = versions.findFirstBySchoolIdAndStudentIdAndReportingPeriodIdAndStateOrderByPublishedAtDesc(
-                school, studentId, periodId, "PUBLISHED").orElse(null);
-        if (published != null) return published;
-        if (publishedOnly) return null;
-        return versions.findFirstBySchoolIdAndStudentIdAndReportingPeriodIdOrderByCreatedAtDesc(school, studentId, periodId)
-                .filter(v -> "VALIDATED".equals(v.getState())).orElse(null);
-    }
-
-    private SnapshotPayload readPayload(BulletinVersion version) {
-        try {
-            return mapper.readValue(version.getSnapshotJson(), SnapshotPayload.class);
-        } catch (Exception ex) {
-            throw ApiException.conflict("Le snapshot enfant " + version.getId() + " est illisible");
-        }
-    }
-
-    private static void addDistinct(List<String> values, String value) {
-        if (!values.contains(value)) values.add(value);
+                        rs.getString(3), rs.getString(4), rs.getString(5), rs.getLong(6),
+                        rs.getBigDecimal(7), rs.getBoolean(8), rs.getInt(9)),
+                TenantContext.get(), period.getAcademicSessionId(), period.getId()));
     }
 
     /** Authoritative sequence calculation backed by the pure status/normalisation engine. */
@@ -670,59 +778,6 @@ public class BulletinSnapshotService {
         return List.copyOf(unique.values());
     }
 
-    /** Retained temporarily as a read-only compatibility reference during migration. */
-    private Calculation calculateSequenceLegacy(UUID studentId, AcademicReportingPeriod period) {
-        StudentEnrollment enrollment = enrollments.findFirstBySchoolIdAndStudentIdAndAcademicSessionIdAndStatus(
-                TenantContext.get(), studentId, period.getAcademicSessionId(), "ACTIVE").orElse(null);
-        UUID classId = enrollment == null ? null : enrollment.getSchoolClassId();
-        List<AcademicAssessment> definition = classId == null
-                ? assessments.findBySchoolIdAndReportingPeriodIdOrderByDisplayOrder(TenantContext.get(), period.getId())
-                : assessments.findApplicableForClass(TenantContext.get(), period.getId(), classId);
-        List<AcademicGrade> recorded = grades.findBySchoolIdAndStudentIdAndReportingPeriodIdOrderBySubjectCodeAscAssessmentIdAsc(TenantContext.get(), studentId, period.getId());
-        Map<UUID, AcademicAssessment> byAssessment = new HashMap<>(); definition.forEach(a -> byAssessment.put(a.getId(), a));
-        Map<String, List<AcademicGrade>> bySubject = new LinkedHashMap<>(); recorded.forEach(g -> bySubject.computeIfAbsent(g.getSubjectCode(), k -> new ArrayList<>()).add(g));
-        List<BulletinLineView> lines = new ArrayList<>(); List<String> blockers = new ArrayList<>();
-        Map<String, Integer> coefficients = effectiveCoefficients(studentId, period.getAcademicSessionId());
-        for (AcademicAssessment a : definition) {
-            if (!a.isMandatory()) continue;
-            if (a.getSubjectCode() != null) {
-                boolean present = recorded.stream().anyMatch(g -> g.getAssessmentId().equals(a.getId())
-                        && !"MISSING".equals(g.getValueStatus())
-                        && a.getSubjectCode().equalsIgnoreCase(g.getSubjectCode()));
-                if (!present) blockers.add("\u00c9valuation obligatoire manquante : " + a.getSubjectCode() + " : " + a.getLabel());
-                continue;
-            }
-            if (a.isMandatory() && recorded.stream().noneMatch(g -> g.getAssessmentId().equals(a.getId()) && !"MISSING".equals(g.getValueStatus()))) blockers.add("Évaluation obligatoire manquante : " + a.getLabel());
-        }
-        for (Map.Entry<String, List<AcademicGrade>> e : bySubject.entrySet()) {
-            Map<UUID, AcademicAssessment> scopedByAssessment = new HashMap<>();
-            definition.stream()
-                    .filter(a -> a.getSubjectCode() == null || a.getSubjectCode().equalsIgnoreCase(e.getKey()))
-                    .forEach(a -> scopedByAssessment.put(a.getId(), a));
-            BigDecimal numerator = BigDecimal.ZERO, denominator = BigDecimal.ZERO; List<AssessmentEvidenceView> evidence = new ArrayList<>();
-            for (AcademicGrade g : e.getValue()) {
-                AcademicAssessment a = scopedByAssessment.get(g.getAssessmentId());
-                if (a == null) continue;
-                evidence.add(new AssessmentEvidenceView(a.getCode(), a.getLabel(), g.getMark(), a.getMaxScore(), a.getWeight(), g.getValueStatus()));
-                if ("SCORED".equals(g.getValueStatus())) {
-                    numerator = numerator.add(g.getMark().divide(a.getMaxScore(), 8, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(20)).multiply(a.getWeight()));
-                    denominator = denominator.add(a.getWeight());
-                }
-            }
-            BigDecimal mark = denominator.signum() == 0 ? BigDecimal.ZERO : numerator.divide(denominator, 4, RoundingMode.HALF_UP);
-            Subject subject = subjects.findBySchoolIdAndCode(TenantContext.get(), e.getKey()).orElse(null);
-            int coef = coefficients.getOrDefault(e.getKey(), subject == null ? 1 : subject.getCoef());
-            var comment = comments.findBySchoolIdAndStudentIdAndReportingPeriodIdAndSubjectCode(TenantContext.get(), studentId, period.getId(), e.getKey()).orElse(null);
-            CurriculumMetadata metadata = curriculumMetadata(studentId, period.getAcademicSessionId(), e.getKey());
-            String teacherRemark = comment == null ? null : comment.getComment();
-            if (metadata.remarkRequired() && (teacherRemark == null || teacherRemark.isBlank())) addDistinct(blockers, e.getKey() + ":REMARK_REQUIRED");
-            lines.add(new BulletinLineView(e.getKey(), subjectLabel(subject, e.getKey()), coef, mark, mark.multiply(BigDecimal.valueOf(coef)), teacherRemark, appreciation(mark), evidence, List.of(new PeriodMarkView(period.getCode(), mark)), metadata.teacherName(), metadata.groupCode(), metadata.groupLabel()));
-        }
-        if (definition.isEmpty()) blockers.add("Aucune évaluation n'est configurée pour cette séquence");
-        if (lines.isEmpty()) blockers.add("Aucune note saisie");
-        return finish(lines, blockers, studentId, period);
-    }
-
     private Calculation finish(List<BulletinLineView> lines, List<String> blockers, UUID studentId, AcademicReportingPeriod period) {
         BigDecimal weighted = BigDecimal.ZERO, coefs = BigDecimal.ZERO;
         for (BulletinLineView l : lines) {
@@ -730,7 +785,7 @@ public class BulletinSnapshotService {
             weighted = weighted.add(l.weighted());
             coefs = coefs.add(BigDecimal.valueOf(l.coefficient()));
         }
-        BigDecimal average = coefs.signum() == 0 ? BigDecimal.ZERO : weighted.divide(coefs, 12, RoundingMode.HALF_UP);
+        BigDecimal average = coefs.signum() == 0 ? null : weighted.divide(coefs, AcademicCalculationEngine.CALCULATION_SCALE, RoundingMode.HALF_UP);
         Student student = students.findByIdAndSchoolId(studentId, TenantContext.get()).orElseThrow();
         StudentEnrollment enrollment = enrollments.findFirstBySchoolIdAndStudentIdAndAcademicSessionIdAndStatus(TenantContext.get(), studentId, period.getAcademicSessionId(), "ACTIVE").orElse(null);
         List<StudentEnrollment> classRoster = enrollment == null || enrollment.getSchoolClassId() == null ? List.of() : enrollments.findBySchoolIdAndAcademicSessionIdAndSchoolClassIdAndStatusOrderByClassNameSnapshotAsc(TenantContext.get(), period.getAcademicSessionId(), enrollment.getSchoolClassId(), "ACTIVE");
@@ -741,8 +796,261 @@ public class BulletinSnapshotService {
                 enrollment == null ? null : enrollment.getClassNameSnapshot(), null);
     }
 
+    private Calculation finishWith(List<BulletinLineView> lines, List<String> blockers,
+                                   List<BulletinIssueView> issues, UUID studentId,
+                                   AcademicReportingPeriod period,
+                                   List<DependencyReadinessView> dependencies,
+                                   List<DependencySourceTrace> dependencySources,
+                                   List<PacketTrace> packetTraces, String sourceHash,
+                                   String inputReadiness) {
+        Calculation base = finish(lines, blockers, studentId, period);
+        return new Calculation(base.lines(), base.blockers(), base.average(), base.rank(), base.classSize(),
+                base.educationalLevel(), base.subsystem(), base.className(), base.classStats(), inputReadiness,
+                dependencies, issues, dependencySources, packetTraces, sourceHash);
+    }
+
+    private Calculation rebuild(Calculation base, List<String> blockers, List<BulletinIssueView> issues,
+                                List<DependencyReadinessView> dependencies,
+                                List<DependencySourceTrace> dependencySources, List<PacketTrace> packetTraces,
+                                String sourceHash, String inputReadiness) {
+        return new Calculation(base.lines(), blockers, base.average(), base.rank(), base.classSize(),
+                base.educationalLevel(), base.subsystem(), base.className(), base.classStats(), inputReadiness,
+                dependencies, issues, dependencySources, packetTraces, sourceHash);
+    }
+
+    private Calculation cycleCalculation(UUID studentId, AcademicReportingPeriod period) {
+        String messageFr = period.getCode() + " : la dependance des periodes forme un cycle.";
+        String messageEn = period.getCode() + ": the reporting-period dependency graph contains a cycle.";
+        return finishWith(List.of(), List.of("DEPENDENCY_CYCLE"),
+                List.of(issue("DEPENDENCY_CYCLE", "ERROR", period.getCode(), null, messageFr, messageEn, "academic-sessions")),
+                studentId, period, List.of(), List.of(), List.of(), null, "BLOCKED");
+    }
+
+    private PacketReadiness packetReadiness(AcademicReportingPeriod period, UUID classId,
+                                            List<String> fallbackSubjects, CalculationContext context) {
+        String key = String.valueOf(classId) + ":" + period.getId();
+        PacketReadiness cached = context.packetReadiness.get(key);
+        if (cached != null) return cached;
+        LinkedHashSet<String> expected = curriculumSubjectCodesForPeriod(period, classId);
+        if (expected.isEmpty()) fallbackSubjects.forEach(expected::add);
+        Map<String, PacketTrace> packetsBySubject = new HashMap<>();
+        if (classId != null) {
+            jdbc.query("""
+                    SELECT id,subject_code,status,version,teacher_id,responsible_assignment_id,
+                           responsible_assignment_version,submitted_at,reviewed_at
+                      FROM academic_grade_packet
+                     WHERE school_id=? AND academic_session_id=? AND reporting_period_id=? AND class_id=?
+                    """, rs -> {
+                while (rs.next()) {
+                    packetsBySubject.put(rs.getString("subject_code").toUpperCase(Locale.ROOT),
+                            new PacketTrace(rs.getObject("id", UUID.class), classId, period.getId(), period.getCode(),
+                                    rs.getString("subject_code"), rs.getString("status"), rs.getLong("version"),
+                                    rs.getObject("teacher_id", UUID.class), rs.getObject("responsible_assignment_id", UUID.class),
+                                    rs.getObject("responsible_assignment_version", Long.class), instant(rs, "submitted_at"), instant(rs, "reviewed_at")));
+                }
+                return null;
+            }, TenantContext.get(), period.getAcademicSessionId(), period.getId(), classId);
+        }
+        List<PacketTrace> traces = new ArrayList<>();
+        List<BulletinIssueView> issues = new ArrayList<>();
+        int accepted = 0, locked = 0, submitted = 0, draft = 0, returned = 0, missing = 0;
+        String readiness = "READY";
+        for (String subject : expected) {
+            PacketTrace packet = packetsBySubject.get(subject.toUpperCase(Locale.ROOT));
+            String status = packet == null ? "MISSING" : packet.status();
+            if (packet == null) {
+                packet = new PacketTrace(null, classId, period.getId(), period.getCode(), subject, status, 0,
+                        null, null, null, null, null);
+            }
+            traces.add(packet);
+            switch (status == null ? "MISSING" : status.toUpperCase(Locale.ROOT)) {
+                case "ACCEPTED" -> accepted++;
+                case "LOCKED" -> locked++;
+                case "SUBMITTED" -> submitted++;
+                case "DRAFT" -> draft++;
+                case "RETURNED" -> returned++;
+                default -> missing++;
+            }
+            if (Set.of("MISSING", "RETURNED").contains(status == null ? "MISSING" : status.toUpperCase(Locale.ROOT))) readiness = "BLOCKED";
+            else if (Set.of("DRAFT", "SUBMITTED").contains(status.toUpperCase(Locale.ROOT)) && !"BLOCKED".equals(readiness)) readiness = "PROVISIONAL";
+            if (!"ACCEPTED".equalsIgnoreCase(status) && !"LOCKED".equalsIgnoreCase(status)) {
+                issues.add(packetIssue(period, subject, status));
+            }
+        }
+        DependencyReadinessView row = new DependencyReadinessView(period.getId(), period.getCode(), period.getLabel(),
+                period.getPeriodType(), BigDecimal.ONE, false, readiness, expected.size(), accepted, locked,
+                submitted, draft, returned, missing);
+        PacketReadiness result = new PacketReadiness(List.copyOf(traces), List.copyOf(issues), List.of(row), readiness);
+        context.packetReadiness.put(key, result);
+        return result;
+    }
+
+    private BulletinIssueView packetIssue(AcademicReportingPeriod period, String subjectCode, String status) {
+        String normalized = status == null ? "MISSING" : status.toUpperCase(Locale.ROOT);
+        String subject = subjectCode == null ? "" : subjectCode.toUpperCase(Locale.ROOT);
+        return switch (normalized) {
+            case "DRAFT" -> issue("GRADE_PACKET_DRAFT", "WARNING", period.getCode(), subject,
+                    period.getCode() + " — " + subject + " : les notes sont enregistrees mais n'ont pas ete envoyees a la direction.",
+                    period.getCode() + " — " + subject + ": grades are saved but have not been sent to management.", "grade-entry");
+            case "SUBMITTED" -> issue("GRADE_PACKET_SUBMITTED", "WARNING", period.getCode(), subject,
+                    period.getCode() + " — " + subject + " : les notes attendent la verification de la direction.",
+                    period.getCode() + " — " + subject + ": grades are waiting for management review.", "grade-entry");
+            case "RETURNED" -> issue("GRADE_PACKET_RETURNED", "ERROR", period.getCode(), subject,
+                    period.getCode() + " — " + subject + " : la feuille a ete retournee pour correction.",
+                    period.getCode() + " — " + subject + ": the grade sheet was returned for correction.", "grade-entry");
+            default -> issue("GRADE_PACKET_MISSING", "ERROR", period.getCode(), subject,
+                    period.getCode() + " — " + subject + " : aucune feuille de notes n'existe pour cette classe.",
+                    period.getCode() + " — " + subject + ": no grade packet exists for this class.", "grade-entry");
+        };
+    }
+
+    private DependencyReadinessView readinessFor(DependencyRow dependency, Calculation child,
+                                                 AcademicReportingPeriod childPeriod) {
+        int expected = child.dependencies().stream().mapToInt(DependencyReadinessView::expectedPacketCount).sum();
+        int accepted = child.dependencies().stream().mapToInt(DependencyReadinessView::acceptedPacketCount).sum();
+        int locked = child.dependencies().stream().mapToInt(DependencyReadinessView::lockedPacketCount).sum();
+        int submitted = child.dependencies().stream().mapToInt(DependencyReadinessView::submittedPacketCount).sum();
+        int draft = child.dependencies().stream().mapToInt(DependencyReadinessView::draftPacketCount).sum();
+        int returned = child.dependencies().stream().mapToInt(DependencyReadinessView::returnedPacketCount).sum();
+        int missing = child.dependencies().stream().mapToInt(DependencyReadinessView::missingPacketCount).sum();
+        return new DependencyReadinessView(childPeriod.getId(), childPeriod.getCode(), childPeriod.getLabel(),
+                childPeriod.getPeriodType(), dependency.weight(), dependency.optional(), child.inputReadiness(),
+                expected, accepted, locked, submitted, draft, returned, missing);
+    }
+
+    private LinkedHashSet<String> curriculumSubjectCodes(UUID studentId, AcademicReportingPeriod period, UUID classId) {
+        LinkedHashSet<String> codes = curriculumSubjectCodesForPeriod(period, classId);
+        if (codes.isEmpty()) return codes;
+        return codes;
+    }
+
+    private LinkedHashSet<String> curriculumSubjectCodesForPeriod(AcademicReportingPeriod period, UUID classId) {
+        LinkedHashSet<String> result = new LinkedHashSet<>();
+        if (classId == null) return result;
+        jdbc.query("""
+                SELECT s.code
+                  FROM academic_curriculum_subject c JOIN subject s ON s.id=c.subject_id
+                 WHERE c.school_id=? AND c.academic_session_id=? AND c.class_id=?
+                   AND (c.active_from IS NULL OR c.active_from<=?)
+                   AND (c.active_to IS NULL OR c.active_to>=?)
+                 ORDER BY c.display_order,s.code
+                """, rs -> { while (rs.next()) result.add(rs.getString(1)); return null; },
+                TenantContext.get(), period.getAcademicSessionId(), classId, period.getStartDate(), period.getEndDate());
+        return result;
+    }
+
+    private List<String> subjectBlockers(Calculation child, String subjectCode, String childPeriodCode) {
+        return child.blockers().stream().filter(blocker -> {
+            String upper = blocker.toUpperCase(Locale.ROOT);
+            String subject = subjectCode.toUpperCase(Locale.ROOT);
+            return upper.equals(subject) || upper.startsWith(subject + ":")
+                    || upper.startsWith(childPeriodCode.toUpperCase(Locale.ROOT) + ":" + subject + ":")
+                    || !upper.contains(":");
+        }).toList();
+    }
+
+    private List<String> appendDistinct(List<String> values, String value) {
+        List<String> result = new ArrayList<>(values == null ? List.of() : values);
+        addDistinct(result, value);
+        return result;
+    }
+
+    private String packetBlocker(String periodCode, String subjectCode, String code) {
+        return periodCode + ":" + (subjectCode == null ? "" : subjectCode) + ":" + code;
+    }
+
+    private BulletinIssueView issueForBlocker(String blocker, String periodCode, List<BulletinLineView> lines) {
+        String raw = blocker == null ? "" : blocker;
+        String[] parts = raw.split(":");
+        String code = parts.length == 0 ? raw : parts[parts.length - 1];
+        String subject = parts.length > 1 && !parts[0].equalsIgnoreCase(periodCode) ? parts[0]
+                : parts.length > 2 ? parts[1] : null;
+        String subjectLabel = lines == null ? subject : lines.stream().filter(line -> subject != null && line.subjectCode().equalsIgnoreCase(subject))
+                .map(BulletinLineView::subjectLabel).findFirst().orElse(subject);
+        return issueForCode(code, periodCode, subject, subjectLabel);
+    }
+
+    private BulletinIssueView issueForBlocker(String blocker, String periodCode,
+                                              List<BulletinLineView> lines, List<DependencyRow> ignored) {
+        return issueForBlocker(blocker, periodCode, lines);
+    }
+
+    private BulletinIssueView issueForCode(String code, String periodCode, String subjectCode, String subjectLabel) {
+        String subject = subjectLabel == null ? (subjectCode == null ? "" : subjectCode) : subjectLabel;
+        return switch (code.toUpperCase(Locale.ROOT)) {
+            case "MISSING" -> issue("MISSING", "ERROR", periodCode, subjectCode,
+                    periodCode + " — " + subject + " : une note obligatoire est manquante.",
+                    periodCode + " — " + subject + ": a required mark is missing.", "grade-entry");
+            case "ABSENT" -> issue("ABSENT", "ERROR", periodCode, subjectCode,
+                    periodCode + " — " + subject + " : l'absence doit recevoir le traitement academique configure.",
+                    periodCode + " — " + subject + ": the absence needs its configured academic treatment.", "grade-entry");
+            case "REMARK_REQUIRED" -> issue("REMARK_REQUIRED", "ERROR", periodCode, subjectCode,
+                    periodCode + " — " + subject + " : l'appreciation obligatoire est vide.",
+                    periodCode + " — " + subject + ": the required subject remark is empty.", "grade-entry");
+            case "ASSESSMENT_NOT_CONFIGURED" -> issue("ASSESSMENT_NOT_CONFIGURED", "ERROR", periodCode, subjectCode,
+                    periodCode + " — " + subject + " : aucune evaluation applicable n'est configuree.",
+                    periodCode + " — " + subject + ": no applicable assessment is configured.", "assessment-configuration");
+            case "DEPENDENCY_CYCLE" -> issue("DEPENDENCY_CYCLE", "ERROR", periodCode, subjectCode,
+                    periodCode + " : le graphe des dependances contient un cycle.",
+                    periodCode + ": the dependency graph contains a cycle.", "academic-sessions");
+            default -> issue(code, "ERROR", periodCode, subjectCode, periodCode + " : " + code,
+                    periodCode + ": " + code, "academic");
+        };
+    }
+
+    private BulletinIssueView issue(String code, String severity, String periodCode, String subjectCode,
+                                    String messageFr, String messageEn, String repairTarget) {
+        return new BulletinIssueView(code, severity, periodCode, subjectCode, messageFr, messageEn, repairTarget);
+    }
+
+    private String readiness(List<String> blockers) { return readiness(blockers, List.of()); }
+    private String readiness(List<String> blockers, List<BulletinIssueView> issues) {
+        boolean provisional = issues.stream().anyMatch(issue -> Set.of("GRADE_PACKET_DRAFT", "GRADE_PACKET_SUBMITTED").contains(issue.code()))
+                || blockers.stream().anyMatch(blocker -> blocker.endsWith(":GRADE_PACKET_DRAFT") || blocker.endsWith(":GRADE_PACKET_SUBMITTED"));
+        boolean blocked = blockers.stream().anyMatch(blocker -> !blocker.endsWith(":GRADE_PACKET_DRAFT") && !blocker.endsWith(":GRADE_PACKET_SUBMITTED"));
+        return blocked ? "BLOCKED" : provisional ? "PROVISIONAL" : "READY";
+    }
+
+    private AcademicCalculationEngine.Product product(AcademicReportingPeriod period) {
+        return "ANNUAL_RESULT".equals(period.getPeriodType()) ? AcademicCalculationEngine.Product.ANNUAL : AcademicCalculationEngine.Product.TERM;
+    }
+
+    private AcademicCalculationEngine.Product productForPeriodType(String periodType) {
+        return "ANNUAL_RESULT".equals(periodType) ? AcademicCalculationEngine.Product.ANNUAL
+                : "TERM_RESULT".equals(periodType) ? AcademicCalculationEngine.Product.TERM
+                : AcademicCalculationEngine.Product.SEQUENCE;
+    }
+
+    private String sourceKind(AcademicReportingPeriod period) {
+        return "SEQUENCE".equals(period.getPeriodType()) ? "LIVE_SEQUENCE" : "LIVE_TERM";
+    }
+
+    private String sourceHash(Object source) {
+        try { return sha256(mapper.writeValueAsString(source)); }
+        catch (JsonProcessingException ex) { throw ApiException.conflict("Impossible de fingerprint la source academique"); }
+    }
+
+    private static Instant instant(java.sql.ResultSet rs, String column) throws java.sql.SQLException {
+        java.sql.Timestamp value = rs.getTimestamp(column);
+        return value == null ? null : value.toInstant();
+    }
+
+    private AcademicReportingPeriod childPeriod(DependencyRow dependency) {
+        return periods.findByIdAndSchoolId(dependency.childPeriodId(), TenantContext.get()).orElse(null);
+    }
+
+    private String childPeriodCode(DependencyRow dependency) { return dependency.childCode(); }
+    private String childPeriodType(DependencyRow dependency) { return dependency.childPeriodType(); }
+
+    /** Calculate class statistics only for the requested product, reusing raw peer calculations. */
+
     /** Calculate class statistics from the same server-side formula as the student. */
     private Calculation withClassStatistics(UUID studentId, AcademicReportingPeriod period, Calculation own) {
+        return withClassStatistics(studentId, period, own, new CalculationContext());
+    }
+
+    private Calculation withClassStatistics(UUID studentId, AcademicReportingPeriod period,
+                                             Calculation own, CalculationContext context) {
         StudentEnrollment enrollment = enrollments.findFirstBySchoolIdAndStudentIdAndAcademicSessionIdAndStatus(
                 TenantContext.get(), studentId, period.getAcademicSessionId(), "ACTIVE").orElse(null);
         if (enrollment == null || enrollment.getSchoolClassId() == null) return own;
@@ -750,12 +1058,14 @@ public class BulletinSnapshotService {
                 TenantContext.get(), period.getAcademicSessionId(), enrollment.getSchoolClassId(), "ACTIVE");
         List<Calculation> eligible = new ArrayList<>();
         for (StudentEnrollment peer : roster) {
-            Calculation c = calculatePeriod(peer.getStudentId(), period);
+            Calculation c = calculateCurrent(peer.getStudentId(), period, context);
             if (c.blockers().isEmpty()) eligible.add(c);
         }
-        if (eligible.isEmpty()) return new Calculation(own.lines(), own.blockers(), own.average(), null, roster.size(), own.educationalLevel(), own.subsystem(), own.className(),
-                new ClassStatsView(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, 0, BigDecimal.ZERO, 0));
+        if (eligible.isEmpty()) return copyWithStats(own, null, roster.size(),
+                new ClassStatsView(null, null, null, 0, null, 0));
         List<BigDecimal> averages = eligible.stream().map(Calculation::average).filter(Objects::nonNull).sorted().toList();
+        if (averages.isEmpty()) return copyWithStats(own, null, roster.size(),
+                new ClassStatsView(null, null, null, 0, null, 0));
         BigDecimal sum = averages.stream().reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal classAverage = sum.divide(BigDecimal.valueOf(averages.size()), 12, RoundingMode.HALF_UP);
         BigDecimal minimum = averages.get(0), maximum = averages.get(averages.size() - 1);
@@ -764,7 +1074,14 @@ public class BulletinSnapshotService {
                 .divide(BigDecimal.valueOf(averages.size()), 2, RoundingMode.HALF_UP);
         Integer rank = own.blockers().isEmpty() && own.average() != null ? 1 + (int) averages.stream().filter(x -> x.compareTo(own.average()) > 0).count() : null;
         ClassStatsView stats = new ClassStatsView(classAverage, minimum, maximum, successCount, successRate, averages.size());
-        return new Calculation(own.lines(), own.blockers(), own.average(), rank, roster.size(), own.educationalLevel(), own.subsystem(), own.className(), stats);
+        return copyWithStats(own, rank, roster.size(), stats);
+    }
+
+    private Calculation copyWithStats(Calculation source, Integer rank, int classSize, ClassStatsView stats) {
+        return new Calculation(source.lines(), source.blockers(), source.average(), rank, classSize,
+                source.educationalLevel(), source.subsystem(), source.className(), stats,
+                source.inputReadiness(), source.dependencies(), source.issues(), source.dependencySources(),
+                source.packetTraces(), source.sourceHash());
     }
 
     private String writeSnapshot(AcademicReportingPeriod p, Student s, StudentEnrollment e, Calculation c,
@@ -773,36 +1090,132 @@ public class BulletinSnapshotService {
             return mapper.writeValueAsString(new SnapshotPayload(p.getCode(), p.getLabel(), p.getPeriodType(),
                     s.getId(), s.getMatricule(), s.getLastName() + " " + s.getFirstName(),
                     c.educationalLevel(), c.subsystem(), e.getClassNameSnapshot(), c.lines(), c.average(), c.rank(), c.classSize(), c.blockers(),
-                    p.getCalculationPolicy(), attendance, conduct, c.classStats(), groupStats(c.lines()), trace));
+                    c.issues(), p.getCalculationPolicy(), attendance, conduct, c.classStats(), groupStats(c.lines()), trace));
         } catch (JsonProcessingException ex) {
             throw ApiException.conflict("Impossible de créer le snapshot du bulletin");
         }
     }
     private BulletinSnapshotView view(BulletinVersion v, AcademicReportingPeriod p, Student s, Calculation c,
                                       AttendanceSummaryView attendance, ConductSummaryView conduct, SnapshotTrace trace) {
+        String relation = v.getId() == null ? "PREVIEW" :
+                Set.of("PUBLISHED", "VALIDATED").contains(v.getState()) ? "OFFICIAL" : "CURRENT";
+        return view(v, p, s, c, attendance, conduct, trace, relation, false);
+    }
+
+    private BulletinSnapshotView view(BulletinVersion v, AcademicReportingPeriod p, Student s, Calculation c,
+                                      AttendanceSummaryView attendance, ConductSummaryView conduct, SnapshotTrace trace,
+                                      String relation, boolean refreshRequired) {
+        List<String> validationBlockers = officialBlockers(c, conduct);
+        List<BulletinIssueView> issues = new ArrayList<>(c.issues());
+        if (validationBlockers.contains("CONDUCT_NOT_APPROVED")) {
+            issues.add(issue("CONDUCT_NOT_APPROVED", "ERROR", p.getCode(), null,
+                    "Le conseil de classe doit être approuvé avant validation.",
+                    "The class council must be approved before validation.", "report-card-inputs"));
+        }
+        if ("STALE".equals(relation)) {
+            issues.add(issue("BULLETIN_DRAFT_STALE", "WARNING", p.getCode(), null,
+                    "Le brouillon durable est obsolète par rapport aux sources actuelles.",
+                    "The durable draft is stale compared with the current sources.", "bulletin-refresh"));
+        }
+        boolean active = v.getId() != null && Set.of("DRAFT", "RETURNED").contains(v.getState());
+        boolean current = "CURRENT".equals(relation);
+        BulletinCapabilitiesView capabilities = new BulletinCapabilitiesView(
+                v.getId() == null && validationBlockers.isEmpty(),
+                active && refreshRequired && validationBlockers.isEmpty(),
+                active && current && validationBlockers.isEmpty(),
+                "VALIDATED".equals(v.getState()) && current && validationBlockers.isEmpty(),
+                validationBlockers);
+        BulletinWorkflowMetaView workflow = new BulletinWorkflowMetaView(
+                c.inputReadiness(), relation, c.sourceHash(), v.getId(), v.getState(), v.getVersion(),
+                v.getSnapshotHash(), v.getAverage(), refreshRequired, c.dependencies(), capabilities);
         return new BulletinSnapshotView(v.getId(), p.getAcademicSessionId(), p.getId(), p.getCode(), p.getLabel(),
                 s.getId(), s.getLastName() + " " + s.getFirstName(), s.getMatricule(), c.educationalLevel(), c.subsystem(), c.className(), c.lines(),
                 c.average(), c.rank(), c.classSize(), v.getState(), c.blockers().isEmpty(), c.blockers(),
                 v.getSnapshotHash(), v.getCalculationPolicy(), v.getGeneralAppreciation(), attendance, conduct,
                 v.getVersion(), c.classStats(), v.getSupersedesId(), v.getCorrectsBulletinVersionId(),
                 v.getCorrectionReason(), v.getCorrectionRequestedBy(), v.getCorrectionRequestedAt(),
-                groupStats(c.lines()), evidence(trace));
+                groupStats(c.lines()), evidence(trace), p.getPeriodType(), productName(p), workflow, issues);
     }
     private BulletinSnapshotView viewFromSnapshot(BulletinVersion v, AcademicReportingPeriod p, Student s) {
         try {
             SnapshotPayload x = mapper.readValue(v.getSnapshotJson(), SnapshotPayload.class);
-            return new BulletinSnapshotView(v.getId(), p.getAcademicSessionId(), p.getId(), p.getCode(), p.getLabel(),
-                    s.getId(), x.studentName(), x.matricule(), x.educationalLevel(), x.subsystem(), x.className(), x.lines(), x.average(), x.rank(),
-                    x.classSize(), v.getState(), x.blockers().isEmpty(), x.blockers(), v.getSnapshotHash(),
-                    v.getCalculationPolicy(), v.getGeneralAppreciation(), x.attendance(), x.conduct(), v.getVersion(),
-                    x.classStats(), v.getSupersedesId(), v.getCorrectsBulletinVersionId(), v.getCorrectionReason(),
-                    v.getCorrectionRequestedBy(), v.getCorrectionRequestedAt(),
-                    x.groupStats() == null ? groupStats(x.lines()) : x.groupStats(), evidence(x.trace()));
+            List<BulletinLineView> lines = x.lines() == null ? List.of() : x.lines();
+            List<String> blockers = x.blockers() == null ? List.of() : x.blockers();
+            Calculation calculation = new Calculation(lines, blockers, x.average(), x.rank(), x.classSize(),
+                    x.educationalLevel(), x.subsystem(), x.className(), x.classStats(),
+                    blockers.isEmpty() ? "READY" : "BLOCKED", List.of(),
+                    x.issues() == null ? List.of() : x.issues(), List.of(), List.of(),
+                    x.trace() == null ? null : x.trace().sourceHash());
+            String relation = Set.of("PUBLISHED", "VALIDATED").contains(v.getState()) ? "OFFICIAL" : "PERSISTED";
+            return view(v, p, s, calculation, x.attendance(), x.conduct(), x.trace(), relation, false);
         } catch (Exception ex) {
             throw ApiException.conflict("Snapshot de bulletin illisible");
         }
     }
-    private record Calculation(List<BulletinLineView> lines, List<String> blockers, BigDecimal average, Integer rank, int classSize, String educationalLevel, String subsystem, String className, ClassStatsView classStats) {}
+
+    private String productName(AcademicReportingPeriod period) {
+        return switch (period.getPeriodType()) {
+            case "TERM_RESULT" -> "TERM";
+            case "ANNUAL_RESULT" -> "ANNUAL";
+            default -> "SEQUENCE";
+        };
+    }
+    private record Calculation(List<BulletinLineView> lines, List<String> blockers, BigDecimal average,
+                                Integer rank, int classSize, String educationalLevel, String subsystem,
+                                String className, ClassStatsView classStats, String inputReadiness,
+                                List<DependencyReadinessView> dependencies,
+                                List<BulletinIssueView> issues,
+                                List<DependencySourceTrace> dependencySources,
+                                List<PacketTrace> packetTraces, String sourceHash) {
+        private Calculation(List<BulletinLineView> lines, List<String> blockers, BigDecimal average,
+                             Integer rank, int classSize, String educationalLevel, String subsystem,
+                             String className, ClassStatsView classStats) {
+            this(lines, blockers, average, rank, classSize, educationalLevel, subsystem, className,
+                    classStats, "READY", List.of(), List.of(), List.of(), List.of(), null);
+        }
+
+        private Calculation {
+            lines = lines == null ? List.of() : List.copyOf(lines);
+            blockers = blockers == null ? List.of() : List.copyOf(blockers);
+            dependencies = dependencies == null ? List.of() : List.copyOf(dependencies);
+            issues = issues == null ? List.of() : List.copyOf(issues);
+            dependencySources = dependencySources == null ? List.of() : List.copyOf(dependencySources);
+            packetTraces = packetTraces == null ? List.of() : List.copyOf(packetTraces);
+        }
+    }
+
+    private record CalcKey(UUID studentId, UUID periodId) {}
+    private static final class CalculationContext {
+        private final Map<CalcKey, Calculation> calculations = new HashMap<>();
+        private final Set<CalcKey> visiting = new HashSet<>();
+        private final Map<UUID, List<DependencyRow>> dependencies = new HashMap<>();
+        private final Map<String, PacketReadiness> packetReadiness = new HashMap<>();
+    }
+
+    private record CurrentSnapshot(Student student, StudentEnrollment enrollment, Calculation calculation,
+                                   AttendanceSummaryView attendance, ConductSummaryView conduct,
+                                   SnapshotTrace trace, String json, String hash) {}
+
+    private record PacketReadiness(List<PacketTrace> traces, List<BulletinIssueView> issues,
+                                   List<DependencyReadinessView> readinessRows, String readiness) {}
+
+    private record CurrentSourceFingerprint(UUID periodId, long periodVersion, String periodType,
+                                           List<BulletinLineView> lines, List<String> blockers,
+                                           List<DependencySourceTrace> dependencySources,
+                                           List<PacketTrace> packetTraces) {}
+
+    private record DependencySourceTrace(UUID childPeriodId, String childPeriodCode, long childPeriodVersion,
+                                         BigDecimal dependencyWeight, boolean optional, String sourceKind,
+                                         String sourceHash, List<PacketTrace> packetTraces) {
+        private DependencySourceTrace {
+            packetTraces = packetTraces == null ? List.of() : List.copyOf(packetTraces);
+        }
+    }
+
+    private record PacketTrace(UUID packetId, UUID classId, UUID childReportingPeriodId,
+                               String childReportingPeriodCode, String subjectCode, String status,
+                               long version, UUID teacherId, UUID responsibleAssignmentId,
+                               Long responsibleAssignmentVersion, Instant submittedAt, Instant reviewedAt) {}
     private SnapshotTrace snapshotTrace(AcademicReportingPeriod period, Student student, StudentEnrollment enrollment) {
         UUID school = TenantContext.get();
         UUID classId = enrollment.getSchoolClassId();
@@ -844,16 +1257,30 @@ public class BulletinSnapshotService {
         ProfileAssetTrace profilePhoto = profilePhotoTrace(student.getId(), school);
         DocumentDesignTrace documentDesign = documentDesignTrace(period, enrollment, school);
         return new SnapshotTrace(period.getId(), period.getVersion(), enrollment.getId(), classId, curriculum, assessments,
-                subjectAssignments, homeroomAssignments, childSnapshotTrace(period, student.getId()),
-                "AcademicCalculationEngine/v1", period.getCalculationPolicy(), profilePhoto, documentDesign);
+                subjectAssignments, homeroomAssignments, List.of(),
+                FORMULA_VERSION, period.getCalculationPolicy(), profilePhoto, documentDesign,
+                List.of(), List.of(), null);
     }
-    private record SnapshotPayload(String periodCode, String periodLabel, String periodType, UUID studentId, String matricule, String studentName, String educationalLevel, String subsystem, String className, List<BulletinLineView> lines, BigDecimal average, Integer rank, int classSize, List<String> blockers, String calculationPolicy, AttendanceSummaryView attendance, ConductSummaryView conduct, ClassStatsView classStats, List<GroupStatsView> groupStats, SnapshotTrace trace) {}
+
+    private SnapshotTrace snapshotTrace(AcademicReportingPeriod period, Student student,
+                                        StudentEnrollment enrollment, Calculation calculation) {
+        SnapshotTrace base = snapshotTrace(period, student, enrollment);
+        return new SnapshotTrace(base.reportingPeriodId(), base.reportingPeriodVersion(), base.enrollmentId(), base.classId(),
+                base.curriculum(), base.assessments(), base.subjectAssignments(), base.homeroomAssignments(),
+                List.of(), FORMULA_VERSION, base.calculationPolicy(), base.profilePhoto(), base.documentDesign(),
+                calculation == null ? List.of() : calculation.dependencySources(),
+                calculation == null ? List.of() : calculation.packetTraces(),
+                calculation == null ? null : calculation.sourceHash());
+    }
+    private record SnapshotPayload(String periodCode, String periodLabel, String periodType, UUID studentId, String matricule, String studentName, String educationalLevel, String subsystem, String className, List<BulletinLineView> lines, BigDecimal average, Integer rank, int classSize, List<String> blockers, List<BulletinIssueView> issues, String calculationPolicy, AttendanceSummaryView attendance, ConductSummaryView conduct, ClassStatsView classStats, List<GroupStatsView> groupStats, SnapshotTrace trace) {}
     private record SnapshotTrace(UUID reportingPeriodId, long reportingPeriodVersion, UUID enrollmentId, UUID classId,
                                  List<CurriculumTrace> curriculum, List<AssessmentTrace> assessments,
                                  List<AssignmentTrace> subjectAssignments, List<AssignmentTrace> homeroomAssignments,
                                  List<ChildSnapshotTrace> childSnapshots,
                                  String formulaVersion, String calculationPolicy,
-                                 ProfileAssetTrace profilePhoto, DocumentDesignTrace documentDesign) {}
+                                 ProfileAssetTrace profilePhoto, DocumentDesignTrace documentDesign,
+                                 List<DependencySourceTrace> dependencySources,
+                                 List<PacketTrace> packetTraces, String sourceHash) {}
     private record ChildSnapshotTrace(UUID reportingPeriodId, String periodCode, UUID snapshotId,
                                       long snapshotVersion, String state, String snapshotHash) {}
     private record ProfileAssetTrace(UUID assetVersionId, String ownerType, UUID ownerId, String contentType,
@@ -867,6 +1294,7 @@ public class BulletinSnapshotService {
     private record BrandingCandidate(UUID id, int version, String contentHash, String principalName,
                                      String principalTitle, String classMasterTitle, String councilTitle) {}
     private record DependencyRow(UUID parentPeriodId, UUID childPeriodId, String childCode,
+                                 String childLabel, String childPeriodType, long childPeriodVersion,
                                  BigDecimal weight, boolean optional, int displayOrder) {}
     private record CurriculumTrace(UUID id, String subjectCode, int coefficient, long version) {}
     private record AssessmentTrace(UUID id, String code, long version, UUID gradeId, Long gradeVersion,
@@ -890,7 +1318,22 @@ public class BulletinSnapshotService {
                 .filter(Objects::nonNull)
                 .map(child -> new ChildSnapshotEvidenceView(child.reportingPeriodId(), child.periodCode(), child.snapshotId(),
                         child.snapshotVersion(), child.state(), child.snapshotHash())).toList();
-        return new SnapshotEvidenceView(photo, design, children, trace.formulaVersion(), trace.calculationPolicy());
+        List<DependencySourceEvidenceView> dependencies = trace.dependencySources() == null ? List.of() : trace.dependencySources().stream()
+                .filter(Objects::nonNull)
+                .map(source -> new DependencySourceEvidenceView(source.childPeriodId(), source.childPeriodCode(),
+                        source.childPeriodVersion(), source.dependencyWeight(), source.optional(), source.sourceKind(),
+                        source.sourceHash(), source.packetTraces() == null ? List.of() : source.packetTraces().stream()
+                                .map(packet -> new PacketTraceEvidenceView(packet.packetId(), packet.classId(), packet.childReportingPeriodId(),
+                                        packet.childReportingPeriodCode(), packet.subjectCode(), packet.status(), packet.version(),
+                                        packet.teacherId(), packet.responsibleAssignmentId(), packet.responsibleAssignmentVersion(),
+                                        packet.submittedAt(), packet.reviewedAt())).toList())).toList();
+        List<PacketTraceEvidenceView> packets = trace.packetTraces() == null ? List.of() : trace.packetTraces().stream()
+                .map(packet -> new PacketTraceEvidenceView(packet.packetId(), packet.classId(), packet.childReportingPeriodId(),
+                        packet.childReportingPeriodCode(), packet.subjectCode(), packet.status(), packet.version(),
+                        packet.teacherId(), packet.responsibleAssignmentId(), packet.responsibleAssignmentVersion(),
+                        packet.submittedAt(), packet.reviewedAt())).toList();
+        return new SnapshotEvidenceView(photo, design, children, trace.formulaVersion(), trace.calculationPolicy(),
+                dependencies, packets, trace.sourceHash());
     }
 
     private String templateReference(SnapshotTrace trace) {
@@ -976,15 +1419,6 @@ public class BulletinSnapshotService {
                 branding == null ? null : branding.classMasterTitle(), branding == null ? null : branding.councilTitle());
     }
 
-    private List<ChildSnapshotTrace> childSnapshotTrace(AcademicReportingPeriod period, UUID studentId) {
-        if ("SEQUENCE".equals(period.getPeriodType())) return List.of();
-        boolean publishedOnly = "ANNUAL_RESULT".equals(period.getPeriodType());
-        return dependencies(period).stream().map(dependency -> {
-            BulletinVersion frozen = frozenChild(studentId, dependency.childPeriodId(), publishedOnly);
-            return frozen == null ? null : new ChildSnapshotTrace(dependency.childPeriodId(), dependency.childCode(),
-                    frozen.getId(), frozen.getVersion(), frozen.getState(), frozen.getSnapshotHash());
-        }).filter(Objects::nonNull).toList();
-    }
     private List<GroupStatsView> groupStats(List<BulletinLineView> lines) {
         Map<String, GroupAccumulator> groups = new LinkedHashMap<>();
         for (BulletinLineView line : lines == null ? List.<BulletinLineView>of() : lines) {
