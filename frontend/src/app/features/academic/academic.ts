@@ -6,7 +6,7 @@ import { forkJoin, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { StudentApi } from '../students/students.api';
 import { SetupApi, ClassView } from '../../core/setup.api';
-import { AcademicApi, BulletinView, PvView, GradeEntryView, ReportCardInputsView, ReportCardInputRow, ReportCardInputUpsert, BulletinBatchJobView, BulletinBatchItemView } from './academic.api';
+import { AcademicApi, BulletinView, BulletinSnapshotView, PvView, GradeEntryView, ReportCardInputsView, ReportCardInputRow, ReportCardInputUpsert, BulletinBatchJobView, BulletinBatchItemView } from './academic.api';
 import { FoundationApi, AcademicReportingPeriodView, GeneratedDocumentView } from '../../core/foundation.api';
 import { AuthService } from '../../core/auth.service';
 import { ScopeService } from '../../core/scope.service';
@@ -59,6 +59,22 @@ const cleanDisplay = (value: string | null | undefined): string => {
     .replace(/\u00c3\u00af/g, '\u00ef')
     .replace(/\u00c2\u00b7/g, '\u00b7')
     .replace(/\u00c2\u00a0/g, ' ');
+};
+
+export const formatAcademicMark = (mark: number | null | undefined): string =>
+  mark == null || !Number.isFinite(mark) ? '—' : mark.toFixed(2);
+
+export const academicBulletinTitle = (b: Pick<BulletinView, 'product' | 'reportingPeriodType' | 'reportingPeriodCode' | 'reportingPeriodLabel' | 'sequence'>, fr: boolean): string => {
+  const code = b.reportingPeriodCode || '';
+  if (b.product === 'ANNUAL' || b.reportingPeriodType === 'ANNUAL_RESULT') return fr ? 'BULLETIN ANNUEL' : 'ANNUAL REPORT CARD';
+  if (b.product === 'TERM' || b.reportingPeriodType === 'TERM_RESULT') return `${fr ? 'BULLETIN' : 'REPORT CARD'} — ${b.reportingPeriodLabel?.trim() || code}`;
+  return `${fr ? 'BULLETIN' : 'REPORT CARD'} — ${fr ? 'SÉQUENCE' : 'SEQUENCE'} ${code.replace(/^S/i, '') || b.sequence}`;
+};
+
+export const computedPeriodCodes = (lines: BulletinView['lines']): string[] => {
+  const seen = new Set<string>();
+  for (const line of lines) for (const mark of line.periodMarks ?? []) if (mark.periodCode) seen.add(mark.periodCode);
+  return [...seen];
 };
 
 const appreciation = (avg: number, fr: boolean): string => {
@@ -177,6 +193,44 @@ const appreciation = (avg: number, fr: boolean): string => {
 
       @if (mode() === 'bulletin' && selectedPeriodIsComputed()) {
         <div class="mb-4 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-950 print:hidden"><div class="font-bold">{{ fr() ? 'Résultat calculé' : 'Computed result' }}</div><div class="mt-1">{{ dependencyText() }}</div><div class="mt-1 text-xs text-indigo-800">{{ fr() ? 'Les jalons T1, T2, T3 et annuel sont calculés à partir des dépendances configurées. Les notes brutes restent limitées à S1–S6.' : 'T1, T2, T3 and annual milestones use configured dependencies. Raw marks remain limited to S1–S6.' }}</div></div>
+      }
+
+      @if (mode() === 'bulletin') {
+        @if (bulletin(); as b) {
+          @if (b.workflowMeta; as meta) {
+            @if (meta.versionRelation === 'STALE') {
+              <div class="mb-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 print:hidden">
+                <div class="flex items-start gap-3">
+                  <bbc-icon name="alertTri" [s]="18" />
+                  <div class="flex-1">
+                    <div class="font-bold">{{ fr() ? 'Brouillon obsolète' : 'Draft is stale' }}</div>
+                    <div class="mt-1">{{ fr() ? 'Les données courantes sont affichées, mais le brouillon durable n’a pas encore été actualisé.' : 'Current data is displayed, but the durable draft has not been refreshed yet.' }}</div>
+                    <div class="mt-1 text-xs">{{ fr() ? 'Ancienne moyenne' : 'Previous average' }}: {{ formatMark(meta.persistedAverage) }}/20 · {{ fr() ? 'Moyenne actuelle' : 'Current average' }}: {{ formatMark(b.average) }}/20</div>
+                  </div>
+                  @if (canWrite && meta.capabilities.canRefreshDraft) {
+                    <button type="button" (click)="requestRefresh(b)" class="shrink-0 h-9 px-3 rounded-lg bg-amber-600 text-white text-xs font-semibold">{{ fr() ? 'Actualiser le brouillon' : 'Refresh draft' }}</button>
+                  }
+                </div>
+              </div>
+            }
+            @if (meta.dependencies.length) {
+              <div class="mb-4 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs print:hidden">
+                <div class="font-bold text-ink">{{ fr() ? 'État des sources' : 'Source readiness' }}</div>
+                <div class="mt-2 flex flex-wrap gap-2">
+                  @for (dependency of meta.dependencies; track dependency.periodId) {
+                    <span class="rounded-full px-2.5 py-1 font-semibold" [class]="dependency.readiness === 'READY' ? 'bg-emerald-100 text-emerald-800' : dependency.readiness === 'PROVISIONAL' ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800'">{{ dependency.code }} · {{ dependency.readiness }}</span>
+                  }
+                </div>
+              </div>
+            }
+            @if (b.issues?.length) {
+              <div class="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-950 print:hidden">
+                <div class="font-bold">{{ fr() ? 'À corriger avant validation' : 'Fix before validation' }}</div>
+                <ul class="mt-1 list-disc pl-5">@for (issue of (b.issues ?? []); track issue.code + issue.periodCode + issue.subjectCode) { @if (issue.severity === 'ERROR') { <li>{{ fr() ? issue.messageFr : issue.messageEn }}</li> } }</ul>
+              </div>
+            }
+          }
+        }
       }
 
       <!-- ============ TEACHER GRADE ENTRY ============ -->
@@ -463,6 +517,9 @@ const appreciation = (avg: number, fr: boolean): string => {
                             <div class="font-display text-xl font-bold leading-tight">Bayo Bilingual Complex</div>
                             <div class="text-sm text-brand-100 mt-0.5">Maroua</div>
                             <div class="text-xs text-gold-200 mt-2 font-semibold">
+                              {{ bulletinTitle(b) }}
+                            </div>
+                            <div class="text-xs text-gold-200 mt-2 font-semibold hidden">
                               {{ (fr() ? 'BULLETIN' : 'REPORT CARD') }} — {{ (fr() ? 'SÉQUENCE ' : 'SEQ. ') + b.sequence }}
                             </div>
                           </div>
@@ -525,6 +582,36 @@ const appreciation = (avg: number, fr: boolean): string => {
                           </div>
                         }
 
+                        @if (isComputedBulletin(b)) {
+                          <div class="overflow-x-auto">
+                            <table class="min-w-[720px] w-full text-sm">
+                              <thead>
+                                <tr class="border-b-2 border-brand-600 text-[11px] uppercase text-brand-700 font-bold">
+                                  <th class="text-left py-2">{{ fr() ? 'Matière' : 'Subject' }}</th>
+                                  @for (periodCode of periodColumns(b); track periodCode) { <th class="text-center py-2 w-20">{{ periodCode }}</th> }
+                                  <th class="text-center py-2 w-20">{{ b.product === 'ANNUAL' ? (fr() ? 'Annuel' : 'Annual') : (fr() ? 'Trimestre' : 'Term') }}</th>
+                                  <th class="text-center py-2 w-16">Coef</th>
+                                  <th class="text-center py-2 w-24">{{ fr() ? 'Pondéré' : 'Weighted' }}</th>
+                                  <th class="text-left py-2 min-w-[160px]">{{ fr() ? 'Appréciation' : 'Appreciation' }}</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                @for (l of b.lines; track l.subjectCode) {
+                                  <tr class="border-b border-slate-100">
+                                    <td class="py-2.5 font-semibold text-ink">{{ l.subjectLabel }} @if (l.subjectGroupLabel) { <div class="text-[10px] font-normal uppercase tracking-wide text-brand-600">{{ l.subjectGroupLabel }}</div> } @if (l.teacherName) { <div class="text-[10px] font-normal text-mute">{{ fr() ? 'Prof. ' : 'Teacher: ' }}{{ l.teacherName }}</div> }</td>
+                                    @for (periodCode of periodColumns(b); track periodCode) { <td class="py-2.5 text-center font-mono">{{ formatMark(periodMark(l, periodCode)) }}</td> }
+                                    <td class="py-2.5 text-center font-bold">{{ formatMark(l.mark) }}</td>
+                                    <td class="py-2.5 text-center text-mute">{{ l.coef }}</td>
+                                    <td class="py-2.5 text-center font-mono">{{ formatMark(l.weighted) }}</td>
+                                    <td class="py-2.5 pr-2 text-xs italic text-mute">{{ l.teacherRemark || appr(l.mark) }}</td>
+                                  </tr>
+                                } @empty {
+                                  <tr><td [attr.colspan]="periodColumns(b).length + 5" class="py-10"><bbc-empty icon="doc" [label]="fr() ? 'Aucune note' : 'No marks'" /></td></tr>
+                                }
+                              </tbody>
+                            </table>
+                          </div>
+                        } @else {
                         <table class="w-full text-sm">
                           <thead>
                             <tr class="border-b-2 border-brand-600 text-[11px] uppercase text-brand-700 font-bold">
@@ -541,7 +628,7 @@ const appreciation = (avg: number, fr: boolean): string => {
                                 <td class="py-2.5 font-semibold text-ink">{{ l.subjectLabel }} @if (l.subjectGroupLabel) { <div class="text-[10px] font-normal uppercase tracking-wide text-brand-600">{{ l.subjectGroupLabel }}</div> } @if (l.teacherName) { <div class="text-[10px] font-normal text-mute">{{ fr() ? 'Prof. ' : 'Teacher: ' }}{{ l.teacherName }}</div> } @if (l.periodMarks?.length) { <div class="text-[10px] font-normal text-mute mt-0.5">@for (part of (l.periodMarks ?? []); track part.periodCode) { {{ part.periodCode }}: {{ part.mark }} @if (!$last) { · } }</div> }</td>
                                 <td class="py-2.5 text-center text-mute">{{ l.coef }}</td>
                                 <td class="py-2.5 text-center font-bold"
-                                  [class]="l.mark < 10 ? 'text-rose-700' : l.mark < 14 ? 'text-ink' : 'text-emerald-700'">{{ l.mark }}</td>
+                                  [class]="markClass(l.mark)">{{ formatMark(l.mark) }}</td>
                                 <td class="py-2.5 text-center font-mono text-ink">{{ l.weighted }}</td>
                                 <td class="py-2.5 pr-2 text-xs italic text-mute">{{ l.teacherRemark || appr(l.mark) }}</td>
                               </tr>
@@ -550,13 +637,14 @@ const appreciation = (avg: number, fr: boolean): string => {
                             }
                           </tbody>
                         </table>
+                        }
 
                         @if (b.groupStats?.length) {
                           <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-2">
                             @for (group of (b.groupStats ?? []); track group.code) {
                               <div class="rounded-lg border border-brand-100 bg-brand-50/50 px-3 py-2">
                                 <div class="flex items-center justify-between gap-2 text-xs font-semibold text-brand-900">
-                                  <span>{{ group.label || group.code }}</span><span>{{ group.average }}/20</span>
+                                  <span>{{ group.label || group.code }}</span><span>{{ formatMark(group.average) }}/20</span>
                                 </div>
                                 <div class="text-[11px] text-mute mt-1">
                                   {{ fr() ? 'Total pondéré' : 'Weighted total' }}: {{ group.total }} · {{ fr() ? 'Coef' : 'Coef' }}: {{ group.coefficient }} · {{ group.subjectCount }} {{ fr() ? 'matières' : 'subjects' }}
@@ -568,9 +656,9 @@ const appreciation = (avg: number, fr: boolean): string => {
 
                         <div class="grid grid-cols-3 gap-3 mt-5">
                           <div class="rounded-lg px-3 py-2.5 ring-2 ring-gold-300"
-                            [class]="b.average < 10 ? 'bg-rose-50 text-rose-700' : b.average < 14 ? 'bg-slate-50 text-ink' : 'bg-emerald-50 text-emerald-700'">
+                            [class]="markClass(b.average)">
                             <div class="text-[10px] uppercase tracking-wide text-mute font-semibold">{{ fr() ? 'Moyenne' : 'Average' }}</div>
-                            <div class="text-lg font-bold">{{ b.average }}/20</div>
+                            <div class="text-lg font-bold">{{ formatMark(b.average) }}/20</div>
                           </div>
                           <div class="rounded-lg px-3 py-2.5 bg-slate-50 text-ink">
                             <div class="text-[10px] uppercase tracking-wide text-mute font-semibold">{{ fr() ? 'Rang' : 'Rank' }}</div>
@@ -578,7 +666,7 @@ const appreciation = (avg: number, fr: boolean): string => {
                           </div>
                           <div class="rounded-lg px-3 py-2.5 bg-slate-50 text-ink">
                             <div class="text-[10px] uppercase tracking-wide text-mute font-semibold">{{ fr() ? 'Moy. classe' : 'Class avg' }}</div>
-                            <div class="text-lg font-bold">{{ b.classAverage }}/20</div>
+                            <div class="text-lg font-bold">{{ formatMark(b.classAverage) }}/20</div>
                           </div>
                         </div>
                         @if (b.attendance; as attendance) {
@@ -634,19 +722,25 @@ const appreciation = (avg: number, fr: boolean): string => {
                           } @else {
                             <div class="flex-1"></div>
                           }
-                          @if (canWrite && b.state === 'PREVIEW' && !b.financiallyBlocked) {
+                          @if (canWrite && (b.workflowMeta?.capabilities?.canCreateDraft ?? (b.state === 'PREVIEW')) && !b.financiallyBlocked) {
                             <button (click)="createBulletinDraft(b)" [disabled]="bulletinBusy()"
                               class="inline-flex items-center gap-2 h-10 px-4 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-semibold disabled:opacity-50">
                               <bbc-icon name="doc" [s]="16" /> {{ bulletinBusy() ? '…' : (fr() ? 'Créer le brouillon' : 'Create draft') }}
                             </button>
                           }
-                          @if (canWrite && !!b.id && b.state !== 'PREVIEW' && !b.validated && !b.financiallyBlocked) {
+                          @if (canWrite && (b.workflowMeta?.capabilities?.canValidate ?? (!!b.id && b.state !== 'PREVIEW' && !b.validated)) && !b.financiallyBlocked) {
                             <button (click)="validate(b)"
                               class="inline-flex items-center gap-2 h-10 px-4 bg-gold-500 hover:bg-gold-600 text-white rounded-lg text-sm font-semibold">
                               <bbc-icon name="check" [s]="16" [sw]="2.5" /> {{ fr() ? 'Valider le bulletin' : 'Validate report card' }}
                             </button>
                           }
-                          @if (canWrite && b.state === 'VALIDATED' && !b.financiallyBlocked) {
+                          @if (canWrite && (b.workflowMeta?.capabilities?.canRefreshDraft ?? false)) {
+                            <button (click)="requestRefresh(b)"
+                              class="inline-flex items-center gap-2 h-10 px-4 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-semibold">
+                              <bbc-icon name="edit" [s]="16" /> {{ fr() ? 'Actualiser le brouillon' : 'Refresh draft' }}
+                            </button>
+                          }
+                          @if (canWrite && (b.workflowMeta?.capabilities?.canPublish ?? (b.state === 'VALIDATED')) && !b.financiallyBlocked) {
                             <button (click)="requestPublication(b)"
                               class="inline-flex items-center gap-2 h-10 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-semibold">
                               <bbc-icon name="eye" [s]="16" /> {{ fr() ? 'Publier aux parents' : 'Publish to parents' }}
@@ -699,8 +793,8 @@ const appreciation = (avg: number, fr: boolean): string => {
                       <tr class="border-b border-slate-100">
                         <td class="py-1.5 font-semibold">{{ l.subjectLabel }}</td>
                         <td class="py-1.5 text-center">{{ l.coef }}</td>
-                        <td class="py-1.5 text-center font-bold">{{ l.mark }}</td>
-                        <td class="py-1.5 text-center font-mono">{{ l.weighted }}</td>
+                        <td class="py-1.5 text-center font-bold">{{ formatMark(l.mark) }}</td>
+                        <td class="py-1.5 text-center font-mono">{{ formatMark(l.weighted) }}</td>
                       </tr>
                     }
                   </tbody>
@@ -774,7 +868,7 @@ const appreciation = (avg: number, fr: boolean): string => {
             [subtitle]="p.reportingPeriodCode ? p.rows.length + (fr() ? ' élèves · ' : ' students · ') + p.reportingPeriodCode + ' · ' + (p.completeStudents ?? 0) + (fr() ? ' complets' : ' complete') : p.rows.length + (fr() ? ' élèves · Séquence ' : ' students · Sequence ') + p.sequence">
             <div action class="text-right">
               <div class="text-[10px] uppercase tracking-wide text-mute font-semibold">{{ fr() ? 'Moy. classe' : 'Class avg' }}</div>
-              <div class="text-lg font-bold text-brand-600">{{ p.classAverage }}/20</div>
+              <div class="text-lg font-bold text-brand-600">{{ formatMark(p.classAverage) }}/20</div>
             </div>
             @if (p.rows.length === 0) {
               <bbc-empty icon="users" [label]="fr() ? 'Aucun élève' : 'No students'" />
@@ -800,8 +894,8 @@ const appreciation = (avg: number, fr: boolean): string => {
                         </td>
                         <td class="py-2 pr-5 text-right">
                           <span class="inline-block px-2 py-0.5 rounded font-bold"
-                            [class]="r.average < 10 ? 'bg-rose-100 text-rose-700' : r.average < 14 ? 'bg-slate-100 text-ink' : 'bg-emerald-100 text-emerald-700'">
-                            {{ r.complete === false ? (fr() ? 'Incomplet' : 'Incomplete') : r.average + '/20' }}
+                            [class]="markClass(r.average)">
+                            {{ r.complete === false ? (fr() ? 'Incomplet' : 'Incomplete') : formatMark(r.average) + '/20' }}
                           </span>
                         </td>
                       </tr>
@@ -817,6 +911,17 @@ const appreciation = (avg: number, fr: boolean): string => {
               [label]="fr() ? 'Choisissez une classe et une séquence, puis chargez le PV.' : 'Pick a class and sequence, then load the master sheet.'" />
           </bbc-card>
         }
+      }
+      @if (refreshDialog()) {
+        <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/55" (click)="cancelRefresh()">
+          <section class="bg-white rounded-xl2 shadow-pop w-full max-w-md p-6" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+            <h3 class="text-lg font-bold text-ink">{{ fr() ? 'Actualiser ce brouillon ?' : 'Refresh this draft?' }}</h3>
+            <p class="text-sm text-mute mt-2">{{ fr() ? 'Les sources courantes seront recalculées. L’ancienne version sera conservée comme supersédée.' : 'Current sources will be recalculated. The previous version will be retained as superseded.' }}</p>
+            <label class="block mt-4"><span class="text-xs font-semibold">{{ fr() ? 'Motif obligatoire' : 'Required reason' }}</span><textarea [(ngModel)]="refreshReason" rows="3" maxlength="500" class="w-full mt-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm" [class.border-rose-400]="!refreshReason.trim()" [placeholder]="fr() ? 'Ex. Notes S1 et S2 contrôlées.' : 'E.g. S1 and S2 grades checked.'"></textarea></label>
+            @if (!refreshReason.trim()) { <div class="mt-1 text-xs text-rose-700">{{ fr() ? 'Le motif est obligatoire.' : 'A reason is required.' }}</div> }
+            <div class="flex justify-end gap-2 mt-5"><button (click)="cancelRefresh()" class="h-9 px-3 rounded-lg border border-slate-200 text-sm font-semibold">{{ fr() ? 'Annuler' : 'Cancel' }}</button><button (click)="confirmRefresh()" [disabled]="!refreshReason.trim() || refreshBusy()" class="h-9 px-3 rounded-lg bg-amber-600 text-white text-sm font-semibold disabled:opacity-50">{{ refreshBusy() ? '…' : (fr() ? 'Confirmer l’actualisation' : 'Confirm refresh') }}</button></div>
+          </section>
+        </div>
       }
       @if (publicationDialog()) {
         <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/55" (click)="cancelPublication()">
@@ -905,6 +1010,10 @@ export class AcademicComponent {
   protected publicationReason = '';
   protected publicationTarget = signal<BulletinView | null>(null);
   protected publicationBusy = signal(false);
+  protected refreshDialog = signal(false);
+  protected refreshReason = '';
+  protected refreshTarget = signal<BulletinView | null>(null);
+  protected refreshBusy = signal(false);
   protected bulletinBusy = signal(false);
   protected officialDocumentBusy = signal(false);
   protected officialDocument = signal<GeneratedDocumentView | null>(null);
@@ -968,8 +1077,33 @@ export class AcademicComponent {
     });
   }
 
-  protected appr(mark: number): string {
-    return appreciation(mark, this.fr());
+  protected appr(mark: number | null): string {
+    return mark == null ? (this.fr() ? '—' : '—') : appreciation(mark, this.fr());
+  }
+
+  protected formatMark(mark: number | null | undefined): string {
+    return formatAcademicMark(mark);
+  }
+
+  protected markClass(mark: number | null | undefined): string {
+    if (mark == null) return 'bg-slate-100 text-mute';
+    return mark < 10 ? 'bg-rose-50 text-rose-700' : mark < 14 ? 'bg-slate-50 text-ink' : 'bg-emerald-50 text-emerald-700';
+  }
+
+  protected bulletinTitle(b: BulletinView): string {
+    return academicBulletinTitle(b, this.fr());
+  }
+
+  protected isComputedBulletin(b: BulletinView): boolean {
+    return b.product === 'TERM' || b.product === 'ANNUAL' || b.reportingPeriodType === 'TERM_RESULT' || b.reportingPeriodType === 'ANNUAL_RESULT';
+  }
+
+  protected periodColumns(b: BulletinView): string[] {
+    return computedPeriodCodes(b.lines);
+  }
+
+  protected periodMark(line: BulletinView['lines'][number], code: string): number | null {
+    return line.periodMarks?.find((mark) => mark.periodCode === code)?.mark ?? null;
   }
 
   protected setMode(m: Mode): void {
@@ -1432,7 +1566,7 @@ export class AcademicComponent {
     if (periodId) {
       this.api.previewBulletinSnapshot(id, periodId).subscribe((snapshot) => {
         if (this.selectedStudentId() !== id || this.selectedReportingPeriodId() !== periodId) return;
-        this.bulletin.set({ id: snapshot.id, studentId: snapshot.studentId, studentName: snapshot.studentName, className: snapshot.className ?? '', sequence: this.periodSequence(this.reportingPeriods().find((p) => p.id === periodId)!), lines: snapshot.lines.map((l) => ({ subjectCode: l.subjectCode, subjectLabel: l.subjectLabel, coef: l.coefficient, mark: l.mark, weighted: l.weighted, teacherRemark: l.teacherRemark ?? undefined, periodMarks: l.periodMarks ?? undefined, teacherName: l.teacherName, subjectGroupCode: l.subjectGroupCode, subjectGroupLabel: l.subjectGroupLabel })), average: snapshot.average, rank: snapshot.rank ?? 0, classSize: snapshot.classSize, classAverage: snapshot.classStats?.average ?? snapshot.average, validated: snapshot.state === 'VALIDATED' || snapshot.state === 'PUBLISHED', generalAppreciation: snapshot.generalAppreciation, financiallyBlocked: false, reportingPeriodId: snapshot.reportingPeriodId, reportingPeriodCode: snapshot.reportingPeriodCode, state: snapshot.state, complete: snapshot.complete, blockers: snapshot.blockers, snapshotHash: snapshot.snapshotHash, version: snapshot.version, attendance: snapshot.attendance, conduct: snapshot.conduct, groupStats: snapshot.groupStats ?? undefined });
+        this.bulletin.set(this.mapSnapshot(snapshot));
         this.appreciationDraft.set(snapshot.generalAppreciation ?? '');
       }, (e) => {
         if (this.selectedStudentId() === id && this.selectedReportingPeriodId() === periodId) {
@@ -1533,8 +1667,85 @@ export class AcademicComponent {
     });
   }
 
-  private applySnapshot(snapshot: import('./academic.api').BulletinSnapshotView): void {
-    this.bulletin.set({ id: snapshot.id, studentId: snapshot.studentId, studentName: snapshot.studentName, className: snapshot.className ?? '', sequence: this.periodSequence(this.reportingPeriods().find((p) => p.id === snapshot.reportingPeriodId)!), lines: snapshot.lines.map((l) => ({ subjectCode: l.subjectCode, subjectLabel: l.subjectLabel, coef: l.coefficient, mark: l.mark, weighted: l.weighted, teacherRemark: l.teacherRemark ?? undefined, periodMarks: l.periodMarks ?? undefined, teacherName: l.teacherName, subjectGroupCode: l.subjectGroupCode, subjectGroupLabel: l.subjectGroupLabel })), average: snapshot.average, rank: snapshot.rank ?? 0, classSize: snapshot.classSize, classAverage: snapshot.classStats?.average ?? snapshot.average, validated: snapshot.state === 'VALIDATED' || snapshot.state === 'PUBLISHED', generalAppreciation: snapshot.generalAppreciation, financiallyBlocked: false, reportingPeriodId: snapshot.reportingPeriodId, reportingPeriodCode: snapshot.reportingPeriodCode, state: snapshot.state, complete: snapshot.complete, blockers: snapshot.blockers, snapshotHash: snapshot.snapshotHash, version: snapshot.version, attendance: snapshot.attendance, conduct: snapshot.conduct, groupStats: snapshot.groupStats ?? undefined });
+  protected requestRefresh(b: BulletinView): void {
+    if (!b.id || b.version == null) return;
+    this.refreshTarget.set(b);
+    this.refreshReason = '';
+    this.refreshDialog.set(true);
+  }
+
+  protected cancelRefresh(): void {
+    this.refreshDialog.set(false);
+    this.refreshTarget.set(null);
+    this.refreshReason = '';
+  }
+
+  protected confirmRefresh(): void {
+    const target = this.refreshTarget();
+    if (!target?.id || target.version == null || !this.refreshReason.trim()) return;
+    this.refreshBusy.set(true);
+    this.api.refreshBulletinDraft(target.id, this.refreshReason.trim(), target.version).subscribe({
+      next: (snapshot) => {
+        this.refreshBusy.set(false);
+        this.cancelRefresh();
+        this.applySnapshot(snapshot);
+        const average = this.formatMark(snapshot.average);
+        this.notice.set({ ok: true, text: this.fr()
+          ? `Brouillon actualisé à partir des sources actuelles (${average}/20). L’ancien brouillon a été conservé comme version supersédée.`
+          : `Draft refreshed from current sources (${average}/20). The previous draft was retained as a superseded version.` });
+      },
+      error: (e) => { this.refreshBusy.set(false); this.fail(e); },
+    });
+  }
+
+  private mapSnapshot(snapshot: BulletinSnapshotView): BulletinView {
+    const period = this.reportingPeriods().find((p) => p.id === snapshot.reportingPeriodId);
+    return {
+      id: snapshot.id,
+      studentId: snapshot.studentId,
+      studentName: snapshot.studentName,
+      className: snapshot.className ?? '',
+      sequence: this.periodSequence(period!),
+      reportingPeriodType: snapshot.reportingPeriodType ?? period?.periodType,
+      product: snapshot.product,
+      lines: snapshot.lines.map((line) => ({
+        subjectCode: line.subjectCode,
+        subjectLabel: line.subjectLabel,
+        coef: line.coefficient,
+        mark: line.mark,
+        weighted: line.weighted,
+        teacherRemark: line.teacherRemark ?? undefined,
+        periodMarks: line.periodMarks ?? undefined,
+        teacherName: line.teacherName,
+        subjectGroupCode: line.subjectGroupCode,
+        subjectGroupLabel: line.subjectGroupLabel,
+      })),
+      average: snapshot.average,
+      rank: snapshot.rank,
+      classSize: snapshot.classSize,
+      classAverage: snapshot.classStats?.average ?? snapshot.average,
+      validated: snapshot.state === 'VALIDATED' || snapshot.state === 'PUBLISHED',
+      generalAppreciation: snapshot.generalAppreciation,
+      financiallyBlocked: false,
+      reportingPeriodId: snapshot.reportingPeriodId,
+      reportingPeriodCode: snapshot.reportingPeriodCode,
+      reportingPeriodLabel: snapshot.reportingPeriodLabel,
+      state: snapshot.state,
+      complete: snapshot.complete,
+      blockers: snapshot.blockers,
+      snapshotHash: snapshot.snapshotHash,
+      version: snapshot.version,
+      attendance: snapshot.attendance,
+      conduct: snapshot.conduct,
+      groupStats: snapshot.groupStats ?? undefined,
+      workflowMeta: snapshot.workflowMeta,
+      issues: snapshot.issues ?? [],
+      capabilities: snapshot.workflowMeta?.capabilities,
+    };
+  }
+
+  private applySnapshot(snapshot: BulletinSnapshotView): void {
+    this.bulletin.set(this.mapSnapshot(snapshot));
     this.appreciationDraft.set(snapshot.generalAppreciation ?? '');
   }
 

@@ -8,10 +8,10 @@ export interface BulletinLine {
   subjectCode: string;
   subjectLabel: string;
   coef: number;
-  mark: number;
-  weighted: number;
+  mark: number | null;
+  weighted: number | null;
   teacherRemark?: string;
-  periodMarks?: Array<{ periodCode: string; mark: number }>;
+  periodMarks?: Array<{ periodCode: string; mark: number | null }>;
   teacherName?: string | null;
   subjectGroupCode?: string | null;
   subjectGroupLabel?: string | null;
@@ -23,16 +23,19 @@ export interface BulletinView {
   studentName: string;
   className: string;
   sequence: number;
+  reportingPeriodType?: string;
+  product?: string;
   lines: BulletinLine[];
-  average: number;
-  rank: number;
+  average: number | null;
+  rank: number | null;
   classSize: number;
-  classAverage: number;
+  classAverage: number | null;
   validated: boolean;
   generalAppreciation: string | null;
   financiallyBlocked: boolean;
   reportingPeriodId?: string;
   reportingPeriodCode?: string;
+  reportingPeriodLabel?: string;
   state?: string;
   complete?: boolean;
   blockers?: string[];
@@ -41,24 +44,51 @@ export interface BulletinView {
   attendance?: { finalizedSessions: number; presentCount: number; absentCount: number; excusedCount: number; lateCount: number; lateMinutes: number; justifiedAbsenceHours: number; unjustifiedAbsenceHours: number; adjustedJustifiedHours: number; adjustedUnjustifiedHours: number; adjustedLateMinutes: number };
   conduct?: { workWarning: boolean; workBlame: boolean; conductWarning: boolean; conductBlame: boolean; honorRoll: boolean; encouragement: boolean; congratulations: boolean; exclusionDays: number; decisionCode: string | null; councilObservation: string | null; status: string };
   groupStats?: Array<{ code: string; label: string | null; average: number; total: number; coefficient: number; subjectCount: number }>;
+  workflowMeta?: BulletinWorkflowMeta;
+  issues?: BulletinIssue[];
+  capabilities?: BulletinCapabilities;
+}
+
+export interface BulletinIssue {
+  code: string; severity: 'ERROR' | 'WARNING' | string; periodCode?: string | null;
+  subjectCode?: string | null; messageFr: string; messageEn: string; repairTarget?: string | null;
+}
+export interface DependencyReadiness {
+  periodId: string; code: string; label: string; periodType: string; weight: number;
+  optional: boolean; readiness: string; expectedPacketCount: number; acceptedPacketCount: number;
+  lockedPacketCount: number; submittedPacketCount: number; draftPacketCount: number;
+  returnedPacketCount: number; missingPacketCount: number;
+}
+export interface BulletinCapabilities {
+  canCreateDraft: boolean; canRefreshDraft: boolean; canValidate: boolean; canPublish: boolean;
+  validationBlockers: string[];
+}
+export interface BulletinWorkflowMeta {
+  inputReadiness: string; versionRelation: string; currentSourceHash?: string | null;
+  persistedVersionId?: string | null; persistedVersionState?: string | null;
+  persistedVersionNumber?: number | null; persistedSnapshotHash?: string | null;
+  persistedAverage?: number | null; refreshRequired: boolean;
+  dependencies: DependencyReadiness[]; capabilities: BulletinCapabilities;
 }
 
 export interface BulletinSnapshotView {
   id?: string; academicSessionId: string; reportingPeriodId: string;
   reportingPeriodCode: string; reportingPeriodLabel: string; studentId: string;
   studentName: string; matricule: string; educationalLevel?: string | null; subsystem?: string | null; className: string | null;
-  lines: Array<{ subjectCode: string; subjectLabel: string; coefficient: number; mark: number; weighted: number; teacherRemark: string | null; appreciation: string; assessments: unknown[]; periodMarks?: Array<{ periodCode: string; mark: number }> | null; teacherName?: string | null; subjectGroupCode?: string | null; subjectGroupLabel?: string | null }>;
-  average: number; rank: number | null; classSize: number; state: string; complete: boolean;
+  lines: Array<{ subjectCode: string; subjectLabel: string; coefficient: number; mark: number | null; weighted: number | null; teacherRemark: string | null; appreciation: string; assessments: unknown[]; periodMarks?: Array<{ periodCode: string; mark: number | null }> | null; teacherName?: string | null; subjectGroupCode?: string | null; subjectGroupLabel?: string | null }>;
+  average: number | null; rank: number | null; classSize: number; state: string; complete: boolean;
   blockers: string[]; snapshotHash: string; calculationPolicy: string; generalAppreciation: string | null; version: number;
   attendance: BulletinView['attendance']; conduct: BulletinView['conduct'];
   classStats?: { average: number; minimum: number; maximum: number; successCount: number; successRate: number; rankedCount: number } | null;
   groupStats?: Array<{ code: string; label: string | null; average: number; total: number; coefficient: number; subjectCount: number }> | null;
+  reportingPeriodType?: string; product?: string; workflowMeta?: BulletinWorkflowMeta;
+  issues?: BulletinIssue[];
 }
 
 export interface PvRow {
   studentId: string;
   studentName: string;
-  average: number;
+  average: number | null;
   rank: number | null;
   state?: string;
   complete?: boolean;
@@ -237,6 +267,10 @@ export class AcademicApi {
 
   validateSnapshot(id: string): Observable<BulletinSnapshotView> {
     return this.http.post<BulletinSnapshotView>(`${this.base}/bulletin-snapshots/${encodeURIComponent(id)}/validate`, {});
+  }
+
+  refreshBulletinDraft(id: string, reason: string, version: number): Observable<BulletinSnapshotView> {
+    return this.http.post<BulletinSnapshotView>(`${this.base}/bulletin-snapshots/${encodeURIComponent(id)}/refresh`, { reason, version });
   }
 
   publishSnapshot(id: string, reason: string, version?: number): Observable<BulletinSnapshotView> {
