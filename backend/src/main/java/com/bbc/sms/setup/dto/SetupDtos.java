@@ -8,6 +8,7 @@ import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -118,6 +119,52 @@ public class SetupDtos {
                               UUID classId, String className, List<SubjectGroupView> groups,
                               List<CurriculumSubjectView> subjects) {
             this(academicSessionId, sessionCode, sessionLabel, classId, className, groups, subjects, null);
+        }
+    }
+
+    /** Immutable curriculum aggregate metadata exposed to Settings and grade entry. */
+    public record CurriculumVersionView(UUID id, UUID academicSessionId, UUID classId,
+                                        int versionNumber, String state, String scopeType,
+                                        LocalDate effectiveFrom, LocalDate effectiveTo,
+                                        UUID sourceVersionId, UUID sourceCopyRunId,
+                                        String canonicalContentHash, long optimisticVersion,
+                                        Instant createdAt, Instant publishedAt,
+                                        List<CurriculumVersionSubjectView> subjects,
+                                        CurriculumPublishImpact impact) {
+        public CurriculumVersionView {
+            subjects = subjects == null ? List.of() : List.copyOf(subjects);
+        }
+    }
+
+    public record CurriculumVersionSubjectView(UUID id, UUID subjectId, String subjectCode,
+                                               String subjectLabel, UUID responsibleTeacherId,
+                                               String responsibleTeacherName, int displayOrder,
+                                               int coefficient, BigDecimal maxScore, boolean mandatory,
+                                               BigDecimal passThreshold, boolean remarkRequired,
+                                               long version) {}
+
+    public record CurriculumDraftRequest(@NotNull UUID academicSessionId, @NotNull UUID classId,
+                                         UUID sourceVersionId, LocalDate effectiveFrom,
+                                         LocalDate effectiveTo) {}
+
+    public record CurriculumPublishRequest(@NotNull UUID versionId, Long optimisticVersion) {}
+
+    public record CurriculumRevisionRequest(@NotNull UUID versionId, Long optimisticVersion,
+                                            @NotBlank String reason) {}
+
+    public record CurriculumReuseRequest(@NotNull UUID sourceVersionId, @NotNull UUID targetSessionId,
+                                         @NotNull UUID targetClassId, String reason) {}
+
+    public record CurriculumPublishImpact(List<String> blockers, List<String> warnings,
+                                          int missingResponsibleTeachers, int duplicateDisplayOrders,
+                                          int invalidValues, int assessmentReferences,
+                                          int packetCount, int snapshotCount,
+                                          List<String> changedSubjects, List<String> changedTeachers) {
+        public CurriculumPublishImpact {
+            blockers = blockers == null ? List.of() : List.copyOf(blockers);
+            warnings = warnings == null ? List.of() : List.copyOf(warnings);
+            changedSubjects = changedSubjects == null ? List.of() : List.copyOf(changedSubjects);
+            changedTeachers = changedTeachers == null ? List.of() : List.copyOf(changedTeachers);
         }
     }
 

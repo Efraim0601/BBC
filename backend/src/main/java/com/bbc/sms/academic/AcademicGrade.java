@@ -26,6 +26,10 @@ public class AcademicGrade {
     @Column(name = "value_status", nullable = false) private String valueStatus = "MISSING";
     @Column(name = "workflow_status", nullable = false) private String workflowStatus = "DRAFT";
     @Column(name = "legacy_secondary_mark_id") private UUID legacySecondaryMarkId;
+    @Column(name = "curriculum_version_id") private UUID curriculumVersionId;
+    @Column(name = "curriculum_subject_id") private UUID curriculumSubjectId;
+    @Column(name = "responsible_assignment_id") private UUID responsibleAssignmentId;
+    @Column(name = "last_request_id") private UUID lastRequestId;
     @Version private long version;
     @Column(name = "created_at", insertable = false, updatable = false) private Instant createdAt;
     @Column(name = "updated_at", insertable = false, updatable = false) private Instant updatedAt;

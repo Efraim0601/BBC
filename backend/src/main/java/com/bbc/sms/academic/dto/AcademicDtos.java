@@ -463,7 +463,19 @@ public class AcademicDtos {
                                  List<GradeEntryBlockerView> submissionBlockers,
                                  List<GradeEntryBlockerView> warnings,
                                  TeacherAssignmentReadinessView assignmentReadiness,
-                                 GradeEntryCapabilitiesView capabilities) {
+                                 GradeEntryCapabilitiesView capabilities,
+                                 List<GradeEntryRowResult> saveResults) {
+        public GradeEntryView {
+            saveResults = saveResults == null ? List.of() : List.copyOf(saveResults);
+        }
+
+        public GradeEntryView withSaveResults(List<GradeEntryRowResult> results) {
+            return new GradeEntryView(academicSessionId, reportingPeriodId, classId, className, subjectCode,
+                    subjectLabel, coefficient, teacherId, teacherName, packetStatus, packetVersion,
+                    assessments, students, totalStudents, completedStudents, blockers, availableSubjects,
+                    completionBlockers, submissionBlockers, warnings, assignmentReadiness, capabilities, results);
+        }
+
         public GradeEntryView(UUID academicSessionId, UUID reportingPeriodId, UUID classId,
                               String className, String subjectCode, String subjectLabel,
                               int coefficient, UUID teacherId, String teacherName,
@@ -487,7 +499,16 @@ public class AcademicDtos {
                     availableSubjects.stream().filter(x -> subjectCode.equalsIgnoreCase(x.code()))
                             .findFirst().map(GradeEntrySubjectView::assignmentReadiness).orElse(null),
                     new GradeEntryCapabilitiesView(true, teacherId != null && blockers.isEmpty(), false,
-                            false, null));
+                            false, null), List.of());
+        }
+    }
+
+    public record GradeEntryRowResult(UUID studentId, UUID assessmentId, String outcome,
+                                      BigDecimal currentMark, String currentValueStatus,
+                                      long currentVersion, Map<String, String> fieldErrors,
+                                      boolean retryable) {
+        public GradeEntryRowResult {
+            fieldErrors = fieldErrors == null ? Map.of() : Map.copyOf(fieldErrors);
         }
     }
 
@@ -501,7 +522,12 @@ public class AcademicDtos {
     public record GradeEntrySaveRequest(@NotNull UUID reportingPeriodId, @NotNull UUID classId,
                                         @NotBlank String subjectCode,
                                         @NotNull List<GradeEntryStudentUpsert> students,
-                                        Long packetVersion) {}
+                                        Long packetVersion, String requestId) {
+        public GradeEntrySaveRequest(UUID reportingPeriodId, UUID classId, String subjectCode,
+                                     List<GradeEntryStudentUpsert> students, Long packetVersion) {
+            this(reportingPeriodId, classId, subjectCode, students, packetVersion, null);
+        }
+    }
 
     public record GradeEntryReviewRequest(@NotNull UUID reportingPeriodId, @NotNull UUID classId,
                                           @NotBlank String subjectCode, @NotBlank String action,

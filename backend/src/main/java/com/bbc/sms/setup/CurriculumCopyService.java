@@ -24,11 +24,14 @@ public class CurriculumCopyService {
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
     private final AuditService audit;
+    private final CurriculumVersionService curriculumVersions;
 
-    public CurriculumCopyService(JdbcTemplate jdbc, ObjectMapper mapper, AuditService audit) {
+    public CurriculumCopyService(JdbcTemplate jdbc, ObjectMapper mapper, AuditService audit,
+                                 CurriculumVersionService curriculumVersions) {
         this.jdbc = jdbc;
         this.mapper = mapper;
         this.audit = audit;
+        this.curriculumVersions = curriculumVersions;
     }
 
     @Transactional(readOnly = true)
@@ -88,6 +91,12 @@ public class CurriculumCopyService {
             for (SubjectGroupView group : preview.groups()) groupIds.put(group.code().toUpperCase(Locale.ROOT), upsertGroup(target.id(), group, groupIds));
         }
         int created = 0, updated = 0, skipped = 0;
+        UUID copyRunId = UUID.randomUUID();
+        Map<UUID, UUID> draftVersions = canonicalDrafts(preview, target.id());
+        for (UUID draftVersionId : draftVersions.values()) {
+            jdbc.update("UPDATE academic_curriculum_version SET source_copy_run_id=? WHERE id=? AND school_id=?",
+                    copyRunId, draftVersionId, schoolId);
+        }
         for (CurriculumCopyRow row : preview.rows()) {
             if (row.existing() != null && "UPDATE_SELECTED".equals(normalizeMode(request.mergeMode()))
                     && (request.selectedKeys() == null || !request.selectedKeys().contains(row.key()))) {
@@ -99,21 +108,38 @@ public class CurriculumCopyService {
                 } else skipped++;
                 continue;
             }
-            boolean changed = applyCurriculumRow(target, row, groupIds, request.mergeMode());
+            boolean changed = applyCurriculumVersionRow(target, row, groupIds, request.mergeMode(), draftVersions.get(row.classId()));
             if (changed && "CREATE".equals(row.status())) created++; else if (changed) updated++; else skipped++;
             if (request.includeTeachers() == null || request.includeTeachers()) applyResponsibleTeacher(target, row, request.mergeMode());
         }
         jdbc.update("""
-                INSERT INTO academic_copy_run(school_id,copy_type,source_session_id,target_session_id,scope_key,preview_fingerprint,status,
+                INSERT INTO academic_copy_run(id,school_id,copy_type,source_session_id,target_session_id,scope_key,preview_fingerprint,status,
                     created_count,updated_count,skipped_count,result_summary,idempotency_key,reason,warning_count,actor_user_id,applied_at)
-                VALUES (?,?,?,?,?,?,'APPLIED',?,?,?,?::jsonb,?,?,?,?,now())
-                """, schoolId, "CURRICULUM", preview.sourceSessionId(), target.id(), "selected-classes", preview.fingerprint(),
+                VALUES (?,?,?,?,?,?,?,'APPLIED',?,?,?,?::jsonb,?,?,?,?,now())
+                """, copyRunId, schoolId, "CURRICULUM", preview.sourceSessionId(), target.id(), "selected-classes", preview.fingerprint(),
                 created, updated, skipped, json(map("created", created, "updated", updated, "skipped", skipped)), idempotencyKey,
                 request.reason(), warningCount(preview), currentUserId());
         audit.record("CURRICULUM_COPIED", "AcademicSession", target.id().toString(), null,
                 map("sourceSessionId", preview.sourceSessionId(), "classCount", preview.classCount(),
                         "created", created, "updated", updated, "skipped", skipped), request.reason());
         return preview;
+    }
+
+    private Map<UUID, UUID> canonicalDrafts(CurriculumCopyPreview preview, UUID targetSessionId) {
+        Map<UUID, UUID> drafts = new HashMap<>();
+        for (UUID classId : resolvePreviewClassIds(preview)) {
+            CurriculumVersionView source = curriculumVersions.current(preview.sourceSessionId(), classId);
+            CurriculumVersionView draft = curriculumVersions.createRevision(new CurriculumDraftRequest(
+                    targetSessionId, classId, null, source.effectiveFrom(), source.effectiveTo()));
+            drafts.put(classId, draft.id());
+        }
+        return drafts;
+    }
+
+    private Set<UUID> resolvePreviewClassIds(CurriculumCopyPreview preview) {
+        Set<UUID> ids = new LinkedHashSet<>();
+        for (CurriculumCopyRow row : preview.rows()) ids.add(row.classId());
+        return ids;
     }
 
     private void lockSessions(UUID sourceSessionId, UUID targetSessionId, UUID schoolId) {
@@ -271,6 +297,32 @@ public class CurriculumCopyService {
         jdbc.update("UPDATE academic_curriculum_subject SET group_id=?,display_order=?,coefficient=?,max_score=?,mandatory=?,pass_threshold=?,show_subject_rank=?,remark_required=?,active_from=?,active_to=?,updated_at=now(),version=version+1 WHERE id=? AND school_id=?",
                 groupId, p.get("displayOrder"), p.get("coefficient"), p.get("maxScore"), p.get("mandatory"), p.get("passThreshold"), p.get("showSubjectRank"), p.get("remarkRequired"), date(p.get("activeFrom")), date(p.get("activeTo")), existing.get("id"), TenantContext.get());
         return true;
+    }
+
+    private boolean applyCurriculumVersionRow(SessionData target, CurriculumCopyRow row,
+                                              Map<String, UUID> groupIds, String rawMode, UUID draftVersionId) {
+        if (draftVersionId == null) return applyCurriculumRow(target, row, groupIds, rawMode);
+        Map<String, Object> p = row.proposed();
+        UUID groupId = p.get("groupCode") == null ? null : groupIds.get(String.valueOf(p.get("groupCode")).toUpperCase(Locale.ROOT));
+        Map<String, Object> existing = jdbc.query("""
+                SELECT id,group_id,version FROM academic_curriculum_subject
+                 WHERE school_id=? AND curriculum_version_id=? AND subject_id=?
+                """, rs -> rs.next() ? map("id", rs.getObject(1, UUID.class), "groupId", rs.getObject(2, UUID.class), "version", rs.getLong(3)) : null,
+                TenantContext.get(), draftVersionId, row.subjectId());
+        if (existing != null && "FILL_MISSING".equals(normalizeMode(rawMode))) return false;
+        if (existing != null && groupId == null) groupId = (UUID) existing.get("groupId");
+        if (existing == null) return false;
+        int changed = jdbc.update("""
+                UPDATE academic_curriculum_subject
+                   SET group_id=?,display_order=?,coefficient=?,max_score=?,mandatory=?,pass_threshold=?,
+                       show_subject_rank=?,remark_required=?,active_from=?,active_to=?,updated_at=now(),version=version+1
+                 WHERE id=? AND school_id=? AND curriculum_version_id=? AND version=?
+                """, groupId, p.get("displayOrder"), p.get("coefficient"), p.get("maxScore"), p.get("mandatory"),
+                p.get("passThreshold"), p.get("showSubjectRank"), p.get("remarkRequired"), date(p.get("activeFrom")),
+                date(p.get("activeTo")), existing.get("id"), TenantContext.get(), draftVersionId, existing.get("version"));
+        if (changed == 1) return true;
+        throw ApiException.staleVersion("Le brouillon de curriculum a changé pendant la reprise.",
+                ((Number) existing.get("version")).longValue(), ((Number) existing.get("version")).longValue() + 1);
     }
 
     private void applyResponsibleTeacher(SessionData target, CurriculumCopyRow row, String rawMode) {

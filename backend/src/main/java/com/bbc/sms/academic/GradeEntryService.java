@@ -138,7 +138,7 @@ public class GradeEntryService {
                 definition, rows, rows.size(), completed, blockers, available, completionBlockers,
                 submissionBlockers, List.of(), readiness,
                 new GradeEntryCapabilitiesView(canEdit, canSubmit, canReview, restricted,
-                        restricted && !subjectReady(subject) ? "Repair the responsible teacher assignment before editing or submitting." : null));
+                        restricted && !subjectReady(subject) ? "Repair the responsible teacher assignment before editing or submitting." : null), List.of());
     }
 
     @Transactional
@@ -203,6 +203,157 @@ public class GradeEntryService {
         recordPacketTransition(packet, previousPacketStatus, "DRAFT", "Correction draft saved");
         return view(period.getId(), in.classId(), subjectCode);
     }
+
+    /**
+     * Row-safe save contract: validation/conflict is isolated to a cell, so a
+     * bad row never rolls back successful rows in the same request. The request
+     * UUID is persisted on both the request ledger and each changed grade.
+     */
+    @Transactional
+    public GradeEntryView saveRowSafe(GradeEntrySaveRequest in) {
+        AcademicReportingPeriod period = period(in.reportingPeriodId());
+        AcademicPeriodRules.assertRawGradePeriod(period);
+        SchoolClass schoolClass = schoolClass(in.classId());
+        teacherScope.assertClass(in.classId());
+        String subjectCode = in.subjectCode().trim().toUpperCase(Locale.ROOT);
+        GradeEntrySubjectView subject = availableSubjects(period.getAcademicSessionId(), in.classId(), schoolClass.getName(), period.getStartDate()).stream()
+                .filter(x -> x.code().equalsIgnoreCase(subjectCode)).findFirst()
+                .orElseThrow(() -> ApiException.badRequest("La matière n'est pas affectée à cette classe"));
+        assertSubjectAccess(in.classId(), schoolClass.getName(), period.getAcademicSessionId(), period.getStartDate(), subjectCode);
+        windows.assertOpen(period.getId(), AcademicWindowPolicyService.Action.GRADE_ENTRY);
+        UUID requestId = parseRequestId(in.requestId());
+        jdbc.update("INSERT INTO academic_grade_save_request(id,school_id,actor_user_id) VALUES (?,?,?) ON CONFLICT DO NOTHING",
+                requestId, TenantContext.get(), currentUserId());
+        AcademicGradePacket packet = packet(period, in.classId(), subjectCode, subject);
+        if (in.packetVersion() != null && packet.getId() != null && in.packetVersion() != packet.getVersion())
+            throw ApiException.conflict("La feuille de saisie a été modifiée. Rechargez-la avant d'enregistrer.");
+        Map<UUID, AcademicAssessment> definition = assessments.findApplicable(TenantContext.get(), period.getId(), in.classId(), subjectCode)
+                .stream().collect(Collectors.toMap(AcademicAssessment::getId, Function.identity()));
+        CanonicalSubject canonical = canonicalSubject(period.getAcademicSessionId(), in.classId(), subjectCode);
+        List<GradeEntryRowResult> results = new ArrayList<>();
+        Set<UUID> rosterIds = roster(period.getAcademicSessionId(), in.classId()).stream().map(RosterStudent::id).collect(Collectors.toSet());
+        for (GradeEntryStudentUpsert row : in.students()) {
+            List<GradeEntryCellUpsert> cells = row.values() == null ? List.of() : row.values();
+            if (!rosterIds.contains(row.studentId())) {
+                for (GradeEntryCellUpsert cell : cells) results.add(result(row.studentId(), cell.assessmentId(), "FORBIDDEN", null, "MISSING", 0, Map.of("student", "Student is not in this class for this session."), false));
+                continue;
+            }
+            StudentEnrollment enrollment;
+            try {
+                enrollment = enrollments.findFirstBySchoolIdAndStudentIdAndAcademicSessionIdAndStatus(TenantContext.get(), row.studentId(), period.getAcademicSessionId(), "ACTIVE")
+                        .filter(e -> in.classId().equals(e.getSchoolClassId())).orElseThrow(() -> ApiException.badRequest("Inscription active introuvable pour l'élève"));
+            } catch (ApiException ex) {
+                for (GradeEntryCellUpsert cell : cells) results.add(result(row.studentId(), cell.assessmentId(), "INVALID", null, "MISSING", 0, Map.of("enrollment", ex.getMessage()), false));
+                continue;
+            }
+            for (GradeEntryCellUpsert cell : cells) {
+                AcademicGrade grade = null;
+                try {
+                    AcademicAssessment assessment = definition.get(cell.assessmentId());
+                    if (assessment == null) throw ApiException.badRequest("L'évaluation n'appartient pas à cette période");
+                    String status = normalizeStatus(cell.valueStatus());
+                    validateMark(cell.mark(), status, assessment);
+                    grade = grades.findBySchoolIdAndStudentIdAndAssessmentIdAndSubjectCode(TenantContext.get(), row.studentId(), assessment.getId(), subjectCode).orElse(null);
+                    if (cell.version() != null && grade != null && cell.version() != grade.getVersion()) {
+                        results.add(result(row.studentId(), assessment.getId(), "CONFLICT", grade.getMark(), grade.getValueStatus(), grade.getVersion(), Map.of("version", "The row changed on the server."), true));
+                        continue;
+                    }
+                    if (grade != null && Objects.equals(grade.getMark(), "SCORED".equals(status) ? cell.mark() : null)
+                            && Objects.equals(grade.getValueStatus(), status)) {
+                        results.add(result(row.studentId(), assessment.getId(), "UNCHANGED", grade.getMark(), grade.getValueStatus(), grade.getVersion(), Map.of(), false));
+                        continue;
+                    }
+                    if (grade == null) grade = new AcademicGrade();
+                    grade.setSchoolId(TenantContext.get()); grade.setAcademicSessionId(period.getAcademicSessionId()); grade.setReportingPeriodId(period.getId());
+                    grade.setAssessmentId(assessment.getId()); grade.setStudentId(row.studentId()); grade.setEnrollmentId(enrollment.getId());
+                    grade.setSubjectCode(subjectCode); grade.setMark("SCORED".equals(status) ? cell.mark() : null); grade.setValueStatus(status);
+                    grade.setWorkflowStatus("DRAFT"); grade.setEnteredBy(currentUserId()); grade.setTeacherId(subject.teacherId());
+                    grade.setCurriculumVersionId(canonical.versionId()); grade.setCurriculumSubjectId(canonical.subjectId()); grade.setResponsibleAssignmentId(canonical.assignmentId()); grade.setLastRequestId(requestId);
+                    assessment.setCurriculumVersionId(canonical.versionId()); assessment.setCurriculumSubjectId(canonical.subjectId());
+                    grades.saveAndFlush(grade);
+                    jdbc.update("UPDATE academic_grade SET policy_decision=?::jsonb WHERE id=? AND school_id=?", "{\"window\":\"GRADE_ENTRY\",\"requestId\":\"" + requestId + "\"}", grade.getId(), TenantContext.get());
+                    results.add(result(row.studentId(), assessment.getId(), "SAVED", grade.getMark(), grade.getValueStatus(), grade.getVersion(), Map.of(), false));
+                } catch (ApiException ex) {
+                    results.add(result(row.studentId(), cell.assessmentId(), ex.getCode().equals("FORBIDDEN") ? "FORBIDDEN" : "INVALID",
+                            grade == null ? null : grade.getMark(), grade == null ? "MISSING" : grade.getValueStatus(), grade == null ? 0 : grade.getVersion(), Map.of("value", ex.getMessage()), false));
+                }
+            }
+            saveCommentRowSafe(period, in.classId(), subjectCode, subject.teacherId(), row, enrollment, results);
+        }
+        packet.setStatus("DRAFT"); packet.setLastSavedBy(currentUserId()); packet.setLastSavedAt(Instant.now()); packets.saveAndFlush(packet);
+        persistSaveResults(requestId, subjectCode, results);
+        return view(period.getId(), in.classId(), subjectCode).withSaveResults(results);
+    }
+
+    private void saveCommentRowSafe(AcademicReportingPeriod period, UUID classId, String subjectCode, UUID teacherId,
+                                    GradeEntryStudentUpsert row, StudentEnrollment enrollment, List<GradeEntryRowResult> results) {
+        if (row.comment() != null && row.comment().length() > 500) {
+            results.add(result(row.studentId(), null, "INVALID", null, "MISSING", 0, Map.of("comment", "Comment cannot exceed 500 characters."), false));
+            return;
+        }
+        SubjectResultComment comment = comments.findBySchoolIdAndStudentIdAndReportingPeriodIdAndSubjectCode(TenantContext.get(), row.studentId(), period.getId(), subjectCode).orElseGet(SubjectResultComment::new);
+        comment.setSchoolId(TenantContext.get()); comment.setAcademicSessionId(period.getAcademicSessionId()); comment.setReportingPeriodId(period.getId());
+        comment.setStudentId(row.studentId()); comment.setEnrollmentId(enrollment.getId()); comment.setSubjectCode(subjectCode);
+        comment.setComment(row.comment() == null ? null : row.comment().trim()); comment.setWorkflowStatus("DRAFT"); comment.setTeacherId(teacherId);
+        comments.saveAndFlush(comment);
+    }
+
+    private GradeEntryRowResult result(UUID studentId, UUID assessmentId, String outcome, BigDecimal mark, String status,
+                                       long version, Map<String,String> errors, boolean retryable) {
+        return new GradeEntryRowResult(studentId, assessmentId, outcome, mark, status, version, errors, retryable);
+    }
+
+    private void persistSaveResults(UUID requestId, String subjectCode, List<GradeEntryRowResult> results) {
+        for (GradeEntryRowResult row : results) {
+            jdbc.update("""
+                    INSERT INTO academic_grade_save_result
+                        (request_id,school_id,student_id,assessment_id,subject_code,outcome,current_value,field_errors,retryable)
+                    VALUES (?,?,?,?,?,?,?::jsonb,?::jsonb,?)
+                    ON CONFLICT (request_id,student_id,assessment_id,subject_code) DO NOTHING
+                    """, requestId, TenantContext.get(), row.studentId(), row.assessmentId(), subjectCode, row.outcome(),
+                    currentValueJson(row), fieldErrorsJson(row.fieldErrors()), row.retryable());
+        }
+    }
+
+    private String currentValueJson(GradeEntryRowResult row) {
+        return "{\"mark\":" + (row.currentMark() == null ? "null" : row.currentMark().toPlainString())
+                + ",\"valueStatus\":" + jsonString(row.currentValueStatus())
+                + ",\"version\":" + row.currentVersion() + "}";
+    }
+
+    private String fieldErrorsJson(Map<String, String> errors) {
+        return errors.entrySet().stream()
+                .map(e -> jsonString(e.getKey()) + ":" + jsonString(e.getValue()))
+                .collect(Collectors.joining(",", "{", "}"));
+    }
+
+    private String jsonString(String value) {
+        if (value == null) return "null";
+        return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"")
+                .replace("\r", "\\r").replace("\n", "\\n") + "\"";
+    }
+
+    private UUID parseRequestId(String raw) {
+        if (raw == null || raw.isBlank()) return UUID.randomUUID();
+        try { return UUID.fromString(raw); } catch (IllegalArgumentException ex) { throw ApiException.badRequest("requestId doit être un UUID"); }
+    }
+
+    private CanonicalSubject canonicalSubject(UUID sessionId, UUID classId, String subjectCode) {
+        return jdbc.query("""
+            SELECT c.id,c.curriculum_version_id,t.id
+              FROM academic_curriculum_subject c JOIN subject s ON s.id=c.subject_id
+              JOIN academic_curriculum_version v ON v.id=c.curriculum_version_id AND v.state='PUBLISHED'
+              LEFT JOIN LATERAL (SELECT ast.id FROM academic_class_subject_teacher ast
+                    WHERE ast.school_id=c.school_id AND ast.academic_session_id=c.academic_session_id
+                      AND ast.class_id=c.class_id AND ast.subject_id=c.subject_id AND ast.role='RESPONSIBLE' AND ast.active=true
+                    ORDER BY ast.effective_from DESC NULLS LAST,ast.created_at DESC LIMIT 1) t ON true
+             WHERE c.school_id=? AND c.academic_session_id=? AND c.class_id=? AND upper(s.code)=upper(?)
+             ORDER BY v.version_number DESC LIMIT 1
+            """, rs -> rs.next() ? new CanonicalSubject(rs.getObject(1,UUID.class), rs.getObject(2,UUID.class), rs.getObject(3,UUID.class)) : null,
+                TenantContext.get(), sessionId, classId, subjectCode);
+    }
+
+    private record CanonicalSubject(UUID subjectId, UUID versionId, UUID assignmentId) {}
 
     /** Grade edits after validation require an explicit correction draft. */
     private void invalidateValidatedBulletins(UUID periodId, UUID sessionId, UUID classId) {

@@ -27,10 +27,12 @@ public class SetupController {
 
     private final SetupService service;
     private final CurriculumCopyService curriculumCopy;
+    private final CurriculumVersionService curriculumVersions;
     private final IdempotencyService idempotency;
 
-    public SetupController(SetupService service, CurriculumCopyService curriculumCopy, IdempotencyService idempotency) {
-        this.service = service; this.curriculumCopy = curriculumCopy; this.idempotency = idempotency;
+    public SetupController(SetupService service, CurriculumCopyService curriculumCopy,
+                           CurriculumVersionService curriculumVersions, IdempotencyService idempotency) {
+        this.service = service; this.curriculumCopy = curriculumCopy; this.curriculumVersions = curriculumVersions; this.idempotency = idempotency;
     }
 
     // ---- Sections -----------------------------------------------------------
@@ -145,6 +147,55 @@ public class SetupController {
                                      @RequestParam UUID classId) {
         return service.curriculum(academicSessionId, classId);
     }
+
+    @GetMapping("/curriculum/version")
+    @PreAuthorize(READ)
+    public CurriculumVersionView curriculumVersion(@RequestParam UUID academicSessionId,
+                                                    @RequestParam UUID classId) {
+        return curriculumVersions.current(academicSessionId, classId);
+    }
+
+    @PostMapping("/curriculum/version/draft")
+    @PreAuthorize(WRITE)
+    public CurriculumVersionView curriculumDraft(@Valid @RequestBody CurriculumDraftRequest in) {
+        return curriculumVersions.createRevision(in);
+    }
+
+    @PostMapping("/curriculum/version/revision")
+    @PreAuthorize(WRITE)
+    public CurriculumVersionView curriculumRevision(@Valid @RequestBody CurriculumRevisionRequest in) {
+        return curriculumVersions.revise(in);
+    }
+
+    @PostMapping("/curriculum/version/subject")
+    @PreAuthorize(WRITE)
+    public CurriculumVersionView curriculumVersionSubject(@Valid @RequestBody CurriculumSubjectUpsert in) {
+        return curriculumVersions.upsertSubject(in);
+    }
+
+    @DeleteMapping("/curriculum/version/subject")
+    @PreAuthorize(WRITE)
+    public CurriculumVersionView deleteCurriculumVersionSubject(@RequestParam UUID academicSessionId,
+                                                                 @RequestParam UUID classId,
+                                                                 @RequestParam UUID subjectId) {
+        return curriculumVersions.deleteSubject(academicSessionId, classId, subjectId);
+    }
+
+    @GetMapping("/curriculum/version/{id}")
+    @PreAuthorize(READ)
+    public CurriculumVersionView curriculumVersionById(@PathVariable UUID id) { return curriculumVersions.byId(id); }
+
+    @PostMapping("/curriculum/version/{id}/publish/preview")
+    @PreAuthorize(READ)
+    public CurriculumPublishImpact curriculumPublishPreview(@PathVariable UUID id) { return curriculumVersions.publishPreview(id); }
+
+    @PostMapping("/curriculum/version/publish")
+    @PreAuthorize(WRITE)
+    public CurriculumVersionView publishCurriculum(@Valid @RequestBody CurriculumPublishRequest in) { return curriculumVersions.publish(in); }
+
+    @GetMapping(value = "/curriculum/migration-exceptions", produces = "text/csv")
+    @PreAuthorize(READ)
+    public byte[] curriculumMigrationExceptions() { return curriculumVersions.exceptionCsv(); }
 
     @PostMapping("/curriculum/copy/preview")
     @PreAuthorize(READ)

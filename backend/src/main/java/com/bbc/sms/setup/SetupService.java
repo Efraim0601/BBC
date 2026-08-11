@@ -48,11 +48,13 @@ public class SetupService {
     private final EmployeeRepository employees;
     private final TeacherScopeService teacherScope;
     private final JdbcTemplate jdbc;
+    private final CurriculumVersionService curriculumVersions;
 
     public SetupService(SectionRepository sections, SchoolClassRepository classes,
                         SubjectRepository subjects, SubjectClassCoefRepository coefs,
                         StudentRepository students, EmployeeRepository employees,
-                        TeacherScopeService teacherScope, JdbcTemplate jdbc) {
+                        TeacherScopeService teacherScope, JdbcTemplate jdbc,
+                        CurriculumVersionService curriculumVersions) {
         this.sections = sections;
         this.classes = classes;
         this.subjects = subjects;
@@ -61,6 +63,7 @@ public class SetupService {
         this.employees = employees;
         this.teacherScope = teacherScope;
         this.jdbc = jdbc;
+        this.curriculumVersions = curriculumVersions;
     }
 
     // ---- Sections -----------------------------------------------------------
@@ -434,13 +437,10 @@ public class SetupService {
 
     /** Keep the current session's curriculum in sync with the compatibility tab. */
     private void syncCurrentSessionCurriculum(SchoolClass schoolClass, Subject subject, int coefficient) {
-        UUID schoolId = TenantContext.get(); UUID sessionId = currentSessionId(schoolId);
+        UUID sessionId = currentSessionId(TenantContext.get());
         if (sessionId == null) return;
-        jdbc.update("""
-                INSERT INTO academic_curriculum_subject(school_id,academic_session_id,class_id,subject_id,display_order,coefficient,max_score,mandatory,pass_threshold)
-                VALUES (?,?,?, ?, (SELECT coalesce(max(display_order),0)+1 FROM academic_curriculum_subject x WHERE x.school_id=? AND x.academic_session_id=? AND x.class_id=?), ?,20,true,10)
-                ON CONFLICT(school_id,academic_session_id,class_id,subject_id) DO UPDATE SET coefficient=excluded.coefficient, updated_at=now(), version=academic_curriculum_subject.version+1
-                """, schoolId, sessionId, schoolClass.getId(), subject.getId(), schoolId, sessionId, schoolClass.getId(), coefficient);
+        curriculumVersions.upsertSubject(new CurriculumSubjectUpsert(sessionId, schoolClass.getId(), subject.getId(),
+                null, null, coefficient, null, null, null, null, null, null));
     }
 
     private UUID currentSessionId(UUID schoolId) {
@@ -539,7 +539,12 @@ public class SetupService {
               + "AND e.active=true "
               + "AND ?='secondary' "
                + "ORDER BY CASE ast.role WHEN 'RESPONSIBLE' THEN 0 WHEN 'HOMEROOM' THEN 1 ELSE 2 END, ast.created_at LIMIT 1) t ON true "
-              + "WHERE c.school_id=? AND c.academic_session_id=? AND c.class_id=? ORDER BY c.display_order, s.code",
+              + "WHERE c.school_id=? AND c.academic_session_id=? AND c.class_id=? "
+              + "AND c.curriculum_version_id=(SELECT cv.id FROM academic_curriculum_version cv "
+              + "WHERE cv.school_id=c.school_id AND cv.academic_session_id=c.academic_session_id "
+              + "AND cv.class_id=c.class_id AND cv.state IN ('DRAFT','PUBLISHED') "
+              + "ORDER BY CASE cv.state WHEN 'DRAFT' THEN 0 ELSE 1 END,cv.version_number DESC LIMIT 1) "
+              + "ORDER BY c.display_order, s.code",
                 (rs, n) -> {
                     UUID teacherId = rs.getObject(14, UUID.class);
                     CurriculumTeacherView teacher = teacherId == null ? null : new CurriculumTeacherView(
@@ -610,6 +615,14 @@ public class SetupService {
 
     @Transactional
     public CurriculumSubjectView upsertCurriculumSubject(CurriculumSubjectUpsert in) {
+        curriculumVersions.upsertSubject(in);
+        return curriculum(in.academicSessionId(), in.classId()).subjects().stream()
+                .filter(x -> x.subjectId().equals(in.subjectId())).findFirst()
+                .orElseThrow(() -> ApiException.conflict("La matière n'a pas pu être chargée après enregistrement"));
+    }
+
+    @Transactional
+    private CurriculumSubjectView legacyUpsertCurriculumSubject(CurriculumSubjectUpsert in) {
         UUID schoolId = TenantContext.get();
         assertSession(in.academicSessionId());
         SchoolClass cls = classes.findByIdAndSchoolId(in.classId(), schoolId).orElseThrow(() -> ApiException.notFound("Classe"));
@@ -675,6 +688,11 @@ public class SetupService {
 
     @Transactional
     public void deleteCurriculumSubject(UUID academicSessionId, UUID classId, UUID subjectId) {
+        curriculumVersions.deleteSubject(academicSessionId, classId, subjectId);
+    }
+
+    @Transactional
+    private void legacyDeleteCurriculumSubject(UUID academicSessionId, UUID classId, UUID subjectId) {
         UUID schoolId = TenantContext.get();
         assertSession(academicSessionId);
         int updated = jdbc.update("DELETE FROM academic_curriculum_subject WHERE school_id=? AND academic_session_id=? AND class_id=? AND subject_id=?",

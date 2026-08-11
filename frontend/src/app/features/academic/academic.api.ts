@@ -171,11 +171,12 @@ export interface GradeEntryView {
   warnings?: Array<{ code: string; subjectCode: string; studentName?: string | null; messageFr: string; messageEn: string; repairTarget: string; severity: string }>;
   assignmentReadiness?: GradeEntrySubject['assignmentReadiness'];
   capabilities?: { canEditDraft: boolean; canSubmit: boolean; canReview: boolean; restrictedTeacher: boolean; explanation?: string | null };
+  saveResults?: Array<{ studentId: string; assessmentId: string | null; outcome: 'SAVED' | 'UNCHANGED' | 'CONFLICT' | 'INVALID' | 'FORBIDDEN'; currentMark: number | null; currentValueStatus: string; currentVersion: number; fieldErrors: Record<string, string>; retryable: boolean }>;
 }
 export interface GradeEntryCellUpsert { assessmentId: string; mark: number | null; valueStatus: string; version?: number; }
 export interface GradeEntryStudentUpsert { studentId: string; values: GradeEntryCellUpsert[]; comment: string | null; }
 export interface GradeEntrySaveRequest {
-  reportingPeriodId: string; classId: string; subjectCode: string; students: GradeEntryStudentUpsert[]; packetVersion?: number;
+  reportingPeriodId: string; classId: string; subjectCode: string; students: GradeEntryStudentUpsert[]; packetVersion?: number; requestId?: string;
 }
 
 export interface AttendanceAdjustment {

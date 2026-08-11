@@ -339,6 +339,7 @@ const appreciation = (avg: number, fr: boolean): string => {
                       <tr class="border-b border-slate-100 align-top">
                         <td class="py-3 pl-5 sticky left-0 bg-white z-10">
                           <div class="font-semibold text-ink">{{ row.studentName }}</div><div class="text-[11px] text-mute font-mono">{{ row.matricule }}</div>
+                          <div class="mt-1 text-[11px] font-semibold" [class.text-amber-700]="gradeRowState(row.studentId) === 'Saving' || gradeRowState(row.studentId) === 'Unsaved'" [class.text-emerald-700]="gradeRowState(row.studentId) === 'Saved'" [class.text-rose-700]="gradeRowState(row.studentId) === 'Conflict' || gradeRowState(row.studentId) === 'Error'">{{ gradeRowStateLabel(gradeRowState(row.studentId)) }}</div>
                         </td>
                         @for (cell of row.values; track cell.assessmentId; let i = $index) {
                           <td class="p-2">
@@ -1059,6 +1060,7 @@ export class AcademicComponent {
   protected inputBusy = signal<string | null>(null);
   protected selectedGradeSubjectCode = signal('');
   protected gradeBusy = signal(false);
+  protected gradeRowStates = signal<Record<string, 'Unsaved' | 'Saving' | 'Saved' | 'Conflict' | 'Error'>>({});
   protected appreciationDraft = signal('');
   protected bulkBulletins = signal<BulletinView[]>([]);
   protected bulkBusy = signal(false);
@@ -1796,25 +1798,41 @@ export class AcademicComponent {
   }
 
   protected updateGradeMark(studentId: string, index: number, raw: unknown): void {
+    this.gradeRowStates.update((states) => ({ ...states, [studentId]: 'Unsaved' }));
     const value = raw === '' || raw == null ? null : Number(raw);
     this.updateGradeEntry((entry) => ({ ...entry, students: entry.students.map((row) => row.studentId !== studentId ? row : ({ ...row, values: row.values.map((cell, i) => i === index ? { ...cell, mark: Number.isFinite(value) ? value : null, valueStatus: Number.isFinite(value) ? 'SCORED' : 'MISSING' } : cell) })) }));
   }
 
   protected updateGradeStatus(studentId: string, index: number, status: string): void {
+    this.gradeRowStates.update((states) => ({ ...states, [studentId]: 'Unsaved' }));
     this.updateGradeEntry((entry) => ({ ...entry, students: entry.students.map((row) => row.studentId !== studentId ? row : ({ ...row, values: row.values.map((cell, i) => i === index ? { ...cell, mark: status === 'SCORED' ? cell.mark : null, valueStatus: status as any } : cell) })) }));
   }
 
   protected updateGradeComment(studentId: string, comment: string): void {
+    this.gradeRowStates.update((states) => ({ ...states, [studentId]: 'Unsaved' }));
     this.updateGradeEntry((entry) => ({ ...entry, students: entry.students.map((row) => row.studentId === studentId ? { ...row, comment } : row) }));
   }
 
   protected saveGradeEntry(afterSave?: () => void): void {
     const entry = this.gradeEntry(); if (!entry) return;
     this.gradeBusy.set(true);
-    this.api.saveGradeEntry({ reportingPeriodId: entry.reportingPeriodId, classId: entry.classId, subjectCode: entry.subjectCode, packetVersion: entry.packetVersion, students: entry.students.map((row) => ({ studentId: row.studentId, comment: row.comment, values: row.values.map((cell) => ({ assessmentId: cell.assessmentId, mark: cell.mark, valueStatus: cell.valueStatus, version: cell.version })) })) }).subscribe({
-      next: (updated) => { this.gradeEntry.set(updated); this.selectedGradeSubjectCode.set(updated.subjectCode); this.gradeBusy.set(false); this.notice.set({ ok: true, text: this.fr() ? 'Brouillon de notes enregistré.' : 'Grade draft saved.' }); afterSave?.(); },
+    const rowsToSave = entry.students.filter((row) => this.gradeRowStates()[row.studentId] !== 'Saved');
+    this.gradeRowStates.update((states) => Object.fromEntries(rowsToSave.map((row) => [row.studentId, 'Saving'])) as Record<string, any>);
+    const cryptoApi = globalThis.crypto as Crypto & { randomUUID?: () => string };
+    const requestId = cryptoApi.randomUUID?.() ?? `grade-save-${Date.now()}`;
+    this.api.saveGradeEntry({ reportingPeriodId: entry.reportingPeriodId, classId: entry.classId, subjectCode: entry.subjectCode, packetVersion: entry.packetVersion, requestId, students: rowsToSave.map((row) => ({ studentId: row.studentId, comment: row.comment, values: row.values.map((cell) => ({ assessmentId: cell.assessmentId, mark: cell.mark, valueStatus: cell.valueStatus, version: cell.version })) })) }).subscribe({
+      next: (updated) => { this.gradeEntry.set(updated); this.selectedGradeSubjectCode.set(updated.subjectCode); this.gradeRowStates.update((states) => { const next = { ...states }; for (const result of updated.saveResults ?? []) next[result.studentId] = result.outcome === 'CONFLICT' ? 'Conflict' : ['INVALID', 'FORBIDDEN'].includes(result.outcome) ? 'Error' : 'Saved'; return next; }); this.gradeBusy.set(false); this.notice.set({ ok: true, text: this.fr() ? 'Brouillon de notes enregistré.' : 'Grade draft saved.' }); afterSave?.(); },
       error: (e) => { this.gradeBusy.set(false); this.fail(e); },
     });
+  }
+
+  protected gradeRowState(studentId: string): 'Unsaved' | 'Saving' | 'Saved' | 'Conflict' | 'Error' {
+    return this.gradeRowStates()[studentId] ?? 'Unsaved';
+  }
+
+  protected gradeRowStateLabel(state: string): string {
+    return this.fr() ? ({ Unsaved: 'Non enregistré', Saving: 'Enregistrement…', Saved: 'Enregistré', Conflict: 'Conflit — recharger', Error: 'Erreur — corriger' } as Record<string,string>)[state] ?? state
+      : ({ Unsaved: 'Unsaved', Saving: 'Saving…', Saved: 'Saved', Conflict: 'Conflict — reload', Error: 'Error — fix' } as Record<string,string>)[state] ?? state;
   }
 
   protected submitGradeEntry(): void {

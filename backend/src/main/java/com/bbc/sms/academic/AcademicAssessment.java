@@ -24,6 +24,8 @@ public class AcademicAssessment {
     @Column(nullable = false) private String source = "MANUAL";
     @Column(name = "generation_batch_id") private UUID generationBatchId;
     @Column(name = "legacy_secondary_competency_id") private UUID legacySecondaryCompetencyId;
+    @Column(name = "curriculum_version_id") private UUID curriculumVersionId;
+    @Column(name = "curriculum_subject_id") private UUID curriculumSubjectId;
     @Column(name = "max_score", nullable = false) private BigDecimal maxScore = BigDecimal.valueOf(20);
     @Column(nullable = false) private BigDecimal weight = BigDecimal.ONE;
     @Column(nullable = false) private boolean mandatory = true;

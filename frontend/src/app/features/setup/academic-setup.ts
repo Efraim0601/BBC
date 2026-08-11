@@ -6,7 +6,7 @@ import { I18nService } from '../../core/i18n.service';
 import { ScopeService } from '../../core/scope.service';
 import {
   SetupApi, SectionView, SectionUpsert, ClassView, ClassUpsert, SubjectView, SubjectUpsert, TeacherOption,
-  ClassCoefView, CoefImportRow, CoefImportResult, CurriculumView, CurriculumSubjectView, SubjectGroupView, AssignmentImpactView,
+  ClassCoefView, CoefImportRow, CoefImportResult, CurriculumView, CurriculumSubjectView, SubjectGroupView, AssignmentImpactView, CurriculumVersionView,
 } from '../../core/setup.api';
 import { FoundationApi, AcademicSessionView, AcademicReportingPeriodView, DocumentDesignView } from '../../core/foundation.api';
 import { AcademicApi, SecondaryCompetencyModelView } from '../academic/academic.api';
@@ -306,6 +306,12 @@ import { downloadCsv } from '../../core/csv';
           </div>
 
           @if (assignmentClassId() && curriculum()) {
+            @if (curriculumVersion(); as version) {
+              <div class="mb-4 rounded-xl border border-brand-200 bg-brand-50/60 p-4" role="status">
+                <div class="flex flex-wrap items-center justify-between gap-3"><div><div class="text-xs font-semibold uppercase tracking-wide text-brand-700">{{ fr() ? 'Version canonique du curriculum' : 'Canonical curriculum version' }}</div><div class="mt-1 text-lg font-bold text-ink">{{ version.state }} · v{{ version.versionNumber }}</div><div class="mt-1 text-xs text-mute">{{ fr() ? 'Portée' : 'Scope' }}: {{ version.scopeType }} · {{ version.effectiveFrom || '—' }} → {{ version.effectiveTo || '—' }}</div></div><span class="rounded-full border px-3 py-1 text-xs font-bold" [class.border-amber-300]="version.state === 'DRAFT'" [class.bg-amber-50]="version.state === 'DRAFT'" [class.border-emerald-300]="version.state === 'PUBLISHED'" [class.bg-emerald-50]="version.state === 'PUBLISHED'">{{ version.state === 'DRAFT' ? (fr() ? 'Brouillon' : 'Draft') : version.state === 'PUBLISHED' ? (fr() ? 'Publié et verrouillé' : 'Published and frozen') : (fr() ? 'Remplacé' : 'Superseded') }}</span></div>
+                @if (version.state === 'DRAFT') { <div class="mt-3 flex flex-wrap items-center gap-2"><div class="text-xs text-amber-900">{{ fr() ? 'Modifications non publiées — vérifiez les impacts avant publication.' : 'Unpublished changes — review impact warnings before publishing.' }}</div><button type="button" (click)="publishCurriculumVersion()" [disabled]="!canWrite" class="h-9 px-3 rounded-lg bg-brand-700 text-white text-xs font-semibold disabled:opacity-50">{{ fr() ? 'Prévisualiser et publier' : 'Preview and publish' }}</button></div> }
+              </div>
+            }
             <div class="mb-5 rounded-xl border border-slate-200 bg-white p-4">
               <div class="flex items-start justify-between gap-3 mb-3">
                 <div>
@@ -868,6 +874,7 @@ export class AcademicSetupComponent {
   protected academicSessions = signal<AcademicSessionView[]>([]);
   protected curriculumSessionId = signal('');
   protected curriculum = signal<CurriculumView | null>(null);
+  protected curriculumVersion = signal<CurriculumVersionView | null>(null);
   protected groupCode = '';
   protected groupFr = '';
   protected groupEn = '';
@@ -978,14 +985,27 @@ export class AcademicSetupComponent {
 
   protected refreshCurriculum(): void { this.loadCurriculum(); }
 
+  protected publishCurriculumVersion(): void {
+    const version = this.curriculumVersion(); if (!version || version.state !== 'DRAFT') return;
+    this.api.curriculumPublishPreview(version.id).subscribe({
+      next: (impact) => {
+        const blockers = impact?.blockers ?? [];
+        if (blockers.length) { this.assignmentNotice.set({ ok: false, text: this.fr() ? `Publication bloquée : ${blockers.join(', ')}` : `Publication blocked: ${blockers.join(', ')}` }); return; }
+        if (!globalThis.confirm(this.fr() ? 'Publier cette version ? Elle sera verrouillée et deviendra la source des nouvelles notes.' : 'Publish this version? It will be frozen and become the source for new grades.')) return;
+        this.api.publishCurriculumVersion({ versionId: version.id, optimisticVersion: version.optimisticVersion }).subscribe({ next: (published) => { this.curriculumVersion.set(published); this.assignmentNotice.set({ ok: true, text: this.fr() ? 'Curriculum publié et verrouillé.' : 'Curriculum published and frozen.' }); }, error: (e) => this.assignmentError(e) });
+      }, error: (e) => this.assignmentError(e),
+    });
+  }
+
   private loadCurriculum(): void {
     const sessionId = this.curriculumSessionId();
     const classId = this.assignmentClassId();
-    if (!sessionId || !classId) { this.curriculum.set(null); return; }
+    if (!sessionId || !classId) { this.curriculum.set(null); this.curriculumVersion.set(null); return; }
     this.api.curriculum(sessionId, classId).subscribe({
       next: (value) => { this.curriculum.set({ ...value, subjects: value.subjects.map((row) => ({ ...row, classId: value.classId, className: value.className, defaultCoef: this.subjects().find((s) => s.id === row.subjectId)?.coef ?? row.coefficient })) }); this.syncCoefficientDrafts(); },
       error: (e) => this.assignmentError(e),
     });
+    this.api.curriculumVersion(sessionId, classId).subscribe({ next: (value) => this.curriculumVersion.set(value), error: () => this.curriculumVersion.set(null) });
   }
 
   protected selectAssignmentSubject(subjectId: string): void {

@@ -265,8 +265,11 @@ public class AcademicController {
 
     @PostMapping("/grade-entry/save")
     @PreAuthorize("@perm.can('academic','write') and @perm.staffOnly()")
-    public GradeEntryView saveGradeEntry(@Valid @RequestBody GradeEntrySaveRequest request) {
-        return gradeEntryService.save(request);
+    public GradeEntryView saveGradeEntry(@Valid @RequestBody GradeEntrySaveRequest request,
+                                         @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+        String key = request.requestId() == null || request.requestId().isBlank() ? idempotencyKey : request.requestId();
+        return idempotency.execute("academic.grade-entry.save", key, request, GradeEntryView.class,
+                () -> gradeEntryService.saveRowSafe(request));
     }
 
     @PostMapping("/grade-entry/workflow")

@@ -118,6 +118,8 @@ public class AssessmentDefaultsService {
             assessment.setReportingPeriodId(row.reportingPeriodId());
             assessment.setClassId(scope.scope().classId());
             assessment.setSubjectCode(row.subjectCode());
+            assessment.setCurriculumSubjectId(row.curriculumSubjectId());
+            assessment.setCurriculumVersionId(curriculumVersionId(row.curriculumSubjectId()));
             assessment.setCode(code);
             assessment.setLabel(row.proposedLabel().trim());
             assessment.setAssessmentType("SEQUENCE_EVALUATION");
@@ -175,6 +177,11 @@ public class AssessmentDefaultsService {
                     "Aucune matière n’est affectée à cette classe pour cette session. Configurez d’abord les matières de la classe.");
         }
         return new ScopeData(scope, selected);
+    }
+
+    private UUID curriculumVersionId(UUID curriculumSubjectId) {
+        return jdbc.query("SELECT curriculum_version_id FROM academic_curriculum_subject WHERE id=? AND school_id=?",
+                rs -> rs.next() ? rs.getObject(1, UUID.class) : null, curriculumSubjectId, TenantContext.get());
     }
 
     private AssessmentDefaultsPreview buildPreview(AssessmentDefaultsPreviewRequest request,

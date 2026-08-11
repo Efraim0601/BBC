@@ -60,8 +60,12 @@ public class CurriculumQueryService {
                        c.display_order, c.coefficient, c.max_score, c.mandatory,
                        c.remark_required, c.active_from, c.active_to, c.version
                   FROM academic_curriculum_subject c
-                  JOIN subject s ON s.id=c.subject_id
+                 JOIN subject s ON s.id=c.subject_id
                  WHERE c.school_id=? AND c.academic_session_id=? AND c.class_id=?
+                   AND c.curriculum_version_id=(SELECT cv.id FROM academic_curriculum_version cv
+                        WHERE cv.school_id=c.school_id AND cv.academic_session_id=c.academic_session_id
+                          AND cv.class_id=c.class_id AND cv.state='PUBLISHED'
+                        ORDER BY cv.version_number DESC LIMIT 1)
                  ORDER BY c.display_order, upper(s.code), c.id
                 """, (rs, n) -> new SubjectRow(
                     rs.getObject(1, UUID.class), rs.getObject(2, UUID.class),

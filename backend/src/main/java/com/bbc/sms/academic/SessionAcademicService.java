@@ -82,6 +82,8 @@ public class SessionAcademicService {
         AcademicAssessment a = new AcademicAssessment();
         a.setSchoolId(TenantContext.get()); a.setAcademicSessionId(period.getAcademicSessionId()); a.setReportingPeriodId(period.getId());
         a.setClassId(in.classId()); a.setSubjectCode(subjectCode);
+        CanonicalSubject canonical = canonicalSubject(period.getAcademicSessionId(), in.classId(), subjectCode);
+        a.setCurriculumVersionId(canonical.versionId()); a.setCurriculumSubjectId(canonical.subjectId());
         a.setCode(code); a.setLabel(in.label().trim()); a.setAssessmentType(in.assessmentType() == null ? "EVALUATION" : in.assessmentType().trim().toUpperCase(Locale.ROOT));
         a.setMaxScore(in.maxScore()); a.setWeight(in.weight()); a.setMandatory(in.mandatory()); a.setDisplayOrder(in.displayOrder());
         a.setAssessmentType("SEQUENCE_EVALUATION"); a.setSource("MANUAL");
@@ -194,6 +196,19 @@ public class SessionAcademicService {
     }
 
     private AcademicReportingPeriod period(UUID id) { return periods.findByIdAndSchoolId(id, TenantContext.get()).orElseThrow(() -> ApiException.notFound("Période de résultat")); }
+    private CanonicalSubject canonicalSubject(UUID sessionId, UUID classId, String subjectCode) {
+        return jdbc.query("""
+            SELECT c.id,c.curriculum_version_id FROM academic_curriculum_subject c
+              JOIN subject s ON s.id=c.subject_id
+              JOIN academic_curriculum_version v ON v.id=c.curriculum_version_id AND v.state='PUBLISHED'
+             WHERE c.school_id=? AND c.academic_session_id=? AND c.class_id=? AND upper(s.code)=upper(?)
+             ORDER BY v.version_number DESC LIMIT 1
+            """, rs -> rs.next() ? new CanonicalSubject(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class)) : null,
+                TenantContext.get(), sessionId, classId, subjectCode);
+    }
+
+    private record CanonicalSubject(UUID subjectId, UUID versionId) {}
+
     private void assertAssessmentScope(AcademicReportingPeriod period, UUID classId, String rawSubjectCode) {
         if (classId == null) throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST,
                 "CLASS_REQUIRED", "Une évaluation doit être rattachée à une classe.", "classId", "Sélectionnez une classe.");

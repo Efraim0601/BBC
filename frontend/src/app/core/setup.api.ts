@@ -38,6 +38,13 @@ export interface CurriculumSubjectView {
   activeFrom?: string | null; activeTo?: string | null;
 }
 export interface CurriculumView { academicSessionId: string; sessionCode: string; sessionLabel: string; classId: string; className: string; groups: SubjectGroupView[]; subjects: CurriculumSubjectView[]; homeroomTeacher: CurriculumTeacherView | null; }
+export interface CurriculumVersionView {
+  id: string; academicSessionId: string; classId: string; versionNumber: number; state: 'DRAFT' | 'PUBLISHED' | 'SUPERSEDED' | string;
+  scopeType: string; effectiveFrom: string | null; effectiveTo: string | null; sourceVersionId: string | null;
+  sourceCopyRunId: string | null; canonicalContentHash: string | null; optimisticVersion: number;
+  createdAt: string; publishedAt: string | null; subjects: Array<{ id: string; subjectId: string; subjectCode: string; displayOrder: number; coefficient: number; maxScore: number; mandatory: boolean; version: number }>;
+  impact?: { blockers: string[]; warnings: string[]; missingResponsibleTeachers: number; duplicateDisplayOrders: number; invalidValues: number; assessmentReferences: number; packetCount: number; snapshotCount: number } | null;
+}
 export interface CurriculumSubjectUpsert {
   academicSessionId: string; classId: string; subjectId: string; groupId?: string | null; displayOrder?: number;
   coefficient?: number; maxScore?: number; mandatory?: boolean; passThreshold?: number; showSubjectRank?: boolean;
@@ -117,6 +124,11 @@ export class SetupApi {
   curriculum(academicSessionId: string, classId: string): Observable<CurriculumView> {
     return this.http.get<CurriculumView>(`${this.base}/curriculum`, { params: { academicSessionId, classId } });
   }
+  curriculumVersion(academicSessionId: string, classId: string): Observable<CurriculumVersionView> {
+    return this.http.get<CurriculumVersionView>(`${this.base}/curriculum/version`, { params: { academicSessionId, classId } });
+  }
+  curriculumPublishPreview(id: string): Observable<CurriculumVersionView['impact']> { return this.http.post<CurriculumVersionView['impact']>(`${this.base}/curriculum/version/${id}/publish/preview`, {}); }
+  publishCurriculumVersion(body: { versionId: string; optimisticVersion?: number }): Observable<CurriculumVersionView> { return this.http.post<CurriculumVersionView>(`${this.base}/curriculum/version/publish`, body); }
   previewCurriculumCopy(body: CurriculumCopyPreviewRequest): Observable<CurriculumCopyPreview> {
     return this.http.post<CurriculumCopyPreview>(`${this.base}/curriculum/copy/preview`, body);
   }
