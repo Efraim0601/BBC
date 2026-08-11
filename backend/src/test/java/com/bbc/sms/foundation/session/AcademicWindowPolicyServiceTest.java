@@ -94,6 +94,14 @@ class AcademicWindowPolicyServiceTest {
         term.setManagementClosesAt(NOW.minusSeconds(1));
         assertThat(service.effective(periodId, AcademicWindowPolicyService.Action.BATCH_GENERATION).state())
                 .isEqualTo("CLOSED");
+        assertThatThrownBy(() -> service.assertAllowed(periodId, AcademicWindowPolicyService.Action.BATCH_GENERATION))
+                .isInstanceOf(ApiException.class)
+                .satisfies(error -> {
+                    ApiException api = (ApiException) error;
+                    assertThat(api.getCode()).isEqualTo("TRIMESTER_WINDOW_CLOSED");
+                    assertThat(api.getDetails()).containsEntry("configuredOpensAt", null);
+                    assertThat(api.getDetails()).containsEntry("configuredClosesAt", NOW.minusSeconds(1));
+                });
     }
 
     @Test

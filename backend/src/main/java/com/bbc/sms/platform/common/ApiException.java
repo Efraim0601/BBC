@@ -3,6 +3,8 @@ package com.bbc.sms.platform.common;
 import org.springframework.http.HttpStatus;
 
 import java.util.List;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /** Business exception translated to the audited, structured API error envelope. */
@@ -49,7 +51,9 @@ public class ApiException extends RuntimeException {
         this.staleVersion = staleVersion;
         this.messageKey = messageKey;
         this.messageParams = messageParams == null ? Map.of() : Map.copyOf(messageParams);
-        this.details = details == null ? Map.of() : Map.copyOf(details);
+        // Details intentionally support null values: policy responses expose
+        // one-sided windows as configuredOpensAt/configuredClosesAt=null.
+        this.details = details == null ? Map.of() : Collections.unmodifiableMap(new LinkedHashMap<>(details));
     }
 
     public HttpStatus getStatus() { return status; }
