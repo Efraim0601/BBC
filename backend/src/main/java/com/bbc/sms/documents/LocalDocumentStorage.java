@@ -14,9 +14,10 @@ public class LocalDocumentStorage implements DocumentStorage {
     public LocalDocumentStorage(@Value("${bbc.documents.storage-path}") String root) {
         this.root = Path.of(root).toAbsolutePath().normalize();
     }
-    @Override public String store(String schoolId, String documentId, byte[] content) {
+    @Override public String store(String schoolId, String documentId, String extension, byte[] content) {
         try {
-            Path file = root.resolve(schoolId).resolve(documentId + ".pdf").normalize();
+            String safeExtension = extension == null || extension.isBlank() ? "bin" : extension.replaceAll("[^A-Za-z0-9]", "");
+            Path file = root.resolve(schoolId).resolve(documentId + "." + safeExtension).normalize();
             if (!file.startsWith(root)) throw new SecurityException("Invalid storage key");
             Files.createDirectories(file.getParent());
             Files.write(file, content);

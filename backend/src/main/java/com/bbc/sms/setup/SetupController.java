@@ -1,5 +1,6 @@
 package com.bbc.sms.setup;
 
+import com.bbc.sms.foundation.idempotency.IdempotencyService;
 import com.bbc.sms.setup.dto.SetupDtos.*;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -25,8 +26,12 @@ public class SetupController {
     private static final String WRITE = "@parcours.allows() and @perm.can('settings','write')";
 
     private final SetupService service;
+    private final CurriculumCopyService curriculumCopy;
+    private final IdempotencyService idempotency;
 
-    public SetupController(SetupService service) { this.service = service; }
+    public SetupController(SetupService service, CurriculumCopyService curriculumCopy, IdempotencyService idempotency) {
+        this.service = service; this.curriculumCopy = curriculumCopy; this.idempotency = idempotency;
+    }
 
     // ---- Sections -----------------------------------------------------------
     @GetMapping("/sections")
@@ -113,9 +118,103 @@ public class SetupController {
     @PreAuthorize(READ)
     public List<ClassCoefView> coefficients() { return service.listCoefficients(); }
 
+    @PostMapping("/subjects/coefficients")
+    @PreAuthorize(WRITE)
+    public ClassCoefView upsertCoefficient(@Valid @RequestBody ClassCoefUpsert in) {
+        return service.upsertCoefficient(in);
+    }
+
+    @DeleteMapping("/subjects/coefficients")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize(WRITE)
+    public void deleteCoefficient(@RequestParam UUID classId, @RequestParam UUID subjectId) {
+        service.deleteCoefficient(classId, subjectId);
+    }
+
     @PostMapping("/subjects/coefficients/import")
     @PreAuthorize(WRITE)
     public CoefImportResult importCoefficients(@Valid @RequestBody CoefImportRequest in) {
         return service.importCoefficients(in);
     }
+
+    // ---- Session-versioned curriculum --------------------------------------
+
+    @GetMapping("/curriculum")
+    @PreAuthorize(READ)
+    public CurriculumView curriculum(@RequestParam UUID academicSessionId,
+                                     @RequestParam UUID classId) {
+        return service.curriculum(academicSessionId, classId);
+    }
+
+    @PostMapping("/curriculum/copy/preview")
+    @PreAuthorize(READ)
+    public CurriculumCopyPreview previewCurriculumCopy(@Valid @RequestBody CurriculumCopyPreviewRequest in) {
+        return curriculumCopy.preview(in);
+    }
+
+    @PostMapping("/curriculum/copy/apply")
+    @PreAuthorize(WRITE)
+    public CurriculumCopyPreview applyCurriculumCopy(
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @Valid @RequestBody CurriculumCopyApplyRequest in) {
+        return idempotency.execute("curriculum-copy:" + in.targetSessionId(), idempotencyKey,
+                in, CurriculumCopyPreview.class, () -> curriculumCopy.apply(in, idempotencyKey));
+    }
+
+    @PostMapping("/curriculum/groups")
+    @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize(WRITE)
+    public SubjectGroupView createCurriculumGroup(@Valid @RequestBody SubjectGroupUpsert in) {
+        return service.upsertCurriculumGroup(null, in);
+    }
+
+    @PutMapping("/curriculum/groups/{id}")
+    @PreAuthorize(WRITE)
+    public SubjectGroupView updateCurriculumGroup(@PathVariable UUID id,
+                                                  @Valid @RequestBody SubjectGroupUpsert in) {
+        return service.upsertCurriculumGroup(id, in);
+    }
+
+    @DeleteMapping("/curriculum/groups/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize(WRITE)
+    public void deleteCurriculumGroup(@PathVariable UUID id) { service.deleteCurriculumGroup(id); }
+
+    @PostMapping("/curriculum/subjects")
+    @PreAuthorize(WRITE)
+    public CurriculumSubjectView upsertCurriculumSubject(@Valid @RequestBody CurriculumSubjectUpsert in) {
+        return service.upsertCurriculumSubject(in);
+    }
+
+    @DeleteMapping("/curriculum/subjects")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize(WRITE)
+    public void deleteCurriculumSubject(@RequestParam UUID academicSessionId,
+                                        @RequestParam UUID classId,
+                                        @RequestParam UUID subjectId) {
+        service.deleteCurriculumSubject(academicSessionId, classId, subjectId);
+    }
+
+    @PostMapping("/curriculum/teachers")
+    @PreAuthorize(WRITE)
+    public CurriculumTeacherView upsertCurriculumTeacher(@Valid @RequestBody CurriculumTeacherUpsert in) {
+        return service.upsertCurriculumTeacher(in);
+    }
+
+    @PostMapping("/curriculum/homeroom")
+    @PreAuthorize(WRITE)
+    public CurriculumTeacherView upsertHomeroom(@Valid @RequestBody HomeroomAssignmentUpsert in) {
+        return service.upsertHomeroom(in);
+    }
+
+    @PostMapping("/curriculum/assignments/impact-preview")
+    @PreAuthorize(READ)
+    public AssignmentImpactView assignmentImpactPreview(@Valid @RequestBody AssignmentImpactRequest in) {
+        return service.assignmentImpactPreview(in);
+    }
+
+    @DeleteMapping("/curriculum/teachers/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize(WRITE)
+    public void deleteCurriculumTeacher(@PathVariable UUID id) { service.deleteCurriculumTeacher(id); }
 }

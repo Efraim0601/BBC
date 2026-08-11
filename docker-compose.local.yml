@@ -1,0 +1,27 @@
+# Local-only override for this machine: remaps host ports to avoid
+# conflicts with the TEFO-CBS local stack (which occupies 5433 and 8081).
+#
+# NOTE: `!override` is required — without it, Compose APPENDS port mappings
+# to the base file's instead of replacing them (verified on v2.39.4).
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.demo.yml -f docker-compose.local.yml up -d --build
+#
+# Resulting mapping:
+#   Frontend : http://localhost:8082
+#   API      : http://localhost:8080  (Swagger: /swagger-ui.html)
+#   Postgres : localhost:5434  (bbc / bbc, db bbc_sms)
+services:
+  db:
+    ports: !override
+      - "5434:5432"
+
+  backend:
+    environment:
+      BBC_CORS_ORIGINS: http://localhost:4200,http://localhost:8081,http://localhost:8082,http://localhost:8083
+    ports: !override
+      - "8083:8080"
+
+  frontend:
+    ports: !override
+      - "8082:80"

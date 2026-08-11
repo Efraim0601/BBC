@@ -25,6 +25,9 @@ public class TimetableSlot {
     @Column(name = "academic_session_id")
     private UUID academicSessionId;
 
+    @Column(name = "timetable_version_id")
+    private UUID timetableVersionId;
+
     @Column(name = "day_idx", nullable = false)
     private int dayIdx;
 
@@ -36,6 +39,21 @@ public class TimetableSlot {
 
     @Column(name = "teacher_id")
     private UUID teacherId;
+
+    @Column(name = "assignment_id")
+    private UUID assignmentId;
+
+    @Column(name = "assignment_version")
+    private Long assignmentVersion;
+
+    @Column(name = "published_teacher_id")
+    private UUID publishedTeacherId;
+
+    @Column(name = "published_assignment_id")
+    private UUID publishedAssignmentId;
+
+    @Column(name = "published_assignment_version")
+    private Long publishedAssignmentVersion;
 
     private String room;
 }

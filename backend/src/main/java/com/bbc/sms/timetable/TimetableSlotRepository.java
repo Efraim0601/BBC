@@ -10,10 +10,14 @@ import java.util.UUID;
 
 public interface TimetableSlotRepository extends JpaRepository<TimetableSlot, UUID> {
     List<TimetableSlot> findBySchoolIdAndClassId(UUID schoolId, UUID classId);
+    List<TimetableSlot> findBySchoolIdAndAcademicSessionId(UUID schoolId, UUID academicSessionId);
     List<TimetableSlot> findBySchoolIdAndAcademicSessionIdAndClassId(UUID schoolId, UUID academicSessionId, UUID classId);
     List<TimetableSlot> findBySchoolIdAndAcademicSessionIdAndTeacherIdOrderByDayIdxAscSlotIdxAsc(UUID schoolId, UUID academicSessionId, UUID teacherId);
     Optional<TimetableSlot> findBySchoolIdAndClassIdAndDayIdxAndSlotIdx(UUID schoolId, UUID classId, int dayIdx, int slotIdx);
     Optional<TimetableSlot> findBySchoolIdAndAcademicSessionIdAndClassIdAndDayIdxAndSlotIdx(UUID schoolId, UUID academicSessionId, UUID classId, int dayIdx, int slotIdx);
+    Optional<TimetableSlot> findBySchoolIdAndAcademicSessionIdAndTimetableVersionIdAndClassIdAndDayIdxAndSlotIdx(UUID schoolId, UUID academicSessionId, UUID timetableVersionId, UUID classId, int dayIdx, int slotIdx);
+    List<TimetableSlot> findBySchoolIdAndAcademicSessionIdAndTimetableVersionId(UUID schoolId, UUID academicSessionId, UUID timetableVersionId);
+    List<TimetableSlot> findBySchoolIdAndAcademicSessionIdAndTimetableVersionIdAndClassId(UUID schoolId, UUID academicSessionId, UUID timetableVersionId, UUID classId);
     List<TimetableSlot> findBySchoolIdAndDayIdxAndSlotIdxAndTeacherId(UUID schoolId, int dayIdx, int slotIdx, UUID teacherId);
     /** Tous les créneaux affectés à un enseignant — base du calcul des chevauchements. */
     List<TimetableSlot> findBySchoolIdAndTeacherIdIsNotNull(UUID schoolId);

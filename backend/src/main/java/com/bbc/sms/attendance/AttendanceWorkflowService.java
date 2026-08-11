@@ -196,9 +196,25 @@ public class AttendanceWorkflowService {
              WHERE id=? AND school_id=? AND version=? AND status<>'FINALIZED'
             """, actorId(), id, TenantContext.get(), request.version());
         if (changed == 0) throw ApiException.conflict("L'appel a déjà changé ou a été finalisé. Rechargez-le.");
+        invalidateValidatedBulletins(id, current.classId(), current.date());
         event(id, "FINALIZED", trim(request.reason()), null);
         queueGuardianNotifications(id);
         return rosterById(id);
+    }
+
+    /** A finalized attendance result changes the inputs of still-editable validated bulletins. */
+    private void invalidateValidatedBulletins(UUID sessionId, UUID classId, LocalDate date) {
+        UUID academicSessionId = jdbc.queryForObject("SELECT academic_session_id FROM attendance_session WHERE id=? AND school_id=?",
+                UUID.class, sessionId, TenantContext.get());
+        jdbc.update("""
+            UPDATE bulletin_version v SET state='SUPERSEDED'
+             WHERE v.school_id=? AND v.state='VALIDATED'
+               AND v.student_id IN (SELECT e.student_id FROM student_enrollment e
+                                      WHERE e.school_id=? AND e.academic_session_id=? AND e.school_class_id=? AND e.status='ACTIVE')
+               AND v.reporting_period_id IN (SELECT p.id FROM academic_reporting_period p
+                                               WHERE p.academic_session_id=? AND p.start_date<=? AND p.end_date>=?)
+            """, TenantContext.get(), TenantContext.get(), academicSessionId, classId,
+                academicSessionId, Date.valueOf(date), Date.valueOf(date));
     }
 
     @Transactional
@@ -410,6 +426,7 @@ public class AttendanceWorkflowService {
     private UUID ensureSession(AcademicSession academic, SchoolClass schoolClass, LocalDate date,
                                String model, SessionKey key, boolean initializeMarks) {
         String sourceVersion = academic.getId() + ":" + model;
+        int durationMinutes = durationMinutes(academic, date, model, key);
         UUID expectedId = jdbc.queryForObject("""
             INSERT INTO expected_school_session(school_id, academic_session_id, school_class_id,
                 session_date, model, period_key, source, source_version)
@@ -421,14 +438,15 @@ public class AttendanceWorkflowService {
             model, key.periodKey(), sourceVersion);
         UUID sessionId = jdbc.queryForObject("""
             INSERT INTO attendance_session(school_id, academic_session_id, expected_session_id,
-                school_class_id, session_date, model, period_key, subject_code)
-            VALUES (?,?,?,?,?,?,?,?)
+                school_class_id, session_date, model, period_key, subject_code, duration_minutes)
+            VALUES (?,?,?,?,?,?,?,?,?)
             ON CONFLICT (school_id, academic_session_id, school_class_id, session_date, period_key)
             DO UPDATE SET expected_session_id=excluded.expected_session_id,
-                          subject_code=coalesce(excluded.subject_code, attendance_session.subject_code)
+                          subject_code=coalesce(excluded.subject_code, attendance_session.subject_code),
+                          duration_minutes=CASE WHEN attendance_session.duration_minutes=0 THEN excluded.duration_minutes ELSE attendance_session.duration_minutes END
             RETURNING id
             """, UUID.class, TenantContext.get(), academic.getId(), expectedId, schoolClass.getId(),
-            Date.valueOf(date), model, key.periodKey(), key.subjectCode());
+            Date.valueOf(date), model, key.periodKey(), key.subjectCode(), durationMinutes);
         if (initializeMarks) jdbc.update("""
             INSERT INTO attendance_mark(school_id, attendance_session_id, student_id)
             SELECT ?, ?, st.id FROM student_enrollment e
@@ -437,6 +455,23 @@ public class AttendanceWorkflowService {
             ON CONFLICT DO NOTHING
             """, TenantContext.get(), sessionId, TenantContext.get(), academic.getId(), schoolClass.getId());
         return sessionId;
+    }
+
+    /** Duration used for analytics: daily school hours or the timetable period length. */
+    private int durationMinutes(AcademicSession academic, LocalDate date, String model, SessionKey key) {
+        Integer duration = jdbc.query("SELECT EXTRACT(EPOCH FROM (end_time - start_time))/60 FROM school_calendar_day WHERE school_id=? AND academic_session_id=? AND day_of_week=? AND teaching_day",
+                rs -> rs.next() && rs.getObject(1) != null ? rs.getInt(1) : null,
+                TenantContext.get(), academic.getId(), date.getDayOfWeek().getValue());
+        if ("PERIOD".equals(model) && key.periodKey() != null && key.periodKey().startsWith("P")) {
+            try {
+                int slot = Integer.parseInt(key.periodKey().substring(1)) - 1;
+                int fallback = duration == null ? 0 : duration;
+                duration = jdbc.query("SELECT EXTRACT(EPOCH FROM (end_time - start_time))/60 FROM timetable_period WHERE school_id=? AND slot_idx=? AND active",
+                        rs -> rs.next() && rs.getObject(1) != null ? rs.getInt(1) : fallback,
+                        TenantContext.get(), slot);
+            } catch (NumberFormatException ignored) { /* keep daily fallback */ }
+        }
+        return duration == null ? 0 : Math.max(0, duration);
     }
 
     private List<SessionKey> keysFor(SchoolClass schoolClass, LocalDate date, String model) {

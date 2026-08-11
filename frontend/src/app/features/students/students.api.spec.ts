@@ -36,6 +36,15 @@ describe('StudentApi family management', () => {
     http.verify();
   });
 
+  it('requests the academic roster by session and class, not legacy class name', () => {
+    const { api, http } = setup();
+    api.listRoster('session-2026', 'class-ce1').subscribe();
+    const request = http.expectOne(`${environment.apiUrl}/students/roster?sessionId=session-2026&classId=class-ce1`);
+    expect(request.request.method).toBe('GET');
+    request.flush([]);
+    http.verify();
+  });
+
   it('keeps import preview and commit as separate calls', () => {
     const { api, http } = setup();
     api.familyImportDryRun([], 'families.csv').subscribe();

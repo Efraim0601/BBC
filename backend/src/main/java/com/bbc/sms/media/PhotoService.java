@@ -3,6 +3,7 @@ package com.bbc.sms.media;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.tenant.TenantContext;
 import org.springframework.stereotype.Service;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
@@ -29,8 +30,9 @@ public class PhotoService {
     private static final int MAX_BYTES = 512 * 1024;
 
     private final ProfilePhotoRepository repo;
+    private final JdbcTemplate jdbc;
 
-    public PhotoService(ProfilePhotoRepository repo) { this.repo = repo; }
+    public PhotoService(ProfilePhotoRepository repo, JdbcTemplate jdbc) { this.repo = repo; this.jdbc = jdbc; }
 
     /** Enregistre (ou remplace) la photo à partir d'une data URL. */
     @Transactional
@@ -51,6 +53,13 @@ public class PhotoService {
         p.setByteSize(img.bytes().length);
         p.setUpdatedAt(OffsetDateTime.now());
         repo.save(p);
+        jdbc.update("""
+                INSERT INTO profile_photo_version
+                    (school_id,owner_type,owner_id,content_type,bytes,byte_size,sha256,captured_at)
+                VALUES (?,?,?,?,?,?,encode(digest(?, 'sha256'),'hex'),now())
+                ON CONFLICT (school_id,owner_type,owner_id,sha256) DO NOTHING
+                """, schoolId, ownerType, ownerId, img.contentType(), img.bytes(), img.bytes().length,
+                img.bytes());
     }
 
     /** La photo, ou null quand la personne n'en a pas. */
