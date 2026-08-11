@@ -9,5 +9,10 @@ public interface AcademicGradeRepository extends JpaRepository<AcademicGrade, UU
     List<AcademicGrade> findBySchoolIdAndStudentIdAndReportingPeriodIdOrderBySubjectCodeAscAssessmentIdAsc(UUID schoolId, UUID studentId, UUID periodId);
     List<AcademicGrade> findBySchoolIdAndReportingPeriodIdAndStudentIdInAndSubjectCodeOrderByStudentIdAscAssessmentIdAsc(
             UUID schoolId, UUID periodId, List<UUID> studentIds, String subjectCode);
+    List<AcademicGrade> findByPacketIdAndStudentIdInAndSubjectCodeOrderByStudentIdAscAssessmentIdAsc(
+            UUID packetId, List<UUID> studentIds, String subjectCode);
     Optional<AcademicGrade> findBySchoolIdAndStudentIdAndAssessmentIdAndSubjectCode(UUID schoolId, UUID studentId, UUID assessmentId, String subjectCode);
+    Optional<AcademicGrade> findTopBySchoolIdAndStudentIdAndAssessmentIdAndSubjectCodeOrderByUpdatedAtDesc(
+            UUID schoolId, UUID studentId, UUID assessmentId, String subjectCode);
+    Optional<AcademicGrade> findByPacketIdAndStudentIdAndAssessmentIdAndSubjectCode(UUID packetId, UUID studentId, UUID assessmentId, String subjectCode);
 }

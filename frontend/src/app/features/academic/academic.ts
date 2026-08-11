@@ -6,7 +6,7 @@ import { forkJoin, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { StudentApi } from '../students/students.api';
 import { SetupApi, ClassView } from '../../core/setup.api';
-import { AcademicApi, BulletinView, BulletinSnapshotView, PvView, GradeEntryView, ReportCardInputsView, ReportCardInputRow, ReportCardInputUpsert, BulletinBatchJobView, BulletinBatchItemView, BulletinBatchPreviewView, BulletinBatchPreviewRow, BulletinBatchWindowView, BulletinBatchRepairTarget } from './academic.api';
+import { AcademicApi, BulletinView, BulletinSnapshotView, PvView, GradeEntryView, GradePacketQueueView, GradePacketQueueItem, GradePacketHistoryView, ReportCardInputsView, ReportCardInputRow, ReportCardInputUpsert, BulletinBatchJobView, BulletinBatchItemView, BulletinBatchPreviewView, BulletinBatchPreviewRow, BulletinBatchWindowView, BulletinBatchRepairTarget } from './academic.api';
 import { FoundationApi, AcademicReportingPeriodView, GeneratedDocumentView } from '../../core/foundation.api';
 import { AuthService } from '../../core/auth.service';
 import { ScopeService } from '../../core/scope.service';
@@ -236,6 +236,15 @@ const appreciation = (avg: number, fr: boolean): string => {
 
       <!-- ============ TEACHER GRADE ENTRY ============ -->
       @if (mode() === 'grade-entry') {
+        @if (gradeQueue(); as queue) {
+          <bbc-card className="mb-4 border-slate-200" data-testid="grade-packet-queues">
+            <div class="flex items-start justify-between gap-3 flex-wrap"><div><div class="text-xs font-semibold uppercase tracking-wide text-brand-700">{{ fr() ? 'Files des feuilles' : 'Grade packet queues' }}</div><h2 class="text-lg font-bold text-ink mt-1">{{ fr() ? 'À traiter par période, classe et matière' : 'Work grouped by period, class and subject' }}</h2></div><button type="button" (click)="loadGradeQueue()" class="h-9 px-3 rounded-lg border border-slate-300 bg-white text-sm font-semibold">{{ fr() ? 'Actualiser' : 'Refresh' }}</button></div>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+              <div><div class="text-xs font-bold uppercase text-mute">{{ fr() ? 'Mes feuilles' : 'Teacher queue' }}</div><div class="mt-2 space-y-2">@for (item of queue.teacherQueue; track item.packetId) { <button type="button" (click)="openGradeQueueItem(item)" class="w-full text-left rounded-lg border border-slate-200 bg-white px-3 py-2 hover:border-brand-400"><div class="flex justify-between gap-2"><span class="font-semibold text-ink">{{ item.reportingPeriodCode }} · {{ item.className }} · {{ item.subjectLabel }}</span><span class="text-xs font-bold">{{ item.packetStatus }}</span></div><div class="mt-1 text-xs text-mute">{{ item.completedStudents }}/{{ item.totalStudents }} · {{ item.completionState }} · {{ item.windowState }}</div>@if (item.returnedReason) { <div class="mt-1 text-xs text-rose-700">{{ item.returnedReason }}</div> }</button> } @empty { <div class="rounded-lg border border-dashed border-slate-300 px-3 py-3 text-sm text-mute">{{ fr() ? 'Aucune feuille à traiter.' : 'No teacher packets to process.' }}</div> }</div></div>
+              @if (canReview()) { <div><div class="text-xs font-bold uppercase text-mute">{{ fr() ? 'Revue direction' : 'Reviewer queue' }}</div><div class="mt-2 space-y-2">@for (item of queue.reviewerQueue; track item.packetId) { <button type="button" (click)="openGradeQueueItem(item)" class="w-full text-left rounded-lg border border-slate-200 bg-white px-3 py-2 hover:border-brand-400"><div class="flex justify-between gap-2"><span class="font-semibold text-ink">{{ item.reportingPeriodCode }} · {{ item.className }} · {{ item.subjectLabel }}</span><span class="text-xs font-bold">{{ item.packetStatus }}</span></div><div class="mt-1 text-xs text-mute">{{ item.completedStudents }}/{{ item.totalStudents }} · {{ item.completionState }} · {{ item.windowState }}</div></button> } @empty { <div class="rounded-lg border border-dashed border-slate-300 px-3 py-3 text-sm text-mute">{{ fr() ? 'Aucune feuille en revue.' : 'No packets awaiting review.' }}</div> }</div></div> }
+            </div>
+          </bbc-card>
+        }
         @if (!selectedClass()) {
           <bbc-card className="border-brand-200">
             <div class="flex items-start gap-3">
@@ -263,7 +272,7 @@ const appreciation = (avg: number, fr: boolean): string => {
                   <div class="text-xs text-mute mt-1">{{ fr() ? 'Enseignant responsable :' : 'Responsible teacher:' }} {{ display(entry.teacherName) || (fr() ? 'Non configuré' : 'Not configured') }}</div>
                 </div>
                 <span class="px-2.5 py-1 rounded-full text-xs font-bold uppercase"
-                  [class]="entry.packetStatus === 'ACCEPTED' ? 'bg-emerald-100 text-emerald-700' : entry.packetStatus === 'SUBMITTED' ? 'bg-blue-100 text-blue-700' : entry.packetStatus === 'RETURNED' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-800'">
+                  [class]="entry.packetStatus === 'ACCEPTED' ? 'bg-emerald-100 text-emerald-700' : ['SUBMITTED','IN_REVIEW'].includes(entry.packetStatus) ? 'bg-blue-100 text-blue-700' : entry.packetStatus === 'RETURNED' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-800'">
                   {{ gradePacketStatusLabel(entry.packetStatus) }}
                 </span>
               </div>
@@ -317,6 +326,12 @@ const appreciation = (avg: number, fr: boolean): string => {
               }
             </bbc-card>
             }
+            @if (gradeHistory(); as history) {
+              <bbc-card className="mb-4 border-slate-200" data-testid="grade-packet-history">
+                <div class="flex items-center justify-between gap-3"><div><div class="text-xs font-bold uppercase text-mute">{{ fr() ? 'Historique et provenance' : 'History and provenance' }}</div><div class="text-sm text-ink mt-1">{{ fr() ? 'Révision ' + history.revisionNumber + ' · ' + history.transitions.length + ' événement(s)' : 'Revision ' + history.revisionNumber + ' · ' + history.transitions.length + ' event(s)' }}</div></div><span class="text-xs text-mute">{{ history.comments.length }} {{ fr() ? 'version(s) de remarque' : 'comment version(s)' }}</span></div>
+                <div class="mt-3 space-y-1 text-xs">@for (event of history.transitions; track event.id) { <div class="rounded border border-slate-200 bg-white px-2 py-1"><span class="font-semibold">{{ event.fromStatus || '—' }} → {{ event.toStatus }}</span><span class="text-mute"> · {{ event.eventType }} · {{ event.reason || (fr() ? 'Sans motif' : 'No reason') }}</span></div> }</div>
+              </bbc-card>
+            }
             <bbc-card className="overflow-hidden">
               <div class="flex items-start justify-between gap-3 flex-wrap px-5 pt-5">
                 <div><h2 class="text-lg font-bold text-ink">{{ fr() ? '4. Saisir les notes' : '4. Enter marks' }}</h2><p class="mt-1 text-sm text-mute">{{ fr() ? 'Une ligne = un élève. Remplissez chaque colonne obligatoire.' : 'One row = one student. Complete every required column.' }}</p></div>
@@ -346,16 +361,16 @@ const appreciation = (avg: number, fr: boolean): string => {
                             <div class="mb-1 text-[11px] text-mute">{{ fr() ? 'Note /' : 'Mark /' }} {{ entry.assessments[i].maxScore }}</div>
                             <input type="number" min="0" [max]="entry.assessments[i].maxScore" step="0.01" [ngModel]="cell.mark" (ngModelChange)="updateGradeMark(row.studentId, i, $event)"
                               [attr.aria-label]="(fr() ? 'Note de ' : 'Mark for ') + row.studentName + ' — ' + (gradeAssessmentLabel(entry, entry.assessments[i]))"
-                              [disabled]="entry.packetStatus === 'SUBMITTED' || entry.packetStatus === 'ACCEPTED' || entry.packetStatus === 'LOCKED'"
+                              [disabled]="entry.packetStatus === 'SUBMITTED' || entry.packetStatus === 'IN_REVIEW' || entry.packetStatus === 'ACCEPTED' || entry.packetStatus === 'LOCKED'"
                               class="w-full h-10 px-2 text-center rounded-md border border-slate-300 bg-white text-base font-semibold focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 disabled:bg-slate-100" placeholder="—" />
                             <select [ngModel]="cell.valueStatus" (ngModelChange)="updateGradeStatus(row.studentId, i, $event)"
-                              [disabled]="entry.packetStatus === 'SUBMITTED' || entry.packetStatus === 'ACCEPTED' || entry.packetStatus === 'LOCKED'"
+                              [disabled]="entry.packetStatus === 'SUBMITTED' || entry.packetStatus === 'IN_REVIEW' || entry.packetStatus === 'ACCEPTED' || entry.packetStatus === 'LOCKED'"
                               class="w-full h-8 mt-1 px-2 text-xs rounded border border-slate-200 bg-white text-mute">
                               <option value="SCORED">{{ fr() ? 'Note saisie' : 'Mark entered' }}</option><option value="ABSENT">{{ fr() ? 'Absent' : 'Absent' }}</option><option value="EXEMPT">{{ fr() ? 'Dispensé' : 'Exempt' }}</option><option value="MISSING">{{ fr() ? 'À compléter' : 'To complete' }}</option>
                             </select>
                           </td>
                         }
-                        <td class="p-2"><textarea rows="2" [ngModel]="row.comment" (ngModelChange)="updateGradeComment(row.studentId, $event)" [disabled]="entry.packetStatus === 'SUBMITTED' || entry.packetStatus === 'ACCEPTED' || entry.packetStatus === 'LOCKED'" maxlength="500" class="w-full px-2 py-2 rounded-md border border-slate-300 text-sm resize-y focus:outline-none focus:border-brand-500 disabled:bg-slate-100" [placeholder]="fr() ? 'Facultatif : remarque sur le travail…' : 'Optional: comment on the work…'"></textarea></td>
+                        <td class="p-2"><textarea rows="2" [ngModel]="row.comment" (ngModelChange)="updateGradeComment(row.studentId, $event)" [disabled]="entry.packetStatus === 'SUBMITTED' || entry.packetStatus === 'IN_REVIEW' || entry.packetStatus === 'ACCEPTED' || entry.packetStatus === 'LOCKED'" maxlength="500" class="w-full px-2 py-2 rounded-md border border-slate-300 text-sm resize-y focus:outline-none focus:border-brand-500 disabled:bg-slate-100" [placeholder]="fr() ? 'Facultatif : remarque sur le travail…' : 'Optional: comment on the work…'"></textarea><select [ngModel]="row.appreciationCode || ''" (ngModelChange)="updateGradeAppreciation(row.studentId, $event)" [disabled]="entry.packetStatus === 'SUBMITTED' || entry.packetStatus === 'IN_REVIEW' || entry.packetStatus === 'ACCEPTED' || entry.packetStatus === 'LOCKED'" class="w-full h-8 mt-1 px-2 text-xs rounded border border-slate-200 bg-white text-mute"><option value="">{{ fr() ? 'Code d’appréciation (facultatif)' : 'Appreciation code (optional)' }}</option><option value="ENCOURAGEMENT">{{ fr() ? 'Encouragement' : 'Encouragement' }}</option><option value="CONGRATULATIONS">{{ fr() ? 'Félicitations' : 'Congratulations' }}</option><option value="HONOR_ROLL">{{ fr() ? 'Tableau d’honneur' : 'Honor roll' }}</option><option value="WORK_WARNING">{{ fr() ? 'Alerte travail' : 'Work warning' }}</option><option value="CONDUCT_WARNING">{{ fr() ? 'Alerte conduite' : 'Conduct warning' }}</option></select></td>
                       </tr>
                     } @empty {
                       <tr><td [attr.colspan]="entry.assessments.length + 2" class="p-8 text-center text-mute">{{ fr() ? 'Aucun élève actif dans cette classe pour la session.' : 'No active student in this class for the session.' }}</td></tr>
@@ -373,6 +388,9 @@ const appreciation = (avg: number, fr: boolean): string => {
                   <button type="button" (click)="submitGradeEntry()" [disabled]="gradeBusy() || entry.blockers.length > 0 || !entry.assessments.length || !canSubmitGrade(entry)" [title]="entry.submissionBlockers?.length ? (fr() ? 'Réparez l’affectation et complétez les champs indiqués avant l’envoi.' : 'Repair the assignment and complete the highlighted fields before sending.') : ''" class="h-10 px-4 rounded-lg bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700 disabled:opacity-50">{{ fr() ? 'Envoyer à la direction' : 'Send to management' }}</button>
                 }
                 @if (canReview() && entry.packetStatus === 'SUBMITTED') {
+                  <button type="button" (click)="reviewGradeEntry('CLAIM')" [disabled]="gradeBusy()" class="h-10 px-4 rounded-lg border border-blue-200 text-blue-700 text-sm font-semibold hover:bg-blue-50 disabled:opacity-50">{{ fr() ? 'Ouvrir en revue' : 'Open for review' }}</button>
+                }
+                @if (canReview() && entry.packetStatus === 'IN_REVIEW') {
                   <button type="button" (click)="reviewGradeEntry('RETURN')" [disabled]="gradeBusy()" class="h-10 px-4 rounded-lg border border-rose-200 text-rose-700 text-sm font-semibold hover:bg-rose-50 disabled:opacity-50">{{ fr() ? 'Retourner pour correction' : 'Return for correction' }}</button>
                   <button type="button" (click)="reviewGradeEntry('ACCEPT')" [disabled]="gradeBusy()" class="h-10 px-4 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50">{{ fr() ? 'Accepter la feuille' : 'Accept the sheet' }}</button>
                 }
@@ -978,12 +996,12 @@ const appreciation = (avg: number, fr: boolean): string => {
       @if (gradeReviewDialog(); as action) {
         <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/55" (click)="cancelGradeReview()">
           <section class="bg-white rounded-xl2 shadow-pop w-full max-w-md p-6" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
-            <h3 class="text-lg font-bold text-ink">{{ action === 'ACCEPT' ? (fr() ? 'Accepter cette feuille ?' : 'Accept this grade sheet?') : (fr() ? 'Retourner cette feuille ?' : 'Return this grade sheet?') }}</h3>
-            <p class="text-sm text-mute mt-2">{{ action === 'ACCEPT' ? (fr() ? 'Les notes seront acceptées et entreront dans les calculs du bulletin.' : 'The grades will be accepted and included in report-card calculations.') : (fr() ? 'La feuille repassera en brouillon pour permettre à l’enseignant de la corriger.' : 'The sheet will return to draft so the teacher can correct it.') }}</p>
+            <h3 class="text-lg font-bold text-ink">{{ action === 'SUBMIT' ? (fr() ? 'Envoyer cette feuille ?' : 'Submit this grade sheet?') : action === 'ACCEPT' ? (fr() ? 'Accepter cette feuille ?' : 'Accept this grade sheet?') : action === 'CLAIM' ? (fr() ? 'Ouvrir cette feuille en revue ?' : 'Open this grade sheet for review?') : (fr() ? 'Retourner cette feuille ?' : 'Return this grade sheet?') }}</h3>
+            <p class="text-sm text-mute mt-2">{{ action === 'SUBMIT' ? (fr() ? 'La direction pourra la réclamer, la retourner ou l’accepter.' : 'Management will be able to claim, return, or accept it.') : action === 'ACCEPT' ? (fr() ? 'Les notes seront acceptées et entreront dans les calculs du bulletin.' : 'The grades will be accepted and included in report-card calculations.') : action === 'CLAIM' ? (fr() ? 'La feuille passera à l’état En revue et sera verrouillée pendant le contrôle.' : 'The sheet will move to In review and be locked during checking.') : (fr() ? 'La feuille repassera en brouillon pour permettre à l’enseignant de la corriger.' : 'The sheet will return to draft so the teacher can correct it.') }}</p>
             @if (action === 'RETURN') {
               <label class="block mt-4"><span class="text-xs font-semibold">{{ fr() ? 'Motif du retour (obligatoire)' : 'Return reason (required)' }}</span><textarea [(ngModel)]="gradeReviewReason" rows="3" maxlength="500" class="w-full mt-1.5 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-brand-500" [placeholder]="fr() ? 'Ex. Vérifier la note de l’évaluation de mathématiques.' : 'E.g. Check the mathematics assessment mark.'"></textarea></label>
             }
-            <div class="flex justify-end gap-2 mt-5"><button (click)="cancelGradeReview()" class="h-9 px-3 rounded-lg border border-slate-200 text-sm font-semibold">{{ fr() ? 'Annuler' : 'Cancel' }}</button><button (click)="confirmGradeReview()" [disabled]="gradeBusy() || (action === 'RETURN' && !gradeReviewReason.trim())" [class]="action === 'ACCEPT' ? 'h-9 px-3 rounded-lg bg-emerald-600 text-white text-sm font-semibold disabled:opacity-50' : 'h-9 px-3 rounded-lg bg-rose-600 text-white text-sm font-semibold disabled:opacity-50'">{{ action === 'ACCEPT' ? (fr() ? 'Accepter' : 'Accept') : (fr() ? 'Retourner' : 'Return') }}</button></div>
+            <div class="flex justify-end gap-2 mt-5"><button (click)="cancelGradeReview()" class="h-9 px-3 rounded-lg border border-slate-200 text-sm font-semibold">{{ fr() ? 'Annuler' : 'Cancel' }}</button><button (click)="confirmGradeReview()" [disabled]="gradeBusy() || (action === 'RETURN' && !gradeReviewReason.trim())" [class]="action === 'ACCEPT' ? 'h-9 px-3 rounded-lg bg-emerald-600 text-white text-sm font-semibold disabled:opacity-50' : action === 'SUBMIT' || action === 'CLAIM' ? 'h-9 px-3 rounded-lg bg-brand-600 text-white text-sm font-semibold disabled:opacity-50' : 'h-9 px-3 rounded-lg bg-rose-600 text-white text-sm font-semibold disabled:opacity-50'">{{ action === 'ACCEPT' ? (fr() ? 'Accepter' : 'Accept') : action === 'SUBMIT' ? (fr() ? 'Envoyer' : 'Submit') : action === 'CLAIM' ? (fr() ? 'Ouvrir' : 'Open') : (fr() ? 'Retourner' : 'Return') }}</button></div>
           </section>
         </div>
       }
@@ -1054,6 +1072,8 @@ export class AcademicComponent {
   protected bulletin = signal<BulletinView | null>(null);
   protected pv = signal<PvView | null>(null);
   protected gradeEntry = signal<GradeEntryView | null>(null);
+  protected gradeQueue = signal<GradePacketQueueView | null>(null);
+  protected gradeHistory = signal<GradePacketHistoryView | null>(null);
   protected gradeEntryError = signal<string | null>(null);
   protected reportInputs = signal<ReportCardInputsView | null>(null);
   protected inputDrafts = signal<Record<string, ReportCardInputUpsert>>({});
@@ -1076,7 +1096,7 @@ export class AcademicComponent {
   protected bulletinBusy = signal(false);
   protected officialDocumentBusy = signal(false);
   protected officialDocument = signal<GeneratedDocumentView | null>(null);
-  protected gradeReviewDialog = signal<'ACCEPT' | 'RETURN' | null>(null);
+  protected gradeReviewDialog = signal<'SUBMIT' | 'CLAIM' | 'ACCEPT' | 'RETURN' | null>(null);
   protected gradeReviewReason = '';
   protected inputReviewTarget = signal<{ row: ReportCardInputRow; action: 'APPROVE' | 'RETURN' | 'REJECT' } | null>(null);
   protected inputReviewReason = '';
@@ -1654,13 +1674,32 @@ export class AcademicComponent {
   protected loadGradeEntry(subjectCode?: string): void {
     const classId = this.selectedClassId(); const periodId = this.selectedReportingPeriodId();
     if (!classId || !periodId) { this.gradeEntry.set(null); return; }
+    this.loadGradeQueue();
     const requestId = ++this.gradeEntryRequestId;
     const requestedSubjectCode = subjectCode || this.selectedGradeSubjectCode() || undefined;
     this.gradeEntryError.set(null);
     this.api.gradeEntry(periodId, classId, requestedSubjectCode).subscribe({
-      next: (entry) => { if (requestId !== this.gradeEntryRequestId || this.selectedClassId() !== classId || this.selectedReportingPeriodId() !== periodId) return; this.gradeEntry.set(this.refreshGradeProgress(entry)); this.gradeEntryError.set(null); this.selectedGradeSubjectCode.set(entry.subjectCode); },
+      next: (entry) => { if (requestId !== this.gradeEntryRequestId || this.selectedClassId() !== classId || this.selectedReportingPeriodId() !== periodId) return; this.gradeEntry.set(this.refreshGradeProgress(entry)); this.gradeEntryError.set(null); this.selectedGradeSubjectCode.set(entry.subjectCode); this.loadGradeHistory(entry); },
       error: (e) => { if (requestId !== this.gradeEntryRequestId || this.selectedClassId() !== classId || this.selectedReportingPeriodId() !== periodId) return; this.gradeEntry.set(null); this.gradeEntryError.set(this.explainError(e, 'grade-entry')); },
     });
+  }
+
+  protected loadGradeQueue(): void {
+    this.api.gradeEntryQueue().subscribe({ next: (queue) => this.gradeQueue.set(queue), error: () => this.gradeQueue.set(null) });
+  }
+
+  private loadGradeHistory(entry: GradeEntryView): void {
+    const item = [...(this.gradeQueue()?.teacherQueue ?? []), ...(this.gradeQueue()?.reviewerQueue ?? [])]
+      .find((candidate) => candidate.reportingPeriodId === entry.reportingPeriodId && candidate.classId === entry.classId && candidate.subjectCode === entry.subjectCode);
+    if (!item) { this.gradeHistory.set(null); return; }
+    this.api.gradeEntryHistory(item.packetId).subscribe({ next: (history) => this.gradeHistory.set(history), error: () => this.gradeHistory.set(null) });
+  }
+
+  protected openGradeQueueItem(item: GradePacketQueueItem): void {
+    const klass = this.classes().find((c) => c.id === item.classId);
+    if (!klass) return;
+    this.mode.set('grade-entry'); this.selectedReportingPeriodId.set(item.reportingPeriodId); this.selectedGradeSubjectCode.set(item.subjectCode);
+    this.onClassChange(klass.name, true);
   }
 
   private loadReportInputs(): void {
@@ -1813,6 +1852,11 @@ export class AcademicComponent {
     this.updateGradeEntry((entry) => ({ ...entry, students: entry.students.map((row) => row.studentId === studentId ? { ...row, comment } : row) }));
   }
 
+  protected updateGradeAppreciation(studentId: string, appreciationCode: string): void {
+    this.gradeRowStates.update((states) => ({ ...states, [studentId]: 'Unsaved' }));
+    this.updateGradeEntry((entry) => ({ ...entry, students: entry.students.map((row) => row.studentId === studentId ? { ...row, appreciationCode: appreciationCode || null } : row) }));
+  }
+
   protected saveGradeEntry(afterSave?: () => void): void {
     const entry = this.gradeEntry(); if (!entry) return;
     this.gradeBusy.set(true);
@@ -1820,7 +1864,7 @@ export class AcademicComponent {
     this.gradeRowStates.update((states) => Object.fromEntries(rowsToSave.map((row) => [row.studentId, 'Saving'])) as Record<string, any>);
     const cryptoApi = globalThis.crypto as Crypto & { randomUUID?: () => string };
     const requestId = cryptoApi.randomUUID?.() ?? `grade-save-${Date.now()}`;
-    this.api.saveGradeEntry({ reportingPeriodId: entry.reportingPeriodId, classId: entry.classId, subjectCode: entry.subjectCode, packetVersion: entry.packetVersion, requestId, students: rowsToSave.map((row) => ({ studentId: row.studentId, comment: row.comment, values: row.values.map((cell) => ({ assessmentId: cell.assessmentId, mark: cell.mark, valueStatus: cell.valueStatus, version: cell.version })) })) }).subscribe({
+    this.api.saveGradeEntry({ reportingPeriodId: entry.reportingPeriodId, classId: entry.classId, subjectCode: entry.subjectCode, packetVersion: entry.packetVersion, requestId, students: rowsToSave.map((row) => ({ studentId: row.studentId, comment: row.comment, appreciationCode: row.appreciationCode, values: row.values.map((cell) => ({ assessmentId: cell.assessmentId, mark: cell.mark, valueStatus: cell.valueStatus, version: cell.version })) })) }).subscribe({
       next: (updated) => { this.gradeEntry.set(updated); this.selectedGradeSubjectCode.set(updated.subjectCode); this.gradeRowStates.update((states) => { const next = { ...states }; for (const result of updated.saveResults ?? []) next[result.studentId] = result.outcome === 'CONFLICT' ? 'Conflict' : ['INVALID', 'FORBIDDEN'].includes(result.outcome) ? 'Error' : 'Saved'; return next; }); this.gradeBusy.set(false); this.notice.set({ ok: true, text: this.fr() ? 'Brouillon de notes enregistré.' : 'Grade draft saved.' }); afterSave?.(); },
       error: (e) => { this.gradeBusy.set(false); this.fail(e); },
     });
@@ -1838,11 +1882,8 @@ export class AcademicComponent {
   protected submitGradeEntry(): void {
     const entry = this.gradeEntry(); if (!entry) return;
     if (!this.canSubmitGrade(entry)) return;
-    this.gradeBusy.set(true);
-    this.api.gradeEntryWorkflow(entry.reportingPeriodId, entry.classId, entry.subjectCode, 'SUBMIT', undefined, entry.packetVersion).subscribe({
-      next: (updated) => { this.gradeEntry.set(updated); this.gradeBusy.set(false); this.notice.set({ ok: true, text: this.fr() ? 'Saisie soumise à la direction.' : 'Grades submitted to management.' }); },
-      error: (e) => { this.gradeBusy.set(false); this.fail(e); },
-    });
+    this.gradeReviewReason = '';
+    this.gradeReviewDialog.set('SUBMIT');
   }
 
   protected saveAndOpenAssignmentRepair(entry: GradeEntryView): void {
@@ -1854,7 +1895,7 @@ export class AcademicComponent {
     const assignmentReady = entry.assignmentReadiness?.status === undefined || entry.assignmentReadiness?.status === 'RESOLVED';
     const editable = entry.capabilities?.canEditDraft !== false;
     const serverReady = entry.capabilities?.canSubmit !== false;
-    return assignmentReady && editable && serverReady && entry.packetStatus !== 'SUBMITTED'
+    return assignmentReady && editable && serverReady && entry.packetStatus !== 'SUBMITTED' && entry.packetStatus !== 'IN_REVIEW'
       && entry.packetStatus !== 'ACCEPTED' && entry.packetStatus !== 'LOCKED';
   }
 
@@ -1868,7 +1909,7 @@ export class AcademicComponent {
     });
   }
 
-  protected reviewGradeEntry(action: 'ACCEPT' | 'RETURN'): void {
+  protected reviewGradeEntry(action: 'ACCEPT' | 'RETURN' | 'CLAIM'): void {
     if (!this.gradeEntry()) return;
     this.gradeReviewReason = action === 'ACCEPT' ? 'Contrôle de la saisie effectué' : '';
     this.gradeReviewDialog.set(action);
@@ -1881,7 +1922,7 @@ export class AcademicComponent {
     if (action === 'RETURN' && !this.gradeReviewReason.trim()) return;
     this.gradeBusy.set(true);
     this.api.gradeEntryWorkflow(entry.reportingPeriodId, entry.classId, entry.subjectCode, action, this.gradeReviewReason.trim(), entry.packetVersion).subscribe({
-      next: (updated) => { this.gradeEntry.set(updated); this.gradeBusy.set(false); this.cancelGradeReview(); this.notice.set({ ok: true, text: action === 'ACCEPT' ? (this.fr() ? 'Saisie acceptée.' : 'Grades accepted.') : (this.fr() ? 'Saisie retournée.' : 'Grades returned for correction.') }); },
+      next: (updated) => { this.gradeEntry.set(updated); this.gradeBusy.set(false); this.cancelGradeReview(); this.notice.set({ ok: true, text: action === 'ACCEPT' ? (this.fr() ? 'Saisie acceptée.' : 'Grades accepted.') : action === 'CLAIM' ? (this.fr() ? 'Saisie ouverte en revue.' : 'Packet opened for review.') : action === 'SUBMIT' ? (this.fr() ? 'Saisie soumise à la direction.' : 'Grades submitted to management.') : (this.fr() ? 'Saisie retournée.' : 'Grades returned for correction.') }); },
       error: (e) => { this.gradeBusy.set(false); this.fail(e); },
     });
   }

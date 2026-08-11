@@ -447,7 +447,7 @@ public class AcademicDtos {
                                      String valueStatus, long version) {}
 
     public record GradeEntryStudentView(UUID studentId, String matricule, String studentName,
-                                        List<GradeEntryCellView> values, String comment,
+                                        List<GradeEntryCellView> values, String comment, String appreciationCode,
                                         String workflowStatus) {}
 
     public record GradeEntryView(UUID academicSessionId, UUID reportingPeriodId, UUID classId,
@@ -517,7 +517,11 @@ public class AcademicDtos {
 
     public record GradeEntryStudentUpsert(@NotNull UUID studentId,
                                           List<GradeEntryCellUpsert> values,
-                                          String comment) {}
+                                          String comment, String appreciationCode) {
+        public GradeEntryStudentUpsert(UUID studentId, List<GradeEntryCellUpsert> values, String comment) {
+            this(studentId, values, comment, null);
+        }
+    }
 
     public record GradeEntrySaveRequest(@NotNull UUID reportingPeriodId, @NotNull UUID classId,
                                         @NotBlank String subjectCode,
@@ -532,6 +536,50 @@ public class AcademicDtos {
     public record GradeEntryReviewRequest(@NotNull UUID reportingPeriodId, @NotNull UUID classId,
                                           @NotBlank String subjectCode, @NotBlank String action,
                                           String reason, Long packetVersion) {}
+
+    public record GradePacketQueueItem(UUID packetId, UUID reportingPeriodId, String reportingPeriodCode,
+                                       String reportingPeriodLabel, UUID classId, String className,
+                                       String subjectCode, String subjectLabel, String packetStatus,
+                                       int revisionNumber, int totalStudents, int completedStudents,
+                                       String completionState, String windowState, Instant windowOpensAt,
+                                       Instant windowClosesAt, String returnedReason, UUID teacherId,
+                                       String teacherName, long packetVersion, List<String> actions) {
+        public GradePacketQueueItem {
+            actions = actions == null ? List.of() : List.copyOf(actions);
+        }
+    }
+
+    public record GradePacketQueueView(List<GradePacketQueueItem> teacherQueue,
+                                       List<GradePacketQueueItem> reviewerQueue) {
+        public GradePacketQueueView {
+            teacherQueue = teacherQueue == null ? List.of() : List.copyOf(teacherQueue);
+            reviewerQueue = reviewerQueue == null ? List.of() : List.copyOf(reviewerQueue);
+        }
+    }
+
+    public record GradePacketTransitionView(UUID id, String eventType, String fromStatus,
+                                            String toStatus, String reason, UUID actorUserId,
+                                            Instant createdAt, List<UUID> affectedRows) {
+        public GradePacketTransitionView {
+            affectedRows = affectedRows == null ? List.of() : List.copyOf(affectedRows);
+        }
+    }
+
+    public record SubjectCommentHistoryView(UUID id, UUID commentId, String comment,
+                                            String appreciationCode, String workflowStatus,
+                                            UUID authorUserId, long sourceVersion,
+                                            UUID changedBy, Instant changedAt) {}
+
+    public record GradePacketHistoryView(UUID packetId, int revisionNumber, UUID supersedesPacketId,
+                                         UUID teacherId, UUID responsibleAssignmentId,
+                                         Long responsibleAssignmentVersion,
+                                         List<GradePacketTransitionView> transitions,
+                                         List<SubjectCommentHistoryView> comments) {
+        public GradePacketHistoryView {
+            transitions = transitions == null ? List.of() : List.copyOf(transitions);
+            comments = comments == null ? List.of() : List.copyOf(comments);
+        }
+    }
 
     public record AttendanceSummaryView(int finalizedSessions, int presentCount, int absentCount,
                                         int excusedCount, int lateCount, int lateMinutes,

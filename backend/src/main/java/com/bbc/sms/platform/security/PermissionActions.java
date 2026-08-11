@@ -26,6 +26,7 @@ public final class PermissionActions {
             Map.entry("ATTENDANCE_FINALIZE", new Requirement("presence", "write")),
             Map.entry("ATTENDANCE_REOPEN", new Requirement("presence", "write")),
             Map.entry("GRADE_SUBMIT", new Requirement("academic", "write")),
+            Map.entry("GRADE_REVIEW", new Requirement("academic", "write")),
             Map.entry("BULLETIN_VALIDATE", new Requirement("academic", "write")),
             Map.entry("BULLETIN_PUBLISH", new Requirement("academic", "write")),
             Map.entry("PROMOTION_RECOMMEND", new Requirement("academic", "write")),

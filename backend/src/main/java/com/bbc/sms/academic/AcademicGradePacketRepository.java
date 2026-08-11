@@ -8,5 +8,8 @@ import java.util.UUID;
 public interface AcademicGradePacketRepository extends JpaRepository<AcademicGradePacket, UUID> {
     Optional<AcademicGradePacket> findBySchoolIdAndReportingPeriodIdAndClassIdAndSubjectCode(
             UUID schoolId, UUID reportingPeriodId, UUID classId, String subjectCode);
+
+    Optional<AcademicGradePacket> findTopBySchoolIdAndReportingPeriodIdAndClassIdAndSubjectCodeOrderByRevisionNumberDesc(
+            UUID schoolId, UUID reportingPeriodId, UUID classId, String subjectCode);
 }
 

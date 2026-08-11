@@ -263,6 +263,14 @@ public class AcademicController {
         return gradeEntryService.view(reportingPeriodId, classId, subjectCode);
     }
 
+    @GetMapping("/grade-entry/queue")
+    @PreAuthorize("@perm.can('academic','read') and @perm.staffOnly()")
+    public GradePacketQueueView gradeEntryQueue() { return gradeEntryService.queue(); }
+
+    @GetMapping("/grade-entry/{packetId}/history")
+    @PreAuthorize("@perm.can('academic','read') and @perm.staffOnly()")
+    public GradePacketHistoryView gradeEntryHistory(@PathVariable UUID packetId) { return gradeEntryService.history(packetId); }
+
     @PostMapping("/grade-entry/save")
     @PreAuthorize("@perm.can('academic','write') and @perm.staffOnly()")
     public GradeEntryView saveGradeEntry(@Valid @RequestBody GradeEntrySaveRequest request,

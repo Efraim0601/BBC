@@ -21,6 +21,9 @@ public class SubjectResultComment {
     @Column(columnDefinition = "text") private String comment;
     @Column(name = "appreciation_code") private String appreciationCode;
     @Column(name = "workflow_status", nullable = false) private String workflowStatus = "DRAFT";
+    @Column(name = "author_user_id") private UUID authorUserId;
+    @Column(name = "packet_id") private UUID packetId;
+    @Column(name = "packet_revision") private int packetRevision = 1;
     @Version private long version;
     @Column(name = "created_at", insertable = false, updatable = false) private Instant createdAt;
     @Column(name = "updated_at", insertable = false, updatable = false) private Instant updatedAt;

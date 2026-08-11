@@ -158,12 +158,12 @@ export interface GradeEntryCell {
 }
 export interface GradeEntryStudent {
   studentId: string; matricule: string; studentName: string; values: GradeEntryCell[];
-  comment: string | null; workflowStatus: string;
+  comment: string | null; appreciationCode?: string | null; workflowStatus: string;
 }
 export interface GradeEntryView {
   academicSessionId: string; reportingPeriodId: string; classId: string; className: string;
   subjectCode: string; subjectLabel: string; coefficient: number; teacherId: string | null; teacherName: string | null;
-  packetStatus: 'DRAFT' | 'SUBMITTED' | 'RETURNED' | 'ACCEPTED' | 'LOCKED'; packetVersion: number;
+  packetStatus: 'DRAFT' | 'SUBMITTED' | 'IN_REVIEW' | 'RETURNED' | 'ACCEPTED' | 'LOCKED'; packetVersion: number;
   assessments: GradeEntryAssessment[]; students: GradeEntryStudent[]; totalStudents: number;
   completedStudents: number; blockers: string[]; availableSubjects: GradeEntrySubject[];
   completionBlockers?: Array<{ code: string; subjectCode: string; studentName?: string | null; messageFr: string; messageEn: string; repairTarget: string; severity: string }>;
@@ -174,9 +174,24 @@ export interface GradeEntryView {
   saveResults?: Array<{ studentId: string; assessmentId: string | null; outcome: 'SAVED' | 'UNCHANGED' | 'CONFLICT' | 'INVALID' | 'FORBIDDEN'; currentMark: number | null; currentValueStatus: string; currentVersion: number; fieldErrors: Record<string, string>; retryable: boolean }>;
 }
 export interface GradeEntryCellUpsert { assessmentId: string; mark: number | null; valueStatus: string; version?: number; }
-export interface GradeEntryStudentUpsert { studentId: string; values: GradeEntryCellUpsert[]; comment: string | null; }
+export interface GradeEntryStudentUpsert { studentId: string; values: GradeEntryCellUpsert[]; comment: string | null; appreciationCode?: string | null; }
 export interface GradeEntrySaveRequest {
   reportingPeriodId: string; classId: string; subjectCode: string; students: GradeEntryStudentUpsert[]; packetVersion?: number; requestId?: string;
+}
+export interface GradePacketQueueItem {
+  packetId: string; reportingPeriodId: string; reportingPeriodCode: string; reportingPeriodLabel: string;
+  classId: string; className: string; subjectCode: string; subjectLabel: string;
+  packetStatus: 'DRAFT' | 'SUBMITTED' | 'IN_REVIEW' | 'RETURNED' | 'ACCEPTED' | 'LOCKED';
+  revisionNumber: number; totalStudents: number; completedStudents: number; completionState: string;
+  windowState: string; windowOpensAt: string | null; windowClosesAt: string | null; returnedReason: string | null;
+  teacherId: string | null; teacherName: string | null; packetVersion: number; actions: string[];
+}
+export interface GradePacketQueueView { teacherQueue: GradePacketQueueItem[]; reviewerQueue: GradePacketQueueItem[]; }
+export interface GradePacketHistoryView {
+  packetId: string; revisionNumber: number; supersedesPacketId: string | null; teacherId: string | null;
+  responsibleAssignmentId: string | null; responsibleAssignmentVersion: number | null;
+  transitions: Array<{ id: string; eventType: string; fromStatus: string | null; toStatus: string; reason: string | null; actorUserId: string | null; createdAt: string; affectedRows: string[] }>;
+  comments: Array<{ id: string; commentId: string; comment: string | null; appreciationCode: string | null; workflowStatus: string; authorUserId: string | null; sourceVersion: number; changedBy: string | null; changedAt: string }>;
 }
 
 export interface AttendanceAdjustment {
@@ -349,6 +364,14 @@ export class AcademicApi {
     const params: Record<string, string> = { reportingPeriodId, classId };
     if (subjectCode) params['subjectCode'] = subjectCode;
     return this.http.get<GradeEntryView>(`${this.base}/grade-entry`, { params });
+  }
+
+  gradeEntryQueue(): Observable<GradePacketQueueView> {
+    return this.http.get<GradePacketQueueView>(`${this.base}/grade-entry/queue`);
+  }
+
+  gradeEntryHistory(packetId: string): Observable<GradePacketHistoryView> {
+    return this.http.get<GradePacketHistoryView>(`${this.base}/grade-entry/${encodeURIComponent(packetId)}/history`);
   }
 
   saveGradeEntry(body: GradeEntrySaveRequest): Observable<GradeEntryView> {

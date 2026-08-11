@@ -15,6 +15,7 @@ import com.bbc.sms.timetable.SchoolClass;
 import com.bbc.sms.timetable.SchoolClassRepository;
 import com.bbc.sms.timetable.TeachingAssignmentResolver;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -61,6 +62,117 @@ public class GradeEntryService {
     }
 
     @Transactional(readOnly = true)
+    public GradePacketQueueView queue() {
+        List<GradePacketQueueItem> all = jdbc.query("""
+            SELECT p.id,p.reporting_period_id,rp.code,rp.label,p.class_id,c.name,p.subject_code,
+                   COALESCE(s.label->>'fr',s.label->>'en',p.subject_code),p.status,p.revision_number,
+                   p.teacher_id,e.name,p.version,p.review_reason,
+                   (SELECT count(*) FROM student_enrollment se WHERE se.school_id=p.school_id
+                     AND se.academic_session_id=p.academic_session_id AND se.school_class_id=p.class_id AND se.status='ACTIVE'),
+                   (SELECT count(*) FROM student_enrollment se WHERE se.school_id=p.school_id
+                     AND se.academic_session_id=p.academic_session_id AND se.school_class_id=p.class_id AND se.status='ACTIVE'
+                     AND NOT EXISTS (SELECT 1 FROM academic_assessment a
+                       WHERE a.school_id=p.school_id AND a.reporting_period_id=p.reporting_period_id
+                         AND (a.class_id IS NULL OR a.class_id=p.class_id)
+                         AND upper(a.subject_code)=upper(p.subject_code) AND a.mandatory=true
+                         AND NOT EXISTS (SELECT 1 FROM academic_grade g WHERE g.packet_id=p.id
+                           AND g.student_id=se.student_id AND g.assessment_id=a.id
+                           AND g.value_status IN ('SCORED','ABSENT','EXEMPT')))
+                     AND NOT EXISTS (SELECT 1 FROM academic_curriculum_subject cs JOIN subject ss ON ss.id=cs.subject_id
+                       WHERE cs.school_id=p.school_id AND cs.academic_session_id=p.academic_session_id
+                         AND cs.class_id=p.class_id AND upper(ss.code)=upper(p.subject_code)
+                         AND cs.remark_required=true
+                         AND NOT EXISTS (SELECT 1 FROM subject_result_comment sc WHERE sc.packet_id=p.id
+                           AND sc.student_id=se.student_id AND nullif(trim(sc.comment),'') IS NOT NULL)))
+              FROM academic_grade_packet p
+              JOIN academic_reporting_period rp ON rp.id=p.reporting_period_id
+              JOIN school_class c ON c.id=p.class_id
+              LEFT JOIN subject s ON upper(s.code)=upper(p.subject_code) AND s.school_id=p.school_id
+              LEFT JOIN employee e ON e.id=p.teacher_id
+             WHERE p.school_id=?
+               AND p.revision_number=(SELECT max(px.revision_number) FROM academic_grade_packet px
+                                      WHERE px.school_id=p.school_id AND px.reporting_period_id=p.reporting_period_id
+                                        AND px.class_id=p.class_id AND upper(px.subject_code)=upper(p.subject_code))
+             ORDER BY rp.start_date DESC,c.name,p.subject_code
+            """, (rs, n) -> queueItem(rs, n), TenantContext.get()).stream().map(this::withWindow).toList();
+        UUID employee = currentEmployeeId();
+        List<GradePacketQueueItem> teacher = all.stream()
+                .filter(i -> !restrictedTeacher() || (employee != null && employee.equals(i.teacherId())))
+                .map(this::withActionsForTeacher).toList();
+        List<GradePacketQueueItem> reviewer = isReviewer() ? all.stream()
+                .filter(i -> Set.of("SUBMITTED", "IN_REVIEW", "RETURNED").contains(i.packetStatus())
+                        || "READY".equals(i.completionState()))
+                .map(this::withActionsForReviewer).toList() : List.of();
+        return new GradePacketQueueView(teacher, reviewer);
+    }
+
+    @Transactional(readOnly = true)
+    public GradePacketHistoryView history(UUID packetId) {
+        AcademicGradePacket packet = packets.findById(packetId)
+                .filter(p -> TenantContext.get().equals(p.getSchoolId()))
+                .orElseThrow(() -> ApiException.notFound("Feuille de notes"));
+        List<GradePacketTransitionView> transitions = jdbc.query("""
+            SELECT id,event_type,from_status,to_status,reason,actor_user_id,created_at,affected_rows::text
+              FROM academic_grade_packet_transition WHERE school_id=? AND packet_id=? ORDER BY created_at,id
+            """, (rs, n) -> new GradePacketTransitionView(rs.getObject(1, UUID.class), rs.getString(2),
+                rs.getString(3), rs.getString(4), rs.getString(5), rs.getObject(6, UUID.class),
+                rs.getTimestamp(7).toInstant(), parseUuidArray(rs.getString(8))), TenantContext.get(), packetId);
+        List<SubjectCommentHistoryView> commentsHistory = jdbc.query("""
+            SELECT h.id,h.comment_id,h.comment,h.appreciation_code,h.workflow_status,h.author_user_id,
+                   h.source_version,h.changed_by,h.changed_at
+              FROM subject_result_comment_history h JOIN subject_result_comment c ON c.id=h.comment_id
+             WHERE h.school_id=? AND c.packet_id=? ORDER BY h.changed_at,h.id
+            """, (rs, n) -> new SubjectCommentHistoryView(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class),
+                rs.getString(3), rs.getString(4), rs.getString(5), rs.getObject(6, UUID.class), rs.getLong(7),
+                rs.getObject(8, UUID.class), rs.getTimestamp(9).toInstant()), TenantContext.get(), packetId);
+        return new GradePacketHistoryView(packet.getId(), packet.getRevisionNumber(), packet.getSupersedesPacketId(),
+                packet.getTeacherId(), packet.getResponsibleAssignmentId(), packet.getResponsibleAssignmentVersion(),
+                transitions, commentsHistory);
+    }
+
+    private GradePacketQueueItem queueItem(java.sql.ResultSet rs, int n) throws java.sql.SQLException {
+        int total = rs.getInt(15), completed = rs.getInt(16);
+        String status = rs.getString(9);
+        return new GradePacketQueueItem(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class), rs.getString(3),
+                rs.getString(4), rs.getObject(5, UUID.class), rs.getString(6), rs.getString(7), rs.getString(8),
+                status, rs.getInt(10), total, completed, completed >= total ? "READY" : "INCOMPLETE",
+                null, null, null, rs.getString(14), rs.getObject(11, UUID.class), rs.getString(12), rs.getLong(13), List.of());
+    }
+
+    private GradePacketQueueItem withWindow(GradePacketQueueItem item) {
+        var window = windows.effective(item.reportingPeriodId(), AcademicWindowPolicyService.Action.TEACHER_SUBMISSION);
+        return new GradePacketQueueItem(item.packetId(), item.reportingPeriodId(), item.reportingPeriodCode(), item.reportingPeriodLabel(),
+                item.classId(), item.className(), item.subjectCode(), item.subjectLabel(), item.packetStatus(), item.revisionNumber(),
+                item.totalStudents(), item.completedStudents(), item.completionState(), window.state(), window.opensAt(), window.closesAt(),
+                item.returnedReason(), item.teacherId(), item.teacherName(), item.packetVersion(), item.actions());
+    }
+
+    private GradePacketQueueItem withActionsForTeacher(GradePacketQueueItem item) {
+        return new GradePacketQueueItem(item.packetId(), item.reportingPeriodId(), item.reportingPeriodCode(), item.reportingPeriodLabel(),
+                item.classId(), item.className(), item.subjectCode(), item.subjectLabel(), item.packetStatus(), item.revisionNumber(),
+                item.totalStudents(), item.completedStudents(), item.completionState(), item.windowState(), item.windowOpensAt(),
+                item.windowClosesAt(), item.returnedReason(), item.teacherId(), item.teacherName(), item.packetVersion(),
+                Set.of("DRAFT", "RETURNED").contains(item.packetStatus()) ? ("READY".equals(item.completionState()) ? List.of("EDIT", "SUBMIT") : List.of("EDIT")) : List.of());
+    }
+
+    private GradePacketQueueItem withActionsForReviewer(GradePacketQueueItem item) {
+        List<String> actions = "SUBMITTED".equals(item.packetStatus()) ? List.of("CLAIM")
+                : "IN_REVIEW".equals(item.packetStatus()) ? List.of("ACCEPT", "RETURN") : List.of();
+        return new GradePacketQueueItem(item.packetId(), item.reportingPeriodId(), item.reportingPeriodCode(), item.reportingPeriodLabel(),
+                item.classId(), item.className(), item.subjectCode(), item.subjectLabel(), item.packetStatus(), item.revisionNumber(),
+                item.totalStudents(), item.completedStudents(), item.completionState(), item.windowState(), item.windowOpensAt(),
+                item.windowClosesAt(), item.returnedReason(), item.teacherId(), item.teacherName(), item.packetVersion(), actions);
+    }
+
+    private List<UUID> parseUuidArray(String raw) {
+        if (raw == null || raw.length() < 2) return List.of();
+        return Arrays.stream(raw.substring(1, raw.length() - 1).split(","))
+                .map(String::trim).map(s -> s.replace("\"", ""))
+                .filter(s -> !s.isBlank()).map(s -> { try { return UUID.fromString(s); } catch (IllegalArgumentException ex) { return null; } })
+                .filter(Objects::nonNull).toList();
+    }
+
+    @Transactional(readOnly = true)
     public GradeEntryView view(UUID periodId, UUID classId, String requestedSubject) {
         AcademicReportingPeriod period = period(periodId);
         AcademicPeriodRules.assertRawGradePeriod(period);
@@ -80,15 +192,15 @@ public class GradeEntryService {
                 TenantContext.get(), periodId, classId, subjectCode).stream().map(this::assessmentView).toList();
         List<RosterStudent> roster = roster(period.getAcademicSessionId(), classId);
         List<UUID> studentIds = roster.stream().map(RosterStudent::id).toList();
+        AcademicGradePacket packet = packets.findTopBySchoolIdAndReportingPeriodIdAndClassIdAndSubjectCodeOrderByRevisionNumberDesc(
+                TenantContext.get(), periodId, classId, subjectCode).orElse(null);
         Map<UUID, List<AcademicGrade>> gradeByStudent = studentIds.isEmpty() ? Map.of() : grades
-                .findBySchoolIdAndReportingPeriodIdAndStudentIdInAndSubjectCodeOrderByStudentIdAscAssessmentIdAsc(
-                        TenantContext.get(), periodId, studentIds, subjectCode)
+                .findByPacketIdAndStudentIdInAndSubjectCodeOrderByStudentIdAscAssessmentIdAsc(
+                        packet == null ? UUID.randomUUID() : packet.getId(), studentIds, subjectCode)
                 .stream().collect(Collectors.groupingBy(AcademicGrade::getStudentId));
         Map<UUID, SubjectResultComment> commentByStudent = studentIds.isEmpty() ? Map.of() : comments
-                .findBySchoolIdAndReportingPeriodIdAndStudentIdInAndSubjectCode(TenantContext.get(), periodId, studentIds, subjectCode)
+                .findByPacketIdAndStudentIdInAndSubjectCode(packet == null ? UUID.randomUUID() : packet.getId(), studentIds, subjectCode)
                 .stream().collect(Collectors.toMap(SubjectResultComment::getStudentId, Function.identity()));
-        AcademicGradePacket packet = packets.findBySchoolIdAndReportingPeriodIdAndClassIdAndSubjectCode(
-                TenantContext.get(), periodId, classId, subjectCode).orElse(null);
         List<GradeEntryStudentView> rows = roster.stream().map(r -> {
             List<GradeEntryCellView> values = new ArrayList<>();
             Map<UUID, AcademicGrade> byAssessment = gradeByStudent.getOrDefault(r.id(), List.of()).stream()
@@ -102,7 +214,7 @@ public class GradeEntryService {
             String workflow = byAssessment.values().stream().map(AcademicGrade::getWorkflowStatus).filter(Objects::nonNull).findFirst()
                     .orElse(packet == null ? "DRAFT" : packet.getStatus());
             return new GradeEntryStudentView(r.id(), r.matricule(), r.name(), values,
-                    c == null ? null : c.getComment(), workflow);
+                    c == null ? null : c.getComment(), c == null ? null : c.getAppreciationCode(), workflow);
         }).toList();
         List<String> blockers = blockers(definition, rows, subject.remarkRequired());
         List<GradeEntryBlockerView> completionBlockers = completionBlockers(blockers, subjectCode);
@@ -115,7 +227,9 @@ public class GradeEntryService {
                 "class-subjects", "BLOCKER"));
         boolean restricted = restrictedTeacher();
         boolean editableStatus = packet == null || Set.of("DRAFT", "RETURNED").contains(packet.getStatus());
-        boolean canEdit = editableStatus && (!restricted || subjectReady(subject));
+        boolean returnedOwner = packet == null || !"RETURNED".equals(packet.getStatus()) ||
+                (restricted && currentEmployeeId() != null && currentEmployeeId().equals(subject.teacherId()));
+        boolean canEdit = editableStatus && returnedOwner && (!restricted || subjectReady(subject));
         boolean submissionWindowOpen = false;
         AcademicWindowPolicyService.WindowView submissionWindow = null;
         if (subjectReady(subject)) {
@@ -153,7 +267,7 @@ public class GradeEntryService {
                 .orElseThrow(() -> ApiException.badRequest("La matière n'est pas affectée à cette classe"));
         assertSubjectAccess(in.classId(), schoolClass.getName(), period.getAcademicSessionId(), period.getStartDate(), subjectCode);
         invalidateValidatedBulletins(period.getId(), period.getAcademicSessionId(), in.classId());
-        AcademicGradePacket packet = packet(period, in.classId(), subjectCode, subject);
+        AcademicGradePacket packet = preparePacketForSave(packet(period, in.classId(), subjectCode, subject), period, in.classId(), subject);
         String previousPacketStatus = packet.getStatus();
         adoptAssignment(packet, subject);
         if ("ACCEPTED".equals(packet.getStatus()) || "LOCKED".equals(packet.getStatus())) {
@@ -180,8 +294,9 @@ public class GradeEntryService {
                 if (assessment == null) throw ApiException.badRequest("L'évaluation n'appartient pas à cette période");
                 String status = normalizeStatus(cell.valueStatus());
                 validateMark(cell.mark(), status, assessment);
-                AcademicGrade grade = grades.findBySchoolIdAndStudentIdAndAssessmentIdAndSubjectCode(
-                        TenantContext.get(), row.studentId(), assessment.getId(), subjectCode).orElseGet(AcademicGrade::new);
+                AcademicGrade grade = packet.getId() == null ? null : grades.findByPacketIdAndStudentIdAndAssessmentIdAndSubjectCode(
+                        packet.getId(), row.studentId(), assessment.getId(), subjectCode).orElse(null);
+                if (grade == null) grade = new AcademicGrade();
                 if (cell.version() != null && grade.getId() != null && cell.version() != grade.getVersion()) {
                     throw ApiException.conflict("Une note de " + studentName(row.studentId()) + " a été modifiée par un autre utilisateur");
                 }
@@ -189,17 +304,19 @@ public class GradeEntryService {
                 grade.setAssessmentId(assessment.getId()); grade.setStudentId(row.studentId()); grade.setEnrollmentId(enrollment.getId());
                 grade.setSubjectCode(subjectCode); grade.setMark("SCORED".equals(status) ? cell.mark() : null);
                 grade.setValueStatus(status); grade.setWorkflowStatus("DRAFT"); grade.setEnteredBy(currentUserId()); grade.setTeacherId(subject.teacherId());
+                grade.setPacketId(packet.getId()); grade.setPacketRevision(packet.getRevisionNumber());
                 grades.save(grade);
             }
-            SubjectResultComment comment = comments.findBySchoolIdAndStudentIdAndReportingPeriodIdAndSubjectCode(
-                    TenantContext.get(), row.studentId(), period.getId(), subjectCode).orElseGet(SubjectResultComment::new);
-            if (row.comment() != null && row.comment().length() > 500) throw ApiException.badRequest("La remarque ne peut pas dépasser 500 caractères");
+            SubjectResultComment comment = comments.findByPacketIdAndStudentIdAndReportingPeriodIdAndSubjectCode(
+                    packet.getId(), row.studentId(), period.getId(), subjectCode).orElseGet(SubjectResultComment::new);
             comment.setSchoolId(TenantContext.get()); comment.setAcademicSessionId(period.getAcademicSessionId()); comment.setReportingPeriodId(period.getId());
             comment.setStudentId(row.studentId()); comment.setEnrollmentId(enrollment.getId()); comment.setSubjectCode(subjectCode);
-            comment.setComment(row.comment() == null ? null : row.comment().trim()); comment.setWorkflowStatus("DRAFT"); comment.setTeacherId(subject.teacherId());
+            comment.setComment(SubjectCommentPolicy.sanitize(row.comment())); comment.setAppreciationCode(SubjectCommentPolicy.appreciation(row.appreciationCode()));
+            comment.setWorkflowStatus("DRAFT"); comment.setTeacherId(subject.teacherId()); comment.setAuthorUserId(currentUserId());
+            comment.setPacketId(packet.getId()); comment.setPacketRevision(packet.getRevisionNumber());
             comments.save(comment);
         }
-        packet.setStatus("DRAFT"); packet.setLastSavedBy(currentUserId()); packet.setLastSavedAt(Instant.now()); packets.saveAndFlush(packet);
+        packet.setStatus("DRAFT"); packet.setLastSavedBy(currentUserId()); packet.setLastSavedAt(Instant.now()); savePacket(packet);
         recordPacketTransition(packet, previousPacketStatus, "DRAFT", "Correction draft saved");
         return view(period.getId(), in.classId(), subjectCode);
     }
@@ -224,7 +341,7 @@ public class GradeEntryService {
         UUID requestId = parseRequestId(in.requestId());
         jdbc.update("INSERT INTO academic_grade_save_request(id,school_id,actor_user_id) VALUES (?,?,?) ON CONFLICT DO NOTHING",
                 requestId, TenantContext.get(), currentUserId());
-        AcademicGradePacket packet = packet(period, in.classId(), subjectCode, subject);
+        AcademicGradePacket packet = preparePacketForSave(packet(period, in.classId(), subjectCode, subject), period, in.classId(), subject);
         if (in.packetVersion() != null && packet.getId() != null && in.packetVersion() != packet.getVersion())
             throw ApiException.conflict("La feuille de saisie a été modifiée. Rechargez-la avant d'enregistrer.");
         Map<UUID, AcademicAssessment> definition = assessments.findApplicable(TenantContext.get(), period.getId(), in.classId(), subjectCode)
@@ -253,7 +370,8 @@ public class GradeEntryService {
                     if (assessment == null) throw ApiException.badRequest("L'évaluation n'appartient pas à cette période");
                     String status = normalizeStatus(cell.valueStatus());
                     validateMark(cell.mark(), status, assessment);
-                    grade = grades.findBySchoolIdAndStudentIdAndAssessmentIdAndSubjectCode(TenantContext.get(), row.studentId(), assessment.getId(), subjectCode).orElse(null);
+                    grade = grades.findByPacketIdAndStudentIdAndAssessmentIdAndSubjectCode(
+                            packet.getId(), row.studentId(), assessment.getId(), subjectCode).orElse(null);
                     if (cell.version() != null && grade != null && cell.version() != grade.getVersion()) {
                         results.add(result(row.studentId(), assessment.getId(), "CONFLICT", grade.getMark(), grade.getValueStatus(), grade.getVersion(), Map.of("version", "The row changed on the server."), true));
                         continue;
@@ -269,6 +387,7 @@ public class GradeEntryService {
                     grade.setSubjectCode(subjectCode); grade.setMark("SCORED".equals(status) ? cell.mark() : null); grade.setValueStatus(status);
                     grade.setWorkflowStatus("DRAFT"); grade.setEnteredBy(currentUserId()); grade.setTeacherId(subject.teacherId());
                     grade.setCurriculumVersionId(canonical.versionId()); grade.setCurriculumSubjectId(canonical.subjectId()); grade.setResponsibleAssignmentId(canonical.assignmentId()); grade.setLastRequestId(requestId);
+                    grade.setPacketId(packet.getId()); grade.setPacketRevision(packet.getRevisionNumber());
                     assessment.setCurriculumVersionId(canonical.versionId()); assessment.setCurriculumSubjectId(canonical.subjectId());
                     grades.saveAndFlush(grade);
                     jdbc.update("UPDATE academic_grade SET policy_decision=?::jsonb WHERE id=? AND school_id=?", "{\"window\":\"GRADE_ENTRY\",\"requestId\":\"" + requestId + "\"}", grade.getId(), TenantContext.get());
@@ -278,23 +397,29 @@ public class GradeEntryService {
                             grade == null ? null : grade.getMark(), grade == null ? "MISSING" : grade.getValueStatus(), grade == null ? 0 : grade.getVersion(), Map.of("value", ex.getMessage()), false));
                 }
             }
-            saveCommentRowSafe(period, in.classId(), subjectCode, subject.teacherId(), row, enrollment, results);
+            saveCommentRowSafe(period, in.classId(), subjectCode, subject.teacherId(), packet, row, enrollment, results);
         }
-        packet.setStatus("DRAFT"); packet.setLastSavedBy(currentUserId()); packet.setLastSavedAt(Instant.now()); packets.saveAndFlush(packet);
+        String previousPacketStatus = packet.getStatus();
+        packet.setStatus("DRAFT"); packet.setLastSavedBy(currentUserId()); packet.setLastSavedAt(Instant.now()); savePacket(packet);
+        recordPacketTransition(packet, previousPacketStatus, "DRAFT", "Draft saved", "DRAFT_SAVE", results.stream().map(GradeEntryRowResult::studentId).distinct().toList());
         persistSaveResults(requestId, subjectCode, results);
         return view(period.getId(), in.classId(), subjectCode).withSaveResults(results);
     }
 
     private void saveCommentRowSafe(AcademicReportingPeriod period, UUID classId, String subjectCode, UUID teacherId,
+                                    AcademicGradePacket packet,
                                     GradeEntryStudentUpsert row, StudentEnrollment enrollment, List<GradeEntryRowResult> results) {
         if (row.comment() != null && row.comment().length() > 500) {
             results.add(result(row.studentId(), null, "INVALID", null, "MISSING", 0, Map.of("comment", "Comment cannot exceed 500 characters."), false));
             return;
         }
-        SubjectResultComment comment = comments.findBySchoolIdAndStudentIdAndReportingPeriodIdAndSubjectCode(TenantContext.get(), row.studentId(), period.getId(), subjectCode).orElseGet(SubjectResultComment::new);
+        SubjectResultComment comment = comments.findByPacketIdAndStudentIdAndReportingPeriodIdAndSubjectCode(
+                packet.getId(), row.studentId(), period.getId(), subjectCode).orElseGet(SubjectResultComment::new);
         comment.setSchoolId(TenantContext.get()); comment.setAcademicSessionId(period.getAcademicSessionId()); comment.setReportingPeriodId(period.getId());
         comment.setStudentId(row.studentId()); comment.setEnrollmentId(enrollment.getId()); comment.setSubjectCode(subjectCode);
-        comment.setComment(row.comment() == null ? null : row.comment().trim()); comment.setWorkflowStatus("DRAFT"); comment.setTeacherId(teacherId);
+        comment.setComment(SubjectCommentPolicy.sanitize(row.comment())); comment.setAppreciationCode(SubjectCommentPolicy.appreciation(row.appreciationCode())); comment.setWorkflowStatus("DRAFT"); comment.setTeacherId(teacherId);
+        comment.setAuthorUserId(currentUserId());
+        comment.setPacketId(packet.getId()); comment.setPacketRevision(packet.getRevisionNumber());
         comments.saveAndFlush(comment);
     }
 
@@ -392,7 +517,8 @@ public class GradeEntryService {
         AcademicGradePacket packet = packet(period, in.classId(), subjectCode, subject);
         String previousPacketStatus = packet.getStatus();
         if (in.packetVersion() != null && packet.getId() != null && in.packetVersion() != packet.getVersion()) throw ApiException.conflict("La feuille de saisie a été modifiée entre-temps. Rechargez-la.");
-        if ("SUBMIT".equalsIgnoreCase(in.action())) {
+        String action = in.action().trim().toUpperCase(Locale.ROOT);
+        if ("SUBMIT".equals(action)) {
             if (!Set.of("DRAFT", "RETURNED").contains(previousPacketStatus)) {
                 throw ApiException.conflict("Cette feuille doit être en brouillon ou retournée avant une nouvelle soumission.");
             }
@@ -402,35 +528,48 @@ public class GradeEntryService {
                     "La saisie ne peut pas être soumise tant que les éléments requis ne sont pas corrigés.");
             adoptAssignment(packet, subject);
             packet.setStatus("SUBMITTED"); packet.setSubmittedBy(currentUserId()); packet.setSubmittedAt(Instant.now());
-            updateWorkflow(period.getId(), in.classId(), subjectCode, "SUBMITTED");
+            updateWorkflow(packet, "SUBMITTED");
         } else {
             requireReviewer();
             windows.assertOpen(period.getId(), AcademicWindowPolicyService.Action.REVIEW);
-            String action = in.action().trim().toUpperCase(Locale.ROOT);
-            if (!Set.of("ACCEPT", "RETURN").contains(action)) throw ApiException.badRequest("Action de revue invalide : utilisez ACCEPT ou RETURN");
-            if (!"SUBMITTED".equals(previousPacketStatus)) {
-                throw ApiException.conflict("Seule une feuille soumise peut être acceptée ou retournée.");
+            if (!Set.of("CLAIM", "OPEN", "ACCEPT", "RETURN").contains(action)) {
+                throw ApiException.badRequest("Action de revue invalide : utilisez CLAIM, ACCEPT ou RETURN");
             }
-            if ("RETURN".equals(action) && (in.reason() == null || in.reason().isBlank())) {
+            if (Set.of("CLAIM", "OPEN").contains(action)) {
+                if (!"SUBMITTED".equals(previousPacketStatus)) {
+                    throw ApiException.conflict("Seule une feuille soumise peut être ouverte en revue.");
+                }
+                packet.setStatus("IN_REVIEW"); packet.setClaimedBy(currentUserId()); packet.setClaimedAt(Instant.now());
+                updateWorkflow(packet, "IN_REVIEW");
+            } else {
+                if (!"IN_REVIEW".equals(previousPacketStatus)) {
+                    throw ApiException.conflict("La feuille doit d'abord être ouverte par un reviewer.");
+                }
+                if ("RETURN".equals(action) && (in.reason() == null || in.reason().isBlank())) {
                 throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST, "RETURN_REASON_REQUIRED",
                         "Le motif du retour est obligatoire.", "reason", "Explain what the teacher must correct.");
+                }
+                packet.setStatus("ACCEPT".equals(action) ? "ACCEPTED" : "RETURNED");
+                packet.setReviewReason(in.reason() == null ? null : in.reason().trim());
+                packet.setReturnedAt("RETURN".equals(action) ? Instant.now() : null);
+                packet.setReviewedBy(currentUserId()); packet.setReviewedAt(Instant.now());
+                updateWorkflow(packet, packet.getStatus());
             }
-            packet.setStatus("ACCEPT".equals(action) ? "ACCEPTED" : "RETURNED"); packet.setReviewReason(in.reason());
-            packet.setReviewedBy(currentUserId()); packet.setReviewedAt(Instant.now());
-            updateWorkflow(period.getId(), in.classId(), subjectCode, packet.getStatus());
         }
         packet.setLastSavedBy(currentUserId()); packet.setLastSavedAt(Instant.now());
-        packets.saveAndFlush(packet);
-        recordPacketTransition(packet, previousPacketStatus, packet.getStatus(), in.reason());
+        savePacket(packet);
+        List<UUID> affected = roster(period.getAcademicSessionId(), in.classId()).stream().map(RosterStudent::id).toList();
+        recordPacketTransition(packet, previousPacketStatus, packet.getStatus(), in.reason(),
+                Set.of("CLAIM", "OPEN").contains(action) ? "CLAIM" : action, affected);
         return view(period.getId(), in.classId(), subjectCode);
     }
 
-    private void updateWorkflow(UUID periodId, UUID classId, String subjectCode, String state) {
-        List<UUID> ids = roster(period(periodId).getAcademicSessionId(), classId).stream().map(RosterStudent::id).toList();
-        if (!ids.isEmpty()) jdbc.update("UPDATE academic_grade SET workflow_status=? WHERE school_id=? AND reporting_period_id=? AND subject_code=? AND student_id = ANY(?)", state, TenantContext.get(), periodId, subjectCode, jdbc.getDataSource() == null ? new UUID[0] : ids.toArray(UUID[]::new));
+    private void updateWorkflow(AcademicGradePacket packet, String state) {
+        List<UUID> ids = roster(packet.getAcademicSessionId(), packet.getClassId()).stream().map(RosterStudent::id).toList();
+        if (!ids.isEmpty()) jdbc.update("UPDATE academic_grade SET workflow_status=? WHERE school_id=? AND packet_id=? AND student_id = ANY(?)", state, TenantContext.get(), packet.getId(), ids.toArray(UUID[]::new));
         // The PostgreSQL ANY update above is intentionally paired with a no-op-safe
         // comment update below; comments are not required for calculation.
-        if (!ids.isEmpty()) jdbc.update("UPDATE subject_result_comment SET workflow_status=? WHERE school_id=? AND reporting_period_id=? AND subject_code=? AND student_id = ANY(?)", state, TenantContext.get(), periodId, subjectCode, ids.toArray(UUID[]::new));
+        if (!ids.isEmpty()) jdbc.update("UPDATE subject_result_comment SET workflow_status=? WHERE school_id=? AND packet_id=? AND student_id = ANY(?)", state, TenantContext.get(), packet.getId(), ids.toArray(UUID[]::new));
     }
 
     private List<GradeEntrySubjectView> availableSubjects(UUID sessionId, UUID classId, String className,
@@ -483,8 +622,13 @@ public class GradeEntryService {
     }
 
     private List<GradeEntryBlockerView> completionBlockers(List<String> blockers, String subjectCode) {
-        return blockers.stream().map(message -> new GradeEntryBlockerView(
-                "GRADE_ENTRY_INCOMPLETE", subjectCode, null, message, message, "grade-entry", "BLOCKER")).toList();
+        return blockers.stream().map(message -> {
+            int separator = message == null ? -1 : message.indexOf(" · ");
+            String student = separator > 0 ? message.substring(0, separator) : null;
+            String detail = separator > 0 ? message.substring(separator + 3) : message;
+            return new GradeEntryBlockerView("GRADE_ENTRY_INCOMPLETE", subjectCode, student,
+                    detail, detail, "grade-entry", "BLOCKER");
+        }).toList();
     }
 
     private List<RosterStudent> roster(UUID sessionId, UUID classId) {
@@ -500,10 +644,40 @@ public class GradeEntryService {
 
     private AcademicGradePacket packet(AcademicReportingPeriod period, UUID classId, String subjectCode,
                                        GradeEntrySubjectView subject) {
-        return packets.findBySchoolIdAndReportingPeriodIdAndClassIdAndSubjectCode(TenantContext.get(), period.getId(), classId, subjectCode).orElseGet(() -> {
+        return packets.findTopBySchoolIdAndReportingPeriodIdAndClassIdAndSubjectCodeOrderByRevisionNumberDesc(
+                TenantContext.get(), period.getId(), classId, subjectCode).orElseGet(() -> {
             AcademicGradePacket p = new AcademicGradePacket(); p.setSchoolId(TenantContext.get()); p.setAcademicSessionId(period.getAcademicSessionId());
             p.setReportingPeriodId(period.getId()); p.setClassId(classId); p.setSubjectCode(subjectCode); return p;
         });
+    }
+
+    private AcademicGradePacket preparePacketForSave(AcademicGradePacket current, AcademicReportingPeriod period,
+                                                      UUID classId, GradeEntrySubjectView subject) {
+        if (current.getId() != null && Set.of("SUBMITTED", "IN_REVIEW").contains(current.getStatus())) {
+            throw ApiException.conflict("Cette feuille est en revue et ne peut pas être modifiée. Attendez un retour ou rechargez son état.");
+        }
+        if (current.getId() != null && Set.of("ACCEPTED", "LOCKED").contains(current.getStatus())) {
+            windows.assertOpen(period.getId(), AcademicWindowPolicyService.Action.CORRECTION);
+            assertCorrectionOwner(subject);
+            AcademicGradePacket revision = new AcademicGradePacket();
+            revision.setSchoolId(current.getSchoolId()); revision.setAcademicSessionId(current.getAcademicSessionId());
+            revision.setReportingPeriodId(current.getReportingPeriodId()); revision.setClassId(current.getClassId());
+            revision.setSubjectCode(current.getSubjectCode()); revision.setTeacherId(subject.teacherId());
+            revision.setResponsibleAssignmentId(subject.assignmentReadiness().assignmentId());
+            revision.setResponsibleAssignmentVersion(subject.assignmentReadiness().assignmentVersion());
+            revision.setRevisionNumber(current.getRevisionNumber() + 1); revision.setSupersedesPacketId(current.getId());
+            revision.setStatus("DRAFT");
+            return packets.saveAndFlush(revision);
+        }
+        if ("RETURNED".equals(current.getStatus())) assertCorrectionOwner(subject);
+        adoptAssignment(current, subject);
+        return current;
+    }
+
+    private void assertCorrectionOwner(GradeEntrySubjectView subject) {
+        if (!restrictedTeacher() || currentEmployeeId() == null || !currentEmployeeId().equals(subject.teacherId())) {
+            throw ApiException.forbidden("Seul l'enseignant responsable effectif ou son remplacement autorisé peut corriger cette feuille.");
+        }
     }
 
     /** Assignment identity is adopted only by a mutable draft. Historical
@@ -547,13 +721,32 @@ public class GradeEntryService {
     }
 
     private void recordPacketTransition(AcademicGradePacket packet, String from, String to, String reason) {
+        recordPacketTransition(packet, from, to, reason, "STATE_CHANGE", List.of());
+    }
+
+    private void recordPacketTransition(AcademicGradePacket packet, String from, String to, String reason,
+                                        String eventType, List<UUID> affectedRows) {
         if (packet.getId() == null || Objects.equals(from, to)) return;
         jdbc.update("""
             INSERT INTO academic_grade_packet_transition
-                (school_id,packet_id,from_status,to_status,reason,actor_user_id)
-            VALUES (?,?,?,?,?,?)
+                (school_id,packet_id,from_status,to_status,reason,actor_user_id,event_type,affected_rows,reviewer_user_id,reviewed_at)
+            VALUES (?,?,?,?,?,?,?,?::jsonb,?,?)
             """, TenantContext.get(), packet.getId(), from, to,
-                reason == null || reason.isBlank() ? null : reason.trim(), currentUserId());
+                reason == null || reason.isBlank() ? null : reason.trim(), currentUserId(), eventType,
+                affectedRowsJson(affectedRows), packet.getReviewedBy(), packet.getReviewedAt());
+    }
+
+    private String affectedRowsJson(List<UUID> rows) {
+        return rows == null ? "[]" : rows.stream().filter(Objects::nonNull)
+                .map(id -> "\"" + id + "\"").collect(Collectors.joining(",", "[", "]"));
+    }
+
+    private void savePacket(AcademicGradePacket packet) {
+        try {
+            packets.saveAndFlush(packet);
+        } catch (ObjectOptimisticLockingFailureException ex) {
+            throw ApiException.conflict("Cette feuille a été modifiée par un autre reviewer. Rechargez-la avant de réessayer.");
+        }
     }
 
     private List<String> blockers(List<GradeEntryAssessmentView> definition, List<GradeEntryStudentView> rows,
@@ -586,6 +779,7 @@ public class GradeEntryService {
     private UUID currentUserId() { var auth = SecurityContextHolder.getContext().getAuthentication(); return auth != null && auth.getPrincipal() instanceof AppUserPrincipal p ? p.userId() : null; }
     private UUID currentEmployeeId() { UUID user = currentUserId(); return user == null ? null : jdbc.query("SELECT employee_id FROM app_user WHERE id=?", rs -> rs.next() ? rs.getObject(1, UUID.class) : null, user); }
     private String currentRole() { var auth = SecurityContextHolder.getContext().getAuthentication(); return auth != null && auth.getPrincipal() instanceof AppUserPrincipal p ? p.roleCode() : ""; }
+    private boolean isReviewer() { return Set.of("admin", "principal", "dean_of_studies", "censor").contains(currentRole()); }
     private void requireReviewer() { if (!Set.of("admin","principal","dean_of_studies","censor").contains(currentRole())) throw ApiException.forbidden("Seule la direction peut accepter ou retourner une feuille de notes"); }
     private record RosterStudent(UUID id, String matricule, String name) {}
 }

@@ -30,6 +30,8 @@ public class AcademicGrade {
     @Column(name = "curriculum_subject_id") private UUID curriculumSubjectId;
     @Column(name = "responsible_assignment_id") private UUID responsibleAssignmentId;
     @Column(name = "last_request_id") private UUID lastRequestId;
+    @Column(name = "packet_id") private UUID packetId;
+    @Column(name = "packet_revision") private int packetRevision = 1;
     @Version private long version;
     @Column(name = "created_at", insertable = false, updatable = false) private Instant createdAt;
     @Column(name = "updated_at", insertable = false, updatable = false) private Instant updatedAt;

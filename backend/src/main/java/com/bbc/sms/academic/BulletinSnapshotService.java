@@ -711,7 +711,7 @@ public class BulletinSnapshotService {
             BigDecimal mark = result.exempt() ? null : result.value();
             Subject subject = subjects.findBySchoolIdAndCode(TenantContext.get(), subjectCode).orElse(null);
             int coefficient = coefficients.getOrDefault(subjectCode, subject == null ? 1 : subject.getCoef());
-            SubjectResultComment comment = comments.findBySchoolIdAndStudentIdAndReportingPeriodIdAndSubjectCode(
+            SubjectResultComment comment = comments.findTopBySchoolIdAndStudentIdAndReportingPeriodIdAndSubjectCodeOrderByUpdatedAtDesc(
                     TenantContext.get(), studentId, period.getId(), subjectCode).orElse(null);
             CurriculumMetadata metadata = curriculumMetadata(studentId, period.getAcademicSessionId(), subjectCode);
             String teacherRemark = comment == null ? null : comment.getComment();

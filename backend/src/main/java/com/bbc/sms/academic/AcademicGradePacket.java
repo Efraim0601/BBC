@@ -29,6 +29,11 @@ public class AcademicGradePacket {
     @Column(name = "reviewed_by") private UUID reviewedBy;
     @Column(name = "reviewed_at") private Instant reviewedAt;
     @Column(name = "review_reason") private String reviewReason;
+    @Column(name = "claimed_by") private UUID claimedBy;
+    @Column(name = "claimed_at") private Instant claimedAt;
+    @Column(name = "returned_at") private Instant returnedAt;
+    @Column(name = "revision_number", nullable = false) private int revisionNumber = 1;
+    @Column(name = "supersedes_packet_id") private UUID supersedesPacketId;
     @Version private long version;
     @Column(name = "created_at", insertable = false, updatable = false) private Instant createdAt;
     @Column(name = "updated_at", insertable = false, updatable = false) private Instant updatedAt;

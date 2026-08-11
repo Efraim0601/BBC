@@ -170,7 +170,7 @@ public class SessionAcademicService {
             if (in.mark().compareTo(BigDecimal.ZERO) < 0 || in.mark().compareTo(assessment.getMaxScore()) > 0)
                 throw ApiException.badRequest("La note doit être comprise entre 0 et " + assessment.getMaxScore());
         }
-        AcademicGrade grade = grades.findBySchoolIdAndStudentIdAndAssessmentIdAndSubjectCode(
+        AcademicGrade grade = grades.findTopBySchoolIdAndStudentIdAndAssessmentIdAndSubjectCodeOrderByUpdatedAtDesc(
                 TenantContext.get(), in.studentId(), assessment.getId(), subjectCode).orElseGet(AcademicGrade::new);
         if (in.version() != null && grade.getId() != null && in.version() != grade.getVersion()) throw ApiException.conflict("Cette note a été modifiée par un autre utilisateur");
         grade.setSchoolId(TenantContext.get()); grade.setAcademicSessionId(period.getAcademicSessionId()); grade.setReportingPeriodId(period.getId()); grade.setAssessmentId(assessment.getId());
@@ -189,9 +189,9 @@ public class SessionAcademicService {
         assertStudent(in.studentId());
         StudentEnrollment enrollment = resolveEnrollment(in.studentId(), period.getAcademicSessionId(), in.enrollmentId());
         if (in.comment() != null && in.comment().length() > 500) throw ApiException.badRequest("La remarque ne peut pas dépasser 500 caractères");
-        SubjectResultComment c = comments.findBySchoolIdAndStudentIdAndReportingPeriodIdAndSubjectCode(TenantContext.get(), in.studentId(), period.getId(), in.subjectCode().trim().toUpperCase(Locale.ROOT)).orElseGet(SubjectResultComment::new);
+        SubjectResultComment c = comments.findTopBySchoolIdAndStudentIdAndReportingPeriodIdAndSubjectCodeOrderByUpdatedAtDesc(TenantContext.get(), in.studentId(), period.getId(), in.subjectCode().trim().toUpperCase(Locale.ROOT)).orElseGet(SubjectResultComment::new);
         if (in.version() != null && c.getId() != null && in.version() != c.getVersion()) throw ApiException.conflict("Cette remarque a été modifiée par un autre utilisateur");
-        c.setSchoolId(TenantContext.get()); c.setAcademicSessionId(period.getAcademicSessionId()); c.setReportingPeriodId(period.getId()); c.setStudentId(in.studentId()); c.setEnrollmentId(enrollment.getId()); c.setSubjectCode(in.subjectCode().trim().toUpperCase(Locale.ROOT)); c.setComment(in.comment() == null ? null : in.comment().trim()); c.setAppreciationCode(in.appreciationCode()); c.setWorkflowStatus("DRAFT");
+        c.setSchoolId(TenantContext.get()); c.setAcademicSessionId(period.getAcademicSessionId()); c.setReportingPeriodId(period.getId()); c.setStudentId(in.studentId()); c.setEnrollmentId(enrollment.getId()); c.setSubjectCode(in.subjectCode().trim().toUpperCase(Locale.ROOT)); c.setComment(SubjectCommentPolicy.sanitize(in.comment())); c.setAppreciationCode(SubjectCommentPolicy.appreciation(in.appreciationCode())); c.setAuthorUserId(currentUserId()); c.setWorkflowStatus("DRAFT");
         return commentView(comments.save(c));
     }
 
