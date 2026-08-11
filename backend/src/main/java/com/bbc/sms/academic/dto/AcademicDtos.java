@@ -11,6 +11,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.UUID;
 import java.util.List;
+import java.util.Map;
 
 public class AcademicDtos {
 
@@ -285,19 +286,96 @@ public class AcademicDtos {
     public record BulletinCorrectionRequest(@NotBlank String reason, Long version) {}
     public record BulletinRefreshRequest(@NotBlank String reason, @NotNull Long version) {}
 
+    public record BulletinBatchPreviewRequest(@NotNull UUID classId, @NotNull UUID reportingPeriodId,
+                                               String locale) {}
+
     public record BulletinBatchJobCreateRequest(@NotNull UUID classId, @NotNull UUID reportingPeriodId,
-                                                String locale) {}
+                                                String locale, String scopeFingerprint,
+                                                Boolean includeReadyStudentsWhenPartiallyBlocked) {
+        public BulletinBatchJobCreateRequest(UUID classId, UUID reportingPeriodId, String locale) {
+            this(classId, reportingPeriodId, locale, null, false);
+        }
+        public boolean includeReadyStudents() { return Boolean.TRUE.equals(includeReadyStudentsWhenPartiallyBlocked); }
+    }
     public record BulletinBatchCancelRequest(@NotBlank String reason) {}
+
+    public record BulletinBatchReasonCount(String code, int count) {}
+
+    public record BulletinBatchRepairTarget(String route, Map<String, String> query) {
+        public BulletinBatchRepairTarget {
+            query = query == null ? Map.of() : Map.copyOf(query);
+        }
+    }
+
+    public record BulletinBatchSnapshotEvidence(UUID id, long version, String hash,
+                                                Instant publishedAt, String state) {}
+
+    public record BulletinBatchPreviewView(String policy, UUID academicSessionId,
+                                           String academicSessionLabel, UUID classId, String className,
+                                           UUID reportingPeriodId, String reportingPeriodCode,
+                                           String reportingPeriodLabel, int totalStudents, int readyStudents,
+                                           int blockedStudents, List<BulletinBatchReasonCount> reasonCounts,
+                                           List<Row> rows, String scopeFingerprint, Instant generatedAt) {
+        public BulletinBatchPreviewView {
+            reasonCounts = reasonCounts == null ? List.of() : List.copyOf(reasonCounts);
+            rows = rows == null ? List.of() : List.copyOf(rows);
+        }
+        public record Row(UUID studentId, String studentName, String matricule, String eligibility,
+                          String code, String category, String messageKey, Map<String, Object> messageArgs,
+                          String currentState, boolean retryableNow,
+                          BulletinBatchRepairTarget repairTarget,
+                          BulletinBatchSnapshotEvidence snapshot) {
+            public Row {
+                messageArgs = messageArgs == null ? Map.of() : Map.copyOf(messageArgs);
+            }
+        }
+    }
 
     public record BulletinBatchJobView(UUID id, UUID academicSessionId, UUID reportingPeriodId, UUID classId,
                                        String locale, String status, int totalItems, int processedItems,
                                        int publishedItems, int blockedItems, int errorItems, int progressPercent,
                                        java.time.OffsetDateTime requestedAt, java.time.OffsetDateTime startedAt,
                                        java.time.OffsetDateTime completedAt, boolean archiveAvailable,
-                                       String archiveSha256, Long archiveSizeBytes, String lastError, long version) {}
+                                       String archiveSha256, Long archiveSizeBytes, String lastError, long version,
+                                       String policy, String scopeFingerprint, String resultCategory,
+                                       String headlineCode, Map<String, Object> headlineArgs,
+                                       List<BulletinBatchReasonCount> reasonCounts,
+                                       boolean studentArchiveAvailable, boolean diagnosticReportAvailable,
+                                       int retryableErrorItems, int nowEligibleBlockedItems, int stillBlockedItems,
+                                       String diagnosticSha256, Long diagnosticSizeBytes) {
+        public BulletinBatchJobView {
+            headlineArgs = headlineArgs == null ? Map.of() : Map.copyOf(headlineArgs);
+            reasonCounts = reasonCounts == null ? List.of() : List.copyOf(reasonCounts);
+        }
+        public BulletinBatchJobView(UUID id, UUID academicSessionId, UUID reportingPeriodId, UUID classId,
+                                    String locale, String status, int totalItems, int processedItems,
+                                    int publishedItems, int blockedItems, int errorItems, int progressPercent,
+                                    java.time.OffsetDateTime requestedAt, java.time.OffsetDateTime startedAt,
+                                    java.time.OffsetDateTime completedAt, boolean archiveAvailable,
+                                    String archiveSha256, Long archiveSizeBytes, String lastError, long version) {
+            this(id, academicSessionId, reportingPeriodId, classId, locale, status, totalItems, processedItems,
+                    publishedItems, blockedItems, errorItems, progressPercent, requestedAt, startedAt, completedAt,
+                    archiveAvailable, archiveSha256, archiveSizeBytes, lastError, version, "PUBLISHED_ONLY", null,
+                    null, null, Map.of(), List.of(), archiveAvailable, false, 0, 0, 0, null, null);
+        }
+    }
 
     public record BulletinBatchItemView(UUID id, UUID studentId, String studentName, String status,
-                                        int attempts, String fileName, long sizeBytes, String error) {}
+                                        int attempts, String fileName, long sizeBytes, String error,
+                                        String resultCode, String category, String messageKey,
+                                        Map<String, Object> messageArgs, String currentState,
+                                        boolean retryableNow, BulletinBatchRepairTarget repairTarget,
+                                        BulletinBatchSnapshotEvidence snapshot, String correlationId,
+                                        String technicalDetail) {
+        public BulletinBatchItemView {
+            messageArgs = messageArgs == null ? Map.of() : Map.copyOf(messageArgs);
+        }
+        public BulletinBatchItemView(UUID id, UUID studentId, String studentName, String status,
+                                     int attempts, String fileName, long sizeBytes, String error) {
+            this(id, studentId, studentName, status, attempts, fileName, sizeBytes, error,
+                    null, null, null, Map.of(), null, false, null, null, null, null);
+        }
+    }
 
     public record GradeEntryAssessmentView(UUID id, String code, String label,
                                            BigDecimal maxScore, BigDecimal weight,

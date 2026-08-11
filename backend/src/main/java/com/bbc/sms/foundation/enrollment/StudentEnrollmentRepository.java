@@ -10,6 +10,8 @@ public interface StudentEnrollmentRepository extends JpaRepository<StudentEnroll
     List<StudentEnrollment> findBySchoolIdAndStudentIdOrderByEnrolledOnDescCreatedAtDesc(UUID schoolId, UUID studentId);
     Optional<StudentEnrollment> findFirstBySchoolIdAndStudentIdAndAcademicSessionIdAndStatus(
             UUID schoolId, UUID studentId, UUID sessionId, String status);
+    List<StudentEnrollment> findBySchoolIdAndStudentIdAndAcademicSessionIdAndSchoolClassIdAndStatusOrderByEnrolledOnDescCreatedAtDesc(
+            UUID schoolId, UUID studentId, UUID sessionId, UUID schoolClassId, String status);
     Optional<StudentEnrollment> findByIdAndSchoolId(UUID id, UUID schoolId);
     List<StudentEnrollment> findBySchoolIdAndAcademicSessionIdAndSchoolClassIdAndStatusOrderByClassNameSnapshotAsc(
             UUID schoolId, UUID sessionId, UUID classId, String status);

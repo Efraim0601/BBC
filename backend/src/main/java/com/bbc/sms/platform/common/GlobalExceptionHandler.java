@@ -32,7 +32,8 @@ public class GlobalExceptionHandler {
                            String code, Map<String, String> fieldErrors,
                            List<Map<String, Object>> conflicts, List<String> blockers,
                            String correlationId, Long currentVersion, Long staleVersion,
-                           String messageKey, Map<String, Object> messageParams) {}
+                           String messageKey, Map<String, Object> messageParams,
+                           Map<String, Object> details) {}
 
     @ExceptionHandler(ApiException.class)
     public ResponseEntity<ApiError> handleApi(ApiException ex) {
@@ -40,7 +41,7 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(ex.getStatus()).header("X-Correlation-Id", correlationId)
                 .body(error(ex.getStatus(), ex.getMessage(), ex.getCode(), ex.getFieldErrors(), ex.getConflicts(),
                         ex.getBlockers(), correlationId, ex.getCurrentVersion(), ex.getStaleVersion(),
-                        ex.getMessageKey(), ex.getMessageParams()));
+                        ex.getMessageKey(), ex.getMessageParams(), ex.getDetails()));
     }
 
     @ExceptionHandler(AccessDeniedException.class)
@@ -126,19 +127,21 @@ public class GlobalExceptionHandler {
         String correlationId = UUID.randomUUID().toString();
         return ResponseEntity.status(status).header("X-Correlation-Id", correlationId)
                 .body(error(status, message, code, fields, List.of(), List.of(), correlationId,
-                        null, null, null, Map.of()));
+                        null, null, null, Map.of(), Map.of()));
     }
 
     private ApiError error(HttpStatus status, String message, String code,
                            Map<String, String> fields, List<Map<String, Object>> conflicts,
-                           List<String> blockers, String correlationId,
-                           Long currentVersion, Long staleVersion,
-                           String messageKey, Map<String, Object> messageParams) {
+                            List<String> blockers, String correlationId,
+                            Long currentVersion, Long staleVersion,
+                            String messageKey, Map<String, Object> messageParams,
+                            Map<String, Object> details) {
         return new ApiError(OffsetDateTime.now(), status.value(), status.getReasonPhrase(), message, code,
                 fields == null ? Map.of() : fields,
                 conflicts == null ? List.of() : conflicts,
                 blockers == null ? List.of() : blockers,
                 correlationId, currentVersion, staleVersion, messageKey,
-                messageParams == null ? Map.of() : messageParams);
+                messageParams == null ? Map.of() : messageParams,
+                details == null ? Map.of() : details);
     }
 }

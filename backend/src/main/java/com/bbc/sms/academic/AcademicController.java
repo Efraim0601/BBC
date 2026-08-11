@@ -191,6 +191,12 @@ public class AcademicController {
         return reportCardBatchJobService.create(request);
     }
 
+    @PostMapping("/bulletin-batch-jobs/preview")
+    @PreAuthorize("@perm.can('academic','read') and @perm.staffOnly()")
+    public BulletinBatchPreviewView previewBulletinBatch(@Valid @RequestBody BulletinBatchPreviewRequest request) {
+        return reportCardBatchJobService.preview(request);
+    }
+
     @GetMapping("/bulletin-batch-jobs/{id}")
     @PreAuthorize("@perm.can('academic','read') and @perm.staffOnly()")
     public BulletinBatchJobView bulletinBatchJob(@PathVariable UUID id) { return reportCardBatchJobService.view(id); }
@@ -208,7 +214,21 @@ public class AcademicController {
     @PostMapping("/bulletin-batch-jobs/{id}/retry")
     @PreAuthorize("@perm.can('academic','write') and @perm.staffOnly()")
     public BulletinBatchJobView retryBulletinBatchJob(@PathVariable UUID id, @RequestParam(required = false) UUID itemId) {
-        return reportCardBatchJobService.retry(id, itemId);
+        return reportCardBatchJobService.retryErrors(id, itemId);
+    }
+
+    @PostMapping("/bulletin-batch-jobs/{id}/recheck-blocked")
+    @PreAuthorize("@perm.can('academic','write') and @perm.staffOnly()")
+    public BulletinBatchJobView recheckBlockedBulletinBatch(@PathVariable UUID id,
+                                                              @RequestParam(required = false) UUID itemId) {
+        return reportCardBatchJobService.recheckBlocked(id, itemId);
+    }
+
+    @PostMapping("/bulletin-batch-jobs/{id}/retry-errors")
+    @PreAuthorize("@perm.can('academic','write') and @perm.staffOnly()")
+    public BulletinBatchJobView retryBulletinBatchErrors(@PathVariable UUID id,
+                                                          @RequestParam(required = false) UUID itemId) {
+        return reportCardBatchJobService.retryErrors(id, itemId);
     }
 
     @PostMapping("/bulletin-batch-jobs/{id}/cancel")
@@ -225,6 +245,15 @@ public class AcademicController {
         return ResponseEntity.ok().contentType(MediaType.parseMediaType("application/zip"))
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=bulletin-batch-" + id + ".zip")
                 .cacheControl(CacheControl.noStore()).body(archive);
+    }
+
+    @GetMapping("/bulletin-batch-jobs/{id}/diagnostic")
+    @PreAuthorize("@perm.can('academic','read') and @perm.staffOnly()")
+    public ResponseEntity<byte[]> downloadBulletinBatchDiagnostic(@PathVariable UUID id) {
+        byte[] diagnostic = reportCardBatchJobService.diagnostic(id);
+        return ResponseEntity.ok().contentType(MediaType.parseMediaType("text/csv"))
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=bulletin-batch-" + id + "-diagnostic.csv")
+                .cacheControl(CacheControl.noStore()).body(diagnostic);
     }
 
     @GetMapping("/grade-entry")

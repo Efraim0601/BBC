@@ -36,6 +36,7 @@ public class ReportCardBatchService {
     private final BulletinSnapshotService snapshots;
     private final ReportCardPdfService pdf;
     private final TeacherScopeService teacherScope;
+    private final ReportCardBatchEligibilityService eligibility;
 
     public ReportCardBatchService(BulletinVersionRepository versions,
                                    StudentEnrollmentRepository enrollments,
@@ -44,7 +45,8 @@ public class ReportCardBatchService {
                                    SchoolClassRepository classes,
                                    BulletinSnapshotService snapshots,
                                    ReportCardPdfService pdf,
-                                   TeacherScopeService teacherScope) {
+                                   TeacherScopeService teacherScope,
+                                   ReportCardBatchEligibilityService eligibility) {
         this.versions = versions;
         this.enrollments = enrollments;
         this.periods = periods;
@@ -53,6 +55,7 @@ public class ReportCardBatchService {
         this.snapshots = snapshots;
         this.pdf = pdf;
         this.teacherScope = teacherScope;
+        this.eligibility = eligibility;
     }
 
     @Transactional(readOnly = true)
@@ -70,28 +73,23 @@ public class ReportCardBatchService {
         manifest.add("student_id,student_name,status,file,sha256,size_bytes,snapshot_id,snapshot_version,snapshot_hash,document_id,error");
         Map<String, byte[]> files = new LinkedHashMap<>();
         List<BulletinSnapshotView> frozen = new ArrayList<>();
-        for (StudentEnrollment enrollment : roster) {
-            BulletinVersion version = versions.findFirstBySchoolIdAndStudentIdAndReportingPeriodIdAndStateOrderByPublishedAtDesc(
-                    TenantContext.get(), enrollment.getStudentId(), periodId, "PUBLISHED").orElse(null);
-            if (version == null) version = versions.findFirstBySchoolIdAndStudentIdAndReportingPeriodIdOrderByCreatedAtDesc(
-                    TenantContext.get(), enrollment.getStudentId(), periodId).filter(v -> "VALIDATED".equals(v.getState())).orElse(null);
-            String name;
-            try { name = version == null ? students.findByIdAndSchoolId(enrollment.getStudentId(), TenantContext.get()).map(s -> s.getLastName() + " " + s.getFirstName()).orElse(enrollment.getStudentId().toString()) : snapshots.byId(version.getId()).studentName(); }
-            catch (Exception ignored) { name = enrollment.getStudentId().toString(); }
-            if (version == null) {
-                manifest.add(csv(enrollment.getStudentId().toString(), name, "BLOCKED", "", "", "", "", "", "", "", "No validated or published snapshot"));
+        ReportCardBatchEligibilityService.EligibilityPreview readiness = eligibility.preview(classId, periodId, locale);
+        for (ReportCardBatchEligibilityService.EligibilityRow row : readiness.rows()) {
+            String name = row.studentName();
+            if (!"READY".equals(row.eligibility()) || row.snapshot() == null) {
+                manifest.add(csv(row.studentId().toString(), name, "BLOCKED", "", "", "", "", "", "", "", row.code()));
                 continue;
             }
             try {
-                byte[] bytes = pdf.render(version.getId(), french);
-                BulletinSnapshotView snapshot = snapshots.byId(version.getId());
+                byte[] bytes = pdf.render(row.snapshot().id(), french);
+                BulletinSnapshotView snapshot = snapshots.byId(row.snapshot().id());
                 frozen.add(snapshot);
-                String file = safeFile(name) + "-" + enrollment.getStudentId().toString().substring(0, 8) + ".pdf";
+                String file = safeFile(name) + "-" + row.studentId().toString().substring(0, 8) + ".pdf";
                 files.put(file, bytes);
-                manifest.add(csv(enrollment.getStudentId().toString(), name, version.getState(), file, sha256(bytes), String.valueOf(bytes.length),
-                        version.getId().toString(), String.valueOf(version.getVersion()), version.getSnapshotHash(), "", ""));
+                manifest.add(csv(row.studentId().toString(), name, "PUBLISHED", file, sha256(bytes), String.valueOf(bytes.length),
+                        row.snapshot().id().toString(), String.valueOf(row.snapshot().version()), row.snapshot().hash(), "", ""));
             } catch (Exception ex) {
-                manifest.add(csv(enrollment.getStudentId().toString(), name, "ERROR", "", "", "", version.getId().toString(), String.valueOf(version.getVersion()), version.getSnapshotHash(), "", clip(ex.getMessage())));
+                manifest.add(csv(row.studentId().toString(), name, "ERROR", "", "", "", row.snapshot().id().toString(), String.valueOf(row.snapshot().version()), row.snapshot().hash(), "", "PDF_RENDER_FAILED"));
             }
         }
         addCompanions(files, manifest, frozen, classId, period, french);
@@ -114,6 +112,7 @@ public class ReportCardBatchService {
     private void addCompanions(Map<String, byte[]> files, List<String> manifest,
                                 List<BulletinSnapshotView> snapshots, UUID classId,
                                 AcademicReportingPeriod period, boolean french) {
+        if (snapshots.isEmpty()) return;
         List<BulletinSnapshotView> honored = snapshots.stream()
                 .filter(x -> x.conduct() != null && x.conduct().honorRoll()).toList();
         for (BulletinSnapshotView student : honored) {

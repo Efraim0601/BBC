@@ -16,6 +16,7 @@ public class ApiException extends RuntimeException {
     private final Long staleVersion;
     private final String messageKey;
     private final Map<String, Object> messageParams;
+    private final Map<String, Object> details;
 
     public ApiException(HttpStatus status, String message) {
         this(status, defaultCode(status), message, Map.of(), List.of(), List.of(), null, null, null, Map.of());
@@ -27,6 +28,17 @@ public class ApiException extends RuntimeException {
                         List<String> blockers,
                         Long currentVersion, Long staleVersion,
                         String messageKey, Map<String, Object> messageParams) {
+        this(status, code, message, fieldErrors, conflicts, blockers, currentVersion, staleVersion,
+                messageKey, messageParams, Map.of());
+    }
+
+    public ApiException(HttpStatus status, String code, String message,
+                        Map<String, String> fieldErrors,
+                        List<Map<String, Object>> conflicts,
+                        List<String> blockers,
+                        Long currentVersion, Long staleVersion,
+                        String messageKey, Map<String, Object> messageParams,
+                        Map<String, Object> details) {
         super(message);
         this.status = status;
         this.code = code == null || code.isBlank() ? defaultCode(status) : code;
@@ -37,6 +49,7 @@ public class ApiException extends RuntimeException {
         this.staleVersion = staleVersion;
         this.messageKey = messageKey;
         this.messageParams = messageParams == null ? Map.of() : Map.copyOf(messageParams);
+        this.details = details == null ? Map.of() : Map.copyOf(details);
     }
 
     public HttpStatus getStatus() { return status; }
@@ -48,6 +61,7 @@ public class ApiException extends RuntimeException {
     public Long getStaleVersion() { return staleVersion; }
     public String getMessageKey() { return messageKey; }
     public Map<String, Object> getMessageParams() { return messageParams; }
+    public Map<String, Object> getDetails() { return details; }
 
     public static ApiException notFound(String what) {
         return coded(HttpStatus.NOT_FOUND, "RESOURCE_NOT_FOUND", what + " introuvable");
@@ -65,6 +79,12 @@ public class ApiException extends RuntimeException {
                                         List<Map<String, Object>> conflicts) {
         return new ApiException(HttpStatus.CONFLICT, code, message, Map.of(), conflicts,
                 List.of(), null, null, null, Map.of());
+    }
+
+    public static ApiException conflictWithDetails(String code, String message,
+                                                   Map<String, Object> details) {
+        return new ApiException(HttpStatus.CONFLICT, code, message, Map.of(), List.of(), List.of(),
+                null, null, null, Map.of(), details);
     }
 
     public static ApiException forbidden(String message) {
