@@ -1,5 +1,9 @@
 package com.bbc.sms.foundation;
 
+import com.bbc.sms.attendance.AttendanceWorkflowService;
+import com.bbc.sms.attendance.dto.AttendanceDtos.BulkMarkRequest;
+import com.bbc.sms.attendance.dto.AttendanceDtos.MarkInput;
+import com.bbc.sms.attendance.dto.AttendanceDtos.ActionRequest;
 import com.bbc.sms.documents.OfficialDocumentDtos.GenerateRequest;
 import com.bbc.sms.documents.OfficialDocumentService;
 import com.bbc.sms.foundation.idempotency.IdempotencyService;
@@ -48,6 +52,7 @@ class SharedFoundationIntegrationTest {
     @Autowired AcademicSessionService sessionService;
     @Autowired IdempotencyService idempotency;
     @Autowired OfficialDocumentService documents;
+    @Autowired AttendanceWorkflowService attendance;
 
     @BeforeEach
     void tenant() {
@@ -62,7 +67,9 @@ class SharedFoundationIntegrationTest {
     void flywayCreatesEveryFoundationTableAndSessionTermsCannotOverlap() {
         for (String table : new String[]{"academic_session","academic_term","student_enrollment",
                 "school_calendar_day","expected_school_session","audit_event","idempotency_key",
-                "document_template","generated_document","permission_action_grant"}) {
+                "document_template","generated_document","permission_action_grant",
+                "attendance_policy","attendance_session","attendance_mark","attendance_session_event",
+                "attendance_notification"}) {
             assertThat(jdbc.queryForObject("SELECT to_regclass(?) IS NOT NULL", Boolean.class, table)).isTrue();
         }
         var session = sessionService.create(new SessionUpsert("2026-2027", "Session 2026-2027",
@@ -74,6 +81,60 @@ class SharedFoundationIntegrationTest {
                 LocalDate.of(2026, 12, 1), LocalDate.of(2027, 3, 20), null, null, null, null, null)))
                 .isInstanceOf(ApiException.class).hasMessageContaining("chevaucher");
         assertThat(sessionService.current().id()).isEqualTo(session.id());
+    }
+
+    @Test
+    void attendanceRosterUsesExpectedSessionsAndAuditsFinalizationAndReopening() {
+        UUID academicId = UUID.randomUUID();
+        UUID classId = UUID.randomUUID();
+        UUID studentId = UUID.randomUUID();
+        String sectionId = "p" + schoolId.toString().substring(0, 8);
+        LocalDate date = LocalDate.of(2026, 9, 1);
+        jdbc.update("INSERT INTO section(id,school_id,label,subsystem,level) VALUES (?,?,?,'FR','primary')",
+                sectionId, schoolId, "Primary");
+        jdbc.update("""
+            INSERT INTO school_class(id,school_id,section_id,name,subsystem,level)
+            VALUES (?,?,?,'CP Test','FR','primary')
+            """, classId, schoolId, sectionId);
+        jdbc.update("""
+            INSERT INTO academic_session(id,school_id,code,label,start_date,end_date,status,is_current)
+            VALUES (?,?, '2026-2027','2026-2027','2026-09-01','2027-07-31','OPEN',true)
+            """, academicId, schoolId);
+        jdbc.update("""
+            INSERT INTO student(id,school_id,matricule,first_name,last_name,class_id,class_name,subsystem,level)
+            VALUES (?,?, 'TEST-1','Ada','Lovelace',?,'CP Test','FR','primary')
+            """, studentId, schoolId, classId);
+        jdbc.update("""
+            INSERT INTO student_enrollment(school_id,student_id,academic_session_id,school_class_id,
+                class_name_snapshot,level_snapshot,subsystem_snapshot,status,enrolled_on,source)
+            VALUES (?,?,?,?,'CP Test','primary','FR','ACTIVE','2026-09-01','TEST')
+            """, schoolId, studentId, academicId, classId);
+
+        var preview = attendance.generate(date, date, true);
+        assertThat(preview.expectedSessions()).isEqualTo(1);
+        assertThat(preview.synchronizedSessions()).isZero();
+
+        var roster = attendance.roster(classId, date, null);
+        assertThat(roster.marks()).hasSize(1);
+        assertThat(roster.marks().getFirst().status()).isEqualTo("unmarked");
+        var saved = attendance.save(new BulkMarkRequest(roster.session().id(), roster.session().version(),
+                java.util.List.of(new MarkInput(studentId, "present", null, "On time", 0))));
+        assertThat(saved.marks().getFirst().status()).isEqualTo("present");
+        assertThatThrownBy(() -> attendance.save(new BulkMarkRequest(roster.session().id(), roster.session().version(),
+                java.util.List.of(new MarkInput(studentId, "absent", "Sick", null, 0)))))
+                .isInstanceOf(ApiException.class).hasMessageContaining("modifié");
+
+        var finalized = attendance.finalizeSession(saved.session().id(), new ActionRequest(saved.session().version(), null));
+        assertThat(finalized.session().status()).isEqualTo("FINALIZED");
+        var reopened = attendance.reopen(finalized.session().id(),
+                new ActionRequest(finalized.session().version(), "Correction approved"));
+        assertThat(reopened.session().status()).isEqualTo("REOPENED");
+        assertThat(reopened.events()).extracting(e -> e.action())
+                .contains("SAVED", "FINALIZED", "REOPENED");
+
+        var analytics = attendance.analytics(date, date, classId);
+        assertThat(analytics.expected()).isEqualTo(1);
+        assertThat(analytics.attendancePercent()).isEqualByComparingTo("100.00");
     }
 
     @Test

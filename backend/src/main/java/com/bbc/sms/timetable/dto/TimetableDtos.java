@@ -7,52 +7,30 @@ import java.util.List;
 import java.util.UUID;
 
 public class TimetableDtos {
+    public record ClassRef(UUID id, String name, String sectionId, String subsystem, String level,
+                           String model, String status, UUID homeroomTeacherId,
+                           String homeroomTeacherName, long version) {}
 
-    public record ClassRef(
-            UUID id,
-            String name,
-            String sectionId,
-            String subsystem,
-            String level) {}
+    public record PeriodView(UUID id, int slotIdx, String label, String startTime,
+                             String endTime, boolean active) {}
+    public record PeriodRequest(@NotBlank String label, @NotBlank String startTime,
+                                @NotBlank String endTime, boolean active) {}
 
-    public record SlotView(
-            UUID id,
-            int dayIdx,
-            int slotIdx,
-            String subjectCode,
-            UUID teacherId,
-            String room) {}
+    public record ClassConfigRequest(UUID homeroomTeacherId, long version) {}
+    public record TeacherAssignmentRequest(List<String> subjectCodes) {}
+    public record PlanActionRequest(long version, String reason) {}
 
-    /**
-     * @param allowOverlap force l'enregistrement d'un créneau qui met l'enseignant
-     *                     dans deux classes à la même heure (classes regroupées).
-     *                     Le chevauchement reste signalé après coup.
-     */
-    public record SlotUpsert(
-            @NotBlank String className,
-            @Min(0) int dayIdx,
-            @Min(0) int slotIdx,
-            String subjectCode,
-            UUID teacherId,
-            String room,
-            boolean allowOverlap) {}
+    public record SlotView(UUID id, int dayIdx, int slotIdx, String subjectCode,
+                           UUID teacherId, String room, String className) {}
 
-    /** Un créneau impliqué dans un chevauchement. */
-    public record ConflictSlot(
-            UUID classId,
-            String className,
-            String subjectCode,
-            String room) {}
+    public record SlotUpsert(@NotBlank String className, @Min(0) int dayIdx,
+                             @Min(0) int slotIdx, String subjectCode,
+                             UUID teacherId, String room) {}
 
-    /** Un même enseignant placé dans plusieurs classes (donc plusieurs salles) au même créneau. */
-    public record TeacherConflict(
-            int dayIdx,
-            int slotIdx,
-            UUID teacherId,
-            String teacherName,
-            List<ConflictSlot> slots) {}
-
-    public record SlotSaveResult(
-            SlotView slot,
-            List<TeacherConflict> conflicts) {}
+    public record ConflictSlot(UUID classId, String className, String subjectCode, String room) {}
+    public record TeacherConflict(int dayIdx, int slotIdx, UUID teacherId,
+                                  String teacherName, List<ConflictSlot> slots) {}
+    public record SlotSaveResult(SlotView slot, List<TeacherConflict> conflicts) {}
+    public record TeacherSchedule(UUID teacherId, String teacherName, String sessionLabel,
+                                  List<SlotView> slots) {}
 }

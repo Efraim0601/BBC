@@ -29,6 +29,16 @@ public class TimetableController {
         return service.rooms();
     }
 
+    @GetMapping("/periods")
+    @PreAuthorize("@perm.can('timetable','read')")
+    public List<PeriodView> periods() { return service.periods(); }
+
+    @PutMapping("/periods/{slotIdx}")
+    @PreAuthorize("@perm.can('timetable','write')")
+    public PeriodView updatePeriod(@PathVariable int slotIdx, @Valid @RequestBody PeriodRequest in) {
+        return service.updatePeriod(slotIdx, in);
+    }
+
     @GetMapping
     @PreAuthorize("@perm.can('timetable','read')")
     public List<SlotView> grid(@RequestParam String className) {
@@ -46,6 +56,42 @@ public class TimetableController {
     @PreAuthorize("@perm.can('timetable','write')")
     public SlotSaveResult upsertSlot(@Valid @RequestBody SlotUpsert in) {
         return service.upsertSlot(in);
+    }
+
+    @PutMapping("/classes/{classId}/config")
+    @PreAuthorize("@perm.can('timetable','write')")
+    public ClassRef configure(@PathVariable java.util.UUID classId, @Valid @RequestBody ClassConfigRequest in) {
+        return service.configure(classId, in);
+    }
+
+    @PutMapping("/classes/{classId}/teachers/{teacherId}")
+    @PreAuthorize("@perm.can('timetable','write')")
+    public void assignTeacher(@PathVariable java.util.UUID classId,
+                              @PathVariable java.util.UUID teacherId,
+                              @RequestBody TeacherAssignmentRequest in) {
+        service.assignTeacher(classId, teacherId, in);
+    }
+
+    @PostMapping("/classes/{classId}/publish")
+    @PreAuthorize("@perm.can('timetable','write')")
+    public ClassRef publish(@PathVariable java.util.UUID classId, @Valid @RequestBody PlanActionRequest in) {
+        return service.publish(classId, in);
+    }
+
+    @PostMapping("/classes/{classId}/reopen")
+    @PreAuthorize("@perm.can('timetable','write')")
+    public ClassRef reopen(@PathVariable java.util.UUID classId, @Valid @RequestBody PlanActionRequest in) {
+        return service.reopen(classId, in);
+    }
+
+    @GetMapping("/teachers/me")
+    @PreAuthorize("@perm.can('timetable','read')")
+    public TeacherSchedule mySchedule() { return service.mySchedule(); }
+
+    @GetMapping("/teachers/{teacherId}")
+    @PreAuthorize("@perm.can('timetable','write')")
+    public TeacherSchedule teacherSchedule(@PathVariable java.util.UUID teacherId) {
+        return service.teacherSchedule(teacherId);
     }
 
     @DeleteMapping
