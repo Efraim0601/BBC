@@ -106,7 +106,7 @@ type Field = 'limited' | 'opensAt' | 'closesAt';
     .term-toast { margin-top:.75rem; border:1px solid #a7f3d0; border-radius:.55rem; background:#ecfdf5; color:#065f46; padding:.55rem .7rem; font-size:.78rem; }
     .term-toast-error { border-color:#fecaca; background:#fff1f2; color:#9f1239; }
     .term-access-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.8rem; margin-top:1rem; }
-    .term-access-card { display:flex; min-width:0; flex-direction:column; gap:.7rem; border:1px solid #dbe4f0; border-radius:.85rem; background:#fff; padding:.85rem; box-shadow:0 8px 24px rgba(30,41,59,.05); }
+    .term-access-card { container-type:inline-size; display:flex; min-width:0; flex-direction:column; gap:.7rem; border:1px solid #dbe4f0; border-radius:.85rem; background:#fff; padding:.85rem; box-shadow:0 8px 24px rgba(30,41,59,.05); }
     .term-card-topline { display:flex; align-items:flex-start; justify-content:space-between; gap:.55rem; }
     .term-card-topline h4 { color:#172033; font-size:.92rem; font-weight:800; margin:0; }
     .term-card-topline p { color:#64748b; font-size:.7rem; margin:.25rem 0 0; }
@@ -119,9 +119,10 @@ type Field = 'limited' | 'opensAt' | 'closesAt';
     .term-chips span { border:1px solid #dbeafe; border-radius:999px; background:#eff6ff; color:#1e40af; padding:.22rem .45rem; font-size:.64rem; font-weight:700; }
     .term-toggle { display:flex; align-items:center; gap:.45rem; color:#1e293b; font-size:.78rem; font-weight:750; }
     .term-toggle input { accent-color:#3453b8; }
-    .term-date-grid { display:grid; grid-template-columns:1fr 1fr; gap:.6rem; }
-    .term-date-grid label { color:#475569; font-size:.68rem; font-weight:700; }
-    .term-date-grid input { display:block; width:100%; height:2.35rem; margin-top:.3rem; border:1px solid #94a3b8; border-radius:.5rem; background:#fff; color:#0f172a; padding:0 .55rem; font-size:.75rem; }
+    .term-date-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); min-width:0; gap:.6rem; }
+    .term-date-grid label { min-width:0; color:#475569; font-size:.68rem; font-weight:700; }
+    .term-date-grid label > span { display:block; min-width:0; }
+    .term-date-grid input { display:block; box-sizing:border-box; min-width:0; max-width:100%; width:100%; height:2.35rem; margin-top:.3rem; border:1px solid #94a3b8; border-radius:.5rem; background:#fff; color:#0f172a; padding:0 .55rem; font-size:.75rem; }
     .term-date-grid input:focus { outline:2px solid #a5b4fc; outline-offset:1px; border-color:#4f46e5; }
     .term-date-grid input.term-field-invalid { border:2px solid #dc2626; background:#fff7f7; }
     .term-field-error { display:block; color:#b91c1c; font-size:.67rem; font-weight:650; line-height:1.3; margin-top:.25rem; }
@@ -138,6 +139,7 @@ type Field = 'limited' | 'opensAt' | 'closesAt';
     .term-modal h3 { color:#172033; font-size:1rem; font-weight:800; margin:0; }
     .term-modal p { color:#475569; font-size:.8rem; line-height:1.5; margin:.65rem 0 0; }
     .term-modal-actions { display:flex; justify-content:flex-end; gap:.5rem; margin-top:1rem; }
+    @container (max-width:28rem) { .term-date-grid { grid-template-columns:1fr; } }
     @media (max-width: 900px) { .term-access-grid { grid-template-columns:1fr; } }
   `],
 })
