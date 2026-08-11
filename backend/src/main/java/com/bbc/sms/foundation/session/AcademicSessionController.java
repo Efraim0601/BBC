@@ -99,7 +99,7 @@ public class AcademicSessionController {
                                                             @Valid @RequestBody ConfigurationCopyApplyRequest in) {
         return idempotency.execute("academic-session-configuration-copy:" + targetSessionId,
                 idempotencyKey, in, ConfigurationCopyPreview.class,
-                () -> configurationCopy.apply(targetSessionId, in));
+                () -> configurationCopy.apply(targetSessionId, in, idempotencyKey));
     }
 
     @PostMapping("/{sessionId}/reporting-periods")

@@ -139,7 +139,7 @@ export class CurriculumCopyComponent implements OnChanges {
       reason: this.reason.trim(), previewFingerprint: p.fingerprint,
     };
     this.busy.set(true);
-    this.api.applyCurriculumCopy(body, `curriculum-copy:${this.targetSessionId}:${p.fingerprint}`).subscribe({
+    this.api.applyCurriculumCopy(body, crypto.randomUUID()).subscribe({
       next: () => { this.busy.set(false); this.message.set({ ok: true, text: 'Curriculum copied and audited.' }); this.applied.emit(); },
       error: (e) => { this.busy.set(false); this.message.set({ ok: false, text: e?.error?.message ?? 'Apply failed; the preview may be stale.' }); },
     });

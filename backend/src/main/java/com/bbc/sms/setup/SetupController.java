@@ -158,7 +158,7 @@ public class SetupController {
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody CurriculumCopyApplyRequest in) {
         return idempotency.execute("curriculum-copy:" + in.targetSessionId(), idempotencyKey,
-                in, CurriculumCopyPreview.class, () -> curriculumCopy.apply(in));
+                in, CurriculumCopyPreview.class, () -> curriculumCopy.apply(in, idempotencyKey));
     }
 
     @PostMapping("/curriculum/groups")

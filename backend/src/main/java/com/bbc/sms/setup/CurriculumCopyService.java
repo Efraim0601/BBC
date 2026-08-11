@@ -65,7 +65,14 @@ public class CurriculumCopyService {
 
     @Transactional
     public CurriculumCopyPreview apply(CurriculumCopyApplyRequest request) {
+        return apply(request, null);
+    }
+
+    @Transactional
+    public CurriculumCopyPreview apply(CurriculumCopyApplyRequest request, String idempotencyKey) {
         UUID targetId = request.targetSessionId();
+        UUID schoolId = TenantContext.get();
+        lockSessions(request.sourceSessionId(), targetId, schoolId);
         SessionData target = session(targetId);
         if (!Set.of("DRAFT", "OPEN").contains(target.status())) throw ApiException.conflict("La session cible doit être en brouillon ou ouverte.");
         CurriculumCopyPreviewRequest previewRequest = new CurriculumCopyPreviewRequest(
@@ -76,8 +83,6 @@ public class CurriculumCopyService {
             throw ApiException.staleVersion("La proposition de curriculum a changé depuis l'aperçu. Rechargez-la avant de l'appliquer.", 0, 0);
         }
         if (!preview.blockers().isEmpty()) throw ApiException.conflict("La reprise contient des éléments à corriger avant application.");
-        UUID schoolId = TenantContext.get();
-        jdbc.query("SELECT id FROM academic_session WHERE id=? AND school_id=? FOR UPDATE", rs -> null, target.id(), schoolId);
         Map<String, UUID> groupIds = targetGroupIds(target.id());
         if (request.includeGroups() == null || request.includeGroups()) {
             for (SubjectGroupView group : preview.groups()) groupIds.put(group.code().toUpperCase(Locale.ROOT), upsertGroup(target.id(), group, groupIds));
@@ -100,14 +105,26 @@ public class CurriculumCopyService {
         }
         jdbc.update("""
                 INSERT INTO academic_copy_run(school_id,copy_type,source_session_id,target_session_id,scope_key,preview_fingerprint,status,
-                    created_count,updated_count,skipped_count,result_summary,actor_user_id,applied_at)
-                VALUES (?,?,?,?,?,?,'APPLIED',?,?,?,?::jsonb,?,now())
+                    created_count,updated_count,skipped_count,result_summary,idempotency_key,reason,warning_count,actor_user_id,applied_at)
+                VALUES (?,?,?,?,?,?,'APPLIED',?,?,?,?::jsonb,?,?,?,?,now())
                 """, schoolId, "CURRICULUM", preview.sourceSessionId(), target.id(), "selected-classes", preview.fingerprint(),
-                created, updated, skipped, json(map("created", created, "updated", updated, "skipped", skipped)), currentUserId());
+                created, updated, skipped, json(map("created", created, "updated", updated, "skipped", skipped)), idempotencyKey,
+                request.reason(), warningCount(preview), currentUserId());
         audit.record("CURRICULUM_COPIED", "AcademicSession", target.id().toString(), null,
                 map("sourceSessionId", preview.sourceSessionId(), "classCount", preview.classCount(),
                         "created", created, "updated", updated, "skipped", skipped), request.reason());
         return preview;
+    }
+
+    private void lockSessions(UUID sourceSessionId, UUID targetSessionId, UUID schoolId) {
+        jdbc.query("""
+                SELECT id
+                  FROM academic_session
+                 WHERE school_id=? AND id IN (?,?)
+                 ORDER BY id
+                 FOR UPDATE
+                """, rs -> { while (rs.next()) { /* consume both locked rows */ } return null; },
+                schoolId, sourceSessionId, targetSessionId);
     }
 
     private List<CurriculumCopyRow> curriculumRows(SessionData source, SessionData target, Set<UUID> classIds,
@@ -327,6 +344,11 @@ public class CurriculumCopyService {
     }
     private String teacherStatus(Map<String, Object> p, boolean include) { return !include || p.get("employeeId") == null ? "NOT_INCLUDED" : Boolean.TRUE.equals(p.get("teacherActive")) ? "READY" : "UNAVAILABLE"; }
     private String teacherMessage(Map<String, Object> p, boolean include) { return !include || p.get("employeeId") == null ? null : Boolean.TRUE.equals(p.get("teacherActive")) ? null : "The previous teacher is inactive and was not assigned."; }
+    private int warningCount(CurriculumCopyPreview preview) {
+        int count = preview.warnings() == null ? 0 : preview.warnings().size();
+        if (preview.rows() != null) for (CurriculumCopyRow row : preview.rows()) count += row.warnings() == null ? 0 : row.warnings().size();
+        return count;
+    }
     private static boolean selected(List<String> selectedKeys, String key, String requestedMode) {
         String merge = normalizeMode(requestedMode);
         return "UPDATE_ALL".equals(merge) || ("UPDATE_SELECTED".equals(merge)

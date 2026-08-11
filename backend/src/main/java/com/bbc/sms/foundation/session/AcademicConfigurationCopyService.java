@@ -59,6 +59,7 @@ public class AcademicConfigurationCopyService {
         List<String> blockers = new ArrayList<>();
         if (source.status().equals("ARCHIVED")) warnings.add("The source session is archived; only configuration is copied.");
         if (!Set.of("DRAFT", "OPEN").contains(target.status())) blockers.add("TARGET_SESSION_NOT_MUTABLE");
+        if (terms.stream().anyMatch(r -> !r.blockers().isEmpty())) blockers.add("TERM_REPAIR_REQUIRED");
         if (periods.stream().anyMatch(r -> !r.blockers().isEmpty())) blockers.add("REPORTING_PERIOD_REPAIR_REQUIRED");
         if (windows.stream().anyMatch(r -> !r.blockers().isEmpty())) blockers.add("WINDOW_RULE_REPAIR_REQUIRED");
         List<ConfigurationCopyRow> all = new ArrayList<>();
@@ -74,6 +75,13 @@ public class AcademicConfigurationCopyService {
 
     @Transactional
     public ConfigurationCopyPreview apply(UUID targetSessionId, ConfigurationCopyApplyRequest request) {
+        return apply(targetSessionId, request, null);
+    }
+
+    @Transactional
+    public ConfigurationCopyPreview apply(UUID targetSessionId, ConfigurationCopyApplyRequest request, String idempotencyKey) {
+        UUID schoolId = TenantContext.get();
+        lockSessions(request.sourceSessionId(), targetSessionId, schoolId);
         SessionData target = session(targetSessionId);
         assertMutable(target);
         ConfigurationCopyPreviewRequest previewRequest = new ConfigurationCopyPreviewRequest(
@@ -83,8 +91,6 @@ public class AcademicConfigurationCopyService {
             throw ApiException.staleVersion("La proposition de reprise a changé depuis l'aperçu. Rechargez-la avant de l'appliquer.", 0, 0);
         }
         if (!preview.blockers().isEmpty()) throw ApiException.conflict("La reprise contient des éléments à corriger avant application.");
-        UUID schoolId = TenantContext.get();
-        jdbc.query("SELECT id FROM academic_session WHERE id=? AND school_id=? FOR UPDATE", rs -> null, target.id(), schoolId);
         Map<String, UUID> termIds = targetTermIds(target.id());
         int created = 0, updated = 0, skipped = 0;
         for (ConfigurationCopyRow row : preview.terms()) {
@@ -113,17 +119,80 @@ public class AcademicConfigurationCopyService {
                 if (row.existing() == null) created++; else updated++;
             } else skipped++;
         }
+        String targetStructureFingerprint = targetStructureFingerprint(target.id());
         jdbc.update("""
                 INSERT INTO academic_copy_run(school_id,copy_type,source_session_id,target_session_id,
-                    scope_key,preview_fingerprint,status,created_count,updated_count,skipped_count,result_summary,actor_user_id,applied_at)
-                VALUES (?,?,?,?,?,?,'APPLIED',?,?,?,?::jsonb,?,now())
+                    scope_key,preview_fingerprint,status,created_count,updated_count,skipped_count,result_summary,
+                    idempotency_key,reason,warning_count,actor_user_id,applied_at)
+                VALUES (?,?,?,?,?,?,'APPLIED',?,?,?,?::jsonb,?,?,?,?,now())
                 """, schoolId, "SESSION_CONFIGURATION", preview.sourceSessionId(), target.id(),
                 "all", preview.fingerprint(), created, updated, skipped,
-                json(Map.of("create", created, "update", updated, "skip", skipped)), currentUserId());
+                json(Map.of("create", created, "update", updated, "skip", skipped,
+                        "targetStructureFingerprint", targetStructureFingerprint)), idempotencyKey, request.reason(),
+                warningCount(preview), currentUserId());
         audit.record("ACADEMIC_CONFIGURATION_COPIED", "AcademicSession", target.id().toString(), null,
                 Map.of("sourceSessionId", preview.sourceSessionId(), "fingerprint", preview.fingerprint(),
+                        "targetStructureFingerprint", targetStructureFingerprint,
                         "created", created, "updated", updated, "skipped", skipped), request.reason());
         return preview;
+    }
+
+    private void lockSessions(UUID sourceSessionId, UUID targetSessionId, UUID schoolId) {
+        jdbc.query("""
+                SELECT id
+                  FROM academic_session
+                 WHERE school_id=? AND id IN (?,?)
+                 ORDER BY id
+                 FOR UPDATE
+                """, rs -> { while (rs.next()) { /* consume both locked rows */ } return null; },
+                schoolId, sourceSessionId, targetSessionId);
+    }
+
+    private String targetStructureFingerprint(UUID targetSessionId) {
+        UUID schoolId = TenantContext.get();
+        String terms = jdbc.queryForObject("""
+                SELECT COALESCE(jsonb_agg(jsonb_build_object(
+                    'code',upper(code),'label',label,'sequenceNo',sequence_no,
+                    'startDate',start_date,'endDate',end_date,
+                    'timezone',timezone
+                ) ORDER BY sequence_no,upper(code)),'[]'::jsonb)::text
+                  FROM academic_term
+                 WHERE school_id=? AND academic_session_id=?
+                """, String.class, schoolId, targetSessionId);
+        String periods = jdbc.queryForObject("""
+                SELECT COALESCE(jsonb_agg(jsonb_build_object(
+                    'code',upper(p.code),'label',p.label,'periodType',p.period_type,
+                    'displayOrder',p.display_order,'termCode',upper(t.code),
+                    'startDate',p.start_date,'endDate',p.end_date,
+                    'calculationPolicy',p.calculation_policy,'status',p.status,
+                    'timezone',p.timezone
+                ) ORDER BY p.display_order,upper(p.code)),'[]'::jsonb)::text
+                  FROM academic_reporting_period p
+                  LEFT JOIN academic_term t ON t.id=p.academic_term_id
+                 WHERE p.school_id=? AND p.academic_session_id=?
+                """, String.class, schoolId, targetSessionId);
+        String dependencies = jdbc.queryForObject("""
+                SELECT COALESCE(jsonb_agg(jsonb_build_object(
+                    'parentCode',upper(p.code),'childCode',upper(c.code),
+                    'weight',d.weight,'optional',d.optional,'displayOrder',d.display_order
+                ) ORDER BY p.display_order,d.display_order,upper(c.code)),'[]'::jsonb)::text
+                  FROM academic_reporting_period_dependency d
+                  JOIN academic_reporting_period p ON p.id=d.parent_period_id
+                  JOIN academic_reporting_period c ON c.id=d.child_period_id
+                 WHERE d.school_id=? AND d.academic_session_id=?
+                """, String.class, schoolId, targetSessionId);
+        String windows = jdbc.queryForObject("""
+                SELECT COALESCE(jsonb_agg(jsonb_build_object(
+                    'scopeType',w.scope_type,'scopeCode',upper(COALESCE(t.code,p.code,'SESSION')),
+                    'action',w.action,'mode',w.mode,'opensAt',w.opens_at,
+                    'closesAt',w.closes_at,'timezone',w.timezone
+                ) ORDER BY w.scope_type,w.action,upper(COALESCE(t.code,p.code,'SESSION'))),'[]'::jsonb)::text
+                  FROM academic_workflow_window_rule w
+                  LEFT JOIN academic_term t ON t.id=w.academic_term_id
+                  LEFT JOIN academic_reporting_period p ON p.id=w.reporting_period_id
+                 WHERE w.school_id=? AND w.academic_session_id=?
+                """, String.class, schoolId, targetSessionId);
+        return fingerprint(targetSessionId, terms, periods, dependencies, windows);
     }
 
     private List<ConfigurationCopyRow> termRows(SessionData source, SessionData target, long shift,
@@ -144,7 +213,11 @@ public class AcademicConfigurationCopyService {
             Map<String, Object> proposed = shiftDates(src, shift, Objects.toString(src.get("timezone"), source.timezone()), target.timezone());
             applyEdits("TERM:" + code, proposed, edits);
             Map<String, Object> existing = findByCode("academic_term", target.id(), code);
-            return row("TERM:" + code, "TERM", code, String.valueOf(src.get("label")), existing, src, proposed, mergeMode, selectedKeys);
+            List<String> blockers = existing != null && selected(selectedKeys, "TERM:" + code, mergeMode)
+                    ? termUsageBlockers(target.id(), existing, proposed) : List.of();
+            return new ConfigurationCopyRow("TERM:" + code, "TERM", code, String.valueOf(src.get("label")),
+                    existing == null ? "CREATE" : selected(selectedKeys, "TERM:" + code, mergeMode) ? "UPDATE" : "KEEP",
+                    src, proposed, existing, List.of(), blockers);
         }, TenantContext.get(), source.id());
     }
 
@@ -188,6 +261,9 @@ public class AcademicConfigurationCopyService {
                     && date(proposed.get("startDate")) != null && date(proposed.get("endDate")) != null
                     && (date(proposed.get("startDate")).isBefore(bounds[0]) || date(proposed.get("endDate")).isAfter(bounds[1]))) {
                 blockers.add("PERIOD_OUTSIDE_TERM");
+            }
+            if (existing != null && selected(selectedKeys, "PERIOD:" + code, mergeMode)) {
+                blockers.addAll(periodUsageBlockers(target.id(), existing, proposed));
             }
             List<String> warnings = computed ? List.of("RAW_GRADE_AND_TEACHER_WINDOWS_NOT_APPLICABLE") : List.of();
             String key = "PERIOD:" + code;
@@ -388,6 +464,15 @@ public class AcademicConfigurationCopyService {
                 source, proposed, existing, List.of(), List.of());
     }
 
+    private int warningCount(ConfigurationCopyPreview preview) {
+        int count = preview.warnings() == null ? 0 : preview.warnings().size();
+        for (ConfigurationCopyRow row : List.of(preview.terms(), preview.reportingPeriods(), preview.dependencies(), preview.workflowWindows())
+                .stream().flatMap(Collection::stream).toList()) {
+            count += row.warnings() == null ? 0 : row.warnings().size();
+        }
+        return count;
+    }
+
     private boolean selected(List<String> selectedKeys, String key, String requestedMode) {
         String merge = mode(requestedMode);
         return "UPDATE_ALL".equals(merge) || ("UPDATE_SELECTED".equals(merge)
@@ -395,14 +480,141 @@ public class AcademicConfigurationCopyService {
     }
 
     private Map<String, Object> findByCode(String table, UUID sessionId, String code) {
-        String sql = "academic_term".equals(table)
-                ? "SELECT id,code,label,start_date,end_date FROM academic_term WHERE school_id=? AND academic_session_id=? AND upper(code)=upper(?)"
-                : "SELECT id,code,label,start_date,end_date FROM academic_reporting_period WHERE school_id=? AND academic_session_id=? AND upper(code)=upper(?)";
-        return jdbc.query(sql, rs -> {
+        if ("academic_term".equals(table)) {
+            return jdbc.query("SELECT id,code,label,start_date,end_date,sequence_no FROM academic_term WHERE school_id=? AND academic_session_id=? AND upper(code)=upper(?)", rs -> {
+                if (!rs.next()) return null;
+                return map("id", rs.getObject(1, UUID.class), "code", rs.getString(2), "label", rs.getString(3),
+                        "startDate", date(rs.getObject(4)), "endDate", date(rs.getObject(5)), "sequenceNo", rs.getInt(6));
+            }, TenantContext.get(), sessionId, code);
+        }
+        return jdbc.query("""
+                SELECT p.id,p.code,p.label,p.start_date,p.end_date,p.period_type,p.display_order,
+                       p.calculation_policy,p.status,t.code AS term_code
+                  FROM academic_reporting_period p
+                  LEFT JOIN academic_term t ON t.id=p.academic_term_id
+                 WHERE p.school_id=? AND p.academic_session_id=? AND upper(p.code)=upper(?)
+                """, rs -> {
             if (!rs.next()) return null;
             return map("id", rs.getObject(1, UUID.class), "code", rs.getString(2), "label", rs.getString(3),
-                    "startDate", date(rs.getObject(4)), "endDate", date(rs.getObject(5)));
+                    "startDate", date(rs.getObject(4)), "endDate", date(rs.getObject(5)),
+                    "periodType", rs.getString(6), "displayOrder", rs.getInt(7),
+                    "calculationPolicy", rs.getString(8), "status", rs.getString(9), "termCode", rs.getString(10));
         }, TenantContext.get(), sessionId, code);
+    }
+
+    private List<String> termUsageBlockers(UUID sessionId, Map<String, Object> existing, Map<String, Object> proposed) {
+        if (!structurallyChanged(existing, proposed, "code", "startDate", "endDate")) return List.of();
+        UUID termId = (UUID) existing.get("id");
+        List<String> blockers = new ArrayList<>();
+        if (has("""
+                SELECT 1 FROM academic_assessment a
+                  JOIN academic_reporting_period p ON p.id=a.reporting_period_id
+                 WHERE a.school_id=? AND a.academic_session_id=? AND p.academic_term_id=? LIMIT 1
+                """, TenantContext.get(), sessionId, termId)) blockers.add("TERM_USED_BY_ASSESSMENTS");
+        if (has("""
+                SELECT 1 FROM academic_grade g
+                  JOIN academic_reporting_period p ON p.id=g.reporting_period_id
+                 WHERE g.school_id=? AND g.academic_session_id=? AND p.academic_term_id=? LIMIT 1
+                """, TenantContext.get(), sessionId, termId)) blockers.add("TERM_USED_BY_GRADES");
+        if (has("""
+                SELECT 1 FROM academic_grade_packet g
+                  JOIN academic_reporting_period p ON p.id=g.reporting_period_id
+                 WHERE g.school_id=? AND g.academic_session_id=? AND p.academic_term_id=? LIMIT 1
+                """, TenantContext.get(), sessionId, termId)) blockers.add("TERM_USED_BY_GRADE_PACKETS");
+        if (has("""
+                SELECT 1 FROM bulletin_version b
+                  JOIN academic_reporting_period p ON p.id=b.reporting_period_id
+                 WHERE b.school_id=? AND b.academic_session_id=? AND p.academic_term_id=? LIMIT 1
+                """, TenantContext.get(), sessionId, termId)) blockers.add("TERM_USED_BY_BULLETINS");
+        if (has("""
+                SELECT 1 FROM attendance_period_adjustment a
+                  JOIN academic_reporting_period p ON p.id=a.reporting_period_id
+                 WHERE a.school_id=? AND a.academic_session_id=? AND p.academic_term_id=? LIMIT 1
+                """, TenantContext.get(), sessionId, termId)) blockers.add("TERM_USED_BY_ATTENDANCE_ADJUSTMENTS");
+        LocalDate start = date(proposed.get("startDate"));
+        LocalDate end = date(proposed.get("endDate"));
+        if (start != null && end != null && has("""
+                SELECT 1 FROM attendance_session a
+                  JOIN academic_reporting_period p ON p.academic_session_id=a.academic_session_id
+                    AND upper(p.code)=upper(a.period_key) AND p.academic_term_id=?
+                 WHERE a.school_id=? AND a.academic_session_id=? AND a.status='FINALIZED'
+                   AND (a.session_date < ? OR a.session_date > ?) LIMIT 1
+                """, termId, TenantContext.get(), sessionId, java.sql.Date.valueOf(start), java.sql.Date.valueOf(end))) {
+            blockers.add("TERM_USED_BY_FINALIZED_ATTENDANCE");
+        }
+        if (start != null && end != null && has("""
+                SELECT 1 FROM timetable_version t
+                 WHERE t.school_id=? AND t.academic_session_id=? AND t.status='PUBLISHED'
+                   AND (t.effective_from IS NULL OR t.effective_to IS NULL OR t.effective_from < ? OR t.effective_to > ?) LIMIT 1
+                """, TenantContext.get(), sessionId, java.sql.Date.valueOf(start), java.sql.Date.valueOf(end))) {
+            blockers.add("TERM_USED_BY_PUBLISHED_TIMETABLES");
+        }
+        if (has("SELECT 1 FROM promotion_batch WHERE school_id=? AND target_session_id=? AND status NOT IN ('CANCELLED','CANCELED') LIMIT 1",
+                TenantContext.get(), sessionId) || has("""
+                SELECT 1 FROM promotion_decision d JOIN promotion_batch b ON b.id=d.batch_id
+                 WHERE d.school_id=? AND b.target_session_id=? LIMIT 1
+                """, TenantContext.get(), sessionId)) blockers.add("TERM_USED_BY_PROMOTION");
+        return blockers;
+    }
+
+    private List<String> periodUsageBlockers(UUID sessionId, Map<String, Object> existing, Map<String, Object> proposed) {
+        if (!structurallyChanged(existing, proposed, "code", "termCode", "periodType", "startDate", "endDate")) return List.of();
+        UUID periodId = (UUID) existing.get("id");
+        List<String> blockers = new ArrayList<>();
+        if (has("SELECT 1 FROM academic_assessment WHERE school_id=? AND academic_session_id=? AND reporting_period_id=? LIMIT 1", TenantContext.get(), sessionId, periodId)) {
+            blockers.add("PERIOD_USED_BY_ASSESSMENTS");
+        }
+        if (has("SELECT 1 FROM academic_grade WHERE school_id=? AND academic_session_id=? AND reporting_period_id=? LIMIT 1", TenantContext.get(), sessionId, periodId)) {
+            blockers.add("PERIOD_USED_BY_GRADES");
+        }
+        if (has("SELECT 1 FROM academic_grade_packet WHERE school_id=? AND academic_session_id=? AND reporting_period_id=? LIMIT 1", TenantContext.get(), sessionId, periodId)) {
+            blockers.add("PERIOD_USED_BY_GRADE_PACKETS");
+        }
+        if (has("SELECT 1 FROM bulletin_version WHERE school_id=? AND academic_session_id=? AND reporting_period_id=? LIMIT 1", TenantContext.get(), sessionId, periodId)) {
+            blockers.add("PERIOD_USED_BY_BULLETINS");
+        }
+        if (has("SELECT 1 FROM attendance_period_adjustment WHERE school_id=? AND academic_session_id=? AND reporting_period_id=? LIMIT 1", TenantContext.get(), sessionId, periodId)) {
+            blockers.add("PERIOD_USED_BY_ATTENDANCE_ADJUSTMENTS");
+        }
+        LocalDate start = date(proposed.get("startDate"));
+        LocalDate end = date(proposed.get("endDate"));
+        String code = Objects.toString(existing.get("code"), "");
+        if (start != null && end != null && has("""
+                SELECT 1 FROM attendance_session
+                 WHERE school_id=? AND academic_session_id=? AND upper(period_key)=upper(?) AND status='FINALIZED'
+                   AND (session_date < ? OR session_date > ?) LIMIT 1
+                """, TenantContext.get(), sessionId, code, java.sql.Date.valueOf(start), java.sql.Date.valueOf(end))) {
+            blockers.add("PERIOD_USED_BY_FINALIZED_ATTENDANCE");
+        }
+        if (start != null && end != null && has("""
+                SELECT 1 FROM timetable_version
+                 WHERE school_id=? AND academic_session_id=? AND status='PUBLISHED'
+                   AND (effective_from IS NULL OR effective_to IS NULL OR effective_from < ? OR effective_to > ?) LIMIT 1
+                """, TenantContext.get(), sessionId, java.sql.Date.valueOf(start), java.sql.Date.valueOf(end))) {
+            blockers.add("PERIOD_USED_BY_PUBLISHED_TIMETABLES");
+        }
+        if (has("SELECT 1 FROM promotion_batch WHERE school_id=? AND target_session_id=? AND status NOT IN ('CANCELLED','CANCELED') LIMIT 1",
+                TenantContext.get(), sessionId) || has("""
+                SELECT 1 FROM promotion_decision d JOIN promotion_batch b ON b.id=d.batch_id
+                 WHERE d.school_id=? AND b.target_session_id=? LIMIT 1
+                """, TenantContext.get(), sessionId)) blockers.add("PERIOD_USED_BY_PROMOTION");
+        return blockers;
+    }
+
+    private boolean structurallyChanged(Map<String, Object> existing, Map<String, Object> proposed, String... fields) {
+        for (String field : fields) {
+            Object left = existing.get(field);
+            Object right = proposed.get(field);
+            if (left instanceof String l && right instanceof String r) {
+                if (!l.equalsIgnoreCase(r)) return true;
+            } else if (!Objects.equals(left, right)) return true;
+        }
+        return false;
+    }
+
+    private boolean has(String sql, Object... args) {
+        Integer count = jdbc.queryForObject("SELECT CASE WHEN EXISTS (" + sql.replaceFirst("(?i)\\s*SELECT\\s+1", "SELECT 1") + ") THEN 1 ELSE 0 END", Integer.class, args);
+        return count != null && count > 0;
     }
 
     private boolean dependencyExists(UUID sessionId, String parentCode, String childCode) {

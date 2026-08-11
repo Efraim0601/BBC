@@ -224,7 +224,10 @@ const appreciation = (avg: number, fr: boolean): string => {
                   <div class="mt-1">{{ fr() ? 'Le brouillon peut rester enregistré, mais l’envoi est bloqué tant qu’un enseignant responsable unique n’est pas configuré.' : 'The draft can stay saved, but submission is blocked until exactly one responsible teacher is configured.' }}</div>
                   <div class="mt-2 flex flex-wrap items-center gap-2">
                     <span class="text-xs font-semibold text-rose-800">{{ display(entry.assignmentReadiness.messageEn || entry.assignmentReadiness.messageFr) }}</span>
-                    <button type="button" (click)="openAssignmentRepair(entry)" class="h-9 px-3 rounded-lg bg-white border border-rose-300 text-rose-800 text-sm font-semibold hover:bg-rose-100">{{ fr() ? 'Réparer l’affectation' : 'Repair assignment' }}</button>
+                    @if (entry.capabilities?.canEditDraft !== false) {
+                      <button type="button" (click)="saveAndOpenAssignmentRepair(entry)" [disabled]="gradeBusy()" class="h-9 px-3 rounded-lg bg-rose-700 text-white text-sm font-semibold hover:bg-rose-800 disabled:opacity-50">{{ fr() ? 'Enregistrer le brouillon et configurer l’enseignant' : 'Save draft and configure teacher' }}</button>
+                    }
+                    <button type="button" (click)="openAssignmentRepair(entry)" [disabled]="gradeBusy()" class="h-9 px-3 rounded-lg bg-white border border-rose-300 text-rose-800 text-sm font-semibold hover:bg-rose-100 disabled:opacity-50">{{ fr() ? 'Configurer l’enseignant' : 'Configure teacher' }}</button>
                   </div>
                 </div>
               }
@@ -1354,11 +1357,11 @@ export class AcademicComponent {
     this.updateGradeEntry((entry) => ({ ...entry, students: entry.students.map((row) => row.studentId === studentId ? { ...row, comment } : row) }));
   }
 
-  protected saveGradeEntry(): void {
+  protected saveGradeEntry(afterSave?: () => void): void {
     const entry = this.gradeEntry(); if (!entry) return;
     this.gradeBusy.set(true);
     this.api.saveGradeEntry({ reportingPeriodId: entry.reportingPeriodId, classId: entry.classId, subjectCode: entry.subjectCode, packetVersion: entry.packetVersion, students: entry.students.map((row) => ({ studentId: row.studentId, comment: row.comment, values: row.values.map((cell) => ({ assessmentId: cell.assessmentId, mark: cell.mark, valueStatus: cell.valueStatus, version: cell.version })) })) }).subscribe({
-      next: (updated) => { this.gradeEntry.set(updated); this.selectedGradeSubjectCode.set(updated.subjectCode); this.gradeBusy.set(false); this.notice.set({ ok: true, text: this.fr() ? 'Brouillon de notes enregistré.' : 'Grade draft saved.' }); },
+      next: (updated) => { this.gradeEntry.set(updated); this.selectedGradeSubjectCode.set(updated.subjectCode); this.gradeBusy.set(false); this.notice.set({ ok: true, text: this.fr() ? 'Brouillon de notes enregistré.' : 'Grade draft saved.' }); afterSave?.(); },
       error: (e) => { this.gradeBusy.set(false); this.fail(e); },
     });
   }
@@ -1371,6 +1374,11 @@ export class AcademicComponent {
       next: (updated) => { this.gradeEntry.set(updated); this.gradeBusy.set(false); this.notice.set({ ok: true, text: this.fr() ? 'Saisie soumise à la direction.' : 'Grades submitted to management.' }); },
       error: (e) => { this.gradeBusy.set(false); this.fail(e); },
     });
+  }
+
+  protected saveAndOpenAssignmentRepair(entry: GradeEntryView): void {
+    if (this.gradeBusy()) return;
+    this.saveGradeEntry(() => this.openAssignmentRepair(this.gradeEntry() ?? entry));
   }
 
   protected canSubmitGrade(entry: GradeEntryView): boolean {
