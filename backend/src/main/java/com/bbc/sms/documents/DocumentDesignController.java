@@ -19,6 +19,19 @@ public class DocumentDesignController {
     @PreAuthorize("@perm.can('settings','read') or @perm.can('documents','read')")
     public DocumentDesignView current() { return service.current(); }
 
+    @GetMapping("/standard-templates/preview")
+    @PreAuthorize("@perm.can('settings','read') or @perm.can('documents','read')")
+    public StandardTemplateProvisioningView standardTemplatePreview() {
+        return service.current().provisioning();
+    }
+
+    @PostMapping("/standard-templates/install")
+    @PreAuthorize("@perm.can('settings','write') or @perm.canAction('DOCUMENT_DESIGN_PUBLISH')")
+    public DocumentDesignView installStandardTemplates(@Valid @RequestBody InstallRequest in) {
+        service.installStandardTemplates(in.reason());
+        return service.current();
+    }
+
     @PostMapping("/templates/{id}/publish")
     @PreAuthorize("@perm.can('settings','write') or @perm.canAction('DOCUMENT_DESIGN_PUBLISH')")
     public TemplateVersionView publishTemplate(@PathVariable UUID id, @Valid @RequestBody PublishRequest in) {

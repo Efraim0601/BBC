@@ -160,11 +160,25 @@ export interface GeneratedDocumentView {
   aggregateVersion: string; locale: string; documentNumber: string; title: string;
   sha256: string; mimeType: string; sizeBytes: number; status: string; visibility: string;
   generatedAt: string; issuedAt: string | null; revokedAt: string | null; revokeReason: string | null;
+  templateVersion?: number | null; templateHash?: string | null; brandingId?: string | null;
+  brandingVersion?: number | null; brandingHash?: string | null; resolvedAssetHash?: string | null;
+  snapshotHash?: string | null;
 }
 export interface DocumentTemplateVersionView {
   id: string; type: string; locale: string; name: string; version: number;
   templateFamily: string; product: string; subsystem: string | null; status: string;
   referenceFamily: string; checksum: string | null; publishedAt: string | null;
+  standardKey?: string | null; effectiveFrom?: string | null; effectiveTo?: string | null;
+  configJson?: string | null;
+}
+export interface StandardTemplateFamilyView {
+  standardKey: string; locale: string; product: string; family: string; label: string;
+  installed: boolean; installedVersion: number; status: string | null;
+  effectiveFrom: string | null; effectiveTo: string | null;
+}
+export interface StandardTemplateProvisioningView {
+  hasAnyReportCardTemplate: boolean; needsInstallation: boolean; reportCardTemplateCount: number;
+  layoutLevels: string[]; families: StandardTemplateFamilyView[];
 }
 export interface DocumentBrandingVersionView {
   id: string; locale: string; version: number; status: string; schoolName: string;
@@ -176,6 +190,7 @@ export interface DocumentBrandingVersionView {
 export interface DocumentDesignView {
   templates: DocumentTemplateVersionView[];
   branding: DocumentBrandingVersionView[];
+  provisioning?: StandardTemplateProvisioningView | null;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -263,6 +278,12 @@ export class FoundationApi {
   revokeDocument(id: string, reason: string): Observable<GeneratedDocumentView> { return this.http.post<GeneratedDocumentView>(`${environment.apiUrl}/official-documents/${id}/revoke`, { reason }); }
   actionPermissions(): Observable<Record<string, boolean>> { return this.http.get<Record<string, boolean>>(`${this.settings}/permission-actions`); }
   documentDesign(): Observable<DocumentDesignView> { return this.http.get<DocumentDesignView>(`${this.settings}/document-design`); }
+  standardReportTemplatePreview(): Observable<StandardTemplateProvisioningView> {
+    return this.http.get<StandardTemplateProvisioningView>(`${this.settings}/document-design/standard-templates/preview`);
+  }
+  installStandardReportTemplates(reason: string): Observable<DocumentDesignView> {
+    return this.http.post<DocumentDesignView>(`${this.settings}/document-design/standard-templates/install`, { reason });
+  }
   publishDocumentTemplate(id: string, reason: string): Observable<DocumentTemplateVersionView> {
     return this.http.post<DocumentTemplateVersionView>(`${this.settings}/document-design/templates/${id}/publish`, { reason });
   }

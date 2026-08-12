@@ -57,11 +57,20 @@ public class OfficialDocumentService {
     /** Register an already-rendered official PDF in the same immutable document ledger. */
     @Transactional
     public GeneratedDocumentView registerPdf(String documentType, String aggregateType, String aggregateId,
-                                             String aggregateVersion, String locale, String title, String visibility,
-                                             byte[] pdf, String idempotencyKey) {
+                                              String aggregateVersion, String locale, String title, String visibility,
+                                              byte[] pdf, String idempotencyKey) {
+        return registerPdf(documentType, aggregateType, aggregateId, aggregateVersion, locale, title,
+                visibility, pdf, idempotencyKey, null);
+    }
+
+    /** Register a PDF together with the immutable template/asset evidence used to render it. */
+    @Transactional
+    public GeneratedDocumentView registerPdf(String documentType, String aggregateType, String aggregateId,
+                                              String aggregateVersion, String locale, String title, String visibility,
+                                              byte[] pdf, String idempotencyKey, RenderEvidence evidence) {
         String normalizedLocale = blank(locale, "fr").toLowerCase(Locale.ROOT);
         PdfRegistration request = new PdfRegistration(documentType, aggregateType, aggregateId,
-                blank(aggregateVersion, "1"), normalizedLocale, title, visibility);
+                blank(aggregateVersion, "1"), normalizedLocale, title, visibility, evidence);
         String key = blank(idempotencyKey, "pdf:" + aggregateType + ":" + aggregateId + ":" + request.aggregateVersion() + ":" + normalizedLocale);
         return idempotency.execute("official-documents/pdf", key, request,
                 GeneratedDocumentView.class, () -> registerPdfNow(request, pdf));
@@ -76,8 +85,11 @@ public class OfficialDocumentService {
         String normalizedType = in.documentType().trim().toUpperCase(Locale.ROOT);
         String prefix = normalizedType.replaceAll("[^A-Z0-9]", "");
         prefix = prefix.substring(0, Math.min(8, Math.max(1, prefix.length())));
-        String number = prefix + "-" + DateTimeFormatter.ofPattern("yyyyMMddHHmmss").withZone(ZoneOffset.UTC).format(Instant.now())
-                + "-" + id.toString().substring(0, 6).toUpperCase(Locale.ROOT);
+        String number = stableReportCardNumber(normalizedType, in.aggregateId(), in.locale());
+        if (number == null) {
+            number = prefix + "-" + DateTimeFormatter.ofPattern("yyyyMMddHHmmss").withZone(ZoneOffset.UTC).format(Instant.now())
+                    + "-" + id.toString().substring(0, 6).toUpperCase(Locale.ROOT);
+        }
         GeneratedDocument d = new GeneratedDocument();
         d.setId(id); d.setSchoolId(schoolId); d.setDocumentType(normalizedType);
         d.setAggregateType(in.aggregateType().trim()); d.setAggregateId(in.aggregateId().trim());
@@ -85,6 +97,16 @@ public class OfficialDocumentService {
         d.setTitle(in.title().trim()); d.setStorageKey(storage.store(schoolId.toString(), id.toString(), pdf));
         d.setSha256(sha256(pdf)); d.setSizeBytes(pdf.length); d.setVisibility(normalizeVisibility(in.visibility()));
         d.setGeneratedBy(currentUserId()); d.setIssuedAt(Instant.now());
+        if (in.evidence() != null) {
+            d.setDocumentTemplateId(in.evidence().templateId());
+            d.setTemplateVersion(in.evidence().templateVersion());
+            d.setTemplateHash(in.evidence().templateHash());
+            d.setBrandingId(in.evidence().brandingId());
+            d.setBrandingVersion(in.evidence().brandingVersion());
+            d.setBrandingHash(in.evidence().brandingHash());
+            d.setResolvedAssetHash(in.evidence().resolvedAssetHash());
+            d.setSnapshotHash(in.evidence().snapshotHash());
+        }
         d = documents.saveAndFlush(d);
         GeneratedDocumentView result = view(d);
         audit.record("DOCUMENT_GENERATED", "GeneratedDocument", id.toString(), null, result, null);
@@ -92,7 +114,8 @@ public class OfficialDocumentService {
     }
 
     private record PdfRegistration(String documentType, String aggregateType, String aggregateId,
-                                   String aggregateVersion, String locale, String title, String visibility) {}
+                                   String aggregateVersion, String locale, String title, String visibility,
+                                   RenderEvidence evidence) {}
 
     private GeneratedDocumentView generateNow(GenerateRequest in) {
         UUID schoolId = TenantContext.get();
@@ -162,7 +185,9 @@ public class OfficialDocumentService {
         return new GeneratedDocumentView(d.getId(), d.getDocumentType(), d.getAggregateType(), d.getAggregateId(),
                 d.getAggregateVersion(), d.getLocale(), d.getDocumentNumber(), d.getTitle(), d.getSha256(),
                 d.getMimeType(), d.getSizeBytes(), d.getStatus(), d.getVisibility(), d.getGeneratedAt(),
-                d.getIssuedAt(), d.getRevokedAt(), d.getRevokeReason());
+                d.getIssuedAt(), d.getRevokedAt(), d.getRevokeReason(), d.getTemplateVersion(), d.getTemplateHash(),
+                d.getBrandingId(), d.getBrandingVersion(), d.getBrandingHash(), d.getResolvedAssetHash(),
+                d.getSnapshotHash());
     }
 
     private static String render(String template, Map<String, String> values) {
@@ -205,6 +230,18 @@ public class OfficialDocumentService {
     }
 
     private static String pdfSafe(String value) { return value.replace('’', '\'').replace('–', '-').replace('—', '-').replace('…', '.'); }
+    private static String stableReportCardNumber(String type, String aggregateId, String locale) {
+        if (!"REPORT_CARD".equals(type)) return null;
+        try {
+            UUID snapshotId = UUID.fromString(aggregateId.trim());
+            String lang = "en".equalsIgnoreCase(locale) ? "EN" : "FR";
+            return "BUL-" + lang + "-" + snapshotId.toString().replace("-", "")
+                    .substring(0, 12).toUpperCase(Locale.ROOT);
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
     private static String normalizeVisibility(String value) {
         String v = blank(value, "STAFF").toUpperCase(Locale.ROOT);
         if (!List.of("STAFF", "PARENT", "STUDENT", "PUBLIC").contains(v)) throw ApiException.badRequest("Visibilité de document invalide");

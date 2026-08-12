@@ -8,7 +8,7 @@ import {
   SetupApi, SectionView, SectionUpsert, ClassView, ClassUpsert, SubjectView, SubjectUpsert, TeacherOption,
   ClassCoefView, CoefImportRow, CoefImportResult, CurriculumView, CurriculumSubjectView, SubjectGroupView, AssignmentImpactView, CurriculumVersionView,
 } from '../../core/setup.api';
-import { FoundationApi, AcademicSessionView, AcademicReportingPeriodView, DocumentDesignView } from '../../core/foundation.api';
+import { FoundationApi, AcademicSessionView, AcademicReportingPeriodView, DocumentDesignView, StandardTemplateProvisioningView } from '../../core/foundation.api';
 import { AcademicApi, SecondaryCompetencyModelView } from '../academic/academic.api';
 import { AssessmentDefaultsComponent } from './assessment-defaults/assessment-defaults';
 import { CurriculumCopyComponent } from './curriculum-copy';
@@ -675,6 +675,32 @@ import { downloadCsv } from '../../core/csv';
           </div>
           @if (documentDesign(); as design) {
             <div class="space-y-6">
+              @if (design.provisioning; as provisioning) {
+                <section class="rounded-xl border border-brand-200 bg-brand-50 p-4" aria-labelledby="standard-report-template-title">
+                  <div class="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h3 id="standard-report-template-title" class="font-semibold text-brand-950">{{ fr() ? 'Modèles standards de bulletin' : 'Standard report-card templates' }}</h3>
+                      <p class="text-xs text-brand-900 mt-1 leading-relaxed">{{ fr() ? 'Aperçu tenant-scopé des quatre familles FR/EN, terme/annuel. Chaque famille couvre les mises en page maternelle, primaire et secondaire.' : 'Tenant-scoped preview of the four FR/EN term/annual families. Each family covers Nursery, Primary, and Secondary layouts.' }}</p>
+                    </div>
+                    @if (canWrite && provisioning.needsInstallation) {
+                      <button type="button" (click)="installStandardTemplates()" [disabled]="designBusy()" class="btn-primary">{{ designBusy() ? '…' : (fr() ? 'Installer les modèles standards' : 'Install standard templates') }}</button>
+                    }
+                  </div>
+                  <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-4 text-xs">
+                    <div class="rounded-lg border border-brand-100 bg-white/80 p-3"><div class="text-brand-800">{{ fr() ? 'Modèles bulletin présents' : 'Report-card templates present' }}</div><strong class="block text-xl text-brand-950 mt-1">{{ provisioning.reportCardTemplateCount }}</strong></div>
+                    <div class="rounded-lg border border-brand-100 bg-white/80 p-3"><div class="text-brand-800">{{ fr() ? 'Familles standards installées' : 'Standard families installed' }}</div><strong class="block text-xl text-brand-950 mt-1">{{ standardInstalledCount(provisioning) }} / {{ provisioning.families.length }}</strong></div>
+                    <div class="rounded-lg border border-brand-100 bg-white/80 p-3"><div class="text-brand-800">{{ fr() ? 'Mises en page' : 'Layouts' }}</div><strong class="block text-sm text-brand-950 mt-2">{{ standardLayoutLabels(provisioning) }}</strong></div>
+                  </div>
+                  <div class="overflow-x-auto rounded-lg border border-brand-100 bg-white mt-4">
+                    <table class="min-w-full text-xs"><thead class="bg-brand-100/60"><tr class="text-left"><th class="p-2">{{ fr() ? 'Famille' : 'Family' }}</th><th class="p-2">{{ fr() ? 'Langue / produit' : 'Locale / product' }}</th><th class="p-2">{{ fr() ? 'Version effective' : 'Effective version' }}</th></tr></thead><tbody>
+                      @for (family of provisioning.families; track family.standardKey) {
+                        <tr class="border-t border-brand-100"><td class="p-2"><strong>{{ family.label }}</strong><div class="font-mono text-[10px] text-brand-800 mt-1">{{ family.standardKey }}</div></td><td class="p-2">{{ family.locale.toUpperCase() }} · {{ family.product }}</td><td class="p-2">@if (family.installed) { <span class="chip bg-emerald-50 text-emerald-700">v{{ family.installedVersion }} · {{ designStatusLabel(family.status) }}</span><div class="text-brand-800 mt-1">{{ family.effectiveFrom || '—' }}</div> } @else { <span class="chip bg-amber-100 text-amber-900">{{ fr() ? 'À installer' : 'Needs installation' }}</span> }</td></tr>
+                      }
+                    </tbody></table>
+                  </div>
+                  @if (provisioning.needsInstallation && !canWrite) { <p class="text-xs text-amber-900 mt-3">{{ fr() ? 'Un administrateur autorisé peut installer les familles manquantes.' : 'An authorized administrator can install the missing families.' }}</p> }
+                </section>
+              }
               <section>
                 <div class="flex flex-wrap items-start justify-between gap-3 mb-3">
                   <div class="flex items-start gap-2"><span class="flex h-7 w-7 items-center justify-center rounded-full bg-slate-800 text-white text-xs font-bold">1</span><div><h3 class="font-semibold text-ink">{{ fr() ? 'Mise en page des documents' : 'Document layout' }}</h3><p class="text-xs text-mute mt-1">{{ fr() ? 'Ces lignes indiquent quel format le système associe à chaque bulletin ou certificat.' : 'These rows show which format the system associates with each report card or certificate.' }}</p></div></div>
@@ -1258,6 +1284,18 @@ export class AcademicSetupComponent {
     this.foundation.documentDesign().subscribe({ next: (design) => this.documentDesign.set(design), error: (error) => this.fail(error) });
   }
 
+  protected installStandardTemplates(): void {
+    if (!this.canWrite || this.designBusy()) return;
+    this.designBusy.set(true);
+    const reason = this.fr()
+      ? 'Installation des familles standards de bulletins BAY-36'
+      : 'Install BAY-36 standard report-card template families';
+    this.foundation.installStandardReportTemplates(reason).subscribe({
+      next: (design) => { this.documentDesign.set(design); this.designBusy.set(false); },
+      error: (error) => { this.designBusy.set(false); this.fail(error); },
+    });
+  }
+
   protected selectCompetencySession(sessionId: string): void {
     this.competencySessionId.set(sessionId);
     this.competencyPeriodId.set('');
@@ -1425,6 +1463,12 @@ export class AcademicSetupComponent {
       case 'DRAFT': return this.fr() ? 'Brouillon' : 'Draft';
       default: return status || (this.fr() ? 'Inconnue' : 'Unknown');
     }
+  }
+  protected standardInstalledCount(provisioning: StandardTemplateProvisioningView): number {
+    return provisioning.families.filter((family) => family.installed).length;
+  }
+  protected standardLayoutLabels(provisioning: StandardTemplateProvisioningView): string {
+    return provisioning.layoutLevels.map((level) => this.levelLabel(level)).join(' · ');
   }
   protected subjectLabel(s: SubjectView): string {
     const l = s.label || {};

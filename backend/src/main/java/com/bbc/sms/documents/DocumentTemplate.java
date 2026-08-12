@@ -3,6 +3,8 @@ package com.bbc.sms.documents;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -24,6 +26,11 @@ public class DocumentTemplate {
     @Column(nullable = false) private String status = "PUBLISHED";
     @Column(name = "reference_family", nullable = false) private String referenceFamily = "GENERIC";
     @Column(nullable = false, length = 64) private String checksum;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "config_json", nullable = false, columnDefinition = "jsonb") private String configJson = "{}";
+    @Column(name = "standard_key") private String standardKey;
+    @Column(name = "effective_from") private java.time.LocalDate effectiveFrom;
+    @Column(name = "effective_to") private java.time.LocalDate effectiveTo;
     @Column(name = "published_at") private Instant publishedAt;
     @Column(name = "published_by") private UUID publishedBy;
     @Column(nullable = false) private boolean active = true;

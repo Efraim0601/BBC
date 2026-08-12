@@ -62,4 +62,22 @@ describe('FoundationApi', () => {
     update.flush({});
     http.verify();
   });
+
+  it('previews and installs tenant-scoped standard report-card families', () => {
+    TestBed.configureTestingModule({ providers: [FoundationApi, provideHttpClient(), provideHttpClientTesting()] });
+    const api = TestBed.inject(FoundationApi);
+    const http = TestBed.inject(HttpTestingController);
+
+    api.standardReportTemplatePreview().subscribe();
+    const preview = http.expectOne(`${environment.apiUrl}/settings/document-design/standard-templates/preview`);
+    expect(preview.request.method).toBe('GET');
+    preview.flush({});
+
+    api.installStandardReportTemplates('Install standard families').subscribe();
+    const install = http.expectOne(`${environment.apiUrl}/settings/document-design/standard-templates/install`);
+    expect(install.request.method).toBe('POST');
+    expect(install.request.body).toEqual({ reason: 'Install standard families' });
+    install.flush({});
+    http.verify();
+  });
 });

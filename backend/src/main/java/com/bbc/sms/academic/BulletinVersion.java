@@ -34,7 +34,14 @@ public class BulletinVersion {
     @Column(name = "calculation_policy", nullable = false) private String calculationPolicy = "DEFAULT";
     @Column(name = "template_version") private String templateVersion;
     @Column(name = "template_id") private UUID templateId;
+    @Column(name = "template_hash") private String templateHash;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "template_config_json", columnDefinition = "jsonb") private String templateConfigJson;
     @Column(name = "branding_id") private UUID brandingId;
+    @Column(name = "branding_version") private Integer brandingVersion;
+    @Column(name = "branding_hash") private String brandingHash;
+    @Column(name = "resolved_asset_hash") private String resolvedAssetHash;
+    @Column(name = "render_contract_version", nullable = false) private int renderContractVersion = 1;
     @Column(name = "snapshot_locale") private String snapshotLocale;
     @Column(name = "evidence_generated_at") private Instant evidenceGeneratedAt;
     @Column(name = "general_appreciation", columnDefinition = "text") private String generalAppreciation;

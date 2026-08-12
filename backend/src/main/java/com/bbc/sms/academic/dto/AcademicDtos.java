@@ -277,7 +277,15 @@ public class AcademicDtos {
 
     public record SnapshotTemplateView(UUID templateId, String templateFamily, String product,
                                        String locale, int version, String contentHash,
-                                       UUID brandingId, int brandingVersion, String brandingHash) {}
+                                       UUID brandingId, int brandingVersion, String brandingHash,
+                                       String configJson) {
+        public SnapshotTemplateView(UUID templateId, String templateFamily, String product,
+                                    String locale, int version, String contentHash,
+                                    UUID brandingId, int brandingVersion, String brandingHash) {
+            this(templateId, templateFamily, product, locale, version, contentHash,
+                    brandingId, brandingVersion, brandingHash, null);
+        }
+    }
 
     public record SnapshotSourceVersionView(String sourceType, UUID sourceId, Long sourceVersion,
                                             String sourceHash, String label) {}
@@ -392,7 +400,19 @@ public class AcademicDtos {
                                              UUID brandingId, int brandingVersion,
                                              String brandingHash, String principalName,
                                              String principalTitle, String classMasterTitle,
-                                             String councilTitle) {}
+                                             String councilTitle, String templateConfigJson) {
+        public DocumentDesignEvidenceView(UUID templateId, String templateFamily,
+                                          String product, String locale,
+                                          int templateVersion, String templateHash,
+                                          UUID brandingId, int brandingVersion,
+                                          String brandingHash, String principalName,
+                                          String principalTitle, String classMasterTitle,
+                                          String councilTitle) {
+            this(templateId, templateFamily, product, locale, templateVersion, templateHash,
+                    brandingId, brandingVersion, brandingHash, principalName, principalTitle,
+                    classMasterTitle, councilTitle, null);
+        }
+    }
 
     public record ChildSnapshotEvidenceView(UUID reportingPeriodId, String periodCode,
                                             UUID snapshotId, long snapshotVersion,

@@ -356,6 +356,23 @@ public class BulletinSnapshotService {
         return viewFromSnapshot(version, period, student);
     }
 
+    /**
+     * Read only the serialized BAY-35 contract for official rendering.  This
+     * method intentionally does not load the mutable student, class,
+     * curriculum, teacher, attendance, or conduct tables.
+     */
+    @Transactional(readOnly = true)
+    public AuthoritativeSnapshotView authoritativeById(UUID id) {
+        BulletinVersion version = versions.findByIdAndSchoolId(id, TenantContext.get())
+                .orElseThrow(() -> ApiException.notFound("Version de bulletin"));
+        teacherScope.assertStudent(version.getStudentId());
+        SnapshotPayload payload = readPayload(version);
+        if (payload.snapshot() == null) {
+            throw ApiException.conflict("Ce bulletin ne contient pas le contrat de snapshot BAY-35");
+        }
+        return payload.snapshot();
+    }
+
     @Transactional
     public BulletinSnapshotView validate(UUID id) {
         BulletinVersion version = versions.findByIdAndSchoolIdForUpdate(id, TenantContext.get()).orElseThrow(() -> ApiException.notFound("Version de bulletin"));
@@ -1131,7 +1148,8 @@ public class BulletinSnapshotService {
                 trace.documentDesign().locale(), trace.documentDesign().templateVersion(), trace.documentDesign().templateHash(),
                 trace.documentDesign().brandingId(), trace.documentDesign().brandingVersion(), trace.documentDesign().brandingHash(),
                 trace.documentDesign().principalName(), trace.documentDesign().principalTitle(),
-                trace.documentDesign().classMasterTitle(), trace.documentDesign().councilTitle());
+                trace.documentDesign().classMasterTitle(), trace.documentDesign().councilTitle(),
+                trace.documentDesign().templateConfigJson());
 
         SnapshotGuardianView guardian = jdbc.query("""
                 SELECT g.id,g.display_name,sg.relationship_type
@@ -1193,7 +1211,8 @@ public class BulletinSnapshotService {
         SnapshotTemplateView template = trace == null || trace.documentDesign() == null ? null : new SnapshotTemplateView(
                 trace.documentDesign().templateId(), trace.documentDesign().templateFamily(), trace.documentDesign().product(),
                 trace.documentDesign().locale(), trace.documentDesign().templateVersion(), trace.documentDesign().templateHash(),
-                trace.documentDesign().brandingId(), trace.documentDesign().brandingVersion(), trace.documentDesign().brandingHash());
+                trace.documentDesign().brandingId(), trace.documentDesign().brandingVersion(), trace.documentDesign().brandingHash(),
+                trace.documentDesign().templateConfigJson());
 
         List<SnapshotSourceVersionView> sources = sourceVersions(period, enrollment, trace, curriculum);
         return new AuthoritativeSnapshotView(1, school, period.getAcademicSessionId(), period.getId(), period.getCode(),
@@ -1564,9 +1583,11 @@ public class BulletinSnapshotService {
     private record DocumentDesignTrace(UUID templateId, String templateFamily, String product, String locale,
                                        int templateVersion, String templateHash, UUID brandingId,
                                        int brandingVersion, String brandingHash, String principalName,
-                                       String principalTitle, String classMasterTitle, String councilTitle) {}
+                                       String principalTitle, String classMasterTitle, String councilTitle,
+                                       String templateConfigJson) {}
     private record TemplateCandidate(UUID id, String templateFamily, String product, String locale,
-                                     int templateVersion, String bodyTemplate) {}
+                                     int templateVersion, String bodyTemplate, String checksum,
+                                     String configJson) {}
     private record BrandingCandidate(UUID id, int version, String contentHash, String principalName,
                                      String principalTitle, String classMasterTitle, String councilTitle) {}
     private record DependencyRow(UUID parentPeriodId, UUID childPeriodId, String childCode,
@@ -1590,7 +1611,8 @@ public class BulletinSnapshotService {
                 trace.documentDesign().locale(), trace.documentDesign().templateVersion(), trace.documentDesign().templateHash(),
                 trace.documentDesign().brandingId(), trace.documentDesign().brandingVersion(), trace.documentDesign().brandingHash(),
                 trace.documentDesign().principalName(), trace.documentDesign().principalTitle(),
-                trace.documentDesign().classMasterTitle(), trace.documentDesign().councilTitle());
+                trace.documentDesign().classMasterTitle(), trace.documentDesign().councilTitle(),
+                trace.documentDesign().templateConfigJson());
         List<ChildSnapshotEvidenceView> children = trace.childSnapshots() == null ? List.of() : trace.childSnapshots().stream()
                 .filter(Objects::nonNull)
                 .map(child -> new ChildSnapshotEvidenceView(child.reportingPeriodId(), child.periodCode(), child.snapshotId(),
@@ -1629,9 +1651,21 @@ public class BulletinSnapshotService {
         if (trace == null || trace.documentDesign() == null) return;
         DocumentDesignTrace design = trace.documentDesign();
         version.setTemplateId(design.templateId());
+        version.setTemplateHash(design.templateHash());
+        version.setTemplateConfigJson(design.templateConfigJson());
         version.setBrandingId(design.brandingId());
+        version.setBrandingVersion(design.brandingVersion());
+        version.setBrandingHash(design.brandingHash());
+        version.setResolvedAssetHash(resolvedAssetHash(trace));
         version.setSnapshotLocale(design.locale());
         version.setEvidenceGeneratedAt(Instant.now());
+    }
+
+    private String resolvedAssetHash(SnapshotTrace trace) {
+        if (trace == null) return null;
+        String photo = trace.profilePhoto() == null ? "" : String.valueOf(trace.profilePhoto().sha256());
+        String branding = trace.documentDesign() == null ? "" : String.valueOf(trace.documentDesign().brandingHash());
+        return sha256(photo + "|" + branding);
     }
 
     private ProfileAssetTrace profilePhotoTrace(UUID studentId, UUID schoolId) {
@@ -1661,12 +1695,15 @@ public class BulletinSnapshotService {
         String subsystem = "secondary".equalsIgnoreCase(enrollment.getLevelSnapshot()) ? "SEC" : "PRI";
         String locale = "EN".equalsIgnoreCase(enrollment.getSubsystemSnapshot()) ? "en" : "fr";
         List<TemplateCandidate> candidates = jdbc.query("""
-                SELECT id,template_family,product,locale,template_version,body_template
+                SELECT id,template_family,product,locale,template_version,body_template,
+                       checksum,config_json::text
                   FROM document_template
                  WHERE school_id=? AND active AND status='PUBLISHED' AND locale=?
                    AND product IN (?, 'GENERIC') AND (subsystem=? OR subsystem IS NULL)
-                 ORDER BY CASE
-                            WHEN product=? AND subsystem=? AND reference_family='SECONDARY' THEN 0
+                   AND (effective_from IS NULL OR effective_from<=?)
+                   AND (effective_to IS NULL OR effective_to>=?)
+                  ORDER BY CASE
+                             WHEN product=? AND subsystem=? AND reference_family='SECONDARY' THEN 0
                             WHEN product=? AND template_family='REFERENCE' AND subsystem=? THEN 1
                             WHEN product=? AND template_family='GENERIC' THEN 2
                             WHEN product='GENERIC' AND template_family='GENERIC' THEN 3
@@ -1674,8 +1711,10 @@ public class BulletinSnapshotService {
                           template_version DESC
                  LIMIT 1
                 """, (rs, n) -> new TemplateCandidate(rs.getObject("id", UUID.class), rs.getString("template_family"),
-                        rs.getString("product"), rs.getString("locale"), rs.getInt("template_version"),
-                        rs.getString("body_template")), schoolId, locale, product, subsystem, product, subsystem, product, subsystem, product);
+                         rs.getString("product"), rs.getString("locale"), rs.getInt("template_version"),
+                         rs.getString("body_template"), rs.getString("checksum"), rs.getString("config_json")),
+                schoolId, locale, product, subsystem, period.getEndDate(), period.getStartDate(),
+                product, subsystem, product, subsystem, product);
         TemplateCandidate template = candidates.isEmpty() ? null : candidates.get(0);
         BrandingCandidate branding = jdbc.query("""
                 SELECT id,version,content_hash,principal_name,principal_title,class_master_title,council_title
@@ -1691,10 +1730,11 @@ public class BulletinSnapshotService {
         return new DocumentDesignTrace(template == null ? null : template.id(),
                 template == null ? null : template.templateFamily(), template == null ? null : template.product(),
                 template == null ? locale : template.locale(), template == null ? 0 : template.templateVersion(),
-                template == null ? null : sha256(template.bodyTemplate()), branding == null ? null : branding.id(),
+                template == null ? null : sha256(template.bodyTemplate() + "\n" + value(template.configJson())), branding == null ? null : branding.id(),
                 branding == null ? 0 : branding.version(), branding == null ? null : branding.contentHash(),
                 branding == null ? null : branding.principalName(), branding == null ? null : branding.principalTitle(),
-                branding == null ? null : branding.classMasterTitle(), branding == null ? null : branding.councilTitle());
+                branding == null ? null : branding.classMasterTitle(), branding == null ? null : branding.councilTitle(),
+                template == null ? null : template.configJson());
     }
 
     private List<GroupStatsView> groupStats(List<BulletinLineView> lines) {
@@ -1773,6 +1813,7 @@ public class BulletinSnapshotService {
     private ConductSummaryView conduct(AcademicReportingPeriod p, UUID studentId) { return jdbc.query("SELECT work_warning,work_blame,conduct_warning,conduct_blame,honor_roll,encouragement,congratulations,exclusion_days,decision_code,council_observation,status FROM student_period_conduct WHERE school_id=? AND reporting_period_id=? AND student_id=?", rs -> rs.next() ? new ConductSummaryView(rs.getBoolean(1), rs.getBoolean(2), rs.getBoolean(3), rs.getBoolean(4), rs.getBoolean(5), rs.getBoolean(6), rs.getBoolean(7), rs.getInt(8), rs.getString(9), rs.getString(10), rs.getString(11)) : new ConductSummaryView(false,false,false,false,false,false,false,0,null,null,"DRAFT"), TenantContext.get(), p.getId(), studentId); }
     private String sha256(String v){try{byte[] h=MessageDigest.getInstance("SHA-256").digest(v.getBytes(StandardCharsets.UTF_8));StringBuilder b=new StringBuilder();for(byte x:h)b.append(String.format("%02x",x));return b.toString();}catch(Exception e){throw new IllegalStateException(e);}}
     private String sha256(byte[] value){try{byte[] h=MessageDigest.getInstance("SHA-256").digest(value);StringBuilder b=new StringBuilder();for(byte x:h)b.append(String.format("%02x",x));return b.toString();}catch(Exception e){throw new IllegalStateException(e);}}
+    private static String value(String value){return value == null ? "" : value;}
     private UUID currentUserId(){var a=SecurityContextHolder.getContext().getAuthentication();return a!=null&&a.getPrincipal() instanceof com.bbc.sms.platform.security.AppUserPrincipal p?p.userId():null;}
 
     @Transactional(readOnly = true)

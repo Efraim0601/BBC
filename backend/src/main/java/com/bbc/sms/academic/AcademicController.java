@@ -165,8 +165,11 @@ public class AcademicController {
             throw com.bbc.sms.platform.common.ApiException.badRequest("Le bulletin doit être validé avant la génération du document officiel");
         }
         byte[] pdf = reportCardPdfService.render(id, !"en".equalsIgnoreCase(locale));
+        var frozen = snapshotService.authoritativeById(id);
+        var evidence = reportCardPdfService.evidence(id);
         return officialDocuments.registerPdf("REPORT_CARD", "BulletinVersion", id.toString(), String.valueOf(snapshot.version()), locale,
-                ("en".equalsIgnoreCase(locale) ? "School report card" : "Bulletin scolaire") + " - " + snapshot.studentName(), "PARENT", pdf, idempotencyKey);
+                ("en".equalsIgnoreCase(locale) ? "School report card" : "Bulletin scolaire") + " - " +
+                        (frozen.student() == null ? "" : frozen.student().name()), "PARENT", pdf, idempotencyKey, evidence);
     }
 
     @PostMapping("/bulletin-snapshots/{id}/validate")

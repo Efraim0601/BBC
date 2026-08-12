@@ -18,11 +18,18 @@ public final class OfficialDocumentDtos {
                                   String aggregateVersion, String locale, @NotBlank String title,
                                   String visibility, Map<String, String> values) {}
     public record GeneratedDocumentView(UUID id, String documentType, String aggregateType,
-                                        String aggregateId, String aggregateVersion, String locale,
-                                        String documentNumber, String title, String sha256,
-                                        String mimeType, long sizeBytes, String status, String visibility,
-                                        Instant generatedAt, Instant issuedAt, Instant revokedAt,
-                                        String revokeReason) {}
+                                         String aggregateId, String aggregateVersion, String locale,
+                                         String documentNumber, String title, String sha256,
+                                         String mimeType, long sizeBytes, String status, String visibility,
+                                         Instant generatedAt, Instant issuedAt, Instant revokedAt,
+                                         String revokeReason, Integer templateVersion,
+                                         String templateHash, UUID brandingId, Integer brandingVersion,
+                                         String brandingHash, String resolvedAssetHash,
+                                         String snapshotHash) {}
+
+    public record RenderEvidence(UUID templateId, Integer templateVersion, String templateHash,
+                                 UUID brandingId, Integer brandingVersion, String brandingHash,
+                                 String resolvedAssetHash, String snapshotHash) {}
     public record RevokeRequest(@NotBlank String reason) {}
     public record VerificationView(String documentNumber, String documentType, String title,
                                    String status, Instant issuedAt, String sha256, boolean valid) {}

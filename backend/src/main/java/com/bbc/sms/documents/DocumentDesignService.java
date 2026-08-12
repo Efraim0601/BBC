@@ -16,6 +16,7 @@ import java.security.MessageDigest;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
@@ -29,11 +30,14 @@ public class DocumentDesignService {
     private final JdbcTemplate jdbc;
     private final SchoolRepository schools;
     private final AuditService audit;
+    private final StandardReportTemplateProvisioningService provisioning;
 
-    public DocumentDesignService(JdbcTemplate jdbc, SchoolRepository schools, AuditService audit) {
+    public DocumentDesignService(JdbcTemplate jdbc, SchoolRepository schools, AuditService audit,
+                                 StandardReportTemplateProvisioningService provisioning) {
         this.jdbc = jdbc;
         this.schools = schools;
         this.audit = audit;
+        this.provisioning = provisioning;
     }
 
     @Transactional(readOnly = true)
@@ -41,7 +45,8 @@ public class DocumentDesignService {
         UUID schoolId = TenantContext.get();
         List<TemplateVersionView> templates = jdbc.query("""
                 SELECT id,type,locale,name,template_version,template_family,product,subsystem,
-                       status,reference_family,checksum,published_at
+                       status,reference_family,checksum,published_at,standard_key,
+                       effective_from,effective_to,config_json::text
                   FROM document_template
                  WHERE school_id=?
                  ORDER BY type,locale,template_version DESC
@@ -49,7 +54,9 @@ public class DocumentDesignService {
                 rs.getString("locale"), rs.getString("name"), rs.getInt("template_version"),
                 rs.getString("template_family"), rs.getString("product"), rs.getString("subsystem"),
                 rs.getString("status"), rs.getString("reference_family"), rs.getString("checksum"),
-                instant(rs, "published_at")), schoolId);
+                instant(rs, "published_at"), rs.getString("standard_key"),
+                rs.getObject("effective_from", LocalDate.class), rs.getObject("effective_to", LocalDate.class),
+                rs.getString("config_json")), schoolId);
         List<BrandingVersionView> branding = jdbc.query("""
                 SELECT id,locale,version,status,school_name,school_name_en,motto,ministry_text,
                        city,country,principal_name,principal_title,class_master_title,council_title,
@@ -64,7 +71,12 @@ public class DocumentDesignService {
                 rs.getString("principal_title"), rs.getString("class_master_title"),
                 rs.getString("council_title"), rs.getString("content_hash"),
                 instant(rs, "created_at"), instant(rs, "published_at")), schoolId);
-        return new DocumentDesignView(templates, branding);
+        return new DocumentDesignView(templates, branding, provisioning.preview(schoolId));
+    }
+
+    @Transactional
+    public int installStandardTemplates(String reason) {
+        return provisioning.installCurrent(reason);
     }
 
     @Transactional
@@ -72,18 +84,22 @@ public class DocumentDesignService {
         UUID schoolId = TenantContext.get();
         TemplateSeed source = jdbc.query("""
                 SELECT id,type,locale,name,body_template,template_family,product,subsystem,
-                       reference_family,config_json::text
+                       reference_family,config_json::text,standard_key,effective_from,effective_to
                   FROM document_template
                  WHERE id=? AND school_id=?
                 """, rs -> rs.next() ? new TemplateSeed(rs.getObject("id", UUID.class), rs.getString("type"),
                 rs.getString("locale"), rs.getString("name"), rs.getString("body_template"),
                 rs.getString("template_family"), rs.getString("product"), rs.getString("subsystem"),
-                rs.getString("reference_family"), rs.getString("config_json")) : null, templateId, schoolId);
+                rs.getString("reference_family"), rs.getString("config_json"), rs.getString("standard_key"),
+                rs.getObject("effective_from", LocalDate.class), rs.getObject("effective_to", LocalDate.class)) : null,
+                templateId, schoolId);
         if (source == null) throw ApiException.notFound("Version de modèle");
         int nextVersion = jdbc.queryForObject("""
                 SELECT coalesce(max(template_version),0)+1 FROM document_template
-                 WHERE school_id=? AND type=? AND locale=?
-                """, Integer.class, schoolId, source.type(), source.locale());
+                 WHERE school_id=? AND type=? AND locale=? AND product=?
+                   AND subsystem IS NOT DISTINCT FROM ? AND reference_family=?
+                """, Integer.class, schoolId, source.type(), source.locale(), source.product(),
+                source.subsystem(), source.referenceFamily());
         UUID id = UUID.randomUUID();
         String checksum = sha256(source.bodyTemplate());
         UUID actor = currentUserId();
@@ -91,12 +107,13 @@ public class DocumentDesignService {
                 INSERT INTO document_template
                     (id,school_id,type,locale,name,template_version,body_template,template_family,
                      product,subsystem,status,reference_family,checksum,published_at,published_by,
-                     config_json,active)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?::jsonb,true)
+                     config_json,standard_key,effective_from,effective_to,active)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?::jsonb,?,?,?,true)
                 """, id, schoolId, source.type(), source.locale(), source.name(), nextVersion,
                 source.bodyTemplate(), source.templateFamily(), source.product(), source.subsystem(),
                 "PUBLISHED", source.referenceFamily(), checksum, Instant.now(), actor,
-                source.configJson() == null || source.configJson().isBlank() ? "{}" : source.configJson());
+                source.configJson() == null || source.configJson().isBlank() ? "{}" : source.configJson(),
+                source.standardKey(), LocalDate.now(), source.effectiveTo());
         TemplateVersionView result = findTemplate(id);
         audit.record("DOCUMENT_TEMPLATE_PUBLISHED", "DocumentTemplate", id.toString(), source, result, reason.trim());
         return result;
@@ -172,13 +189,16 @@ public class DocumentDesignService {
     private TemplateVersionView findTemplate(UUID id) {
         return jdbc.query("""
                 SELECT id,type,locale,name,template_version,template_family,product,subsystem,
-                       status,reference_family,checksum,published_at
+                       status,reference_family,checksum,published_at,standard_key,
+                       effective_from,effective_to,config_json::text
                   FROM document_template WHERE id=? AND school_id=?
                 """, rs -> rs.next() ? new TemplateVersionView(rs.getObject("id", UUID.class), rs.getString("type"),
                 rs.getString("locale"), rs.getString("name"), rs.getInt("template_version"),
                 rs.getString("template_family"), rs.getString("product"), rs.getString("subsystem"),
                 rs.getString("status"), rs.getString("reference_family"), rs.getString("checksum"),
-                instant(rs, "published_at")) : null, id, TenantContext.get());
+                instant(rs, "published_at"), rs.getString("standard_key"),
+                rs.getObject("effective_from", LocalDate.class), rs.getObject("effective_to", LocalDate.class),
+                rs.getString("config_json")) : null, id, TenantContext.get());
     }
 
     private BrandingVersionView findBranding(UUID id) {
@@ -199,7 +219,8 @@ public class DocumentDesignService {
 
     private record TemplateSeed(UUID id, String type, String locale, String name, String bodyTemplate,
                                 String templateFamily, String product, String subsystem,
-                                String referenceFamily, String configJson) {}
+                                String referenceFamily, String configJson, String standardKey,
+                                LocalDate effectiveFrom, LocalDate effectiveTo) {}
 
     private record BrandingSeed(UUID id, String schoolNameEn, String delegationText,
                                 String logoContentType, byte[] logoBytes, String stampContentType,

@@ -182,22 +182,23 @@ public class ReportCardBatchJobWorker {
                 refreshCounts(schoolId, jobId);
                 return;
             }
-            BulletinSnapshotView snapshot = snapshots.byId(snapshotId);
-            String name = snapshot.studentName();
+            var frozen = snapshots.authoritativeById(snapshotId);
+            var evidence = pdf.evidence(snapshotId);
+            String name = frozen.student() == null ? "" : frozen.student().name();
             String fileName = safeFile(name) + "-" + item.studentId().toString().substring(0, 8) + ".pdf";
             stage = "STORAGE";
             String key = storage.store(schoolId.toString(), "bulletin-batch/" + jobId + "/" + item.id(), "pdf", bytes);
             stage = "DOCUMENT";
             GeneratedDocumentView document = officialDocuments.registerPdf("REPORT_CARD", "BulletinVersion",
-                    snapshot.id().toString(), String.valueOf(snapshot.version()), scope.locale(),
+                    snapshotId.toString(), String.valueOf(current.snapshot().version()), scope.locale(),
                     ("en".equalsIgnoreCase(scope.locale()) ? "School report card" : "Bulletin scolaire") + " - " + name,
-                    "PARENT", bytes, "bulletin-batch:" + jobId + ":" + item.id());
+                    "PARENT", bytes, "bulletin-batch:" + jobId + ":" + item.id(), evidence);
             Map<String, Object> result = details(current, null);
             result.put("currentState", "PUBLISHED");
             result.put("retryableNow", false);
             result.put("documentId", document.id());
-            markTerminal(schoolId, item.id(), "PUBLISHED", fileName, key, bytes, snapshot.id(), snapshot.version(),
-                    snapshot.snapshotHash(), document.id(), BulletinBatchResultCode.PUBLISHED.name(), result, null);
+            markTerminal(schoolId, item.id(), "PUBLISHED", fileName, key, bytes, snapshotId, current.snapshot().version(),
+                    current.snapshot().hash(), document.id(), BulletinBatchResultCode.PUBLISHED.name(), result, null);
             refreshCounts(schoolId, jobId);
         } catch (Exception ex) {
             BulletinBatchResultCode code = switch (stage) {

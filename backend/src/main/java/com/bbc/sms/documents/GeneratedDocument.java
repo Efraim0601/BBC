@@ -15,6 +15,13 @@ public class GeneratedDocument {
     @Id private UUID id;
     @Column(name = "school_id", nullable = false) private UUID schoolId;
     @Column(name = "document_template_id") private UUID documentTemplateId;
+    @Column(name = "template_version") private Integer templateVersion;
+    @Column(name = "template_hash") private String templateHash;
+    @Column(name = "branding_id") private UUID brandingId;
+    @Column(name = "branding_version") private Integer brandingVersion;
+    @Column(name = "branding_hash") private String brandingHash;
+    @Column(name = "resolved_asset_hash") private String resolvedAssetHash;
+    @Column(name = "snapshot_hash") private String snapshotHash;
     @Column(name = "document_type", nullable = false) private String documentType;
     @Column(name = "aggregate_type", nullable = false) private String aggregateType;
     @Column(name = "aggregate_id", nullable = false) private String aggregateId;
