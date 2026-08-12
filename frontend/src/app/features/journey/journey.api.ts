@@ -146,6 +146,10 @@ export class JourneyApi {
   savePromotionRule(body: { academicSessionId: string; subsystem?: string | null; level?: string | null; promoteMin: number; reviewMin: number; requireFinalAverage: boolean; version?: number }): Observable<PromotionRuleView> {
     return this.http.post<PromotionRuleView>(`${this.base}/progression/rules`, body);
   }
+  publishPromotionRuleSet(id: string, expectedVersion?: number): Observable<unknown> {
+    const params: Record<string, string> = expectedVersion == null ? {} : { expectedVersion: String(expectedVersion) };
+    return this.http.post(`${this.base}/progression/rule-sets/${id}/publish`, null, { params });
+  }
   previewPromotion(body: { sourceSessionId: string; targetSessionId: string; name: string; sourceClassIds?: string[]; idempotencyKey?: string; graphVersionId?: string; ruleSetId?: string }): Observable<PromotionPreviewView> {
     return this.http.post<PromotionPreviewView>(`${this.base}/progression/promotion-previews`, body);
   }

@@ -268,6 +268,7 @@ public class GradeEntryService {
         assertSubjectAccess(in.classId(), schoolClass.getName(), period.getAcademicSessionId(), period.getStartDate(), subjectCode);
         invalidateValidatedBulletins(period.getId(), period.getAcademicSessionId(), in.classId());
         AcademicGradePacket packet = preparePacketForSave(packet(period, in.classId(), subjectCode, subject), period, in.classId(), subject);
+        packet = ensurePacketSaved(packet);
         String previousPacketStatus = packet.getStatus();
         adoptAssignment(packet, subject);
         if ("ACCEPTED".equals(packet.getStatus()) || "LOCKED".equals(packet.getStatus())) {
@@ -296,6 +297,8 @@ public class GradeEntryService {
                 validateMark(cell.mark(), status, assessment);
                 AcademicGrade grade = packet.getId() == null ? null : grades.findByPacketIdAndStudentIdAndAssessmentIdAndSubjectCode(
                         packet.getId(), row.studentId(), assessment.getId(), subjectCode).orElse(null);
+                if (grade == null) grade = grades.findBySchoolIdAndStudentIdAndAssessmentIdAndSubjectCode(
+                        TenantContext.get(), row.studentId(), assessment.getId(), subjectCode).orElse(null);
                 if (grade == null) grade = new AcademicGrade();
                 if (cell.version() != null && grade.getId() != null && cell.version() != grade.getVersion()) {
                     throw ApiException.conflict("Une note de " + studentName(row.studentId()) + " a été modifiée par un autre utilisateur");
@@ -342,6 +345,7 @@ public class GradeEntryService {
         jdbc.update("INSERT INTO academic_grade_save_request(id,school_id,actor_user_id) VALUES (?,?,?) ON CONFLICT DO NOTHING",
                 requestId, TenantContext.get(), currentUserId());
         AcademicGradePacket packet = preparePacketForSave(packet(period, in.classId(), subjectCode, subject), period, in.classId(), subject);
+        packet = ensurePacketSaved(packet);
         if (in.packetVersion() != null && packet.getId() != null && in.packetVersion() != packet.getVersion())
             throw ApiException.conflict("La feuille de saisie a été modifiée. Rechargez-la avant d'enregistrer.");
         Map<UUID, AcademicAssessment> definition = assessments.findApplicable(TenantContext.get(), period.getId(), in.classId(), subjectCode)
@@ -372,6 +376,8 @@ public class GradeEntryService {
                     validateMark(cell.mark(), status, assessment);
                     grade = grades.findByPacketIdAndStudentIdAndAssessmentIdAndSubjectCode(
                             packet.getId(), row.studentId(), assessment.getId(), subjectCode).orElse(null);
+                    if (grade == null) grade = grades.findBySchoolIdAndStudentIdAndAssessmentIdAndSubjectCode(
+                            TenantContext.get(), row.studentId(), assessment.getId(), subjectCode).orElse(null);
                     if (cell.version() != null && grade != null && cell.version() != grade.getVersion()) {
                         results.add(result(row.studentId(), assessment.getId(), "CONFLICT", grade.getMark(), grade.getValueStatus(), grade.getVersion(), Map.of("version", "The row changed on the server."), true));
                         continue;
@@ -733,7 +739,8 @@ public class GradeEntryService {
             VALUES (?,?,?,?,?,?,?,?::jsonb,?,?)
             """, TenantContext.get(), packet.getId(), from, to,
                 reason == null || reason.isBlank() ? null : reason.trim(), currentUserId(), eventType,
-                affectedRowsJson(affectedRows), packet.getReviewedBy(), packet.getReviewedAt());
+                affectedRowsJson(affectedRows), packet.getReviewedBy(),
+                packet.getReviewedAt() == null ? null : java.sql.Timestamp.from(packet.getReviewedAt()));
     }
 
     private String affectedRowsJson(List<UUID> rows) {
@@ -746,6 +753,20 @@ public class GradeEntryService {
             packets.saveAndFlush(packet);
         } catch (ObjectOptimisticLockingFailureException ex) {
             throw ApiException.conflict("Cette feuille a été modifiée par un autre reviewer. Rechargez-la avant de réessayer.");
+        }
+    }
+
+    /**
+     * Grade and comment rows retain the packet id as their workflow anchor.
+     * Persist a brand-new draft before inserting those rows; otherwise the
+     * JPA entity has no id yet and the rows become detached from the packet.
+     */
+    private AcademicGradePacket ensurePacketSaved(AcademicGradePacket packet) {
+        if (packet.getId() != null) return packet;
+        try {
+            return packets.saveAndFlush(packet);
+        } catch (ObjectOptimisticLockingFailureException ex) {
+            throw ApiException.conflict("Cette feuille a été modifiée par un autre utilisateur. Rechargez-la avant d'enregistrer.");
         }
     }
 

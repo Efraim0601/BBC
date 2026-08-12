@@ -81,8 +81,11 @@ public class AcademicSessionService {
         if (in.version() != null && in.version() != s.getVersion()) throw ApiException.conflict("La session a été modifiée par un autre utilisateur");
         SessionView before = view(s);
         validateDates(in.startDate(), in.endDate(), "session");
+        // Clear the previous current row before making this managed entity current.
+        // Otherwise Hibernate flushes the new value before the bulk clear and the
+        // partial unique index rejects the hand-off between two sessions.
+        if (Boolean.TRUE.equals(in.current())) sessions.clearCurrent(s.getSchoolId(), s.getId());
         apply(s, in);
-        if (s.isCurrent()) sessions.clearCurrent(s.getSchoolId(), s.getId());
         s = sessions.saveAndFlush(s);
         validateTermsInside(s);
         audit.record("SESSION_UPDATED", "AcademicSession", id.toString(), before, view(s), null);

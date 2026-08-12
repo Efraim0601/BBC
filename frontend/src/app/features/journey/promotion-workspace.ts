@@ -79,6 +79,20 @@ import { JourneyApi, ProgressionGraphView, ProgressionPathView, PromotionBatchLi
               <button (click)="saveRule()" [disabled]="!sourceSessionId || busy()" class="primary-btn w-full">
                 <bbc-icon name="check" [s]="16" /> {{ fr() ? 'Enregistrer la règle' : 'Save rule' }}
               </button>
+              @if (generalRule(); as rule) {
+                <div class="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs">
+                  <div class="flex items-center justify-between gap-2">
+                    <strong>{{ fr() ? 'Version des règles' : 'Rule-set version' }} {{ rule.ruleSetVersion ?? '—' }}</strong>
+                    <span class="rounded-full px-2 py-1 font-bold" [class]="rule.ruleSetStatus === 'PUBLISHED' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800'">{{ rule.ruleSetStatus ?? 'DRAFT' }}</span>
+                  </div>
+                  @if (rule.ruleSetStatus === 'DRAFT') {
+                    <p class="mt-1 text-amber-800">{{ fr() ? 'La règle est enregistrée en brouillon et doit être publiée avant le calcul des recommandations.' : 'The rule is saved as a draft and must be published before recommendations can be calculated.' }}</p>
+                    <button type="button" (click)="publishRuleSet(rule)" [disabled]="busy()" class="secondary-btn mt-2 w-full">{{ fr() ? 'Publier les règles' : 'Publish rules' }}</button>
+                  } @else {
+                    <p class="mt-1 text-emerald-700">{{ fr() ? 'Version publiée et gelée pour les recommandations.' : 'Published and frozen for recommendations.' }}</p>
+                  }
+                </div>
+              }
             </div>
           </bbc-card>
 
@@ -263,9 +277,15 @@ export class PromotionWorkspaceComponent {
   protected overrideCandidate = signal<PromotionCandidateView|null>(null); protected commitOpen = signal(false); protected commitPreviewData = signal<PromotionCommitPreviewView|null>(null); protected cancelBatchOpen = signal(false);
   protected sourceSessionId=''; protected targetSessionId=''; protected batchName=''; protected commitReason=''; protected cancelBatchReason=''; protected batchStatusFilter='';
   protected ruleDraft={promoteMin:10,reviewMin:8,requireFinalAverage:true};
+  protected generalRule = computed(() => this.rules().find((rule) => !rule.subsystem && !rule.level) ?? null);
   protected pathDraft=signal(new Map<string,{targetClassId:string;terminal:boolean}>());
   protected overrideDraft={decision:'PROMOTE',targetClassId:'',reason:''};
-  protected targetSessions=computed(()=>{const src=this.sessions().find(s=>s.id===this.sourceSessionId);return src?this.sessions().filter(s=>s.startDate>src.endDate):this.sessions();});
+  protected targetSessions(): AcademicSessionView[] {
+    const source = this.sessions().find((session) => session.id === this.sourceSessionId);
+    return source
+      ? this.sessions().filter((session) => session.startDate > source.endDate)
+      : this.sessions();
+  }
   protected configuredCount=computed(()=>this.paths().length);
 
   constructor(){forkJoin([this.foundation.listSessions(),this.setup.listClasses()]).subscribe({next:([s,c])=>{this.sessions.set(s);this.classes.set(c);const ordered=[...s].sort((a,b)=>a.startDate.localeCompare(b.startDate));this.sourceSessionId=ordered.find(x=>x.current)?.id??ordered[0]?.id??'';this.targetSessionId=ordered.find(x=>x.startDate>(ordered.find(y=>y.id===this.sourceSessionId)?.endDate??''))?.id??'';this.batchName=`Promotion ${ordered.find(x=>x.id===this.sourceSessionId)?.label??''}`;this.loadBatchHistory();this.scopeChanged();},error:e=>this.fail(e)});}
@@ -287,6 +307,14 @@ export class PromotionWorkspaceComponent {
   protected openCancelBatch(){this.cancelBatchReason='';this.cancelBatchOpen.set(true);}
   protected confirmCancelBatch(){const b=this.batch();if(!b||!this.cancelBatchReason.trim()||this.busy())return;this.busy.set(true);this.api.cancelPromotionBatch(b.id,this.cancelBatchReason.trim()).subscribe({next:()=>{this.busy.set(false);this.cancelBatchOpen.set(false);this.openBatch(b.id);this.loadBatchHistory();this.ok(this.fr()?'Lot annulé. Aucune inscription n’a été créée.':'Batch cancelled. No enrollment was created.');},error:e=>{this.busy.set(false);this.fail(e)}});}
   protected saveRule(){this.attempted.set(true);if(!this.sourceSessionId||this.ruleDraft.reviewMin>this.ruleDraft.promoteMin){this.message.set({text:this.fr()?'Vérifiez les seuils : révision ≤ promotion.':'Check thresholds: review ≤ promotion.',error:true});return;}this.api.savePromotionRule({academicSessionId:this.sourceSessionId,subsystem:null,level:null,...this.ruleDraft}).subscribe({next:r=>{this.rules.set([r]);this.ok(this.fr()?'Règle enregistrée.':'Rule saved.');},error:e=>this.fail(e)});}
+  protected publishRuleSet(rule: PromotionRuleView): void {
+    if (!rule.ruleSetId || this.busy()) return;
+    this.busy.set(true);
+    this.api.publishPromotionRuleSet(rule.ruleSetId).subscribe({
+      next: () => { this.busy.set(false); this.scopeChanged(); this.ok(this.fr() ? 'Règles publiées et gelées.' : 'Rules published and frozen.'); },
+      error: (e) => { this.busy.set(false); this.fail(e); },
+    });
+  }
    protected preview(){this.attempted.set(true);this.structuredIssues.set([]);if(!this.sourceSessionId||!this.targetSessionId||!this.batchName.trim()){this.message.set({text:this.fr()?'Complétez les sessions et le nom du lot.':'Complete sessions and batch name.',error:true});return;}this.busy.set(true);const graph=this.graphs().find(x=>x.status==='PUBLISHED');const rule=this.rules().find(x=>x.ruleSetStatus==='PUBLISHED');this.api.previewPromotion({sourceSessionId:this.sourceSessionId,targetSessionId:this.targetSessionId,name:this.batchName.trim(),idempotencyKey:crypto.randomUUID(),graphVersionId:graph?.id,ruleSetId:rule?.ruleSetId??undefined}).subscribe({next:p=>{this.busy.set(false);this.previewData.set(p);this.batch.set(null);this.ok(this.fr()?'Aperçu en lecture seule créé. Aucune ligne de base de données n’a été écrite.':'Read-only preview created. No database rows were written.');},error:e=>{this.busy.set(false);this.fail(e)}});}
    protected saveReviewBatch(){const p=this.previewData();if(!p||this.busy())return;this.busy.set(true);this.api.saveReviewBatch({sourceSessionId:p.sourceSessionId,targetSessionId:p.targetSessionId,name:p.name,previewFingerprint:p.fingerprint,idempotencyKey:crypto.randomUUID(),graphVersionId:p.graphVersionId??undefined,ruleSetId:p.ruleSetId??undefined}).subscribe({next:b=>{this.busy.set(false);this.previewData.set(null);this.batch.set(b);this.loadBatchHistory();this.ok(this.fr()?'Lot de révision enregistré. Les décisions sont maintenant auditables.':'Review batch saved. Decisions are now auditable.');},error:e=>{this.busy.set(false);this.fail(e)}});}
   protected openOverride(c:PromotionCandidateView){this.overrideCandidate.set(c);this.overrideDraft={decision:c.finalDecision==='REVIEW'?'PROMOTE':c.finalDecision,targetClassId:c.targetClassId??c.mappedTargetClassId??c.sourceClassId,reason:c.overrideReason??''};}

@@ -22,6 +22,8 @@ import com.bbc.sms.journey.dto.JourneyPromotionDtos.PromotionRuleUpsert;
 import com.bbc.sms.journey.dto.JourneyPromotionDtos.PromotionActivationRequest;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.tenant.TenantContext;
+import com.bbc.sms.setup.CurriculumVersionService;
+import com.bbc.sms.setup.dto.SetupDtos.CurriculumSubjectUpsert;
 import com.bbc.sms.student.StudentService;
 import com.bbc.sms.timetable.TimetableVersionService;
 import com.bbc.sms.timetable.dto.TimetableVersionDtos.TimetableVersionActionRequest;
@@ -73,6 +75,7 @@ class SharedFoundationIntegrationTest {
     @Autowired JourneyPromotionService promotions;
     @Autowired StudentService students;
     @Autowired TimetableVersionService timetables;
+    @Autowired CurriculumVersionService curricula;
 
     @BeforeEach
     void tenant() {
@@ -102,6 +105,25 @@ class SharedFoundationIntegrationTest {
                 LocalDate.of(2026, 12, 1), LocalDate.of(2027, 3, 20), null, null, null, null, null)))
                 .isInstanceOf(ApiException.class).hasMessageContaining("chevaucher");
         assertThat(sessionService.current().id()).isEqualTo(session.id());
+    }
+
+    @Test
+    void switchingCurrentSessionClearsThePreviousCurrentBeforeSaving() {
+        var source = sessionService.create(new SessionUpsert("2026-2027", "Source",
+                LocalDate.of(2026, 9, 1), LocalDate.of(2027, 7, 31), "OPEN", true,
+                null, null, null, null, null));
+        var target = sessionService.create(new SessionUpsert("2027-2028", "Target",
+                LocalDate.of(2027, 9, 1), LocalDate.of(2028, 7, 31), "OPEN", false,
+                null, null, null, null, null));
+
+        var switched = sessionService.update(target.id(), new SessionUpsert(
+                target.code(), target.label(), target.startDate(), target.endDate(), target.status(), true,
+                null, null, null, null, target.version()));
+
+        assertThat(switched.current()).isTrue();
+        assertThat(sessionService.current().id()).isEqualTo(target.id());
+        assertThat(jdbc.queryForObject("SELECT is_current FROM academic_session WHERE id=?", Boolean.class, source.id()))
+                .isFalse();
     }
 
     @Test
@@ -176,6 +198,34 @@ class SharedFoundationIntegrationTest {
             """, academicId, schoolId);
 
         assertThat(attendance.sessionOptions(classId, date)).isEmpty();
+    }
+
+    @Test
+    void firstClassSubjectAssignmentCreatesAnEmptyDraftWhenNoPublishedCurriculumExists() {
+        UUID academicId = UUID.randomUUID();
+        UUID classId = UUID.randomUUID();
+        UUID subjectId = UUID.randomUUID();
+        String sectionId = "c" + schoolId.toString().substring(0, 8);
+        jdbc.update("INSERT INTO section(id,school_id,label,subsystem,level) VALUES (?,?,?,'FR','secondary')",
+                sectionId, schoolId, "Secondary");
+        jdbc.update("INSERT INTO school_class(id,school_id,section_id,name,subsystem,level) VALUES (?,?,?,'6eme Curriculum','FR','secondary')",
+                classId, schoolId, sectionId);
+        jdbc.update("INSERT INTO academic_session(id,school_id,code,label,start_date,end_date,status,is_current) VALUES (?,?, '2026-2027','2026-2027','2026-09-01','2027-07-31','OPEN',true)",
+                academicId, schoolId);
+        jdbc.update("INSERT INTO subject(id,school_id,code,label,coef,subsystem) VALUES (?,?,?,'{\"fr\":\"Mathématiques\",\"en\":\"Mathematics\"}'::jsonb,2,'FR')",
+                subjectId, schoolId, "MATH");
+
+        var draft = curricula.upsertSubject(new CurriculumSubjectUpsert(
+                academicId, classId, subjectId, null, null, 2, null, null, null, null, null, null));
+
+        assertThat(draft.state()).isEqualTo("DRAFT");
+        assertThat(draft.sourceVersionId()).isNull();
+        assertThat(draft.effectiveFrom()).isEqualTo(LocalDate.of(2026, 9, 1));
+        assertThat(draft.effectiveTo()).isEqualTo(LocalDate.of(2027, 7, 31));
+        assertThat(draft.subjects()).singleElement().satisfies(row -> {
+            assertThat(row.subjectCode()).isEqualTo("MATH");
+            assertThat(row.coefficient()).isEqualTo(2);
+        });
     }
 
     @Test

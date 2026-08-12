@@ -46,29 +46,41 @@ public class CurriculumVersionService {
         CurriculumVersionView source = request.sourceVersionId() == null
                 ? findPublished(request.academicSessionId(), request.classId()).orElse(null)
                 : find(request.sourceVersionId()).orElseThrow(() -> ApiException.notFound("Version source"));
-        if (source == null) throw ApiException.conflict("Aucun curriculum publié à réviser.");
         UUID id = UUID.randomUUID();
         int number = nextVersionNumber(request.academicSessionId(), request.classId());
-        LocalDate from = request.effectiveFrom() == null ? source.effectiveFrom() : request.effectiveFrom();
-        LocalDate to = request.effectiveTo() == null ? source.effectiveTo() : request.effectiveTo();
+        LocalDate from = request.effectiveFrom();
+        LocalDate to = request.effectiveTo();
+        if (source != null) {
+            from = from == null ? source.effectiveFrom() : from;
+            to = to == null ? source.effectiveTo() : to;
+        } else {
+            // A new session has no published curriculum to revise yet. Start
+            // with an empty draft; the first class-subject assignment will add
+            // rows to it and the administrator can publish it after assigning
+            // the responsible teachers.
+            from = from == null ? sessionStart(request.academicSessionId()) : from;
+            to = to == null ? sessionEnd(request.academicSessionId()) : to;
+        }
         jdbc.update("""
             INSERT INTO academic_curriculum_version
                 (id,school_id,academic_session_id,scope_type,class_id,version_number,state,
                  source_version_id,effective_from,effective_to,created_by)
             VALUES (?,?,?,'CLASS',?,?,'DRAFT',?,?,?,?)
             """, id, school, request.academicSessionId(), request.classId(), number,
-                source.id(), from, to, actor());
-        jdbc.update("""
-            INSERT INTO academic_curriculum_subject
-                (id,school_id,academic_session_id,class_id,subject_id,curriculum_version_id,
-                 group_id,display_order,coefficient,max_score,mandatory,pass_threshold,
-                 show_subject_rank,remark_required,active_from,active_to)
-            SELECT gen_random_uuid(),school_id,?,?,subject_id,?,
-                   group_id,display_order,coefficient,max_score,mandatory,pass_threshold,
-                   show_subject_rank,remark_required,active_from,active_to
-              FROM academic_curriculum_subject
-             WHERE curriculum_version_id=? AND school_id=?
-            """, request.academicSessionId(), request.classId(), id, source.id(), school);
+                source == null ? null : source.id(), from, to, actor());
+        if (source != null) {
+            jdbc.update("""
+                INSERT INTO academic_curriculum_subject
+                    (id,school_id,academic_session_id,class_id,subject_id,curriculum_version_id,
+                     group_id,display_order,coefficient,max_score,mandatory,pass_threshold,
+                     show_subject_rank,remark_required,active_from,active_to)
+                SELECT gen_random_uuid(),school_id,?,?,subject_id,?,
+                       group_id,display_order,coefficient,max_score,mandatory,pass_threshold,
+                       show_subject_rank,remark_required,active_from,active_to
+                  FROM academic_curriculum_subject
+                 WHERE curriculum_version_id=? AND school_id=?
+                """, request.academicSessionId(), request.classId(), id, source.id(), school);
+        }
         refreshHash(id);
         return byId(id);
     }
@@ -244,6 +256,8 @@ public class CurriculumVersionService {
             """, (rs,n)->new CurriculumVersionSubjectView(rs.getObject(1,UUID.class),rs.getObject(2,UUID.class),rs.getString(3),rs.getString(4),rs.getObject(5,UUID.class),rs.getString(6),rs.getInt(7),rs.getInt(8),rs.getBigDecimal(9),rs.getBoolean(10),rs.getBigDecimal(11),rs.getBoolean(12),rs.getLong(13)),TenantContext.get(),version);
     }
     private int nextVersionNumber(UUID session, UUID classId) { return jdbc.queryForObject("SELECT COALESCE(max(version_number),0)+1 FROM academic_curriculum_version WHERE school_id=? AND academic_session_id=? AND class_id=?",Integer.class,TenantContext.get(),session,classId); }
+    private LocalDate sessionStart(UUID session) { return jdbc.query("SELECT start_date FROM academic_session WHERE id=? AND school_id=?", rs -> rs.next() ? rs.getObject(1, LocalDate.class) : null, session, TenantContext.get()); }
+    private LocalDate sessionEnd(UUID session) { return jdbc.query("SELECT end_date FROM academic_session WHERE id=? AND school_id=?", rs -> rs.next() ? rs.getObject(1, LocalDate.class) : null, session, TenantContext.get()); }
     private int nextSubjectOrder(UUID version) { return jdbc.queryForObject("SELECT COALESCE(max(display_order),0)+1 FROM academic_curriculum_subject WHERE school_id=? AND curriculum_version_id=?",Integer.class,TenantContext.get(),version); }
     private void refreshHash(UUID id) { jdbc.update("UPDATE academic_curriculum_version SET canonical_content_hash=(SELECT md5(COALESCE(string_agg(concat_ws('|',subject_id::text,display_order,coefficient,max_score,mandatory,pass_threshold,show_subject_rank,remark_required,COALESCE(active_from::text,''),COALESCE(active_to::text,'')), E'\\n' ORDER BY display_order,subject_id),'')) FROM academic_curriculum_subject WHERE curriculum_version_id=?),optimistic_version=optimistic_version+1 WHERE id=? AND school_id=?",id,id,TenantContext.get()); }
     private void assertScope(UUID session, UUID classId) { if (jdbc.queryForObject("SELECT count(*) FROM academic_session s JOIN school_class c ON c.school_id=s.school_id WHERE s.id=? AND s.school_id=? AND c.id=?",Integer.class,session,TenantContext.get(),classId)==0) throw ApiException.notFound("Session ou classe"); }

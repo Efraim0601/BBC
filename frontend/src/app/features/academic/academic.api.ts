@@ -449,7 +449,10 @@ export class AcademicApi {
 
   publishSnapshot(id: string, reason: string, version?: number): Observable<BulletinSnapshotView> {
     return this.http.post<BulletinSnapshotView>(`${this.base}/bulletin-snapshots/${encodeURIComponent(id)}/publish`, { reason, version }, {
-      headers: { 'Idempotency-Key': `bulletin-publish:${id}:${version ?? ''}:${reason.trim()}` },
+      // Keep the idempotency key short enough for the API gateway/header limit.
+      // The bulletin id and optimistic version identify the publication attempt;
+      // the free-form reason belongs in the JSON body, not in the header.
+      headers: { 'Idempotency-Key': `bulletin-publish:${id}:${version ?? ''}` },
     });
   }
 

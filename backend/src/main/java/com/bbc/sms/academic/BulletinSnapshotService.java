@@ -1614,7 +1614,11 @@ public class BulletinSnapshotService implements AuthoritativeBulletinSnapshotRea
                 v.getId() == null && validationBlockers.isEmpty(),
                 active && refreshRequired && validationBlockers.isEmpty(),
                 active && current && validationBlockers.isEmpty(),
-                "VALIDATED".equals(v.getState()) && current && validationBlockers.isEmpty(),
+                // A validated snapshot remains publishable after a page reload.
+                // The read model may identify it as OFFICIAL rather than CURRENT,
+                // but publication still performs its own source-hash and blocker
+                // checks before changing visibility.
+                "VALIDATED".equals(v.getState()) && validationBlockers.isEmpty(),
                 validationBlockers);
         BulletinWorkflowMetaView workflow = new BulletinWorkflowMetaView(
                 c.inputReadiness(), relation, c.sourceHash(), v.getId(), v.getState(), v.getVersion(),
