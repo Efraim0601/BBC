@@ -333,6 +333,8 @@ export interface BulletinBatchPreviewRow {
   code: string; category: BulletinBatchItemCategory; messageKey: string; messageArgs: Record<string, unknown>;
   currentState?: string | null; retryableNow: boolean; repairTarget?: BulletinBatchRepairTarget | null;
   snapshot?: BulletinBatchSnapshotEvidence | null;
+  reportingPeriodId?: string | null; reportingPeriodCode?: string | null; reportingPeriodLabel?: string | null;
+  product?: string | null; correctiveAction?: string | null; affectedRows?: string[];
 }
 export interface BulletinBatchPreviewView {
   policy: 'PUBLISHED_ONLY' | string; academicSessionId: string; academicSessionLabel: string;
@@ -340,10 +342,11 @@ export interface BulletinBatchPreviewView {
   reportingPeriodLabel: string; totalStudents: number; readyStudents: number; blockedStudents: number;
   reasonCounts: BulletinBatchReasonCount[]; rows: BulletinBatchPreviewRow[]; scopeFingerprint: string;
   generatedAt: string; window: BulletinBatchWindowView;
+  reportingPeriodIds?: string[]; products?: string[]; windows?: BulletinBatchWindowView[];
 }
 export interface BulletinBatchJobCreateRequest {
   classId: string; reportingPeriodId: string; locale: string; scopeFingerprint?: string;
-  includeReadyStudentsWhenPartiallyBlocked?: boolean;
+  includeReadyStudentsWhenPartiallyBlocked?: boolean; reportingPeriodIds?: string[]; products?: string[];
 }
 
 export interface BulletinBatchJobView {
@@ -358,6 +361,7 @@ export interface BulletinBatchJobView {
   studentArchiveAvailable?: boolean; diagnosticReportAvailable?: boolean; retryableErrorItems?: number;
   nowEligibleBlockedItems?: number; stillBlockedItems?: number; diagnosticSha256?: string | null;
   diagnosticSizeBytes?: number | null; window?: BulletinBatchWindowView | null;
+  reportingPeriodIds?: string[]; products?: string[]; windows?: BulletinBatchWindowView[];
 }
 export interface BulletinBatchItemView {
   id: string; studentId: string; studentName: string; status: BulletinBatchItemStatus;
@@ -365,6 +369,8 @@ export interface BulletinBatchItemView {
   category?: BulletinBatchItemCategory | null; messageKey?: string | null; messageArgs?: Record<string, unknown>;
   currentState?: string | null; retryableNow?: boolean; repairTarget?: BulletinBatchRepairTarget | null;
   snapshot?: BulletinBatchSnapshotEvidence | null; correlationId?: string | null; technicalDetail?: string | null;
+  reportingPeriodId?: string | null; reportingPeriodCode?: string | null; reportingPeriodLabel?: string | null;
+  product?: string | null; correctiveAction?: string | null; affectedRows?: string[];
 }
 
 export interface SecondaryCompetencyView {
@@ -535,7 +541,7 @@ export class AcademicApi {
   bulletinBatchJobs(classId: string, reportingPeriodId: string): Observable<BulletinBatchJobView[]> {
     return this.http.get<BulletinBatchJobView[]>(`${this.base}/bulletin-batch-jobs`, { params: { classId, reportingPeriodId } });
   }
-  previewBulletinBatch(body: { classId: string; reportingPeriodId: string; locale: string }): Observable<BulletinBatchPreviewView> {
+  previewBulletinBatch(body: { classId: string; reportingPeriodId?: string; locale: string; reportingPeriodIds?: string[]; products?: string[] }): Observable<BulletinBatchPreviewView> {
     return this.http.post<BulletinBatchPreviewView>(`${this.base}/bulletin-batch-jobs/preview`, body);
   }
   createBulletinBatchJob(body: BulletinBatchJobCreateRequest): Observable<BulletinBatchJobView> {

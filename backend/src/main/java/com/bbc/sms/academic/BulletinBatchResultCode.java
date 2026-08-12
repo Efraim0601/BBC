@@ -11,6 +11,7 @@ public enum BulletinBatchResultCode {
     REPORT_PUBLICATION_REVOKED("BUSINESS_BLOCKER", "academic.batch.reportPublicationRevoked", false),
     REPORT_PUBLICATION_CHANGED("BUSINESS_BLOCKER", "academic.batch.reportPublicationChanged", false),
     ENROLLMENT_MISSING("BUSINESS_BLOCKER", "academic.batch.enrollmentMissing", false),
+    PARENT_VISIBILITY_MISSING("BUSINESS_BLOCKER", "academic.batch.parentVisibilityMissing", false),
     REPORT_NOT_PUBLISHED_LEGACY("BUSINESS_BLOCKER", "academic.batch.reportNotPublishedLegacy", false),
     SNAPSHOT_UNREADABLE("TECHNICAL_ERROR", "academic.batch.snapshotUnreadable", false),
     PDF_RENDER_FAILED("TECHNICAL_ERROR", "academic.batch.pdfRenderFailed", true),

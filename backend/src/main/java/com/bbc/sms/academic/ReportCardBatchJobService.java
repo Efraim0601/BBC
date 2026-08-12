@@ -63,21 +63,26 @@ public class ReportCardBatchJobService {
     @Transactional(readOnly = true)
     public BulletinBatchPreviewView preview(BulletinBatchPreviewRequest request) {
         if (request == null) throw ApiException.badRequest("La classe et la période de résultat sont obligatoires.");
-        return eligibility.preview(request.classId(), request.reportingPeriodId(), request.locale()).view();
+        ReportCardBatchEligibilityService.EligibilityPreview preview = request.reportingPeriodIds() == null || request.reportingPeriodIds().isEmpty()
+                ? eligibility.preview(request.classId(), request.reportingPeriodId(), request.locale())
+                : eligibility.preview(request.classId(), request.periodIds(), request.locale());
+        return preview.view();
     }
 
     @Transactional
     public BulletinBatchJobView create(BulletinBatchJobCreateRequest request) {
-        if (request == null || request.classId() == null || request.reportingPeriodId() == null) {
+        if (request == null || request.classId() == null || request.periodIds().isEmpty()) {
             throw ApiException.fields(org.springframework.http.HttpStatus.BAD_REQUEST, "BATCH_SCOPE_REQUIRED",
                     "La classe et la période de résultat sont obligatoires.",
-                    Map.of(request == null || request.classId() == null ? "classId" : "reportingPeriodId",
+                    Map.of(request == null || request.classId() == null ? "classId" : "reportingPeriodIds",
                             request == null || request.classId() == null ? "La classe est obligatoire." : "La période est obligatoire."));
         }
-        ReportCardBatchEligibilityService.EligibilityPreview preview =
-                eligibility.preview(request.classId(), request.reportingPeriodId(), request.locale());
-        AcademicWindowPolicyService.WindowView authorization = windows.assertAllowed(
-                request.reportingPeriodId(), AcademicWindowPolicyService.Action.BATCH_GENERATION);
+        ReportCardBatchEligibilityService.EligibilityPreview preview = request.reportingPeriodIds() == null || request.reportingPeriodIds().isEmpty()
+                ? eligibility.preview(request.classId(), request.reportingPeriodId(), request.locale())
+                : eligibility.preview(request.classId(), request.periodIds(), request.locale());
+        List<AcademicWindowPolicyService.WindowView> authorizations = request.periodIds().stream()
+                .map(periodId -> windows.assertAllowed(periodId, AcademicWindowPolicyService.Action.BATCH_GENERATION)).toList();
+        AcademicWindowPolicyService.WindowView authorization = authorizations.get(0);
         if (request.scopeFingerprint() != null && !request.scopeFingerprint().isBlank()
                 && !request.scopeFingerprint().equals(preview.scopeFingerprint())) {
             throw batchConflict("BATCH_SCOPE_CHANGED", "La préparation du lot a changé. Vérifiez à nouveau les élèves prêts.", preview);
@@ -91,29 +96,29 @@ public class ReportCardBatchJobService {
 
         UUID schoolId = TenantContext.get();
         String locale = "en".equalsIgnoreCase(request.locale()) ? "en" : "fr";
-        lockScope(schoolId, request.classId(), request.reportingPeriodId(), preview.scopeFingerprint());
-        UUID activeJob = activeJob(schoolId, request.classId(), request.reportingPeriodId(), preview.scopeFingerprint());
+        lockScope(schoolId, request.classId(), request.periodIds().get(0), preview.scopeFingerprint());
+        UUID activeJob = activeJob(schoolId, request.classId(), request.periodIds().get(0), preview.scopeFingerprint());
         if (activeJob != null) return view(activeJob);
 
         UUID id = UUID.randomUUID();
         int blocked = preview.blockedStudents();
         jdbc.update("""
                 INSERT INTO bulletin_batch_job
-                    (id,school_id,academic_session_id,reporting_period_id,class_id,locale,policy,scope_fingerprint,window_authorization,
+                    (id,school_id,academic_session_id,reporting_period_id,class_id,locale,policy,scope_fingerprint,product_set,product_fingerprint,window_authorization,
                      status,total_items,processed_items,blocked_items,requested_by)
-                VALUES (?,?,?,?,?,?,?,?,?::jsonb,'QUEUED',?,?,?,?)
+                VALUES (?,?,?,?,?,?,?,?,?::jsonb,?,?::jsonb,'QUEUED',?,?,?,?)
                 """, id, schoolId, preview.academicSessionId(), preview.reportingPeriodId(), preview.classId(), locale,
-                ReportCardBatchEligibilityService.POLICY, preview.scopeFingerprint(), json(windowDetails(authorization)), preview.totalStudents(), blocked,
+                ReportCardBatchEligibilityService.POLICY, preview.scopeFingerprint(), json(productSet(preview)), preview.scopeFingerprint(), json(windowDetails(authorization)), preview.totalStudents(), blocked,
                 blocked, currentUserId());
         for (ReportCardBatchEligibilityService.EligibilityRow row : preview.rows()) {
             boolean ready = "READY".equals(row.eligibility());
             BulletinBatchSnapshotEvidence evidence = row.snapshot();
             jdbc.update("""
                     INSERT INTO bulletin_batch_item
-                        (id,school_id,job_id,student_id,status,attempts,error,result_code,result_details,
+                        (id,school_id,job_id,student_id,reporting_period_id,reporting_period_code,reporting_period_label,product_code,status,attempts,error,result_code,result_details,
                          snapshot_id,snapshot_version,snapshot_hash,snapshot_published_at)
-                    VALUES (?,?,?, ?, ?,0, ?, ?, ?::jsonb, ?,?,?,?)
-                    """, UUID.randomUUID(), schoolId, id, row.studentId(), ready ? "QUEUED" : "BLOCKED",
+                    VALUES (?,?,?,?,?,?,?, ?, ?,0, ?, ?, ?::jsonb, ?,?,?,?)
+                    """, UUID.randomUUID(), schoolId, id, row.studentId(), row.reportingPeriodId(), row.reportingPeriodCode(), row.reportingPeriodLabel(), row.product(), ready ? "QUEUED" : "BLOCKED",
                     ready ? null : row.code(), ready ? "QUEUED" : row.code(), json(details(row)),
                     evidence == null ? null : evidence.id(), evidence == null ? null : evidence.version(),
                     evidence == null ? null : evidence.hash(), evidence == null ? null : timestamp(evidence.publishedAt()));
@@ -395,12 +400,15 @@ public class ReportCardBatchJobService {
         int retryable = (int) items.stream().filter(item -> "ERROR".equals(item.status()) && item.retryableNow()).count();
         int nowEligible = (int) items.stream().filter(item -> "BLOCKED".equals(item.status()) && item.retryableNow()).count();
         int stillBlocked = job.blockedItems() - nowEligible;
+        List<UUID> periodIds = items.stream().map(BulletinBatchItemView::reportingPeriodId).filter(java.util.Objects::nonNull).distinct().toList();
+        List<String> products = items.stream().map(BulletinBatchItemView::product).filter(java.util.Objects::nonNull).distinct().toList();
         return new BulletinBatchJobView(job.id(), job.academicSessionId(), job.reportingPeriodId(), job.classId(), job.locale(),
                 job.status(), job.totalItems(), job.processedItems(), job.publishedItems(), job.blockedItems(), job.errorItems(),
                 progress, job.requestedAt(), job.startedAt(), job.completedAt(), archive, job.archiveSha256(), job.archiveSizeBytes(),
                 job.lastError(), job.version(), job.policy(), job.scopeFingerprint(), category, headlineCode, headlineArgs,
                  reasonCounts, archive, diagnostic, retryable, nowEligible, Math.max(0, stillBlocked),
-                 job.diagnosticSha256(), job.diagnosticSizeBytes(), currentWindow(job));
+                 job.diagnosticSha256(), job.diagnosticSizeBytes(), currentWindow(job), periodIds, products,
+                 List.of(currentWindow(job)));
     }
 
     private String resultCategory(JobRow job) {
@@ -419,6 +427,7 @@ public class ReportCardBatchJobService {
     private List<ItemRow> itemRows(JobRow job) {
         return jdbc.query("""
                 SELECT i.id,i.student_id,coalesce(s.last_name||' '||s.first_name,i.student_id::text),i.status,
+                       i.reporting_period_id,i.reporting_period_code,i.reporting_period_label,i.product_code,
                        i.attempts,coalesce(i.file_name,''),coalesce(i.size_bytes,0),coalesce(i.error,''),
                        i.result_code,coalesce(i.result_details::text,'{}'),i.snapshot_id,i.snapshot_version,
                        i.snapshot_hash,i.snapshot_published_at
@@ -427,9 +436,10 @@ public class ReportCardBatchJobService {
                  WHERE i.school_id=? AND i.job_id=?
                  ORDER BY s.last_name,s.first_name,i.created_at,i.id
                 """, (rs, row) -> new ItemRow(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class), rs.getString(3),
-                        rs.getString(4), rs.getInt(5), rs.getString(6), rs.getLong(7), blank(rs.getString(8)),
-                        rs.getString(9), parseDetails(rs.getString(10)), rs.getObject(11, UUID.class),
-                        (Long) rs.getObject(12), rs.getString(13), instant(rs.getObject(14, OffsetDateTime.class))),
+                rs.getString(4), rs.getObject(5, UUID.class), rs.getString(6), rs.getString(7), rs.getString(8),
+                        rs.getInt(9), rs.getString(10), rs.getLong(11), blank(rs.getString(12)),
+                        rs.getString(13), parseDetails(rs.getString(14)), rs.getObject(15, UUID.class),
+                        (Long) rs.getObject(16), rs.getString(17), instant(rs.getObject(18, OffsetDateTime.class))),
                 TenantContext.get(), job.id());
     }
 
@@ -456,7 +466,9 @@ public class ReportCardBatchJobService {
                 item.snapshotPublishedAt(), state);
         return new BulletinBatchItemView(item.id(), item.studentId(), item.studentName(), item.status(), item.attempts(),
                 item.fileName(), item.sizeBytes(), item.error(), code, category, messageKey, args, state, retryable,
-                target, snapshot, string(details.get("correlationId")), item.error());
+                target, snapshot, string(details.get("correlationId")), item.error(), item.reportingPeriodId(),
+                item.reportingPeriodCode(), item.reportingPeriodLabel(), item.product(),
+                string(details.get("correctiveAction")), stringList(details.get("affectedRows")));
     }
 
     private BulletinBatchRepairTarget repairTarget(JobRow job, UUID studentId) {
@@ -503,6 +515,12 @@ public class ReportCardBatchJobService {
         details.put("messageArgs", row.messageArgs());
         details.put("currentState", row.currentState());
         details.put("retryableNow", row.retryableNow());
+        details.put("reportingPeriodId", row.reportingPeriodId());
+        details.put("reportingPeriodCode", row.reportingPeriodCode());
+        details.put("reportingPeriodLabel", row.reportingPeriodLabel());
+        details.put("product", row.product());
+        details.put("correctiveAction", row.correctiveAction());
+        details.put("affectedRows", row.affectedRows());
         if (row.correlationId() != null) details.put("correlationId", row.correlationId());
         if (row.snapshot() != null) {
             details.put("snapshotId", row.snapshot().id());
@@ -511,6 +529,16 @@ public class ReportCardBatchJobService {
             details.put("snapshotPublishedAt", row.snapshot().publishedAt());
         }
         return details;
+    }
+
+    private List<Map<String, Object>> productSet(ReportCardBatchEligibilityService.EligibilityPreview preview) {
+        return preview.reportingPeriodIds().stream().map(id -> {
+            Map<String, Object> product = new LinkedHashMap<>();
+            product.put("reportingPeriodId", id);
+            int index = preview.reportingPeriodIds().indexOf(id);
+            product.put("product", preview.products().size() > index ? preview.products().get(index) : "UNKNOWN");
+            return product;
+        }).toList();
     }
 
     private Map<String, Object> windowDetails(AcademicWindowPolicyService.WindowView window) {
@@ -558,6 +586,10 @@ public class ReportCardBatchJobService {
         return value == null ? fallback : value instanceof Boolean b ? b : Boolean.parseBoolean(String.valueOf(value));
     }
     private static String string(Object value) { return value == null ? null : String.valueOf(value); }
+    private static List<String> stringList(Object value) {
+        if (value instanceof List<?> list) return list.stream().map(String::valueOf).toList();
+        return List.of();
+    }
     private static String blank(String value) { return value == null ? "" : value; }
     private static Instant instant(OffsetDateTime value) { return value == null ? null : value.toInstant(); }
     private static Timestamp timestamp(Instant value) { return value == null ? null : Timestamp.from(value); }
@@ -582,7 +614,8 @@ public class ReportCardBatchJobService {
                            String diagnosticSha256, Long diagnosticSizeBytes, String windowAuthorization,
                            String periodCode, String periodLabel, String className) {}
 
-    private record ItemRow(UUID id, UUID studentId, String studentName, String status, int attempts,
+    private record ItemRow(UUID id, UUID studentId, String studentName, String status, UUID reportingPeriodId,
+                           String reportingPeriodCode, String reportingPeriodLabel, String product, int attempts,
                            String fileName, long sizeBytes, String error, String resultCode,
                            Map<String, Object> details, UUID snapshotId, Long snapshotVersion,
                            String snapshotHash, Instant snapshotPublishedAt) {

@@ -82,12 +82,14 @@ public class ReportCardBatchJobWorker {
     private void run(UUID jobId, UUID schoolId) {
         JobScope scope = jdbc.query("""
                 SELECT j.academic_session_id,j.reporting_period_id,j.class_id,j.locale,coalesce(j.policy,'PUBLISHED_ONLY'),
-                       p.code,p.label
+                       p.code,p.label,c.name,coalesce(j.window_authorization::text,'{}')
                   FROM bulletin_batch_job j
                   JOIN academic_reporting_period p ON p.id=j.reporting_period_id AND p.school_id=j.school_id
+                  JOIN school_class c ON c.id=j.class_id AND c.school_id=j.school_id
                  WHERE j.school_id=? AND j.id=?
                 """, rs -> rs.next() ? new JobScope(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class),
-                        rs.getObject(3, UUID.class), rs.getString(4), rs.getString(5), rs.getString(6), rs.getString(7)) : null, schoolId, jobId);
+                        rs.getObject(3, UUID.class), rs.getString(4), rs.getString(5), rs.getString(6), rs.getString(7),
+                        rs.getString(8), rs.getString(9)) : null, schoolId, jobId);
         if (scope == null) return;
         jdbc.update("""
                 UPDATE bulletin_batch_job
@@ -95,13 +97,15 @@ public class ReportCardBatchJobWorker {
                  WHERE school_id=? AND id=? AND status IN ('QUEUED','RUNNING')
                 """, schoolId, jobId);
         List<Item> items = jdbc.query("""
-                SELECT id,student_id,snapshot_id,snapshot_version,snapshot_hash,snapshot_published_at
+                SELECT id,student_id,reporting_period_id,reporting_period_code,reporting_period_label,product_code,
+                       snapshot_id,snapshot_version,snapshot_hash,snapshot_published_at
                   FROM bulletin_batch_item
                  WHERE school_id=? AND job_id=? AND status='QUEUED'
                  ORDER BY created_at,id
                 """, (rs, row) -> new Item(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class),
-                        rs.getObject(3, UUID.class), (Long) rs.getObject(4), rs.getString(5),
-                        instant(rs.getObject(6, OffsetDateTime.class))), schoolId, jobId);
+                        rs.getObject(3, UUID.class), rs.getString(4), rs.getString(5), rs.getString(6),
+                        rs.getObject(7, UUID.class), (Long) rs.getObject(8), rs.getString(9),
+                        instant(rs.getObject(10, OffsetDateTime.class))), schoolId, jobId);
         for (Item item : items) {
             if (isCancelled(schoolId, jobId)) return;
             processItem(jobId, schoolId, scope, item);
@@ -115,23 +119,35 @@ public class ReportCardBatchJobWorker {
                 Boolean.class, schoolId, jobId));
     }
 
+    private boolean hasParentPublicationEvidence(UUID schoolId, UUID snapshotId) {
+        if (snapshotId == null) return false;
+        Integer count = jdbc.queryForObject("""
+                SELECT count(*) FROM bulletin_version v
+                 JOIN bulletin_parent_visibility pv ON pv.school_id=v.school_id AND pv.bulletin_version_id=v.id
+                 JOIN generated_document d ON d.school_id=pv.school_id AND d.id=pv.generated_document_id
+                WHERE v.school_id=? AND v.id=? AND v.state='PUBLISHED' AND pv.status='ACTIVE'
+                  AND d.status IN ('GENERATED','ISSUED') AND d.visibility='PARENT'
+                """, Integer.class, schoolId, snapshotId);
+        return count != null && count > 0;
+    }
+
     private void processItem(UUID jobId, UUID schoolId, JobScope scope, Item item) {
         ReportCardBatchEligibilityService.EligibilityRow current = eligibility.resolveForJob(
-                schoolId, scope.academicSessionId(), scope.classId(), scope.reportingPeriodId(), item.studentId(), scope.locale());
+                schoolId, scope.academicSessionId(), scope.classId(), item.reportingPeriodId(), item.studentId(), scope.locale());
         if (!"READY".equals(current.eligibility())) {
             if ("TECHNICAL_ERROR".equals(current.category())) {
                 markTerminal(schoolId, item.id(), "ERROR", null, null, null, null, null, null, null, current.code(),
-                        details(current, UUID.randomUUID().toString()), current.code());
+                        details(current, UUID.randomUUID().toString(), scope), current.code());
             } else {
                 markTerminal(schoolId, item.id(), "BLOCKED", null, null, null, null, null, null, null, current.code(),
-                        details(current, null), current.code());
+                        details(current, null, scope), current.code());
             }
             refreshCounts(schoolId, jobId);
             return;
         }
         if (!sameEvidence(item, current.snapshot())) {
             BulletinBatchResultCode changed = BulletinBatchResultCode.REPORT_PUBLICATION_CHANGED;
-            Map<String, Object> details = new LinkedHashMap<>();
+            Map<String, Object> details = details(current, null, scope);
             details.put("messageKey", changed.messageKey());
             details.put("messageArgs", current.messageArgs());
             details.put("currentState", "PUBLISHED");
@@ -144,6 +160,20 @@ public class ReportCardBatchJobWorker {
                     current.snapshot() == null ? null : current.snapshot().version(),
                     current.snapshot() == null ? null : current.snapshot().hash(), null,
                     changed.name(), details, changed.name());
+            refreshCounts(schoolId, jobId);
+            return;
+        }
+
+        if (!hasParentPublicationEvidence(schoolId, item.snapshotId())) {
+            BulletinBatchResultCode code = BulletinBatchResultCode.PARENT_VISIBILITY_MISSING;
+            Map<String, Object> result = details(current, null, scope);
+            result.put("messageKey", code.messageKey());
+            result.put("messageArgs", current.messageArgs());
+            result.put("currentState", "PUBLISHED");
+            result.put("retryableNow", false);
+            result.put("correctiveAction", "Repair the BAY-37 parent document and visibility evidence, then recheck this exact product.");
+            markTerminal(schoolId, item.id(), "BLOCKED", null, null, null, item.snapshotId(), item.snapshotVersion(),
+                    item.snapshotHash(), null, code.name(), result, code.name());
             refreshCounts(schoolId, jobId);
             return;
         }
@@ -162,13 +192,13 @@ public class ReportCardBatchJobWorker {
         try {
             byte[] bytes = pdf.render(snapshotId, !"en".equalsIgnoreCase(scope.locale()));
             ReportCardBatchEligibilityService.EligibilityRow finalState = eligibility.resolveForJob(
-                    schoolId, scope.academicSessionId(), scope.classId(), scope.reportingPeriodId(), item.studentId(), scope.locale());
+                    schoolId, scope.academicSessionId(), scope.classId(), item.reportingPeriodId(), item.studentId(), scope.locale());
             if (!"READY".equals(finalState.eligibility()) || !sameEvidence(item, finalState.snapshot())) {
                 BulletinBatchResultCode code = "TECHNICAL_ERROR".equals(finalState.category())
                         ? BulletinBatchResultCode.from(finalState.code())
                         : BulletinBatchResultCode.REPORT_PUBLICATION_CHANGED;
                 if (code == null) code = BulletinBatchResultCode.UNEXPECTED_GENERATION_ERROR;
-                Map<String, Object> result = details(finalState, code.businessBlocker() ? null : UUID.randomUUID().toString());
+                Map<String, Object> result = details(finalState, code.businessBlocker() ? null : UUID.randomUUID().toString(), scope);
                 result.put("messageKey", code.messageKey());
                 result.put("messageArgs", finalState.messageArgs());
                 result.put("recheckedBeforeRegistration", true);
@@ -185,7 +215,7 @@ public class ReportCardBatchJobWorker {
             var frozen = snapshots.authoritativeById(snapshotId);
             var evidence = pdf.evidence(snapshotId);
             String name = frozen.student() == null ? "" : frozen.student().name();
-            String fileName = safeFile(name) + "-" + item.studentId().toString().substring(0, 8) + ".pdf";
+            String fileName = safeFile(item.product()) + "-" + safeFile(name) + "-" + item.studentId().toString().substring(0, 8) + ".pdf";
             stage = "STORAGE";
             String key = storage.store(schoolId.toString(), "bulletin-batch/" + jobId + "/" + item.id(), "pdf", bytes);
             stage = "DOCUMENT";
@@ -193,12 +223,14 @@ public class ReportCardBatchJobWorker {
                     snapshotId.toString(), String.valueOf(current.snapshot().version()), scope.locale(),
                     ("en".equalsIgnoreCase(scope.locale()) ? "School report card" : "Bulletin scolaire") + " - " + name,
                     "PARENT", bytes, "bulletin-batch:" + jobId + ":" + item.id(), evidence);
-            Map<String, Object> result = details(current, null);
+            Map<String, Object> result = details(current, null, scope);
             result.put("currentState", "PUBLISHED");
             result.put("retryableNow", false);
             result.put("documentId", document.id());
             markTerminal(schoolId, item.id(), "PUBLISHED", fileName, key, bytes, snapshotId, current.snapshot().version(),
                     current.snapshot().hash(), document.id(), BulletinBatchResultCode.PUBLISHED.name(), result, null);
+            persistArtifact(schoolId, jobId, item.id(), "DOCUMENT", fileName, key, bytes,
+                    Map.of("product", item.product(), "reportingPeriodId", String.valueOf(item.reportingPeriodId()), "documentId", document.id().toString()));
             refreshCounts(schoolId, jobId);
         } catch (Exception ex) {
             BulletinBatchResultCode code = switch (stage) {
@@ -208,7 +240,7 @@ public class ReportCardBatchJobWorker {
                 default -> BulletinBatchResultCode.UNEXPECTED_GENERATION_ERROR;
             };
             String correlationId = UUID.randomUUID().toString();
-            Map<String, Object> result = new LinkedHashMap<>();
+            Map<String, Object> result = details(current, correlationId, scope);
             result.put("messageKey", code.messageKey());
             result.put("messageArgs", current.messageArgs());
             result.put("currentState", "PUBLISHED");
@@ -255,16 +287,18 @@ public class ReportCardBatchJobWorker {
 
     private void buildArtifacts(UUID jobId, UUID schoolId, JobScope scope) {
         List<ArchiveItem> items = jdbc.query("""
-                SELECT i.student_id,coalesce(s.last_name||' '||s.first_name,i.student_id::text),s.matricule,i.status,i.attempts,
+                SELECT i.student_id,coalesce(s.last_name||' '||s.first_name,i.student_id::text),s.matricule,
+                       i.reporting_period_id,i.reporting_period_code,i.reporting_period_label,i.product_code,i.status,i.attempts,
                        coalesce(i.file_name,''),i.file_storage_key,coalesce(i.sha256,''),coalesce(i.size_bytes,0),
                        coalesce(i.error,''),i.result_code,coalesce(i.result_details::text,'{}'),i.snapshot_id,
                        i.snapshot_version,coalesce(i.snapshot_hash,''),i.generated_document_id
                   FROM bulletin_batch_item i JOIN student s ON s.id=i.student_id AND s.school_id=i.school_id
                  WHERE i.school_id=? AND i.job_id=? ORDER BY s.last_name,s.first_name,i.created_at
                 """, (rs, row) -> new ArchiveItem(rs.getObject(1, UUID.class), rs.getString(2), rs.getString(3),
-                        rs.getString(4), rs.getInt(5), rs.getString(6), rs.getString(7), rs.getString(8), rs.getLong(9),
-                        rs.getString(10), rs.getString(11), parseDetails(rs.getString(12)), rs.getObject(13, UUID.class),
-                        (Long) rs.getObject(14), rs.getString(15), rs.getObject(16, UUID.class)), schoolId, jobId);
+                        rs.getObject(4, UUID.class), rs.getString(5), rs.getString(6), rs.getString(7), rs.getString(8), rs.getInt(9),
+                        rs.getString(10), rs.getString(11), rs.getString(12), rs.getLong(13), rs.getString(14), rs.getString(15),
+                        parseDetails(rs.getString(16)), rs.getObject(17, UUID.class), (Long) rs.getObject(18),
+                        rs.getString(19), rs.getObject(20, UUID.class)), schoolId, jobId);
 
         byte[] diagnostic = diagnosticCsv(items, scope);
         String diagnosticKey = storage.store(schoolId.toString(), "bulletin-batch/" + jobId + "/diagnostic", "csv", diagnostic);
@@ -272,6 +306,7 @@ public class ReportCardBatchJobWorker {
                 UPDATE bulletin_batch_job SET diagnostic_storage_key=?,diagnostic_sha256=?,diagnostic_size_bytes=?,version=version+1
                  WHERE school_id=? AND id=?
                 """, diagnosticKey, sha256(diagnostic), (long) diagnostic.length, schoolId, jobId);
+        persistArtifact(schoolId, jobId, null, "DIAGNOSTIC", "diagnostic.csv", diagnosticKey, diagnostic, Map.of("rows", items.size()));
         audit.record("BULLETIN_BATCH_DIAGNOSTIC_GENERATED", "BulletinBatchJob", jobId.toString(), null,
                 Map.of("sizeBytes", diagnostic.length, "sha256", sha256(diagnostic)), null);
 
@@ -280,13 +315,13 @@ public class ReportCardBatchJobWorker {
         if (successful.isEmpty()) return;
         try (ByteArrayOutputStream out = new ByteArrayOutputStream(); ZipOutputStream zip = new ZipOutputStream(out, StandardCharsets.UTF_8)) {
             List<String> manifest = new ArrayList<>();
-            manifest.add("student_id,student_name,status,file,sha256,size_bytes,result_code,snapshot_id,snapshot_version,snapshot_hash,document_id,error");
+            manifest.add("student_id,student_name,period_code,product,status,file,sha256,size_bytes,result_code,snapshot_id,snapshot_version,snapshot_hash,document_id,error");
             for (ArchiveItem item : items) {
                 if (item.fileStorageKey() != null && !item.fileStorageKey().isBlank()) {
                     byte[] bytes = storage.read(item.fileStorageKey());
                     zip.putNextEntry(new ZipEntry(item.fileName())); zip.write(bytes); zip.closeEntry();
                 }
-                manifest.add(csv(item.studentId().toString(), item.studentName(), item.status(), item.fileName(), item.sha256(),
+                manifest.add(csv(item.studentId().toString(), item.studentName(), item.reportingPeriodCode(), item.product(), item.status(), item.fileName(), item.sha256(),
                         String.valueOf(item.sizeBytes()), ReportCardBatchEligibilityService.legacyCode(item.resultCode(), item.error()),
                         String.valueOf(item.snapshotId()), String.valueOf(item.snapshotVersion()), item.snapshotHash(),
                         String.valueOf(item.documentId()), item.error()));
@@ -300,6 +335,9 @@ public class ReportCardBatchJobWorker {
             zip.finish();
             byte[] archive = out.toByteArray();
             String key = storage.store(schoolId.toString(), "bulletin-batch/" + jobId + "/archive", "zip", archive);
+            String manifestKey = storage.store(schoolId.toString(), "bulletin-batch/" + jobId + "/manifest", "csv", report);
+            persistArtifact(schoolId, jobId, null, "MANIFEST", "manifest.csv", manifestKey, report, Map.of("rows", items.size()));
+            persistArtifact(schoolId, jobId, null, "ARCHIVE", "bulletin-batch.zip", key, archive, Map.of("publishedItems", successful.size()));
             jdbc.update("""
                     UPDATE bulletin_batch_job SET archive_storage_key=?,archive_sha256=?,archive_size_bytes=?,version=version+1
                      WHERE school_id=? AND id=?
@@ -311,6 +349,19 @@ public class ReportCardBatchJobWorker {
             jdbc.update("UPDATE bulletin_batch_job SET status='FAILED',completed_at=now(),last_error=?,version=version+1 WHERE school_id=? AND id=?",
                     "Archive generation failed; reference " + correlationId, schoolId, jobId);
         }
+    }
+
+    private void persistArtifact(UUID schoolId, UUID jobId, UUID itemId, String type, String fileName,
+                                 String storageKey, byte[] bytes, Map<String, Object> metadata) {
+        jdbc.update("""
+                INSERT INTO bulletin_batch_artifact
+                    (id,school_id,job_id,item_id,artifact_type,file_name,storage_key,sha256,size_bytes,metadata)
+                VALUES (?,?,?,?,?,?,?,?,?,?::jsonb)
+                ON CONFLICT (school_id,job_id,artifact_type,file_name) DO UPDATE SET
+                    item_id=EXCLUDED.item_id,storage_key=EXCLUDED.storage_key,sha256=EXCLUDED.sha256,
+                    size_bytes=EXCLUDED.size_bytes,metadata=EXCLUDED.metadata
+                """, UUID.randomUUID(), schoolId, jobId, itemId, type, fileName, storageKey,
+                sha256(bytes), (long) bytes.length, json(metadata));
     }
 
     private void addCompanionArtifacts(ZipOutputStream zip, List<String> manifest,
@@ -349,7 +400,7 @@ public class ReportCardBatchJobWorker {
     private byte[] diagnosticCsv(List<ArchiveItem> items, JobScope scope) {
         boolean fr = !"en".equalsIgnoreCase(scope.locale());
         List<String> lines = new ArrayList<>();
-        lines.add("student_id,student_name,status,attempts,result_code,category,current_state,retryable_now,message,repair_scope,snapshot_id,snapshot_version,snapshot_hash,document_id");
+        lines.add("class_id,class_name,student_id,student_name,matricule,reporting_period_id,period_code,period_label,product,status,attempts,result_code,category,current_state,window_authorization,retryable_now,message,corrective_action,affected_rows,snapshot_id,snapshot_version,snapshot_hash,document_id");
         for (ArchiveItem item : items) {
             String code = "PUBLISHED".equals(item.status()) ? "PUBLISHED" : ReportCardBatchEligibilityService.legacyCode(item.resultCode(), item.error());
             BulletinBatchResultCode known = BulletinBatchResultCode.from(code);
@@ -358,8 +409,12 @@ public class ReportCardBatchJobWorker {
             String message = friendly(code, scope.reportingPeriodCode(), item.studentName(), fr);
             String repair = known != null && known.businessBlocker()
                     ? "/academic?mode=bulletin&classId=" + scope.classId() + "&reportingPeriodId=" + scope.reportingPeriodId() + "&studentId=" + item.studentId() : "";
-            lines.add(csv(item.studentId().toString(), item.studentName(), item.status(), String.valueOf(item.attempts()), code,
-                    known == null ? "" : known.category(), state, String.valueOf(retryable), message, repair,
+            lines.add(csv(scope.classId().toString(), scope.className(), item.studentId().toString(), item.studentName(), item.matricule(),
+                    String.valueOf(item.reportingPeriodId()), item.reportingPeriodCode(), item.reportingPeriodLabel(), item.product(),
+                    item.status(), String.valueOf(item.attempts()), code, known == null ? "" : known.category(), state,
+                    scope.windowAuthorization(), String.valueOf(retryable), message,
+                    String.valueOf(item.details().getOrDefault("correctiveAction", "Review the exact product diagnostic and recheck.")),
+                    String.valueOf(item.details().getOrDefault("affectedRows", item.studentId().toString())),
                     String.valueOf(item.snapshotId()), String.valueOf(item.snapshotVersion()), item.snapshotHash(), String.valueOf(item.documentId())));
         }
         return String.join("\n", lines).getBytes(StandardCharsets.UTF_8);
@@ -383,11 +438,28 @@ public class ReportCardBatchJobWorker {
         Map<String, Object> details = new LinkedHashMap<>();
         details.put("messageKey", row.messageKey()); details.put("messageArgs", row.messageArgs());
         details.put("currentState", row.currentState()); details.put("retryableNow", row.retryableNow());
+        details.put("reportingPeriodId", row.reportingPeriodId());
+        details.put("reportingPeriodCode", row.reportingPeriodCode());
+        details.put("reportingPeriodLabel", row.reportingPeriodLabel());
+        details.put("product", row.product());
+        details.put("correctiveAction", row.correctiveAction());
+        details.put("affectedRows", row.affectedRows());
         if (correlationId != null) details.put("correlationId", correlationId);
         if (row.snapshot() != null) {
             details.put("snapshotId", row.snapshot().id()); details.put("snapshotVersion", row.snapshot().version());
             details.put("snapshotHash", row.snapshot().hash()); details.put("snapshotPublishedAt", row.snapshot().publishedAt());
         }
+        return details;
+    }
+
+    private Map<String, Object> details(ReportCardBatchEligibilityService.EligibilityRow row, String correlationId,
+                                        JobScope scope) {
+        Map<String, Object> details = details(row, correlationId);
+        details.put("classId", scope.classId());
+        details.put("className", scope.className());
+        details.put("windowAuthorization", scope.windowAuthorization());
+        details.putIfAbsent("affectedRows", List.of(row.studentId().toString()));
+        details.putIfAbsent("correctiveAction", "Review the exact product diagnostic, repair the blocker, then recheck.");
         return details;
     }
 
@@ -428,9 +500,13 @@ public class ReportCardBatchJobWorker {
     private Map<String, Object> parseDetails(String value) { try { return mapper.readValue(value == null ? "{}" : value, new TypeReference<>() {}); } catch (Exception ex) { return new LinkedHashMap<>(); } }
 
     private record JobScope(UUID academicSessionId, UUID reportingPeriodId, UUID classId, String locale, String policy,
-                            String reportingPeriodCode, String reportingPeriodLabel) {}
-    private record Item(UUID id, UUID studentId, UUID snapshotId, Long snapshotVersion, String snapshotHash, Instant snapshotPublishedAt) {}
-    private record ArchiveItem(UUID studentId, String studentName, String matricule, String status, int attempts, String fileName,
+                            String reportingPeriodCode, String reportingPeriodLabel, String className,
+                            String windowAuthorization) {}
+    private record Item(UUID id, UUID studentId, UUID reportingPeriodId, String reportingPeriodCode,
+                        String reportingPeriodLabel, String product, UUID snapshotId, Long snapshotVersion,
+                        String snapshotHash, Instant snapshotPublishedAt) {}
+    private record ArchiveItem(UUID studentId, String studentName, String matricule, UUID reportingPeriodId,
+                               String reportingPeriodCode, String reportingPeriodLabel, String product, String status, int attempts, String fileName,
                                String fileStorageKey, String sha256, long sizeBytes, String error, String resultCode,
                                Map<String, Object> details, UUID snapshotId, Long snapshotVersion,
                                String snapshotHash, UUID documentId) {}

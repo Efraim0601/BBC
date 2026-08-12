@@ -86,20 +86,27 @@ public class ReportCardBatchEligibilityService {
 
     @Transactional(readOnly = true)
     public EligibilityPreview preview(UUID classId, UUID reportingPeriodId, String locale) {
+        return preview(classId, reportingPeriodId == null ? List.of() : List.of(reportingPeriodId), locale);
+    }
+
+    @Transactional(readOnly = true)
+    public EligibilityPreview preview(UUID classId, List<UUID> reportingPeriodIds, String locale) {
         UUID schoolId = TenantContext.get();
-        if (classId == null || reportingPeriodId == null) {
+        List<UUID> periodIds = reportingPeriodIds == null ? List.of() : reportingPeriodIds.stream().filter(java.util.Objects::nonNull).distinct().toList();
+        if (classId == null || periodIds.isEmpty()) {
             throw ApiException.fields(org.springframework.http.HttpStatus.BAD_REQUEST,
                     "BATCH_SCOPE_REQUIRED", "La classe et la période de résultat sont obligatoires.",
-                    Map.of(classId == null ? "classId" : "reportingPeriodId",
+                    Map.of(classId == null ? "classId" : "reportingPeriodIds",
                             classId == null ? "La classe est obligatoire." : "La période est obligatoire."));
         }
         teacherScope.assertClass(classId);
         SchoolClass schoolClass = classes.findByIdAndSchoolId(classId, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Classe"));
-        AcademicReportingPeriod period = periods.findByIdAndSchoolId(reportingPeriodId, schoolId)
+        AcademicReportingPeriod period = periods.findByIdAndSchoolId(periodIds.get(0), schoolId)
                 .orElseThrow(() -> ApiException.notFound("Période de résultat"));
-        AcademicWindowPolicyService.WindowView window = windows.effective(
-                period.getId(), AcademicWindowPolicyService.Action.BATCH_GENERATION);
+        List<AcademicWindowPolicyService.WindowView> windowViews = periodIds.stream()
+                .map(id -> windows.effective(id, AcademicWindowPolicyService.Action.BATCH_GENERATION)).toList();
+        AcademicWindowPolicyService.WindowView window = windowViews.get(0);
         var session = sessions.findByIdAndSchoolId(period.getAcademicSessionId(), schoolId)
                 .orElseThrow(() -> ApiException.notFound("Session académique"));
         List<StudentEnrollment> roster = enrollments
@@ -110,13 +117,16 @@ public class ReportCardBatchEligibilityService {
                     "Aucun élève actif dans cette classe pour la session sélectionnée.");
         }
         String normalizedLocale = normalizeLocale(locale);
-        List<EligibilityRow> rows = roster.stream()
-                .map(enrollment -> resolveForEnrollment(schoolId, schoolClass, period, enrollment, normalizedLocale))
-                .toList();
+        List<EligibilityRow> rows = periodIds.stream().flatMap(id -> {
+            AcademicReportingPeriod selected = periods.findByIdAndSchoolId(id, schoolId).orElseThrow();
+            return roster.stream().map(enrollment -> resolveForEnrollment(schoolId, schoolClass, selected, enrollment, normalizedLocale));
+        }).toList();
         BulletinBatchWindowView windowView = windowView(window);
         return new EligibilityPreview(POLICY, POLICY_VERSION, period.getAcademicSessionId(), session.getLabel(),
                 classId, schoolClass.getName(), period.getId(), period.getCode(), period.getLabel(),
-                rows, fingerprint(schoolId, schoolClass, period, rows), window.serverTime(), normalizedLocale, windowView);
+                rows, fingerprint(schoolId, schoolClass, periodIds, rows), window.serverTime(), normalizedLocale,
+                windowView, periodIds, periodIds.stream().map(id -> periods.findByIdAndSchoolId(id, schoolId).orElseThrow())
+                        .map(this::productFor).toList(), windowViews.stream().map(this::windowView).toList());
     }
 
     /** Resolve one row from the current active enrollment without broadening tenant scope. */
@@ -223,7 +233,8 @@ public class ReportCardBatchEligibilityService {
                                  String name, String matricule, VersionRow candidate) {
         return new EligibilityRow(studentId, name, matricule, "READY", BulletinBatchResultCode.PUBLISHED.name(),
                 BulletinBatchResultCode.PUBLISHED.category(), BulletinBatchResultCode.PUBLISHED.messageKey(),
-                messageArgs(period, name, matricule), "PUBLISHED", false, null, evidence(candidate), null);
+                messageArgs(period, name, matricule), "PUBLISHED", false, null, evidence(candidate), null,
+                period.getId(), period.getCode(), period.getLabel(), productFor(period), "No corrective action; published evidence is ready.", List.of());
     }
 
     private EligibilityRow blocker(SchoolClass schoolClass, AcademicReportingPeriod period, UUID studentId,
@@ -231,7 +242,8 @@ public class ReportCardBatchEligibilityService {
                                    BulletinBatchSnapshotEvidence snapshot, String locale) {
         BulletinBatchRepairTarget repair = repairTarget(schoolClass, period, studentId);
         return new EligibilityRow(studentId, name, matricule, "BLOCKED", code.name(), code.category(),
-                code.messageKey(), messageArgs(period, name, matricule), state, false, repair, snapshot, null);
+                code.messageKey(), messageArgs(period, name, matricule), state, false, repair, snapshot, null,
+                period.getId(), period.getCode(), period.getLabel(), productFor(period), correctiveAction(code), List.of(studentId.toString()));
     }
 
     private EligibilityRow technical(SchoolClass schoolClass, AcademicReportingPeriod period, VersionRow candidate,
@@ -239,19 +251,20 @@ public class ReportCardBatchEligibilityService {
                                      BulletinBatchResultCode code, String locale) {
         return new EligibilityRow(studentId, name, matricule, "BLOCKED", code.name(), code.category(),
                 code.messageKey(), messageArgs(period, name, matricule), candidate == null ? "UNKNOWN" : candidate.state(),
-                code.retryableByDefault(), repairTarget(schoolClass, period, studentId), evidence(candidate), null);
+                code.retryableByDefault(), repairTarget(schoolClass, period, studentId), evidence(candidate), null,
+                period.getId(), period.getCode(), period.getLabel(), productFor(period), correctiveAction(code), List.of(studentId.toString()));
     }
 
-    private String fingerprint(UUID schoolId, SchoolClass schoolClass, AcademicReportingPeriod period,
-                               List<EligibilityRow> rows) {
+    private String fingerprint(UUID schoolId, SchoolClass schoolClass, List<UUID> periodIds,
+                                List<EligibilityRow> rows) {
         String roster = rows.stream().map(row -> row.studentId() + "|" + row.eligibility() + "|" + row.code()
                         + "|" + (row.snapshot() == null ? "" : row.snapshot().id()) + "|"
                         + (row.snapshot() == null ? "" : row.snapshot().version()) + "|"
                         + (row.snapshot() == null ? "" : row.snapshot().hash()) + "|"
                         + (row.snapshot() == null ? "" : row.snapshot().publishedAt()))
                 .sorted().collect(Collectors.joining(";"));
-        String input = POLICY_VERSION + "|" + schoolId + "|" + period.getAcademicSessionId() + "|"
-                + schoolClass.getId() + "|" + period.getId() + "|" + period.getVersion() + "|" + roster;
+        String input = POLICY_VERSION + "|" + schoolId + "|" + schoolClass.getId() + "|"
+                + periodIds.stream().map(UUID::toString).sorted().collect(Collectors.joining(",")) + "|" + roster;
         try {
             return HexFormatHolder.sha256(input);
         } catch (Exception ex) {
@@ -313,6 +326,27 @@ public class ReportCardBatchEligibilityService {
 
     private static String normalizeLocale(String locale) { return "en".equalsIgnoreCase(locale) ? "en" : "fr"; }
 
+    private String productFor(AcademicReportingPeriod period) {
+        if (period == null) return "UNKNOWN";
+        if ("ANNUAL_RESULT".equalsIgnoreCase(period.getPeriodType())) return "ANNUAL";
+        if ("T3_RESULT".equalsIgnoreCase(period.getCode())) return "T3";
+        if ("TERM_RESULT".equalsIgnoreCase(period.getPeriodType())) return "TERM";
+        return "SEQUENCE";
+    }
+
+    private String correctiveAction(BulletinBatchResultCode code) {
+        if (code == null) return "Review the row diagnostic and refresh the exact reporting product.";
+        return switch (code) {
+            case REPORT_NOT_CREATED -> "Create, validate, and publish the exact reporting product.";
+            case REPORT_DRAFT, REPORT_RETURNED, REPORT_STALE -> "Repair the exact bulletin, validate it, then publish it.";
+            case REPORT_VALIDATED_NOT_PUBLISHED -> "Publish the validated bulletin for the exact period.";
+            case REPORT_PUBLICATION_CHANGED -> "Recheck the row and use the current published snapshot.";
+            case ENROLLMENT_MISSING -> "Restore the active enrollment in the selected class/session.";
+            case PARENT_VISIBILITY_MISSING -> "Repair the BAY-37 parent document/visibility evidence, then recheck.";
+            default -> "Review the row diagnostic and retry only when it is eligible.";
+        };
+    }
+
     public static String legacyCode(String resultCode, String error) {
         if (resultCode != null && !resultCode.isBlank() && !"REPORT_NOT_PUBLISHED_LEGACY".equals(resultCode)) return resultCode;
         if (error != null && error.toLowerCase(Locale.ROOT).contains("no validated or published snapshot")) {
@@ -325,8 +359,20 @@ public class ReportCardBatchEligibilityService {
                                      String academicSessionLabel, UUID classId, String className,
                                      UUID reportingPeriodId, String reportingPeriodCode,
                                       String reportingPeriodLabel, List<EligibilityRow> rows,
-                                      String scopeFingerprint, Instant generatedAt, String locale,
-                                      BulletinBatchWindowView window) {
+                                     String scopeFingerprint, Instant generatedAt, String locale,
+                                     BulletinBatchWindowView window, List<UUID> reportingPeriodIds,
+                                     List<String> products, List<BulletinBatchWindowView> windows) {
+        public EligibilityPreview(String policy, String policyVersion, UUID academicSessionId,
+                                  String academicSessionLabel, UUID classId, String className,
+                                  UUID reportingPeriodId, String reportingPeriodCode, String reportingPeriodLabel,
+                                  List<EligibilityRow> rows, String scopeFingerprint, Instant generatedAt,
+                                  String locale, BulletinBatchWindowView window) {
+            this(policy, policyVersion, academicSessionId, academicSessionLabel, classId, className,
+                    reportingPeriodId, reportingPeriodCode, reportingPeriodLabel, rows, scopeFingerprint,
+                    generatedAt, locale, window,
+                    reportingPeriodId == null ? List.of() : List.of(reportingPeriodId), List.of(),
+                    window == null ? List.of() : List.of(window));
+        }
         public int totalStudents() { return rows.size(); }
         public int readyStudents() { return (int) rows.stream().filter(row -> "READY".equals(row.eligibility())).count(); }
         public int blockedStudents() { return totalStudents() - readyStudents(); }
@@ -339,7 +385,7 @@ public class ReportCardBatchEligibilityService {
             return new BulletinBatchPreviewView(policy, academicSessionId, academicSessionLabel, classId, className,
                     reportingPeriodId, reportingPeriodCode, reportingPeriodLabel, totalStudents(), readyStudents(),
                     blockedStudents(), reasonCounts(), rows.stream().map(EligibilityRow::view).toList(),
-                    scopeFingerprint, generatedAt, window);
+                    scopeFingerprint, generatedAt, window, reportingPeriodIds, products, windows);
         }
     }
 
@@ -354,10 +400,20 @@ public class ReportCardBatchEligibilityService {
     public record EligibilityRow(UUID studentId, String studentName, String matricule, String eligibility,
                                  String code, String category, String messageKey, Map<String, Object> messageArgs,
                                  String currentState, boolean retryableNow, BulletinBatchRepairTarget repairTarget,
-                                 BulletinBatchSnapshotEvidence snapshot, String correlationId) {
+                                 BulletinBatchSnapshotEvidence snapshot, String correlationId,
+                                 UUID reportingPeriodId, String reportingPeriodCode, String reportingPeriodLabel,
+                                 String product, String correctiveAction, List<String> affectedRows) {
+        public EligibilityRow(UUID studentId, String studentName, String matricule, String eligibility,
+                              String code, String category, String messageKey, Map<String, Object> messageArgs,
+                              String currentState, boolean retryableNow, BulletinBatchRepairTarget repairTarget,
+                              BulletinBatchSnapshotEvidence snapshot, String correlationId) {
+            this(studentId, studentName, matricule, eligibility, code, category, messageKey, messageArgs,
+                    currentState, retryableNow, repairTarget, snapshot, correlationId, null, null, null, null, null, List.of());
+        }
         public BulletinBatchPreviewView.Row view() {
             return new BulletinBatchPreviewView.Row(studentId, studentName, matricule, eligibility, code, category,
-                    messageKey, messageArgs, currentState, retryableNow, repairTarget, snapshot);
+                    messageKey, messageArgs, currentState, retryableNow, repairTarget, snapshot,
+                    reportingPeriodId, reportingPeriodCode, reportingPeriodLabel, product, correctiveAction, affectedRows);
         }
     }
 

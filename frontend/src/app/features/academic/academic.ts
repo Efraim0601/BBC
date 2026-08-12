@@ -965,6 +965,7 @@ const appreciation = (avg: number, fr: boolean): string => {
             @if (batchPreviewError(); as previewError) { <div class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900" role="alert">{{ previewError }}</div> }
             @if (batchPolicyError(); as policyError) { <div class="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900" role="alert"><div class="font-bold">{{ policyError.text }}</div>@if (policyError.target) { <button type="button" class="mt-2 font-semibold underline" (click)="openBatchWindowRepair(policyError.target)">{{ fr() ? 'Réparer dans Paramètres → Sessions & termes' : 'Repair in Settings → Sessions & terms' }}</button> }</div> }
             @if (batchPreview(); as preview) {
+              <fieldset class="mt-3 rounded-xl border border-brand-200 bg-brand-50/40 px-3 py-3 text-sm"><legend class="px-1 font-bold text-ink">{{ fr() ? 'Produits à générer' : 'Products to generate' }}</legend><div class="mt-2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">@for (option of batchProductOptions(); track option.id) { <label class="flex items-start gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 cursor-pointer"><input type="checkbox" class="mt-0.5" [checked]="batchProductPeriodIds().includes(option.id)" (change)="toggleBatchProduct(option.id, $any($event.target).checked)" /><span><span class="font-semibold text-ink">{{ option.product }} · {{ option.code }}</span><span class="block text-xs text-mute">{{ option.label }}</span></span></label> }</div><p class="mt-2 text-xs text-mute">{{ fr() ? 'T3 et Annuel restent deux produits et deux snapshots distincts, même dans le même lot.' : 'T3 and Annual remain separate products and snapshots, even in one batch.' }}</p></fieldset>
               <section class="rounded-xl border border-slate-200 bg-white p-4" aria-labelledby="batch-readiness-title">
                  <div class="flex items-start justify-between gap-4 flex-wrap"><div><h2 id="batch-readiness-title" class="text-lg font-bold text-ink">{{ preview.reportingPeriodCode }} {{ fr() ? '— préparation des bulletins' : '— report-card readiness' }}</h2><div class="text-sm text-mute mt-1">{{ preview.className }} · {{ display(preview.reportingPeriodLabel) }}</div><div class="text-xs text-mute mt-2">{{ fr() ? 'Export officiel : seuls les bulletins publiés pour ce jalon exact sont éligibles. Un bulletin T1 ne rend pas S1 prêt.' : 'Official export: only published report cards for this exact milestone are eligible. A T1 report card does not make S1 ready.' }}</div></div><div class="rounded-lg border border-brand-200 bg-brand-50 px-3 py-2 text-sm font-bold text-brand-900">{{ preview.readyStudents }} / {{ preview.totalStudents }} {{ fr() ? 'prêts' : 'ready' }}</div></div>
                  <div class="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm" data-testid="batch-window-state"><div class="flex items-center gap-2 flex-wrap"><span class="font-bold text-ink">{{ fr() ? 'Accès du trimestre ' + preview.window.governingTrimesterCode : preview.window.governingTrimesterCode + ' access' }}</span><span class="rounded-full border border-slate-300 bg-white px-2 py-1 text-xs font-bold">{{ batchWindowLabel(preview.window, fr()) }}</span></div><div class="mt-1 text-mute">{{ batchWindowExplanation(preview.window, fr()) }}</div>@if (!preview.window.launchAllowed && preview.window.repairTarget) { <button type="button" class="mt-2 font-semibold underline" (click)="openBatchWindowRepair(preview.window)">{{ fr() ? 'Ouvrir la réparation dans Paramètres' : 'Open Settings repair' }}</button> }</div>
@@ -1206,6 +1207,7 @@ export class AcademicComponent {
   protected batchJobs = signal<BulletinBatchJobView[]>([]);
   protected batchItems = signal<BulletinBatchItemView[]>([]);
   protected batchPreview = signal<BulletinBatchPreviewView | null>(null);
+  protected batchProductPeriodIds = signal<string[]>([]);
   protected batchPreviewLoading = signal(false);
   protected batchPreviewError = signal<string | null>(null);
   protected batchPolicyError = signal<{ text: string; target: BulletinBatchRepairTarget | null } | null>(null);
@@ -1347,7 +1349,7 @@ export class AcademicComponent {
     this.studentQuery.set('');
     this.classStudents.set([]);
     this.batchJob.set(null); this.batchJobs.set([]); this.batchItems.set([]);
-    this.batchPreview.set(null); this.batchPreviewError.set(null); this.showAllBatchBlockers.set(false);
+    this.batchPreview.set(null); this.batchPreviewError.set(null); this.batchProductPeriodIds.set([]); this.showAllBatchBlockers.set(false);
     this.batchConfirmDialog.set(null);
     if (!name) return;
     const sessionId = this.academicSessionId();
@@ -1449,12 +1451,14 @@ export class AcademicComponent {
       return;
     }
     const locale = this.fr() ? 'fr' : 'en';
-    const requestKey = `${classId}:${periodId}:${locale}`;
+    const selectedIds = this.batchProductPeriodIds().length ? this.batchProductPeriodIds() : [periodId];
+    if (!this.batchProductPeriodIds().length) this.batchProductPeriodIds.set([periodId]);
+    const requestKey = `${classId}:${selectedIds.join(',')}:${locale}`;
     this.batchPreviewRequestKey = requestKey;
     this.batchPreviewLoading.set(true);
     this.batchPreviewError.set(null);
     this.batchPolicyError.set(null);
-    this.api.previewBulletinBatch({ classId, reportingPeriodId: periodId, locale }).subscribe({
+    this.api.previewBulletinBatch({ classId, reportingPeriodId: periodId, reportingPeriodIds: selectedIds, locale }).subscribe({
       next: (preview) => {
         if (this.batchPreviewRequestKey !== requestKey || this.selectedClassId() !== classId || this.selectedReportingPeriodId() !== periodId) return;
         this.batchPreview.set(preview);
@@ -1467,6 +1471,20 @@ export class AcademicComponent {
         this.batchPreviewError.set(this.explainError(e));
       },
     });
+  }
+
+  protected batchProductOptions(): Array<{ id: string; code: string; label: string; product: string }> {
+    return this.reportingPeriods()
+      .map((period) => ({ id: period.id, code: period.code, label: this.display(period.label),
+        product: period.code === 'T3_RESULT' ? 'T3' : period.periodType === 'ANNUAL_RESULT' ? 'ANNUAL' : 'TERM' }));
+  }
+
+  protected toggleBatchProduct(periodId: string, checked: boolean): void {
+    const current = this.batchProductPeriodIds();
+    const next = checked ? [...new Set([...current, periodId])] : current.filter((id) => id !== periodId);
+    if (!next.length) return;
+    this.batchProductPeriodIds.set(next);
+    this.loadBatchPreview();
   }
 
   protected selectBatchJob(job: BulletinBatchJobView): void {
@@ -1521,6 +1539,7 @@ export class AcademicComponent {
     this.batchBusy.set(true);
     this.api.createBulletinBatchJob({
       classId, reportingPeriodId: periodId, locale: this.fr() ? 'fr' : 'en',
+      reportingPeriodIds: this.batchProductPeriodIds().length ? this.batchProductPeriodIds() : [periodId],
       scopeFingerprint: preview.scopeFingerprint,
       includeReadyStudentsWhenPartiallyBlocked: partial,
     }).subscribe({
