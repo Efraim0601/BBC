@@ -483,10 +483,10 @@ public class AttendanceWorkflowService {
         if (model.equals("DAILY")) return List.of(new SessionKey("DAILY", null));
         int dayIdx = date.getDayOfWeek().getValue() - 1;
         AcademicSession academic = requireAcademicSession(date);
-        Boolean published = jdbc.queryForObject("""
+        Boolean published = jdbc.query("""
             SELECT status='PUBLISHED' FROM timetable_class_config
              WHERE school_id=? AND academic_session_id=? AND class_id=?
-            """, Boolean.class, TenantContext.get(), academic.getId(), schoolClass.getId());
+            """, rs -> rs.next() && rs.getBoolean(1), TenantContext.get(), academic.getId(), schoolClass.getId());
         if (!Boolean.TRUE.equals(published)) return List.of();
         return slots.findBySchoolIdAndAcademicSessionIdAndClassId(TenantContext.get(), academic.getId(), schoolClass.getId()).stream()
             .filter(s -> s.getDayIdx() == dayIdx && s.getSubjectCode() != null && !s.getSubjectCode().isBlank())

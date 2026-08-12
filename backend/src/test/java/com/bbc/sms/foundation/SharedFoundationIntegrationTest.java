@@ -159,6 +159,26 @@ class SharedFoundationIntegrationTest {
     }
 
     @Test
+    void secondarySessionOptionsTreatMissingTimetableConfigAsNoPublishedPeriods() {
+        UUID academicId = UUID.randomUUID();
+        UUID classId = UUID.randomUUID();
+        String sectionId = "s" + schoolId.toString().substring(0, 8);
+        LocalDate date = LocalDate.of(2026, 9, 22);
+        jdbc.update("INSERT INTO section(id,school_id,label,subsystem,level) VALUES (?,?,?,'FR','secondary')",
+                sectionId, schoolId, "Secondary");
+        jdbc.update("""
+            INSERT INTO school_class(id,school_id,section_id,name,subsystem,level)
+            VALUES (?,?,?,'4eme Test','FR','secondary')
+            """, classId, schoolId, sectionId);
+        jdbc.update("""
+            INSERT INTO academic_session(id,school_id,code,label,start_date,end_date,status,is_current)
+            VALUES (?,?, '2026-2027','2026-2027','2026-09-01','2027-07-31','OPEN',true)
+            """, academicId, schoolId);
+
+        assertThat(attendance.sessionOptions(classId, date)).isEmpty();
+    }
+
+    @Test
     void academicRosterUsesActiveEnrollmentForTheRequestedSessionAndClass() {
         UUID academicId = UUID.randomUUID();
         UUID classId = UUID.randomUUID();
