@@ -1,6 +1,7 @@
 package com.bbc.sms.academic;
 
 import com.bbc.sms.academic.dto.AcademicDtos.*;
+import com.bbc.sms.attendance.dto.AttendanceDtos.AttendanceSummaryView;
 import com.bbc.sms.documents.OfficialDocumentDtos.RenderEvidence;
 import com.bbc.sms.media.ProfilePhotoRepository;
 import com.bbc.sms.timetable.SchoolClassRepository;

@@ -1,5 +1,6 @@
 package com.bbc.sms.academic;
 
+import com.bbc.sms.attendance.dto.AttendanceDtos.AttendanceSummaryView;
 import com.bbc.sms.academic.dto.AcademicDtos.*;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
