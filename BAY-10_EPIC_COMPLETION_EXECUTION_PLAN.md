@@ -12,12 +12,11 @@ evidence log:
 - last integrated implementation commit before the compatibility bridge:
   `f47b9f4`;
 - live acceptance stack: frontend `http://localhost:8085`, backend
-  `http://localhost:8084`, and the isolated Compose volume
-  `bbcomplex-wave1_bbc_pgdata`;
+  `http://localhost:8084`, connected to the populated production-simulation
+  database `bbcomplex-prodtest-db` through `host.docker.internal:5436`;
 - current acceptance migration level: Flyway V103;
-- the populated production-simulation database remains separate on the
-  existing `5436` container/volume and was not modified by this acceptance
-  deployment.
+- the former empty Compose volume `bbcomplex-wave1_bbc_pgdata` is retained but
+  its database container is stopped; it is not used by the acceptance app.
 
 The older user worktree at `C:\Users\joe tech\bbcomplex` is not an integration base. It is on `feature/BAY-11-student-journey-promotions`, stops at `80dfbc0`, and contains unrelated uncommitted timetable and presentation work. Do not modify, clean, stage, reset, or copy those files.
 
@@ -84,14 +83,13 @@ V103 is a production-safe compatibility bridge for the older V76
 `metadata`, backfills the new storage key from `file_storage_key`, and widens
 the artifact-type check without dropping historical rows.
 
-The isolated `8085` acceptance volume currently contains the school/session
-and 10 reporting periods but no classes, students, employees, subjects, or
-attendance records. This is a fixture/data-readiness gap, not a failed
-migration. The populated `5436` database still contains 25 classes, 991
-students, 34 employees, and 21 subjects. Do not copy that data or mutate either
-database without an explicit fixture/clone decision; use application/API
-fixtures or a reviewed data-loading procedure for the final academic click
-flow.
+The first deployment accidentally connected `8085` to a newly-created empty
+Compose volume. That mistake is corrected in the acceptance overlay: the app
+now connects to the existing populated `5436` production-simulation database,
+which contains 25 classes, 991 students, 34 employees, and 21 subjects. The
+empty volume was not deleted and no populated data was changed. The backend
+log confirms `jdbc:postgresql://host.docker.internal:5436/bbc_sms`; the app
+health endpoint and `admin/admin` login were verified after the switch.
 
 ## 4. Dependency graph and dispatch rule
 

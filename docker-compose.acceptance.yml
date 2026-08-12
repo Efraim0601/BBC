@@ -2,12 +2,19 @@
 # Usage: docker compose -f docker-compose.yml -f docker-compose.acceptance.yml up -d --build
 services:
   db:
-    # The acceptance browser only needs the application ports; keep Postgres
-    # on the Compose network so host port 5433 cannot collide with other stacks.
+    # The 8085 acceptance app uses the existing production-simulation database
+    # on the host (bbcomplex-prodtest-db:5436). Keep this isolated database
+    # behind an opt-in profile so a normal acceptance start cannot silently
+    # create an empty data set that the backend does not use.
+    profiles: ["empty-acceptance"]
     ports: !override []
 
   backend:
+    depends_on: !override []
     environment:
+      DB_URL: jdbc:postgresql://host.docker.internal:5436/bbc_sms
+      DB_USER: bbc
+      DB_PASSWORD: bbc
       BBC_ADMIN_USERNAME: admin
       BBC_ADMIN_PASSWORD: admin
       BBC_CORS_ORIGINS: http://localhost:8085,http://localhost:4200
