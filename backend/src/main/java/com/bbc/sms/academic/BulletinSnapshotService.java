@@ -18,8 +18,11 @@ import com.bbc.sms.student.StudentRepository;
 import com.bbc.sms.timetable.SchoolClass;
 import com.bbc.sms.timetable.SchoolClassRepository;
 import com.bbc.sms.timetable.TeachingAssignmentResolver;
+import com.bbc.sms.documents.OfficialDocumentDtos.GeneratedDocumentView;
+import com.bbc.sms.documents.OfficialDocumentService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -35,7 +38,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
-public class BulletinSnapshotService {
+public class BulletinSnapshotService implements AuthoritativeBulletinSnapshotReader {
     private static final String FORMULA_VERSION = "AcademicCalculationEngine/v2-live-dependencies";
     private final AcademicReportingPeriodRepository periods;
     private final AcademicAssessmentRepository assessments;
@@ -55,6 +58,9 @@ public class BulletinSnapshotService {
     private final JdbcTemplate jdbc;
     private final AuditService audit;
     private final AttendanceEvidenceService attendanceEvidence;
+    private final ReportCardPdfService reportCardPdf;
+    private final OfficialDocumentService officialDocuments;
+    private final BulletinPublicationOutboxService publicationOutbox;
 
     public BulletinSnapshotService(AcademicReportingPeriodRepository periods, AcademicAssessmentRepository assessments,
                                    AcademicGradeRepository grades, SubjectResultCommentRepository comments,
@@ -62,12 +68,89 @@ public class BulletinSnapshotService {
                                    StudentRepository students, SubjectRepository subjects,
                                    SubjectClassCoefRepository subjectClassCoefs, SchoolClassRepository classes,
                                    AcademicWindowPolicyService windows, TeacherScopeService teacherScope, TeachingAssignmentResolver assignments, ObjectMapper mapper,
-                                   JdbcTemplate jdbc, AuditService audit, AttendanceEvidenceService attendanceEvidence) {
+                                   JdbcTemplate jdbc, AuditService audit, AttendanceEvidenceService attendanceEvidence,
+                                   @Lazy ReportCardPdfService reportCardPdf, OfficialDocumentService officialDocuments,
+                                   BulletinPublicationOutboxService publicationOutbox) {
         this.periods = periods; this.assessments = assessments; this.grades = grades; this.comments = comments; this.packets = packets;
         this.versions = versions; this.enrollments = enrollments; this.students = students; this.subjects = subjects;
         this.subjectClassCoefs = subjectClassCoefs; this.classes = classes;
         this.windows = windows; this.teacherScope = teacherScope; this.assignments = assignments; this.mapper = mapper; this.jdbc = jdbc; this.audit = audit;
-        this.attendanceEvidence = attendanceEvidence;
+        this.attendanceEvidence = attendanceEvidence; this.reportCardPdf = reportCardPdf;
+        this.officialDocuments = officialDocuments; this.publicationOutbox = publicationOutbox;
+    }
+
+    private void setPublicationIdentity(BulletinVersion version, AcademicReportingPeriod period,
+                                        SnapshotTrace trace) {
+        String code = period.getCode() == null ? "" : period.getCode().toUpperCase(Locale.ROOT);
+        String product = "ANNUAL_RESULT".equalsIgnoreCase(period.getPeriodType()) ? "ANNUAL"
+                : "T3_RESULT".equals(code) ? "T3"
+                : "TERM_RESULT".equalsIgnoreCase(period.getPeriodType()) ? "TERM" : "SEQUENCE";
+        version.setPublicationProduct(product);
+        String locale = trace == null || trace.documentDesign() == null
+                || trace.documentDesign().locale() == null ? "fr" : trace.documentDesign().locale();
+        version.setPublicationLocale(locale.toLowerCase(Locale.ROOT));
+    }
+
+    private UUID recordLifecycleTransition(BulletinVersion version, String fromState, String toState,
+                                           String eventType, String reason, UUID sourceVersionId,
+                                           UUID generatedDocumentId, List<String> affectedRows) {
+        Map<String, Object> before = new LinkedHashMap<>();
+        before.put("state", fromState);
+        before.put("version", version.getVersion());
+        before.put("snapshotHash", version.getSnapshotHash());
+        Map<String, Object> after = new LinkedHashMap<>();
+        after.put("state", toState);
+        after.put("version", version.getVersion());
+        after.put("snapshotHash", version.getSnapshotHash());
+        after.put("templateVersion", version.getTemplateVersion());
+        after.put("generatedDocumentId", generatedDocumentId);
+        UUID auditId = audit.recordWithId(eventType, "BulletinVersion", version.getId().toString(),
+                before, after, reason);
+        jdbc.update("""
+                INSERT INTO bulletin_lifecycle_transition
+                    (school_id,bulletin_version_id,source_version_id,from_state,to_state,
+                     event_type,actor_user_id,reason,source_versions,optimistic_version,
+                     calculation_snapshot_hash,template_version,generated_document_id,
+                     audit_event_id,affected_rows)
+                VALUES (?,?,?,?,?,?,?,?,?::jsonb,?,?,?, ?,? ,?::jsonb)
+                """, TenantContext.get(), version.getId(), sourceVersionId, fromState, toState,
+                eventType, currentUserId(), clip(reason), sourceVersionsJson(version), version.getVersion(),
+                version.getSnapshotHash(), version.getTemplateVersion(), generatedDocumentId, auditId,
+                jsonArray(affectedRows));
+        return auditId;
+    }
+
+    private String sourceVersionsJson(BulletinVersion version) {
+        try {
+            var root = mapper.readTree(version.getSnapshotJson());
+            var sourceVersions = root.path("snapshot").path("sourceVersions");
+            return sourceVersions.isMissingNode() ? "[]" : sourceVersions.toString();
+        } catch (JsonProcessingException ex) {
+            return "[]";
+        }
+    }
+
+    private String jsonArray(List<String> values) {
+        try { return mapper.writeValueAsString(values == null ? List.of() : values); }
+        catch (JsonProcessingException ex) { return "[]"; }
+    }
+
+    private static String clip(String value) {
+        if (value == null || value.isBlank()) return null;
+        String clean = value.trim();
+        return clean.length() <= 1000 ? clean : clean.substring(0, 1000);
+    }
+
+    private static List<String> allowedTransitions(String state) {
+        return switch (state == null ? "" : state) {
+            case "DRAFT" -> List.of("TEACHER_SUBMITTED", "VALIDATED");
+            case "TEACHER_SUBMITTED" -> List.of("REVIEW", "RETURNED");
+            case "REVIEW" -> List.of("VALIDATED", "RETURNED");
+            case "RETURNED" -> List.of("DRAFT", "TEACHER_SUBMITTED", "VALIDATED");
+            case "VALIDATED" -> List.of("PUBLISHED");
+            case "PUBLISHED" -> List.of("SUPERSEDED");
+            default -> List.of();
+        };
     }
 
     private StudentEnrollment enrollment(UUID studentId, AcademicReportingPeriod period) {
@@ -181,6 +264,7 @@ public class BulletinSnapshotService {
         version.setSourceVersionFingerprint(current.trace().sourceHash());
         version.setTemplateVersion(templateReference(current.trace()));
         freezeDesign(version, current.trace(), enrollment);
+        setPublicationIdentity(version, period, current.trace());
         BulletinVersion saved = versions.save(version);
         persistSourceIndex(saved.getId(), current);
         audit.record("BULLETIN_DRAFT_CREATED", "BulletinVersion", saved.getId().toString(), null,
@@ -248,6 +332,7 @@ public class BulletinSnapshotService {
         replacement.setGeneralAppreciation(previous.getGeneralAppreciation());
         replacement.setTemplateVersion(templateReference(current.trace()));
         freezeDesign(replacement, current.trace(), enrollment);
+        setPublicationIdentity(replacement, period, current.trace());
         BulletinVersion saved = versions.saveAndFlush(replacement);
         persistSourceIndex(saved.getId(), current);
         Map<String, Object> before = new LinkedHashMap<>();
@@ -267,13 +352,13 @@ public class BulletinSnapshotService {
      */
     @Transactional
     public BulletinSnapshotView startCorrection(UUID id, BulletinCorrectionRequest request) {
-        BulletinVersion previous = versions.findByIdAndSchoolId(id, TenantContext.get())
+        BulletinVersion previous = versions.findByIdAndSchoolIdForUpdate(id, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Version de bulletin"));
-        if (!Set.of("VALIDATED", "PUBLISHED").contains(previous.getState()))
+        if (!"PUBLISHED".equals(previous.getState()))
             throw ApiException.conflict("Une correction ne peut commencer que depuis un bulletin validé ou publié");
         if (request == null || request.reason() == null || request.reason().isBlank())
             throw ApiException.badRequest("Le motif de correction est obligatoire");
-        if (request.version() != null && request.version() != previous.getVersion())
+        if (request.version() == null || request.version() != previous.getVersion())
             throw ApiException.conflict("Le bulletin a été modifié entre-temps. Rechargez-le avant de corriger.");
         windows.assertOpen(previous.getReportingPeriodId(), AcademicWindowPolicyService.Action.CORRECTION);
         AcademicReportingPeriod period = period(previous.getReportingPeriodId());
@@ -312,8 +397,11 @@ public class BulletinSnapshotService {
         replacement.setCorrectionRequestedAt(Instant.now());
         replacement.setTemplateVersion(templateReference(trace));
         freezeDesign(replacement, trace, enrollment);
+        setPublicationIdentity(replacement, period, trace);
         BulletinVersion saved = versions.save(replacement);
         persistSourceIndex(saved.getId(), current);
+        recordLifecycleTransition(saved, null, "DRAFT", "BULLETIN_CORRECTION_DRAFT_CREATED",
+                request.reason().trim(), previous.getId(), null, List.of(previous.getId().toString()));
         return view(saved, period, student, calculation, attendance, conduct, trace);
     }
 
@@ -404,11 +492,11 @@ public class BulletinSnapshotService {
         List<String> blockers = officialBlockers(current.calculation(), current.attendance(), current.conduct(), period.getPeriodType());
         if (!blockers.isEmpty()) throw ApiException.blockers("BULLETIN_NOT_READY",
                 "Bulletin incomplet ou preuves administratives non approuvées : " + String.join("; ", blockers), blockers);
+        String previousState = version.getState();
         version.setState("VALIDATED"); version.setValidatedAt(Instant.now()); version.setValidatedBy(currentUserId());
         versions.saveAndFlush(version);
-        audit.record("BULLETIN_VALIDATED", "BulletinVersion", version.getId().toString(),
-                Map.of("state", "DRAFT", "snapshotHash", version.getSnapshotHash()),
-                Map.of("state", "VALIDATED", "snapshotHash", version.getSnapshotHash()), null);
+        recordLifecycleTransition(version, previousState, "VALIDATED",
+                "BULLETIN_VALIDATED", null, null, null, List.of());
         return view(version, period, student, current.calculation(), current.attendance(), current.conduct(), current.trace(), "CURRENT", false);
     }
 
@@ -438,24 +526,140 @@ public class BulletinSnapshotService {
         List<String> blockers = officialBlockers(current.calculation(), current.attendance(), current.conduct(), period.getPeriodType());
         if (!blockers.isEmpty()) throw ApiException.blockers("BULLETIN_NOT_READY",
                 "Le bulletin ne peut pas être publié : " + String.join("; ", blockers), blockers);
+        setPublicationIdentity(version, period, current.trace());
         version.setState("PUBLISHED");
         version.setPublishedAt(Instant.now());
         version.setPublishedBy(currentUserId());
         version.setPublicationReason(request.reason().trim());
+        // Flush the state before document registration. The document service
+        // deliberately refuses a parent document unless the same transaction
+        // has staged PUBLISHED; any renderer/storage/ledger failure rolls back.
+        versions.saveAndFlush(version);
+        byte[] pdf = reportCardPdf.render(version.getId(), "en".equalsIgnoreCase(version.getPublicationLocale()));
+        var frozen = authoritativeById(version.getId());
+        var evidence = reportCardPdf.evidence(version.getId());
+        GeneratedDocumentView document = officialDocuments.registerPublishedPdf(
+                "REPORT_CARD", "BulletinVersion", version.getId().toString(), String.valueOf(version.getVersion()),
+                version.getPublicationLocale(),
+                ("en".equalsIgnoreCase(version.getPublicationLocale()) ? "School report card" : "Bulletin scolaire")
+                        + " - " + (frozen.student() == null ? "" : frozen.student().name()),
+                "PARENT", pdf,
+                "bulletin-publication:" + version.getId() + ":" + version.getVersion() + ":" + version.getPublicationLocale(),
+                evidence);
+        version.setGeneratedDocumentId(document.id());
         versions.saveAndFlush(version);
         attendanceEvidence.freezeOfficialSnapshot(period, version.getStudentId(), version.getId(), current.attendance());
         attendanceEvidence.lockForPublication(period.getId(), version.getStudentId(), version.getId());
+
+        UUID visibilityId = jdbc.queryForObject("""
+                INSERT INTO bulletin_parent_visibility
+                    (school_id,bulletin_version_id,student_id,reporting_period_id,publication_product,
+                     generated_document_id,status,authorized_at,version)
+                VALUES (?,?,?,?,?,?, 'ACTIVE', now(), 0)
+                ON CONFLICT (school_id,bulletin_version_id) DO UPDATE SET
+                    generated_document_id=EXCLUDED.generated_document_id,status='ACTIVE',authorized_at=now(),
+                    revoked_at=NULL,revoked_by=NULL,revoked_reason=NULL,
+                    version=bulletin_parent_visibility.version+1
+                RETURNING id
+                """, UUID.class, TenantContext.get(), version.getId(), version.getStudentId(),
+                version.getReportingPeriodId(), version.getPublicationProduct(), document.id());
+
         if (version.getCorrectsBulletinVersionId() != null) {
-            versions.findByIdAndSchoolId(version.getCorrectsBulletinVersionId(), TenantContext.get()).ifPresent(previous -> {
+            versions.findByIdAndSchoolIdForUpdate(version.getCorrectsBulletinVersionId(), TenantContext.get()).ifPresent(previous -> {
+                String oldState = previous.getState();
                 previous.setState("SUPERSEDED");
-                versions.save(previous);
+                previous.setSupersededAt(Instant.now());
+                previous.setSupersededBy(version.getId());
+                versions.saveAndFlush(previous);
+                jdbc.update("""
+                        UPDATE bulletin_parent_visibility
+                           SET status='SUPERSEDED', revoked_at=now(), revoked_by=?,
+                               revoked_reason=?, version=version+1
+                         WHERE school_id=? AND bulletin_version_id=?
+                        """, currentUserId(), request.reason().trim(), TenantContext.get(), previous.getId());
+                if (previous.getGeneratedDocumentId() != null) {
+                    jdbc.update("UPDATE generated_document SET status='SUPERSEDED' WHERE school_id=? AND id=? AND status='ISSUED'",
+                            TenantContext.get(), previous.getGeneratedDocumentId());
+                }
+                recordLifecycleTransition(previous, oldState, "SUPERSEDED", "BULLETIN_SUPERSEDED",
+                        request.reason().trim(), version.getId(), previous.getGeneratedDocumentId(),
+                        List.of(previous.getId().toString(), version.getId().toString()));
             });
         }
-        audit.record("BULLETIN_PUBLISHED", "BulletinVersion", version.getId().toString(),
-                Map.of("state", "VALIDATED", "snapshotHash", version.getSnapshotHash()),
-                Map.of("state", "PUBLISHED", "snapshotHash", version.getSnapshotHash(), "reason", request.reason().trim()),
-                request.reason().trim());
+        recordLifecycleTransition(version, "VALIDATED", "PUBLISHED", "BULLETIN_PUBLISHED",
+                request.reason().trim(), version.getCorrectsBulletinVersionId(), document.id(), List.of());
+        publicationOutbox.enqueue(version.getId(), visibilityId, document.id(), version.getStudentId(),
+                version.getReportingPeriodId(), version.getPublicationProduct(), version.getSnapshotHash());
         return view(version, period, student, current.calculation(), current.attendance(), current.conduct(), current.trace(), "CURRENT", false);
+    }
+
+    /** Explicit non-destructive workflow transitions used by the validation workspace. */
+    @Transactional
+    public BulletinSnapshotView transition(UUID id, String action, BulletinTransitionRequest request) {
+        BulletinVersion version = versions.findByIdAndSchoolIdForUpdate(id, TenantContext.get())
+                .orElseThrow(() -> ApiException.notFound("Version de bulletin"));
+        if (request == null || request.reason() == null || request.reason().isBlank())
+            throw ApiException.badRequest("A transition reason is required.");
+        long supplied = request.version() == null ? -1 : request.version();
+        if (request.version() == null || request.version() != version.getVersion())
+            throw ApiException.staleVersion("The bulletin changed while the workflow action was being applied; reload it first.",
+                    version.getVersion(), supplied);
+        String normalized = action == null ? "" : action.trim().toUpperCase(Locale.ROOT);
+        String from = version.getState();
+        String to = switch (normalized) {
+            case "SUBMIT", "TEACHER_SUBMITTED" -> "TEACHER_SUBMITTED";
+            case "REVIEW" -> "REVIEW";
+            case "RETURN", "RETURNED" -> "RETURNED";
+            default -> "";
+        };
+        if (to.isBlank() || !allowedTransitions(from).contains(to)) {
+            throw ApiException.conflictWithDetails("BULLETIN_ILLEGAL_TRANSITION",
+                    "The requested bulletin lifecycle transition is not allowed from the current state.",
+                    Map.of("state", from, "requestedAction", normalized, "allowedTransitions", allowedTransitions(from),
+                            "affectedRows", List.of(version.getId().toString()),
+                            "correctiveAction", "Choose one of the allowed workflow actions and reload the current version."));
+        }
+        AcademicWindowPolicyService.Action windowAction = switch (to) {
+            case "TEACHER_SUBMITTED" -> AcademicWindowPolicyService.Action.TEACHER_SUBMISSION;
+            case "REVIEW" -> AcademicWindowPolicyService.Action.REVIEW;
+            default -> AcademicWindowPolicyService.Action.REVIEW;
+        };
+        windows.assertOpen(version.getReportingPeriodId(), windowAction);
+        version.setState(to);
+        versions.saveAndFlush(version);
+        recordLifecycleTransition(version, from, to, "BULLETIN_" + to, request.reason().trim(), null, null, List.of());
+        return byId(id);
+    }
+
+    @Transactional(readOnly = true)
+    public BulletinLifecycleStateView lifecycle(UUID id) {
+        BulletinVersion version = versions.findByIdAndSchoolId(id, TenantContext.get())
+                .orElseThrow(() -> ApiException.notFound("Version de bulletin"));
+        AcademicWindowPolicyService.WindowView window = windows.effective(version.getReportingPeriodId(),
+                "PUBLISHED".equals(version.getState()) ? AcademicWindowPolicyService.Action.PUBLICATION
+                        : AcademicWindowPolicyService.Action.VALIDATION);
+        List<BulletinTransitionView> history = jdbc.query("""
+                SELECT id,bulletin_version_id,source_version_id,from_state,to_state,event_type,actor_user_id,
+                       occurred_at,reason,source_versions::text,optimistic_version,calculation_snapshot_hash,
+                       template_version,generated_document_id,audit_event_id,affected_rows::text
+                  FROM bulletin_lifecycle_transition
+                 WHERE school_id=? AND bulletin_version_id=?
+                 ORDER BY occurred_at ASC,id ASC
+                """, (rs, n) -> {
+            List<String> affected = List.of();
+            try {
+                affected = mapper.readValue(rs.getString(16), mapper.getTypeFactory().constructCollectionType(List.class, String.class));
+            } catch (Exception ignored) { }
+            return new BulletinTransitionView(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class),
+                    rs.getObject(3, UUID.class), rs.getString(4), rs.getString(5), rs.getString(6),
+                    rs.getObject(7, UUID.class), rs.getTimestamp(8).toInstant(), rs.getString(9), rs.getString(10),
+                    rs.getLong(11), rs.getString(12), rs.getString(13), rs.getObject(14, UUID.class),
+                    rs.getObject(15, UUID.class), affected);
+        }, TenantContext.get(), id);
+        return new BulletinLifecycleStateView(version.getId(), version.getState(), version.getPublicationProduct(),
+                version.getPublicationLocale(), version.getGeneratedDocumentId(), version.getSupersedesId(),
+                version.getCorrectsBulletinVersionId(), version.getVersion(), allowedTransitions(version.getState()),
+                window.state(), window.governingTermCode(), window.governedPeriodCodes(), history);
     }
 
     @Transactional(readOnly = true)

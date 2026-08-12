@@ -58,17 +58,17 @@ public class ReportCardPdfService {
     private static final float BLUE_G = 0.42f;
     private static final float BLUE_B = 0.68f;
 
-    private final BulletinSnapshotService snapshots;
+    private final AuthoritativeBulletinSnapshotReader snapshots;
     private final JdbcTemplate jdbc;
 
     @org.springframework.beans.factory.annotation.Autowired
-    public ReportCardPdfService(BulletinSnapshotService snapshots, JdbcTemplate jdbc) {
+    public ReportCardPdfService(AuthoritativeBulletinSnapshotReader snapshots, JdbcTemplate jdbc) {
         this.snapshots = snapshots;
         this.jdbc = jdbc;
     }
 
     /** Compatibility constructor for callers that still provide legacy media/class repositories. */
-    public ReportCardPdfService(BulletinSnapshotService snapshots, ProfilePhotoRepository ignoredPhotos,
+    public ReportCardPdfService(AuthoritativeBulletinSnapshotReader snapshots, ProfilePhotoRepository ignoredPhotos,
                                 SchoolClassRepository ignoredClasses, JdbcTemplate jdbc) {
         this(snapshots, jdbc);
     }

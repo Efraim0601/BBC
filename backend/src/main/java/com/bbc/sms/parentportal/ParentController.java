@@ -8,6 +8,10 @@ import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AppUserPrincipal;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.CacheControl;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
@@ -51,6 +55,17 @@ public class ParentController {
     public com.bbc.sms.academic.dto.AcademicDtos.BulletinSnapshotView latestPublishedBulletin(
             @AuthenticationPrincipal AppUserPrincipal principal, @PathVariable UUID studentId) {
         return service.latestPublishedBulletin(principal, studentId);
+    }
+
+    @GetMapping("/children/{studentId}/bulletins/{bulletinVersionId}/document")
+    @PreAuthorize("@perm.isParent()")
+    public ResponseEntity<byte[]> publishedBulletinDocument(@AuthenticationPrincipal AppUserPrincipal principal,
+                                                              @PathVariable UUID studentId,
+                                                              @PathVariable UUID bulletinVersionId) {
+        byte[] pdf = service.publishedBulletinDocument(principal, studentId, bulletinVersionId);
+        return ResponseEntity.ok().contentType(MediaType.APPLICATION_PDF)
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=bulletin-" + bulletinVersionId + ".pdf")
+                .cacheControl(CacheControl.noStore()).body(pdf);
     }
 
     @GetMapping("/children/{studentId}/journey")

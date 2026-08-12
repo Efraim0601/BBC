@@ -57,5 +57,10 @@ public class BulletinVersion {
     @Column(name = "validated_at") private Instant validatedAt;
     @Column(name = "published_at") private Instant publishedAt;
     @Column(name = "publication_reason", columnDefinition = "text") private String publicationReason;
+    @Column(name = "publication_product", nullable = false) private String publicationProduct = "SEQUENCE";
+    @Column(name = "publication_locale") private String publicationLocale;
+    @Column(name = "generated_document_id") private UUID generatedDocumentId;
+    @Column(name = "superseded_at") private Instant supersededAt;
+    @Column(name = "superseded_by") private UUID supersededBy;
     @Version private long version;
 }

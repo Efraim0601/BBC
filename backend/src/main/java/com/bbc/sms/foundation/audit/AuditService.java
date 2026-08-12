@@ -41,6 +41,18 @@ public class AuditService {
     @Transactional
     public void record(String action, String aggregateType, String aggregateId,
                        Object before, Object after, String reason) {
+        recordWithId(action, aggregateType, aggregateId, before, after, reason);
+    }
+
+    /**
+     * Records an audit event and returns its durable id.  Most callers only
+     * need {@link #record}; lifecycle aggregates use the id to make their
+     * append-only transition row auditable without a race-prone follow-up
+     * lookup.
+     */
+    @Transactional
+    public UUID recordWithId(String action, String aggregateType, String aggregateId,
+                             Object before, Object after, String reason) {
         AppUserPrincipal principal = principal();
         HttpServletRequest req = request();
         UUID id = UUID.randomUUID();
@@ -68,6 +80,7 @@ public class AuditService {
             ps.setString(14, req == null ? null : trim(req.getHeader("User-Agent"), 300));
             return ps;
         });
+        return id;
     }
 
     @Transactional(readOnly = true)

@@ -6,7 +6,7 @@ import { forkJoin, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { StudentApi } from '../students/students.api';
 import { SetupApi, ClassView } from '../../core/setup.api';
-import { AcademicApi, BulletinView, BulletinSnapshotView, PvView, GradeEntryView, GradePacketQueueView, GradePacketQueueItem, GradePacketHistoryView, ReportCardInputsView, ReportCardInputRow, ReportCardInputUpsert, BulletinBatchJobView, BulletinBatchItemView, BulletinBatchPreviewView, BulletinBatchPreviewRow, BulletinBatchWindowView, BulletinBatchRepairTarget, AttendanceSourceBreakdown } from './academic.api';
+import { AcademicApi, BulletinView, BulletinSnapshotView, BulletinLifecycleStateView, PvView, GradeEntryView, GradePacketQueueView, GradePacketQueueItem, GradePacketHistoryView, ReportCardInputsView, ReportCardInputRow, ReportCardInputUpsert, BulletinBatchJobView, BulletinBatchItemView, BulletinBatchPreviewView, BulletinBatchPreviewRow, BulletinBatchWindowView, BulletinBatchRepairTarget, AttendanceSourceBreakdown } from './academic.api';
 import { FoundationApi, AcademicReportingPeriodView, GeneratedDocumentView } from '../../core/foundation.api';
 import { AuthService } from '../../core/auth.service';
 import { ScopeService } from '../../core/scope.service';
@@ -592,7 +592,11 @@ const appreciation = (avg: number, fr: boolean): string => {
                               <div class="bg-emerald-500 text-white text-[10px] font-bold uppercase px-2 py-1 rounded flex items-center gap-1">
                                 <bbc-icon name="eye" [s]="12" [sw]="3" /> {{ fr() ? 'Publié aux parents' : 'Published to parents' }}
                               </div>
-                            } @else if (b.state === 'PREVIEW') {
+                             } @else if (b.state === 'SUPERSEDED') {
+                               <div class="bg-slate-500 text-white text-[10px] font-bold uppercase px-2 py-1 rounded flex items-center gap-1">
+                                 <bbc-icon name="doc" [s]="12" /> {{ fr() ? 'Supersédé' : 'Superseded' }}
+                               </div>
+                             } @else if (b.state === 'PREVIEW') {
                               <div class="bg-blue-100 text-blue-800 text-[10px] font-bold uppercase px-2 py-1 rounded flex items-center gap-1">
                                 <bbc-icon name="eye" [s]="12" [sw]="3" /> {{ fr() ? 'Aperçu lecture seule' : 'Read-only preview' }}
                               </div>
@@ -646,7 +650,31 @@ const appreciation = (avg: number, fr: boolean): string => {
                           </div>
                         }
 
-                        @if (isComputedBulletin(b)) {
+                         @if (bulletinLifecycle(); as lifecycle) {
+                           <section class="mb-5 rounded-xl border border-brand-200 bg-brand-50/40 p-4 print:hidden" data-testid="bulletin-validation-workspace">
+                             <div class="flex items-start justify-between gap-3 flex-wrap">
+                               <div><div class="text-[10px] uppercase tracking-wider text-brand-700 font-bold">{{ fr() ? 'Espace de validation par rôle' : 'Role-specific validation workspace' }}</div><div class="mt-1 text-sm text-ink">{{ fr() ? 'Version ' + lifecycle.version + ' · produit ' + lifecycle.publicationProduct : 'Version ' + lifecycle.version + ' · ' + lifecycle.publicationProduct + ' product' }}</div></div>
+                               <span class="rounded-full border border-brand-300 bg-white px-2 py-1 text-xs font-bold text-brand-800">{{ lifecycle.state }}</span>
+                             </div>
+                             <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3 text-xs">
+                               <div class="rounded-lg border border-slate-200 bg-white px-3 py-2"><span class="text-mute">{{ fr() ? 'Lignes' : 'Rows' }}</span><div class="font-bold text-ink">{{ b.lines.length }}</div></div>
+                               <div class="rounded-lg border border-slate-200 bg-white px-3 py-2"><span class="text-mute">{{ fr() ? 'Complet' : 'Complete' }}</span><div class="font-bold" [class.text-emerald-700]="b.complete" [class.text-rose-700]="!b.complete">{{ b.complete ? '✓' : '!' }}</div></div>
+                               <div class="rounded-lg border border-slate-200 bg-white px-3 py-2"><span class="text-mute">{{ fr() ? 'Bloqueurs' : 'Blockers' }}</span><div class="font-bold text-rose-700">{{ b.blockers?.length ?? 0 }}</div></div>
+                               <div class="rounded-lg border border-slate-200 bg-white px-3 py-2"><span class="text-mute">{{ fr() ? 'Fenêtre' : 'Window' }}</span><div class="font-bold text-ink">{{ lifecycle.windowState }}</div></div>
+                             </div>
+                             <div class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950"><span class="font-bold">{{ fr() ? 'Fenêtre du trimestre' : 'Trimester window' }}:</span> {{ lifecycle.governingTrimester || '—' }} · {{ lifecycle.affectedMilestones.join(', ') || '—' }}</div>
+                             @if ((b.blockers?.length ?? 0) > 0) { <details class="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-900"><summary class="cursor-pointer font-bold">{{ fr() ? 'Voir le détail des bloqueurs et actions correctives' : 'Drill down blockers and corrective actions' }}</summary><ul class="mt-2 list-disc pl-5">@for (blocker of (b.blockers ?? []); track blocker) { <li><span class="font-bold">{{ blocker }}</span> · {{ bulletinBlockerLabel(blocker, b) }}</li> }</ul></details> }
+                             <div class="mt-3 flex flex-wrap gap-2">
+                               @if (lifecycle.allowedTransitions.includes('TEACHER_SUBMITTED')) { <button type="button" (click)="openLifecycleAction('SUBMIT')" class="h-9 rounded-lg border border-brand-300 bg-white px-3 text-xs font-bold text-brand-800">{{ fr() ? 'Soumettre' : 'Submit' }}</button> }
+                               @if (canReview() && lifecycle.allowedTransitions.includes('REVIEW')) { <button type="button" (click)="openLifecycleAction('REVIEW')" class="h-9 rounded-lg border border-blue-300 bg-white px-3 text-xs font-bold text-blue-800">{{ fr() ? 'Ouvrir la revue' : 'Open review' }}</button> }
+                               @if (canReview() && lifecycle.allowedTransitions.includes('RETURNED')) { <button type="button" (click)="openLifecycleAction('RETURN')" class="h-9 rounded-lg border border-rose-300 bg-white px-3 text-xs font-bold text-rose-800">{{ fr() ? 'Retourner' : 'Return' }}</button> }
+                               @if (lifecycle.state === 'PUBLISHED') { <button type="button" (click)="requestCorrection(b)" class="h-9 rounded-lg border border-amber-300 bg-white px-3 text-xs font-bold text-amber-800">{{ fr() ? 'Corriger ce bulletin' : 'Correct this bulletin' }}</button> }
+                             </div>
+                             @if (lifecycle.history.length) { <details class="mt-3"><summary class="cursor-pointer text-xs font-bold text-brand-800">{{ fr() ? 'Historique d’audit (' + lifecycle.history.length + ')' : 'Audit history (' + lifecycle.history.length + ')' }}</summary><div class="mt-2 space-y-1">@for (event of lifecycle.history; track event.id) { <div class="rounded border border-slate-200 bg-white px-2 py-1 text-[11px]"><span class="font-bold">{{ event.fromState || '—' }} → {{ event.toState }}</span> · {{ event.eventType }} · {{ event.reason || (fr() ? 'Sans motif' : 'No reason') }} · v{{ event.optimisticVersion }}</div> }</div></details> }
+                           </section>
+                         }
+
+                         @if (isComputedBulletin(b)) {
                           <div class="overflow-x-auto">
                             <table class="min-w-[720px] w-full text-sm">
                               <thead>
@@ -810,7 +838,7 @@ const appreciation = (avg: number, fr: boolean): string => {
                               <bbc-icon name="eye" [s]="16" /> {{ fr() ? 'Publier aux parents' : 'Publish to parents' }}
                             </button>
                           }
-                          @if (canWrite && (b.state === 'VALIDATED' || b.state === 'PUBLISHED') && !b.financiallyBlocked) {
+                           @if (canWrite && b.state === 'PUBLISHED' && !b.financiallyBlocked) {
                             <button (click)="generateOfficialDocument(b)" [disabled]="officialDocumentBusy()"
                               class="inline-flex items-center gap-2 h-10 px-4 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-semibold disabled:opacity-50">
                               <bbc-icon name="download" [s]="16" /> {{ officialDocumentBusy() ? '…' : (fr() ? 'Générer le PDF officiel' : 'Generate official PDF') }}
@@ -1016,6 +1044,27 @@ const appreciation = (avg: number, fr: boolean): string => {
           </bbc-card>
         }
       }
+      @if (lifecycleAction(); as action) {
+        <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/55" (click)="cancelLifecycleAction()">
+          <section class="bg-white rounded-xl2 shadow-pop w-full max-w-md p-6" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+            <h3 class="text-lg font-bold text-ink">{{ action === 'RETURN' ? (fr() ? 'Retourner ce bulletin ?' : 'Return this report card?') : action === 'REVIEW' ? (fr() ? 'Ouvrir la revue ?' : 'Open review?') : (fr() ? 'Soumettre ce bulletin ?' : 'Submit this report card?') }}</h3>
+            <p class="text-sm text-mute mt-2">{{ fr() ? 'Cette action est contrôlée par votre rôle, la fenêtre académique et la version optimiste.' : 'This action is controlled by your role, the academic window, and the optimistic version.' }}</p>
+            <label class="block mt-4"><span class="text-xs font-semibold">{{ fr() ? 'Motif obligatoire' : 'Required reason' }}</span><textarea [(ngModel)]="lifecycleReason" rows="3" maxlength="500" class="w-full mt-1.5 px-3 py-2 border border-slate-300 rounded-lg text-sm" [class.border-rose-400]="!lifecycleReason.trim()"></textarea></label>
+            @if (!lifecycleReason.trim()) { <div class="mt-1 text-xs text-rose-700">{{ fr() ? 'Le motif est obligatoire.' : 'A reason is required.' }}</div> }
+            <div class="flex justify-end gap-2 mt-5"><button (click)="cancelLifecycleAction()" class="h-9 px-3 rounded-lg border border-slate-200 text-sm font-semibold">{{ fr() ? 'Annuler' : 'Cancel' }}</button><button (click)="confirmLifecycleAction()" [disabled]="!lifecycleReason.trim() || bulletinBusy()" class="h-9 px-3 rounded-lg bg-brand-600 text-white text-sm font-semibold disabled:opacity-50">{{ bulletinBusy() ? '…' : (fr() ? 'Confirmer' : 'Confirm') }}</button></div>
+          </section>
+        </div>
+      }
+      @if (correctionDialog()) {
+        <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/55" (click)="cancelCorrection()">
+          <section class="bg-white rounded-xl2 shadow-pop w-full max-w-md p-6" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+            <h3 class="text-lg font-bold text-ink">{{ fr() ? 'Créer une correction' : 'Create a correction' }}</h3>
+            <p class="text-sm text-mute mt-2">{{ fr() ? 'La version publiée sera conservée et remplacée uniquement après revue et publication de la nouvelle version.' : 'The published version remains immutable and is replaced only after review and publication of the new version.' }}</p>
+            <label class="block mt-4"><span class="text-xs font-semibold">{{ fr() ? 'Motif obligatoire' : 'Required reason' }}</span><textarea [(ngModel)]="correctionReason" rows="3" maxlength="500" class="w-full mt-1.5 px-3 py-2 border border-slate-300 rounded-lg text-sm" [class.border-rose-400]="!correctionReason.trim()"></textarea></label>
+            <div class="flex justify-end gap-2 mt-5"><button (click)="cancelCorrection()" class="h-9 px-3 rounded-lg border border-slate-200 text-sm font-semibold">{{ fr() ? 'Annuler' : 'Cancel' }}</button><button (click)="confirmCorrection()" [disabled]="!correctionReason.trim() || correctionBusy()" class="h-9 px-3 rounded-lg bg-amber-600 text-white text-sm font-semibold disabled:opacity-50">{{ correctionBusy() ? '…' : (fr() ? 'Créer le brouillon' : 'Create draft') }}</button></div>
+          </section>
+        </div>
+      }
       @if (refreshDialog()) {
         <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/55" (click)="cancelRefresh()">
           <section class="bg-white rounded-xl2 shadow-pop w-full max-w-md p-6" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
@@ -1114,6 +1163,7 @@ export class AcademicComponent {
   protected reportingDependencies = signal<import('../../core/foundation.api').StructureDependencyView[]>([]);
   protected mode = signal<Mode>('bulletin');
   protected bulletin = signal<BulletinView | null>(null);
+  protected bulletinLifecycle = signal<BulletinLifecycleStateView | null>(null);
   protected pv = signal<PvView | null>(null);
   protected gradeEntry = signal<GradeEntryView | null>(null);
   protected gradeQueue = signal<GradePacketQueueView | null>(null);
@@ -1139,6 +1189,12 @@ export class AcademicComponent {
   protected refreshReason = '';
   protected refreshTarget = signal<BulletinView | null>(null);
   protected refreshBusy = signal(false);
+  protected correctionDialog = signal(false);
+  protected correctionReason = '';
+  protected correctionBusy = signal(false);
+  protected correctionTarget = signal<BulletinView | null>(null);
+  protected lifecycleAction = signal<string | null>(null);
+  protected lifecycleReason = '';
   protected bulletinBusy = signal(false);
   protected officialDocumentBusy = signal(false);
   protected officialDocument = signal<GeneratedDocumentView | null>(null);
@@ -2021,6 +2077,7 @@ export class AcademicComponent {
         if (this.selectedStudentId() !== id || this.selectedReportingPeriodId() !== periodId) return;
         this.bulletin.set(this.mapSnapshot(snapshot));
         this.appreciationDraft.set(snapshot.generalAppreciation ?? '');
+        if (snapshot.id) this.api.bulletinLifecycle(snapshot.id).subscribe({ next: (state) => this.bulletinLifecycle.set(state), error: () => this.bulletinLifecycle.set(null) });
       }, (e) => {
         if (this.selectedStudentId() === id && this.selectedReportingPeriodId() === periodId) {
           this.clearBulletinState();
@@ -2033,6 +2090,7 @@ export class AcademicComponent {
         next: (b) => {
           if (this.selectedStudentId() !== id || this.sequence() !== sequence) return;
           this.bulletin.set(b); this.appreciationDraft.set(b.generalAppreciation ?? '');
+          if (b.id) this.api.bulletinLifecycle(b.id).subscribe({ next: (state) => this.bulletinLifecycle.set(state), error: () => this.bulletinLifecycle.set(null) });
         },
         error: (e) => {
           if (this.selectedStudentId() === id && this.sequence() === sequence) {
@@ -2082,17 +2140,52 @@ export class AcademicComponent {
 
   private clearBulletinState(): void {
     this.bulletin.set(null);
+    this.bulletinLifecycle.set(null);
     this.studentPhotoUrl.set(null);
     this.appreciationDraft.set('');
     this.officialDocument.set(null);
     this.publicationDialog.set(false);
     this.publicationTarget.set(null);
     this.publicationReason = '';
+    this.cancelCorrection();
+    this.cancelLifecycleAction();
   }
 
   protected validate(b: BulletinView): void {
     if (!b.id) return;
     this.api.validateSnapshot(b.id).subscribe({ next: (snapshot) => { this.applySnapshot(snapshot); this.notice.set({ ok: true, text: this.fr() ? 'Bulletin validé. Il peut maintenant être publié aux parents.' : 'Report card validated. It can now be published to parents.' }); }, error: (e) => this.fail(e) });
+  }
+
+  private loadLifecycle(id?: string | null): void {
+    if (!id) { this.bulletinLifecycle.set(null); return; }
+    this.api.bulletinLifecycle(id).subscribe({ next: (state) => this.bulletinLifecycle.set(state), error: () => this.bulletinLifecycle.set(null) });
+  }
+
+  protected openLifecycleAction(action: string): void { this.lifecycleAction.set(action); this.lifecycleReason = ''; }
+  protected cancelLifecycleAction(): void { this.lifecycleAction.set(null); this.lifecycleReason = ''; }
+  protected confirmLifecycleAction(): void {
+    const b = this.bulletin(); const action = this.lifecycleAction();
+    if (!b?.id || b.version == null || !action || !this.lifecycleReason.trim()) return;
+    this.bulletinBusy.set(true);
+    this.api.transitionBulletin(b.id, action, this.lifecycleReason.trim(), b.version).subscribe({
+      next: (snapshot) => { this.bulletinBusy.set(false); this.cancelLifecycleAction(); this.applySnapshot(snapshot); this.loadLifecycle(snapshot.id); },
+      error: (e) => { this.bulletinBusy.set(false); this.fail(e); },
+    });
+  }
+
+  protected requestCorrection(b: BulletinView): void {
+    if (!b.id || b.version == null || b.state !== 'PUBLISHED') return;
+    this.correctionTarget.set(b); this.correctionReason = ''; this.correctionDialog.set(true);
+  }
+  protected cancelCorrection(): void { this.correctionDialog.set(false); this.correctionReason = ''; this.correctionTarget.set(null); }
+  protected confirmCorrection(): void {
+    const b = this.correctionTarget();
+    if (!b?.id || b.version == null || !this.correctionReason.trim()) return;
+    this.correctionBusy.set(true);
+    this.api.startBulletinCorrection(b.id, this.correctionReason.trim(), b.version).subscribe({
+      next: (snapshot) => { this.correctionBusy.set(false); this.cancelCorrection(); this.applySnapshot(snapshot); this.loadLifecycle(snapshot.id); },
+      error: (e) => { this.correctionBusy.set(false); this.fail(e); },
+    });
   }
 
   protected createBulletinDraft(b: BulletinView): void {
@@ -2200,6 +2293,7 @@ export class AcademicComponent {
   private applySnapshot(snapshot: BulletinSnapshotView): void {
     this.bulletin.set(this.mapSnapshot(snapshot));
     this.appreciationDraft.set(snapshot.generalAppreciation ?? '');
+    this.loadLifecycle(snapshot.id);
   }
 
   private explainError(e: any, context?: 'grade-entry'): string {

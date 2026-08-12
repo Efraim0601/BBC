@@ -456,6 +456,35 @@ public class AcademicDtos {
     public record BulletinCorrectionRequest(@NotBlank String reason, Long version) {}
     public record BulletinRefreshRequest(@NotBlank String reason, @NotNull Long version) {}
 
+    public record BulletinTransitionRequest(@NotBlank String reason, Long version) {}
+
+    public record BulletinTransitionView(UUID id, UUID bulletinVersionId, UUID sourceVersionId,
+                                         String fromState, String toState, String eventType,
+                                         UUID actorUserId, Instant occurredAt, String reason,
+                                         String sourceVersions, long optimisticVersion,
+                                         String calculationSnapshotHash, String templateVersion,
+                                         UUID generatedDocumentId, UUID auditEventId,
+                                         List<String> affectedRows) {
+        public BulletinTransitionView {
+            affectedRows = affectedRows == null ? List.of() : List.copyOf(affectedRows);
+        }
+    }
+
+    public record BulletinLifecycleStateView(UUID bulletinVersionId, String state,
+                                             String publicationProduct, String publicationLocale,
+                                             UUID generatedDocumentId, UUID supersedesId,
+                                             UUID correctsBulletinVersionId, long version,
+                                             List<String> allowedTransitions,
+                                             String windowState, String governingTrimester,
+                                             List<String> affectedMilestones,
+                                             List<BulletinTransitionView> history) {
+        public BulletinLifecycleStateView {
+            allowedTransitions = allowedTransitions == null ? List.of() : List.copyOf(allowedTransitions);
+            affectedMilestones = affectedMilestones == null ? List.of() : List.copyOf(affectedMilestones);
+            history = history == null ? List.of() : List.copyOf(history);
+        }
+    }
+
     public record BulletinBatchPreviewRequest(@NotNull UUID classId, @NotNull UUID reportingPeriodId,
                                                String locale) {}
 

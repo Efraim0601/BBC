@@ -146,7 +146,7 @@ public class AcademicController {
     @PreAuthorize("@perm.can('academic','read') and @perm.staffOnly()")
     public ResponseEntity<byte[]> reportCardPdf(@PathVariable UUID id, @RequestParam(defaultValue = "fr") String locale) {
         BulletinSnapshotView snapshot = snapshotService.byId(id);
-        if (!"VALIDATED".equals(snapshot.state()) && !"PUBLISHED".equals(snapshot.state())) {
+        if (!"PUBLISHED".equals(snapshot.state())) {
             throw com.bbc.sms.platform.common.ApiException.badRequest("Le bulletin doit être validé avant la génération du document officiel");
         }
         byte[] pdf = reportCardPdfService.render(id, !"en".equalsIgnoreCase(locale));
@@ -161,7 +161,7 @@ public class AcademicController {
                                                              @RequestParam(defaultValue = "fr") String locale,
                                                              @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
         BulletinSnapshotView snapshot = snapshotService.byId(id);
-        if (!"VALIDATED".equals(snapshot.state()) && !"PUBLISHED".equals(snapshot.state())) {
+        if (!"PUBLISHED".equals(snapshot.state())) {
             throw com.bbc.sms.platform.common.ApiException.badRequest("Le bulletin doit être validé avant la génération du document officiel");
         }
         byte[] pdf = reportCardPdfService.render(id, !"en".equalsIgnoreCase(locale));
@@ -173,13 +173,26 @@ public class AcademicController {
     }
 
     @PostMapping("/bulletin-snapshots/{id}/validate")
-    @PreAuthorize("@perm.can('academic','write') and @perm.staffOnly()")
+    @PreAuthorize("@perm.canAction('BULLETIN_VALIDATE')")
     public BulletinSnapshotView validateSnapshot(@PathVariable UUID id) { return snapshotService.validate(id); }
 
-    @PostMapping("/bulletin-snapshots/{id}/publish")
+    @GetMapping("/bulletin-snapshots/{id}/lifecycle")
+    @PreAuthorize("@perm.can('academic','read') and @perm.staffOnly()")
+    public BulletinLifecycleStateView lifecycle(@PathVariable UUID id) { return snapshotService.lifecycle(id); }
+
+    @PostMapping("/bulletin-snapshots/{id}/transition/{action}")
     @PreAuthorize("@perm.can('academic','write') and @perm.staffOnly()")
-    public BulletinSnapshotView publishSnapshot(@PathVariable UUID id, @Valid @RequestBody BulletinLifecycleRequest request) {
-        return snapshotService.publish(id, request);
+    public BulletinSnapshotView transition(@PathVariable UUID id, @PathVariable String action,
+                                           @Valid @RequestBody BulletinTransitionRequest request) {
+        return snapshotService.transition(id, action, request);
+    }
+
+    @PostMapping("/bulletin-snapshots/{id}/publish")
+    @PreAuthorize("@perm.canAction('BULLETIN_PUBLISH')")
+    public BulletinSnapshotView publishSnapshot(@PathVariable UUID id, @Valid @RequestBody BulletinLifecycleRequest request,
+                                                @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+        return idempotency.execute("academic.bulletin.publish", idempotencyKey, request,
+                BulletinSnapshotView.class, () -> snapshotService.publish(id, request));
     }
 
     @GetMapping("/classes/{classId}/pv-snapshot")

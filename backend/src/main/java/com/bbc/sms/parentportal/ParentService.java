@@ -6,6 +6,7 @@ import com.bbc.sms.academic.Subject;
 import com.bbc.sms.academic.SubjectRepository;
 import com.bbc.sms.academic.BulletinSnapshotService;
 import com.bbc.sms.academic.dto.AcademicDtos.BulletinSnapshotView;
+import com.bbc.sms.documents.OfficialDocumentService;
 import com.bbc.sms.classkit.ClassKitService;
 import com.bbc.sms.classkit.dto.ClassKitDtos.ClassResourceView;
 import com.bbc.sms.finance.FeeService;
@@ -44,6 +45,7 @@ public class ParentService {
     private final FeeService fees;
     private final GuardianAccessService guardianAccess;
     private final BulletinSnapshotService bulletins;
+    private final OfficialDocumentService officialDocuments;
 
     public ParentService(JdbcTemplate jdbc,
                          StudentRepository students,
@@ -53,7 +55,8 @@ public class ParentService {
                          ClassKitService classKit,
                          FeeService fees,
                          GuardianAccessService guardianAccess,
-                         BulletinSnapshotService bulletins) {
+                         BulletinSnapshotService bulletins,
+                         OfficialDocumentService officialDocuments) {
         this.jdbc = jdbc;
         this.students = students;
         this.grades = grades;
@@ -63,6 +66,7 @@ public class ParentService {
         this.fees = fees;
         this.guardianAccess = guardianAccess;
         this.bulletins = bulletins;
+        this.officialDocuments = officialDocuments;
     }
 
     /** Student ids linked to the given parent account. */
@@ -109,32 +113,52 @@ public class ParentService {
 
     public List<GradeView> grades(AppUserPrincipal p, UUID studentId) {
         assertOwnership(p.schoolId(), p.userId(), studentId);
-        Map<String, Subject> byCode = subjects.findBySchoolIdOrderByCode(p.schoolId()).stream()
-                .collect(Collectors.toMap(Subject::getCode, s -> s, (a, b) -> a));
-        List<GradeView> out = new ArrayList<>();
-        for (Grade g : grades.findBySchoolIdAndStudentId(p.schoolId(), studentId)) {
-            Subject s = byCode.get(g.getSubjectCode());
-            Map<String, String> label = s == null ? null : s.getLabel();
-            out.add(new GradeView(
-                    g.getSubjectCode(),
-                    labelOr(label, "fr", g.getSubjectCode()),
-                    labelOr(label, "en", g.getSubjectCode()),
-                    // A grade in a subject that was since deleted still counts, at weight 1.
-                    s == null ? 1 : s.getCoef(),
-                    g.getSequence(),
-                    g.getMark()));
-        }
-        return out;
+        throw ApiException.forbidden("Raw grades are not visible in the parent portal; use a published bulletin.");
     }
 
     public BulletinSnapshotView publishedBulletin(AppUserPrincipal p, UUID studentId, UUID reportingPeriodId) {
         assertOwnership(p.schoolId(), p.userId(), studentId);
+        assertPublishedVisibility(p.schoolId(), studentId, reportingPeriodId);
         return bulletins.published(studentId, reportingPeriodId);
     }
 
     public BulletinSnapshotView latestPublishedBulletin(AppUserPrincipal p, UUID studentId) {
         assertOwnership(p.schoolId(), p.userId(), studentId);
-        return bulletins.publishedLatest(studentId);
+        UUID versionId = jdbc.query("""
+                SELECT v.id
+                  FROM bulletin_version v
+                  JOIN bulletin_parent_visibility pv ON pv.bulletin_version_id=v.id
+                 WHERE v.school_id=? AND v.student_id=? AND v.state='PUBLISHED' AND pv.status='ACTIVE'
+                 ORDER BY v.published_at DESC NULLS LAST, v.id DESC
+                 LIMIT 1
+                """, (rs, n) -> rs.getObject(1, UUID.class), p.schoolId(), studentId)
+                .stream().findFirst().orElseThrow(() -> ApiException.notFound("Aucun bulletin publié pour cet élève"));
+        return bulletins.byId(versionId);
+    }
+
+    public byte[] publishedBulletinDocument(AppUserPrincipal p, UUID studentId, UUID bulletinVersionId) {
+        assertOwnership(p.schoolId(), p.userId(), studentId);
+        UUID documentId = jdbc.query("""
+                SELECT pv.generated_document_id
+                  FROM bulletin_parent_visibility pv
+                  JOIN bulletin_version v ON v.id=pv.bulletin_version_id
+                 WHERE pv.school_id=? AND pv.bulletin_version_id=? AND v.student_id=?
+                   AND v.state='PUBLISHED' AND pv.status='ACTIVE' AND pv.generated_document_id IS NOT NULL
+                 LIMIT 1
+                """, (rs, n) -> rs.getObject(1, UUID.class), p.schoolId(), bulletinVersionId, studentId)
+                .stream().findFirst().orElseThrow(() -> ApiException.notFound("Aucun document de bulletin publié"));
+        return officialDocuments.content(documentId);
+    }
+
+    private void assertPublishedVisibility(UUID schoolId, UUID studentId, UUID reportingPeriodId) {
+        Integer count = jdbc.queryForObject("""
+                SELECT count(*) FROM bulletin_parent_visibility pv
+                  JOIN bulletin_version v ON v.id=pv.bulletin_version_id
+                 WHERE pv.school_id=? AND v.student_id=? AND v.reporting_period_id=?
+                   AND v.state='PUBLISHED' AND pv.status='ACTIVE'
+                """, Integer.class, schoolId, studentId, reportingPeriodId);
+        if (count == null || count == 0)
+            throw ApiException.notFound("Aucun bulletin publié et autorisé pour cette période");
     }
 
     public List<ParentJourneyEventView> journey(AppUserPrincipal p, UUID studentId) {

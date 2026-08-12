@@ -10,6 +10,7 @@ import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.common.PDRectangle;
 import org.apache.pdfbox.pdmodel.font.PDType1Font;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,13 +32,14 @@ public class OfficialDocumentService {
     private final DocumentStorage storage;
     private final IdempotencyService idempotency;
     private final AuditService audit;
+    private final JdbcTemplate jdbc;
 
     public OfficialDocumentService(DocumentTemplateRepository templates,
                                    GeneratedDocumentRepository documents,
                                    DocumentStorage storage, IdempotencyService idempotency,
-                                   AuditService audit) {
+                                   AuditService audit, JdbcTemplate jdbc) {
         this.templates = templates; this.documents = documents; this.storage = storage;
-        this.idempotency = idempotency; this.audit = audit;
+        this.idempotency = idempotency; this.audit = audit; this.jdbc = jdbc;
     }
 
     @Transactional(readOnly = true)
@@ -68,16 +70,40 @@ public class OfficialDocumentService {
     public GeneratedDocumentView registerPdf(String documentType, String aggregateType, String aggregateId,
                                               String aggregateVersion, String locale, String title, String visibility,
                                               byte[] pdf, String idempotencyKey, RenderEvidence evidence) {
+        return registerPdfInternal(documentType, aggregateType, aggregateId, aggregateVersion, locale, title,
+                visibility, pdf, idempotencyKey, evidence, false);
+    }
+
+    /**
+     * Publication coordinator entry point. The caller has already locked and
+     * staged the bulletin state inside the same database transaction; a
+     * renderer/storage failure rolls that transaction back.
+     */
+    @Transactional
+    public GeneratedDocumentView registerPublishedPdf(String documentType, String aggregateType, String aggregateId,
+                                                       String aggregateVersion, String locale, String title,
+                                                       String visibility, byte[] pdf, String idempotencyKey,
+                                                       RenderEvidence evidence) {
+        return registerPdfInternal(documentType, aggregateType, aggregateId, aggregateVersion, locale, title,
+                visibility, pdf, idempotencyKey, evidence, true);
+    }
+
+    private GeneratedDocumentView registerPdfInternal(String documentType, String aggregateType, String aggregateId,
+                                                      String aggregateVersion, String locale, String title,
+                                                      String visibility, byte[] pdf, String idempotencyKey,
+                                                      RenderEvidence evidence, boolean publicationCoordinator) {
         String normalizedLocale = blank(locale, "fr").toLowerCase(Locale.ROOT);
         PdfRegistration request = new PdfRegistration(documentType, aggregateType, aggregateId,
                 blank(aggregateVersion, "1"), normalizedLocale, title, visibility, evidence);
         String key = blank(idempotencyKey, "pdf:" + aggregateType + ":" + aggregateId + ":" + request.aggregateVersion() + ":" + normalizedLocale);
-        return idempotency.execute("official-documents/pdf", key, request,
-                GeneratedDocumentView.class, () -> registerPdfNow(request, pdf));
+        String endpoint = publicationCoordinator ? "official-documents/publication-pdf" : "official-documents/pdf";
+        return idempotency.execute(endpoint, key, request,
+                GeneratedDocumentView.class, () -> registerPdfNow(request, pdf, publicationCoordinator));
     }
 
-    private GeneratedDocumentView registerPdfNow(PdfRegistration in, byte[] pdf) {
+    private GeneratedDocumentView registerPdfNow(PdfRegistration in, byte[] pdf, boolean publicationCoordinator) {
         UUID schoolId = TenantContext.get();
+        if (!publicationCoordinator) assertParentReportCardIsPublished(schoolId, in);
         GeneratedDocument existing = documents.findFirstBySchoolIdAndDocumentTypeAndAggregateTypeAndAggregateIdAndAggregateVersionAndLocale(
                 schoolId, in.documentType(), in.aggregateType(), in.aggregateId(), in.aggregateVersion(), in.locale()).orElse(null);
         if (existing != null) return view(existing);
@@ -111,6 +137,27 @@ public class OfficialDocumentService {
         GeneratedDocumentView result = view(d);
         audit.record("DOCUMENT_GENERATED", "GeneratedDocument", id.toString(), null, result, null);
         return result;
+    }
+
+    /**
+     * A PARENT report-card document is official evidence, never a preview or
+     * merely VALIDATED data. This guard covers both atomic publication and
+     * standalone/batch registration callers.
+     */
+    private void assertParentReportCardIsPublished(UUID schoolId, PdfRegistration in) {
+        if (!"REPORT_CARD".equalsIgnoreCase(in.documentType())
+                || !"PARENT".equalsIgnoreCase(in.visibility())) return;
+        Integer published = jdbc.queryForObject("""
+                SELECT count(*)
+                  FROM bulletin_version
+                 WHERE school_id=? AND id=CAST(? AS uuid)
+                   AND state='PUBLISHED'
+                """, Integer.class, schoolId, in.aggregateId());
+        if (published == null || published == 0) {
+            throw ApiException.blockers("PARENT_DOCUMENT_REQUIRES_PUBLISHED",
+                    "Un document parent officiel ne peut être créé qu'à partir d'une version PUBLISHED.",
+                    List.of("BULLETIN_NOT_PUBLISHED"));
+        }
     }
 
     private record PdfRegistration(String documentType, String aggregateType, String aggregateId,

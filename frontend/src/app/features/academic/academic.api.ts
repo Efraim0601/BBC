@@ -161,6 +161,18 @@ export interface AuthoritativeSnapshotView {
 export interface SnapshotTeacher { id: string; code: string; name: string; role: string; subjectCode: string | null; assignmentVersion: number; }
 export interface FormulaDrilldownView { snapshotId: string; snapshotVersion: number; snapshotHash: string; formulaVersion: string; calculationPolicy: string; product: string; steps: unknown[]; sourceVersions: AuthoritativeSnapshotView['sourceVersions']; }
 export interface SnapshotDiffView { fromSnapshotId: string; toSnapshotId: string; fromHash: string; toHash: string; identical: boolean; changes: Array<{ path: string; fromValue: string | null; toValue: string | null }>; }
+export interface BulletinTransitionView {
+  id: string; bulletinVersionId: string; sourceVersionId: string | null; fromState: string | null; toState: string;
+  eventType: string; actorUserId: string | null; occurredAt: string; reason: string | null;
+  sourceVersions: string; optimisticVersion: number; calculationSnapshotHash: string | null;
+  templateVersion: string | null; generatedDocumentId: string | null; auditEventId: string | null; affectedRows: string[];
+}
+export interface BulletinLifecycleStateView {
+  bulletinVersionId: string; state: string; publicationProduct: string; publicationLocale: string | null;
+  generatedDocumentId: string | null; supersedesId: string | null; correctsBulletinVersionId: string | null;
+  version: number; allowedTransitions: string[]; windowState: string; governingTrimester: string | null;
+  affectedMilestones: string[]; history: BulletinTransitionView[];
+}
 
 export interface PvRow {
   studentId: string;
@@ -413,12 +425,26 @@ export class AcademicApi {
     return this.http.post<BulletinSnapshotView>(`${this.base}/bulletin-snapshots/${encodeURIComponent(id)}/validate`, {});
   }
 
+  bulletinLifecycle(id: string): Observable<BulletinLifecycleStateView> {
+    return this.http.get<BulletinLifecycleStateView>(`${this.base}/bulletin-snapshots/${encodeURIComponent(id)}/lifecycle`);
+  }
+
+  transitionBulletin(id: string, action: string, reason: string, version: number): Observable<BulletinSnapshotView> {
+    return this.http.post<BulletinSnapshotView>(`${this.base}/bulletin-snapshots/${encodeURIComponent(id)}/transition/${encodeURIComponent(action)}`, { reason, version });
+  }
+
+  startBulletinCorrection(id: string, reason: string, version: number): Observable<BulletinSnapshotView> {
+    return this.http.post<BulletinSnapshotView>(`${this.base}/bulletin-snapshots/${encodeURIComponent(id)}/correction`, { reason, version });
+  }
+
   refreshBulletinDraft(id: string, reason: string, version: number): Observable<BulletinSnapshotView> {
     return this.http.post<BulletinSnapshotView>(`${this.base}/bulletin-snapshots/${encodeURIComponent(id)}/refresh`, { reason, version });
   }
 
   publishSnapshot(id: string, reason: string, version?: number): Observable<BulletinSnapshotView> {
-    return this.http.post<BulletinSnapshotView>(`${this.base}/bulletin-snapshots/${encodeURIComponent(id)}/publish`, { reason, version });
+    return this.http.post<BulletinSnapshotView>(`${this.base}/bulletin-snapshots/${encodeURIComponent(id)}/publish`, { reason, version }, {
+      headers: { 'Idempotency-Key': `bulletin-publish:${id}:${version ?? ''}:${reason.trim()}` },
+    });
   }
 
   generateOfficialReportCard(id: string, locale: string, idempotencyKey: string): Observable<GeneratedDocumentView> {
