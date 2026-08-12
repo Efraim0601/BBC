@@ -300,19 +300,19 @@ public class AcademicController {
     }
 
     @GetMapping("/report-card-inputs")
-    @PreAuthorize("@perm.can('academic','read') and @perm.staffOnly()")
+    @PreAuthorize("@perm.canAction('COUNCIL_INPUT_VIEW') and @perm.canAction('ATTENDANCE_ADJUSTMENT_VIEW') and @perm.staffOnly()")
     public ReportCardInputsView reportCardInputs(@RequestParam UUID reportingPeriodId, @RequestParam UUID classId) {
         return reportCardInputService.list(reportingPeriodId, classId);
     }
 
     @PutMapping("/report-card-inputs")
-    @PreAuthorize("@perm.can('academic','write') and @perm.staffOnly()")
+    @PreAuthorize("@perm.canAction('COUNCIL_INPUT_EDIT') and @perm.canAction('ATTENDANCE_ADJUSTMENT_EDIT') and @perm.staffOnly()")
     public ReportCardInputsView saveReportCardInputs(@Valid @RequestBody ReportCardInputUpsert request) {
         return reportCardInputService.save(request);
     }
 
     @PostMapping("/report-card-inputs/{studentId}/submit")
-    @PreAuthorize("@perm.can('academic','write') and @perm.staffOnly()")
+    @PreAuthorize("@perm.canAction('COUNCIL_INPUT_EDIT') and @perm.canAction('ATTENDANCE_ADJUSTMENT_EDIT') and @perm.staffOnly()")
     public ReportCardInputsView submitReportCardInputs(@PathVariable UUID studentId,
                                                         @RequestParam UUID reportingPeriodId,
                                                         @RequestParam UUID classId) {
@@ -320,7 +320,7 @@ public class AcademicController {
     }
 
     @PostMapping("/report-card-inputs/{studentId}/review")
-    @PreAuthorize("@perm.can('academic','write') and @perm.staffOnly()")
+    @PreAuthorize("@perm.canAction('COUNCIL_INPUT_REVIEW') and @perm.canAction('ATTENDANCE_ADJUSTMENT_REVIEW') and @perm.staffOnly()")
     public ReportCardInputsView reviewReportCardInputs(@PathVariable UUID studentId,
                                                         @Valid @RequestBody ReportCardInputReview request) {
         return reportCardInputService.review(request.reportingPeriodId(), request.classId(), studentId, request);

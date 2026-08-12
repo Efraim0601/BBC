@@ -1,5 +1,7 @@
 package com.bbc.sms.academic.dto;
 
+import com.bbc.sms.attendance.dto.AttendanceDtos.AttendanceSummaryView;
+import com.bbc.sms.attendance.dto.AttendanceDtos.ConductRecommendationView;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Min;
@@ -749,16 +751,21 @@ public class AcademicDtos {
         }
     }
 
-    public record AttendanceSummaryView(int finalizedSessions, int presentCount, int absentCount,
-                                        int excusedCount, int lateCount, int lateMinutes,
-                                        BigDecimal justifiedAbsenceHours, BigDecimal unjustifiedAbsenceHours,
-                                        BigDecimal adjustedJustifiedHours, BigDecimal adjustedUnjustifiedHours,
-                                        int adjustedLateMinutes) {}
-
     public record ConductSummaryView(boolean workWarning, boolean workBlame, boolean conductWarning,
                                      boolean conductBlame, boolean honorRoll, boolean encouragement,
                                      boolean congratulations, int exclusionDays, String decisionCode,
-                                     String councilObservation, String status) {}
+                                     String councilObservation, String status,
+                                     ConductRecommendationView recommendation, UUID overrideBy,
+                                     String overrideReason, long version) {
+        public ConductSummaryView(boolean workWarning, boolean workBlame, boolean conductWarning,
+                                  boolean conductBlame, boolean honorRoll, boolean encouragement,
+                                  boolean congratulations, int exclusionDays, String decisionCode,
+                                  String councilObservation, String status) {
+            this(workWarning, workBlame, conductWarning, conductBlame, honorRoll, encouragement,
+                    congratulations, exclusionDays, decisionCode, councilObservation, status,
+                    null, null, null, 0);
+        }
+    }
 
     public record AttendanceAdjustmentView(UUID id, BigDecimal justifiedAbsenceHours,
                                           BigDecimal unjustifiedAbsenceHours, int lateMinutes,
@@ -768,7 +775,18 @@ public class AcademicDtos {
     public record ConductInputView(boolean workWarning, boolean workBlame, boolean conductWarning,
                                    boolean conductBlame, boolean honorRoll, boolean encouragement,
                                    boolean congratulations, int exclusionDays, String decisionCode,
-                                   String councilObservation, String status, long version) {}
+                                   String councilObservation, String status, long version,
+                                   ConductRecommendationView recommendation, UUID overrideBy,
+                                   String overrideReason) {
+        public ConductInputView(boolean workWarning, boolean workBlame, boolean conductWarning,
+                                boolean conductBlame, boolean honorRoll, boolean encouragement,
+                                boolean congratulations, int exclusionDays, String decisionCode,
+                                String councilObservation, String status, long version) {
+            this(workWarning, workBlame, conductWarning, conductBlame, honorRoll, encouragement,
+                    congratulations, exclusionDays, decisionCode, councilObservation, status,
+                    version, null, null, null);
+        }
+    }
 
     public record ReportCardInputRow(UUID studentId, String studentName, String matricule,
                                      AttendanceSummaryView attendance,
@@ -787,9 +805,24 @@ public class AcademicDtos {
                                         boolean workWarning, boolean workBlame,
                                         boolean conductWarning, boolean conductBlame,
                                         boolean honorRoll, boolean encouragement,
-                                        boolean congratulations, Integer exclusionDays,
-                                        String decisionCode, String councilObservation,
-                                        Long attendanceVersion, Long conductVersion) {}
+                                         boolean congratulations, Integer exclusionDays,
+                                         String decisionCode, String councilObservation,
+                                         Long attendanceVersion, Long conductVersion,
+                                         String overrideReason, String correctionReason,
+                                         String correctionEvidenceReference) {
+        public ReportCardInputUpsert(UUID reportingPeriodId, UUID classId, UUID studentId,
+                                     BigDecimal justifiedAbsenceHours, BigDecimal unjustifiedAbsenceHours,
+                                     Integer lateMinutes, String reason, String evidenceReference,
+                                     boolean workWarning, boolean workBlame, boolean conductWarning,
+                                     boolean conductBlame, boolean honorRoll, boolean encouragement,
+                                     boolean congratulations, Integer exclusionDays, String decisionCode,
+                                     String councilObservation, Long attendanceVersion, Long conductVersion) {
+            this(reportingPeriodId, classId, studentId, justifiedAbsenceHours, unjustifiedAbsenceHours,
+                    lateMinutes, reason, evidenceReference, workWarning, workBlame, conductWarning,
+                    conductBlame, honorRoll, encouragement, congratulations, exclusionDays, decisionCode,
+                    councilObservation, attendanceVersion, conductVersion, null, null, null);
+        }
+    }
 
     public record ReportCardInputReview(@NotNull UUID reportingPeriodId, @NotNull UUID classId,
                                        @NotBlank String action, String reason,

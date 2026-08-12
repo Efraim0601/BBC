@@ -16,10 +16,13 @@ public class AttendanceController {
 
     private final AttendanceService service;
     private final AttendanceWorkflowService workflow;
+    private final AttendanceEvidenceService evidence;
 
-    public AttendanceController(AttendanceService service, AttendanceWorkflowService workflow) {
+    public AttendanceController(AttendanceService service, AttendanceWorkflowService workflow,
+                                AttendanceEvidenceService evidence) {
         this.service = service;
         this.workflow = workflow;
+        this.evidence = evidence;
     }
 
     @GetMapping("/board")
@@ -132,5 +135,47 @@ public class AttendanceController {
     @PreAuthorize("@perm.canAction('ATTENDANCE_ANALYTICS_VIEW')")
     public List<NotificationView> notifications(@RequestParam(required = false) String status) {
         return workflow.notifications(status);
+    }
+
+    @GetMapping("/evidence")
+    @PreAuthorize("@perm.canAction('ATTENDANCE_ADJUSTMENT_VIEW')")
+    public AttendanceAggregationView evidence(@RequestParam UUID reportingPeriodId,
+                                              @RequestParam UUID studentId) {
+        return evidence.aggregateView(reportingPeriodId, studentId);
+    }
+
+    @GetMapping("/evidence/class")
+    @PreAuthorize("@perm.canAction('ATTENDANCE_ADJUSTMENT_VIEW')")
+    public List<AttendanceAggregationView> classEvidence(@RequestParam UUID reportingPeriodId,
+                                                         @RequestParam UUID classId) {
+        return evidence.aggregateForClass(reportingPeriodId, classId);
+    }
+
+    @GetMapping("/evidence/sources")
+    @PreAuthorize("@perm.canAction('ATTENDANCE_ADJUSTMENT_VIEW')")
+    public List<AttendanceSourceBreakdownView> evidenceSources(@RequestParam UUID reportingPeriodId,
+                                                               @RequestParam UUID studentId) {
+        return evidence.sourceBreakdown(reportingPeriodId, studentId);
+    }
+
+    @PostMapping("/adjustments/batch")
+    @PreAuthorize("@perm.canAction('ATTENDANCE_ADJUSTMENT_EDIT')")
+    public AttendanceAdjustmentBatchResponse saveAdjustmentBatch(
+            @Valid @RequestBody AttendanceAdjustmentBatchRequest request) {
+        return evidence.saveAdjustments(request);
+    }
+
+    @PostMapping("/adjustments/{id}/transition")
+    @PreAuthorize("@perm.canAction('ATTENDANCE_ADJUSTMENT_REVIEW')")
+    public List<AttendanceWorkflowHistoryView> transitionAdjustment(
+            @PathVariable UUID id, @Valid @RequestBody AttendanceAdjustmentTransitionRequest request) {
+        evidence.transitionAdjustment(id, request.status(), request.reason(), request.version());
+        return evidence.adjustmentHistory(id);
+    }
+
+    @GetMapping("/adjustments/{id}/history")
+    @PreAuthorize("@perm.canAction('ATTENDANCE_ADJUSTMENT_VIEW')")
+    public List<AttendanceWorkflowHistoryView> adjustmentHistory(@PathVariable UUID id) {
+        return evidence.adjustmentHistory(id);
     }
 }

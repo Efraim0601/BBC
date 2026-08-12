@@ -4,6 +4,62 @@ import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { GeneratedDocumentView } from '../../core/foundation.api';
 
+export interface ConductRecommendation {
+  workWarning: boolean; workBlame: boolean; conductWarning: boolean; conductBlame: boolean;
+  honorRoll: boolean; encouragement: boolean; congratulations: boolean; exclusionDays: number;
+  policyVersion: string; reason: string | null; version: number; calculatedAt: string | null;
+}
+
+export interface AttendanceMetricValues {
+  expectedHours: number | null; finalizedHours: number | null; coveragePercent: number | null;
+  totalAbsenceMinutes: number | null; totalAbsenceHours: number | null;
+  justifiedAbsenceMinutes: number | null; justifiedAbsenceHours: number | null;
+  unjustifiedAbsenceMinutes: number | null; unjustifiedAbsenceHours: number | null;
+  lateMinutes: number | null; exclusionDays: number | null;
+}
+export interface AttendanceSessionEvidence {
+  expectedSessionId: string | null; rollCallId: string | null; date: string | null;
+  model: string | null; periodKey: string | null; subjectCode: string | null;
+  status: string | null; cancelled: boolean; durationMinutes: number | null;
+  durationHours: number | null; issue: string | null; repairTarget: string | null;
+}
+export interface AttendanceAdjustmentEvidence {
+  id: string; justifiedAbsenceHours: number; unjustifiedAbsenceHours: number; lateMinutes: number;
+  reason: string; evidenceReference: string | null; status: string; version: number;
+  actorUserId: string | null; actorUsername: string | null; createdAt: string | null;
+  reclassifiesAbsence: boolean; correctsAdjustmentId: string | null;
+}
+export interface AttendanceReadinessIssue {
+  code: string; severity: string; studentId: string | null; date: string | null;
+  expectedSessionId: string | null; rollCallId: string | null;
+  messageFr: string; messageEn: string; repairTarget: string | null;
+}
+export interface AttendanceSummary {
+  finalizedSessions: number; presentCount: number; absentCount: number; excusedCount: number;
+  lateCount: number; lateMinutes: number; justifiedAbsenceHours: number | null;
+  unjustifiedAbsenceHours: number | null; adjustedJustifiedHours: number;
+  adjustedUnjustifiedHours: number; adjustedLateMinutes: number;
+  expectedSessionCount: number; expectedHours: number | null; finalizedHours: number | null;
+  coveragePercent: number | null; missingSessions: AttendanceSessionEvidence[];
+  sourceRollCallIds: string[]; totalAbsenceMinutes: number | null; totalAbsenceHours: number | null;
+  justifiedAbsenceMinutes: number | null; unjustifiedAbsenceMinutes: number | null;
+  exclusionDays: number; approvedAdjustments: AttendanceAdjustmentEvidence[]; policyVersion: string;
+  blockers: AttendanceReadinessIssue[]; warnings: AttendanceReadinessIssue[];
+  rawValues: AttendanceMetricValues | null; displayValues: AttendanceMetricValues | null;
+  annualEvidenceVersion: string | null; annualDraftRequired: boolean; sourceSnapshotIds: string[];
+}
+export interface AttendanceSourceBreakdown {
+  expectedSessionId: string | null; rollCallId: string | null; studentId: string;
+  date: string | null; model: string | null; periodKey: string | null; subjectCode: string | null;
+  sessionStatus: string | null; markStatus: string | null; durationMinutes: number;
+  absenceMinutes: number; lateMinutes: number; markSource: string | null; reason: string | null;
+  note: string | null; cancelled: boolean; sessionVersion: number;
+}
+export interface AttendanceAggregation {
+  academicSessionId: string; reportingPeriodId: string; classId: string | null; studentId: string;
+  className: string | null; model: string | null; attendance: AttendanceSummary;
+}
+
 export interface BulletinLine {
   subjectCode: string;
   subjectLabel: string;
@@ -41,8 +97,8 @@ export interface BulletinView {
   blockers?: string[];
   snapshotHash?: string;
   version?: number;
-  attendance?: { finalizedSessions: number; presentCount: number; absentCount: number; excusedCount: number; lateCount: number; lateMinutes: number; justifiedAbsenceHours: number; unjustifiedAbsenceHours: number; adjustedJustifiedHours: number; adjustedUnjustifiedHours: number; adjustedLateMinutes: number };
-  conduct?: { workWarning: boolean; workBlame: boolean; conductWarning: boolean; conductBlame: boolean; honorRoll: boolean; encouragement: boolean; congratulations: boolean; exclusionDays: number; decisionCode: string | null; councilObservation: string | null; status: string };
+  attendance?: AttendanceSummary;
+  conduct?: { workWarning: boolean; workBlame: boolean; conductWarning: boolean; conductBlame: boolean; honorRoll: boolean; encouragement: boolean; congratulations: boolean; exclusionDays: number; decisionCode: string | null; councilObservation: string | null; status: string; recommendation?: ConductRecommendation | null; overrideBy?: string | null; overrideReason?: string | null; version?: number };
   groupStats?: Array<{ code: string; label: string | null; average: number; total: number; coefficient: number; subjectCount: number }>;
   workflowMeta?: BulletinWorkflowMeta;
   issues?: BulletinIssue[];
@@ -226,7 +282,8 @@ export interface ReportCardInputRow {
   attendanceAdjustment: AttendanceAdjustment | null;
   conduct: { workWarning: boolean; workBlame: boolean; conductWarning: boolean; conductBlame: boolean;
     honorRoll: boolean; encouragement: boolean; congratulations: boolean; exclusionDays: number;
-    decisionCode: string | null; councilObservation: string | null; status: string; version: number } | null;
+    decisionCode: string | null; councilObservation: string | null; status: string; version: number;
+    recommendation?: ConductRecommendation | null; overrideBy?: string | null; overrideReason?: string | null } | null;
 }
 export interface ReportCardInputsView {
   academicSessionId: string; reportingPeriodId: string; reportingPeriodCode: string;
@@ -240,6 +297,7 @@ export interface ReportCardInputUpsert {
   honorRoll: boolean; encouragement: boolean; congratulations: boolean; exclusionDays: number;
   decisionCode?: string | null; councilObservation?: string | null;
   attendanceVersion?: number; conductVersion?: number;
+  overrideReason?: string | null; correctionReason?: string | null; correctionEvidenceReference?: string | null;
 }
 
 export type BulletinBatchResultCategory = 'RUNNING' | 'SUCCESS' | 'PARTIAL' | 'BLOCKED' | 'FAILED' | 'CANCELLED' | string;
@@ -331,6 +389,7 @@ export interface SecondaryCompetencyImportRequest {
 export class AcademicApi {
   private http = inject(HttpClient);
   private base = `${environment.apiUrl}/academic`;
+  private attendanceBase = `${environment.apiUrl}/attendance`;
 
   bulletin(studentId: string, sequence: number): Observable<BulletinView> {
     return this.http.get<BulletinView>(
@@ -437,6 +496,12 @@ export class AcademicApi {
   }
   reviewReportCardInput(studentId: string, body: { reportingPeriodId: string; classId: string; action: string; reason?: string; attendanceVersion?: number; conductVersion?: number }): Observable<ReportCardInputsView> {
     return this.http.post<ReportCardInputsView>(`${this.base}/report-card-inputs/${encodeURIComponent(studentId)}/review`, body);
+  }
+  attendanceEvidence(reportingPeriodId: string, studentId: string): Observable<AttendanceAggregation> {
+    return this.http.get<AttendanceAggregation>(`${this.attendanceBase}/evidence`, { params: { reportingPeriodId, studentId } });
+  }
+  attendanceSources(reportingPeriodId: string, studentId: string): Observable<AttendanceSourceBreakdown[]> {
+    return this.http.get<AttendanceSourceBreakdown[]>(`${this.attendanceBase}/evidence/sources`, { params: { reportingPeriodId, studentId } });
   }
   bulletinBatch(classId: string, reportingPeriodId: string, locale: string): Observable<Blob> {
     return this.http.post(`${this.base}/classes/${encodeURIComponent(classId)}/bulletin-batch`, {}, { params: { reportingPeriodId, locale }, responseType: 'blob' });

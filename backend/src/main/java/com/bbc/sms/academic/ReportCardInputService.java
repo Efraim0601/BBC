@@ -1,6 +1,9 @@
 package com.bbc.sms.academic;
 
 import com.bbc.sms.academic.dto.AcademicDtos.*;
+import com.bbc.sms.attendance.AttendanceEvidenceService;
+import com.bbc.sms.attendance.dto.AttendanceDtos.AttendanceAdjustmentRowRequest;
+import com.bbc.sms.attendance.dto.AttendanceDtos.AttendanceSummaryView;
 import com.bbc.sms.foundation.audit.AuditService;
 import com.bbc.sms.foundation.enrollment.StudentEnrollment;
 import com.bbc.sms.foundation.enrollment.StudentEnrollmentRepository;
@@ -42,6 +45,7 @@ public class ReportCardInputService {
     private final AcademicWindowPolicyService windows;
     private final TeacherScopeService teacherScope;
     private final AuditService audit;
+    private final AttendanceEvidenceService attendanceEvidence;
 
     public ReportCardInputService(JdbcTemplate jdbc,
                                   AcademicReportingPeriodRepository periods,
@@ -50,7 +54,8 @@ public class ReportCardInputService {
                                   SchoolClassRepository classes,
                                   AcademicWindowPolicyService windows,
                                   TeacherScopeService teacherScope,
-                                  AuditService audit) {
+                                  AuditService audit,
+                                  AttendanceEvidenceService attendanceEvidence) {
         this.jdbc = jdbc;
         this.periods = periods;
         this.enrollments = enrollments;
@@ -59,6 +64,7 @@ public class ReportCardInputService {
         this.windows = windows;
         this.teacherScope = teacherScope;
         this.audit = audit;
+        this.attendanceEvidence = attendanceEvidence;
     }
 
     @Transactional(readOnly = true)
@@ -77,7 +83,8 @@ public class ReportCardInputService {
                 """, (rs, n) -> {
                     UUID studentId = rs.getObject("student_id", UUID.class);
                     return new ReportCardInputRow(studentId, rs.getString("student_name"), rs.getString("matricule"),
-                            attendance(period, studentId), latestAdjustment(periodId, studentId), conduct(periodId, studentId));
+                            attendanceEvidence.aggregate(periodId, studentId), latestAdjustment(periodId, studentId),
+                            attendanceEvidence.conductInput(periodId, studentId));
                 }, TenantContext.get(), period.getAcademicSessionId(), classId);
         return new ReportCardInputsView(period.getAcademicSessionId(), period.getId(), period.getCode(), period.getLabel(),
                 classId, schoolClass.getName(), rows);
@@ -94,9 +101,14 @@ public class ReportCardInputService {
         String reason = requiredText(in.reason(), 500, "Le motif de correction est obligatoire");
         String evidence = optionalText(in.evidenceReference(), 240, "La référence de preuve est trop longue");
         if (justified.signum() > 0 || unjustified.signum() > 0 || late > 0) {
-            saveAdjustment(period, in, justified, unjustified, late, reason, evidence);
+            AttendanceAdjustmentRowRequest row = new AttendanceAdjustmentRowRequest(
+                    in.studentId(), justified, unjustified, late, reason, evidence, in.attendanceVersion(),
+                    in.correctionReason(), in.correctionEvidenceReference());
+            var result = attendanceEvidence.saveAdjustmentRow(period, in.classId(), row);
+            if (!"SAVED".equals(result.outcome()) && !"UNCHANGED".equals(result.outcome()))
+                throw ApiException.conflict(result.messageFr());
         }
-        saveConduct(period, in);
+        attendanceEvidence.saveConductInput(period, in.classId(), in);
         audit.record("REPORT_CARD_INPUT_SAVED", "REPORT_CARD_INPUT", inputAggregate(in.reportingPeriodId(), in.studentId()),
                 null, Map.of("reportingPeriodId", in.reportingPeriodId(), "studentId", in.studentId()), reason);
         return list(in.reportingPeriodId(), in.classId());
@@ -107,21 +119,9 @@ public class ReportCardInputService {
         AcademicReportingPeriod period = period(periodId);
         assertRoster(period, classId, studentId);
         windows.assertOpen(periodId, AcademicWindowPolicyService.Action.REVIEW);
-        int attendance = jdbc.update("""
-                UPDATE attendance_period_adjustment
-                   SET status='SUBMITTED', updated_at=now()
-                 WHERE school_id=? AND reporting_period_id=? AND student_id=?
-                   AND status IN ('DRAFT','REJECTED')
-                """, TenantContext.get(), periodId, studentId);
-        int conduct = jdbc.update("""
-                UPDATE student_period_conduct
-                   SET status='SUBMITTED', updated_at=now()
-                 WHERE school_id=? AND reporting_period_id=? AND student_id=?
-                   AND status IN ('DRAFT','RETURNED')
-                """, TenantContext.get(), periodId, studentId);
-        if (attendance == 0 && conduct == 0) throw ApiException.conflict("Aucun brouillon d'assiduité ou de conseil à soumettre");
+        attendanceEvidence.submitInputs(periodId, classId, studentId);
         audit.record("REPORT_CARD_INPUT_SUBMITTED", "REPORT_CARD_INPUT", inputAggregate(periodId, studentId), null,
-                Map.of("attendanceChanged", attendance, "conductChanged", conduct), "Soumission pour revue");
+                Map.of("studentId", studentId), "Soumission pour revue");
         return list(periodId, classId);
     }
 
@@ -137,26 +137,11 @@ public class ReportCardInputService {
         String reason = "APPROVE".equals(action)
                 ? optionalText(in.reason(), 500, "Motif trop long")
                 : requiredText(in.reason(), 500, "Le motif du rejet ou retour est obligatoire");
+        attendanceEvidence.reviewInputs(periodId, classId, studentId, action, reason,
+                in.attendanceVersion(), in.conductVersion());
         if ("APPROVE".equals(action)) invalidateSnapshots(periodId, studentId);
-        String attendanceState = "APPROVE".equals(action) ? "APPROVED" : "REJECTED";
-        int attendance = jdbc.update("""
-                UPDATE attendance_period_adjustment
-                   SET status=?, reviewed_by=?, reviewed_at=now(), updated_at=now(), version=version+1
-                 WHERE school_id=? AND reporting_period_id=? AND student_id=? AND status='SUBMITTED'
-                   AND (CAST(? AS BIGINT) IS NULL OR version=CAST(? AS BIGINT))
-                """, attendanceState, actorId(), TenantContext.get(), periodId, studentId,
-                in.attendanceVersion(), in.attendanceVersion());
-        String conductState = "APPROVE".equals(action) ? "APPROVED" : "RETURNED";
-        int conduct = jdbc.update("""
-                UPDATE student_period_conduct
-                   SET status=?, reviewed_by=?, reviewed_at=now(), updated_at=now(), version=version+1
-                 WHERE school_id=? AND reporting_period_id=? AND student_id=? AND status='SUBMITTED'
-                   AND (CAST(? AS BIGINT) IS NULL OR version=CAST(? AS BIGINT))
-                """, conductState, actorId(), TenantContext.get(), periodId, studentId,
-                in.conductVersion(), in.conductVersion());
-        if (attendance == 0 && conduct == 0) throw ApiException.conflict("Aucun élément soumis à revoir ou version périmée");
         audit.record("REPORT_CARD_INPUT_" + action, "REPORT_CARD_INPUT", inputAggregate(periodId, studentId), null,
-                Map.of("attendanceChanged", attendance, "conductChanged", conduct, "action", action), reason);
+                Map.of("action", action), reason);
         return list(periodId, classId);
     }
 

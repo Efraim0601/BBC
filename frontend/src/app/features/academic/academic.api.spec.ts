@@ -62,4 +62,23 @@ describe('AcademicApi batch diagnostics contract', () => {
     diff.flush({ fromSnapshotId: 'from', toSnapshotId: 'to', identical: true, changes: [] });
     http.verify();
   });
+
+  it('loads typed attendance evidence and its source breakdown separately', () => {
+    TestBed.configureTestingModule({ providers: [AcademicApi, provideHttpClient(), provideHttpClientTesting()] });
+    const api = TestBed.inject(AcademicApi);
+    const http = TestBed.inject(HttpTestingController);
+    api.attendanceEvidence('period', 'student').subscribe((view) => {
+      expect(view.attendance.coveragePercent).toBe(75);
+      expect(view.attendance.blockers[0].code).toBe('ATTENDANCE_COVERAGE_INCOMPLETE');
+    });
+    const evidence = http.expectOne(`${environment.apiUrl}/attendance/evidence?reportingPeriodId=period&studentId=student`);
+    expect(evidence.request.method).toBe('GET');
+    evidence.flush({ attendance: { coveragePercent: 75, blockers: [{ code: 'ATTENDANCE_COVERAGE_INCOMPLETE' }] } });
+
+    api.attendanceSources('period', 'student').subscribe((sources) => expect(sources[0].markStatus).toBe('ABSENT'));
+    const sources = http.expectOne(`${environment.apiUrl}/attendance/evidence/sources?reportingPeriodId=period&studentId=student`);
+    expect(sources.request.method).toBe('GET');
+    sources.flush([{ markStatus: 'ABSENT', date: '2026-09-01', durationMinutes: 45 }]);
+    http.verify();
+  });
 });

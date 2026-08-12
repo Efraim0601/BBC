@@ -274,8 +274,9 @@ public class AttendanceWorkflowService {
               FROM attendance_mark m
               JOIN attendance_session s ON s.id=m.attendance_session_id
               JOIN student st ON st.id=m.student_id
-              JOIN school_class c ON c.id=s.school_class_id
+             JOIN school_class c ON c.id=s.school_class_id
              WHERE m.school_id=? AND s.session_date BETWEEN ? AND ?
+               AND s.status IN ('FINALIZED','REOPENED') AND COALESCE(s.cancelled,false)=false
             """);
         List<Object> args = new ArrayList<>(List.of(TenantContext.get(), Date.valueOf(from), Date.valueOf(to)));
         if (classId != null) { sql.append(" AND s.school_class_id=?"); args.add(classId); }
@@ -459,18 +460,21 @@ public class AttendanceWorkflowService {
 
     /** Duration used for analytics: daily school hours or the timetable period length. */
     private int durationMinutes(AcademicSession academic, LocalDate date, String model, SessionKey key) {
-        Integer duration = jdbc.query("SELECT EXTRACT(EPOCH FROM (end_time - start_time))/60 FROM school_calendar_day WHERE school_id=? AND academic_session_id=? AND day_of_week=? AND teaching_day",
-                rs -> rs.next() && rs.getObject(1) != null ? rs.getInt(1) : null,
-                TenantContext.get(), academic.getId(), date.getDayOfWeek().getValue());
-        if ("PERIOD".equals(model) && key.periodKey() != null && key.periodKey().startsWith("P")) {
+        if ("PERIOD".equals(model)) {
+            Integer duration = null;
+            if (key.periodKey() != null && key.periodKey().startsWith("P")) {
             try {
                 int slot = Integer.parseInt(key.periodKey().substring(1)) - 1;
-                int fallback = duration == null ? 0 : duration;
-                duration = jdbc.query("SELECT EXTRACT(EPOCH FROM (end_time - start_time))/60 FROM timetable_period WHERE school_id=? AND slot_idx=? AND active",
-                        rs -> rs.next() && rs.getObject(1) != null ? rs.getInt(1) : fallback,
+                duration = jdbc.query("SELECT EXTRACT(EPOCH FROM (end_time - start_time))/60 FROM timetable_period WHERE school_id=? AND slot_idx=? AND active AND end_time>start_time",
+                        rs -> rs.next() && rs.getObject(1) != null ? rs.getInt(1) : null,
                         TenantContext.get(), slot);
             } catch (NumberFormatException ignored) { /* keep daily fallback */ }
+            }
+            return duration == null ? 0 : Math.max(0, duration);
         }
+        Integer duration = jdbc.query("SELECT EXTRACT(EPOCH FROM (end_time - start_time))/60 FROM school_calendar_day WHERE school_id=? AND academic_session_id=? AND day_of_week=? AND teaching_day AND end_time>start_time",
+                rs -> rs.next() && rs.getObject(1) != null ? rs.getInt(1) : null,
+                TenantContext.get(), academic.getId(), date.getDayOfWeek().getValue());
         return duration == null ? 0 : Math.max(0, duration);
     }
 

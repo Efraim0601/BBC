@@ -2,6 +2,8 @@ package com.bbc.sms.academic;
 
 import com.bbc.sms.academic.calculation.AcademicCalculationEngine;
 import com.bbc.sms.academic.dto.AcademicDtos.*;
+import com.bbc.sms.attendance.AttendanceEvidenceService;
+import com.bbc.sms.attendance.dto.AttendanceDtos.AttendanceSummaryView;
 import com.bbc.sms.foundation.enrollment.StudentEnrollment;
 import com.bbc.sms.foundation.enrollment.StudentEnrollmentRepository;
 import com.bbc.sms.foundation.audit.AuditService;
@@ -52,6 +54,7 @@ public class BulletinSnapshotService {
     private final ObjectMapper mapper;
     private final JdbcTemplate jdbc;
     private final AuditService audit;
+    private final AttendanceEvidenceService attendanceEvidence;
 
     public BulletinSnapshotService(AcademicReportingPeriodRepository periods, AcademicAssessmentRepository assessments,
                                    AcademicGradeRepository grades, SubjectResultCommentRepository comments,
@@ -59,11 +62,12 @@ public class BulletinSnapshotService {
                                    StudentRepository students, SubjectRepository subjects,
                                    SubjectClassCoefRepository subjectClassCoefs, SchoolClassRepository classes,
                                    AcademicWindowPolicyService windows, TeacherScopeService teacherScope, TeachingAssignmentResolver assignments, ObjectMapper mapper,
-                                   JdbcTemplate jdbc, AuditService audit) {
+                                   JdbcTemplate jdbc, AuditService audit, AttendanceEvidenceService attendanceEvidence) {
         this.periods = periods; this.assessments = assessments; this.grades = grades; this.comments = comments; this.packets = packets;
         this.versions = versions; this.enrollments = enrollments; this.students = students; this.subjects = subjects;
         this.subjectClassCoefs = subjectClassCoefs; this.classes = classes;
         this.windows = windows; this.teacherScope = teacherScope; this.assignments = assignments; this.mapper = mapper; this.jdbc = jdbc; this.audit = audit;
+        this.attendanceEvidence = attendanceEvidence;
     }
 
     private StudentEnrollment enrollment(UUID studentId, AcademicReportingPeriod period) {
@@ -101,9 +105,18 @@ public class BulletinSnapshotService {
                 document.json(), document.canonicalHash());
     }
 
-    private List<String> officialBlockers(Calculation calculation, ConductSummaryView conduct) {
+    private List<String> officialBlockers(Calculation calculation, AttendanceSummaryView attendance,
+                                          ConductSummaryView conduct, String periodType) {
         List<String> blockers = new ArrayList<>(calculation == null ? List.of() : calculation.blockers());
-        if (conduct == null || !"APPROVED".equalsIgnoreCase(conduct.status())) addDistinct(blockers, "CONDUCT_NOT_APPROVED");
+        boolean reportCardEvidence = Set.of("TERM_RESULT", "ANNUAL_RESULT").contains(
+                periodType == null ? "" : periodType.toUpperCase(Locale.ROOT));
+        if (reportCardEvidence && attendance != null) {
+            attendance.blockers().forEach(issue -> addDistinct(blockers, issue.code()));
+            if (attendance.annualDraftRequired()) addDistinct(blockers, "ATTENDANCE_ANNUAL_DRAFT_REQUIRED");
+        }
+        if (reportCardEvidence && (conduct == null || !Set.of("APPROVED", "LOCKED", "LOCKED_BY_PUBLICATION").contains(
+                conduct.status() == null ? "" : conduct.status().toUpperCase(Locale.ROOT))))
+            addDistinct(blockers, "CONDUCT_NOT_APPROVED");
         return blockers;
     }
 
@@ -143,7 +156,7 @@ public class BulletinSnapshotService {
         BulletinVersion active = latestActive(studentId, periodId);
         if (official != null && active == null) return viewFromSnapshot(official, period, student);
         CurrentSnapshot current = currentSnapshot(studentId, period, student, enrollment);
-        List<String> officialBlockers = officialBlockers(current.calculation(), current.conduct());
+        List<String> officialBlockers = officialBlockers(current.calculation(), current.attendance(), current.conduct(), period.getPeriodType());
         if (active != null) {
             if (Objects.equals(active.getSnapshotHash(), current.hash()) && officialBlockers.isEmpty())
                 return persistedView(active, period, student, current, "CURRENT", false);
@@ -200,7 +213,7 @@ public class BulletinSnapshotService {
         StudentEnrollment enrollment = enrollment(previous.getStudentId(), period);
         if (enrollment == null) throw ApiException.conflict("Aucune inscription active pour l'actualisation.");
         CurrentSnapshot current = currentSnapshot(previous.getStudentId(), period, student, enrollment);
-        List<String> blockers = officialBlockers(current.calculation(), current.conduct());
+        List<String> blockers = officialBlockers(current.calculation(), current.attendance(), current.conduct(), period.getPeriodType());
         if (!blockers.isEmpty()) {
             throw ApiException.blockers("BULLETIN_NOT_READY",
                     "Le brouillon ne peut pas être actualisé tant que ses sources ne sont pas prêtes.", blockers);
@@ -388,7 +401,7 @@ public class BulletinSnapshotService {
                     "Le brouillon ne correspond plus aux sources actuelles. Actualisez-le avant validation.",
                     List.of("BULLETIN_DRAFT_STALE"));
         }
-        List<String> blockers = officialBlockers(current.calculation(), current.conduct());
+        List<String> blockers = officialBlockers(current.calculation(), current.attendance(), current.conduct(), period.getPeriodType());
         if (!blockers.isEmpty()) throw ApiException.blockers("BULLETIN_NOT_READY",
                 "Bulletin incomplet ou preuves administratives non approuvées : " + String.join("; ", blockers), blockers);
         version.setState("VALIDATED"); version.setValidatedAt(Instant.now()); version.setValidatedBy(currentUserId());
@@ -422,7 +435,7 @@ public class BulletinSnapshotService {
             throw ApiException.blockers("BULLETIN_DRAFT_STALE",
                     "Le bulletin validé ne correspond plus aux sources actuelles.", List.of("BULLETIN_DRAFT_STALE"));
         }
-        List<String> blockers = officialBlockers(current.calculation(), current.conduct());
+        List<String> blockers = officialBlockers(current.calculation(), current.attendance(), current.conduct(), period.getPeriodType());
         if (!blockers.isEmpty()) throw ApiException.blockers("BULLETIN_NOT_READY",
                 "Le bulletin ne peut pas être publié : " + String.join("; ", blockers), blockers);
         version.setState("PUBLISHED");
@@ -430,6 +443,8 @@ public class BulletinSnapshotService {
         version.setPublishedBy(currentUserId());
         version.setPublicationReason(request.reason().trim());
         versions.saveAndFlush(version);
+        attendanceEvidence.freezeOfficialSnapshot(period, version.getStudentId(), version.getId(), current.attendance());
+        attendanceEvidence.lockForPublication(period.getId(), version.getStudentId(), version.getId());
         if (version.getCorrectsBulletinVersionId() != null) {
             versions.findByIdAndSchoolId(version.getCorrectsBulletinVersionId(), TenantContext.get()).ifPresent(previous -> {
                 previous.setState("SUPERSEDED");
@@ -1372,7 +1387,7 @@ public class BulletinSnapshotService {
     private BulletinSnapshotView view(BulletinVersion v, AcademicReportingPeriod p, Student s, Calculation c,
                                       AttendanceSummaryView attendance, ConductSummaryView conduct, SnapshotTrace trace,
                                       String relation, boolean refreshRequired, AuthoritativeSnapshotView snapshot) {
-        List<String> validationBlockers = officialBlockers(c, conduct);
+        List<String> validationBlockers = officialBlockers(c, attendance, conduct, p.getPeriodType());
         List<BulletinIssueView> issues = new ArrayList<>(c.issues());
         if (validationBlockers.contains("CONDUCT_NOT_APPROVED")) {
             issues.add(issue("CONDUCT_NOT_APPROVED", "ERROR", p.getCode(), null,
@@ -1805,12 +1820,11 @@ public class BulletinSnapshotService {
     private record CurriculumMetadata(String groupCode, String groupLabel, boolean remarkRequired, String teacherName) {}
     private String appreciation(BigDecimal a){return a == null ? "EXEMPT" : a.compareTo(BigDecimal.valueOf(16))>=0?"Excellent":a.compareTo(BigDecimal.valueOf(14))>=0?"Très bien":a.compareTo(BigDecimal.valueOf(12))>=0?"Bien":a.compareTo(BigDecimal.valueOf(10))>=0?"Acquis":"En cours d'acquisition";}
     private AttendanceSummaryView attendance(AcademicReportingPeriod p, UUID studentId) {
-        Map<String, Object> row = jdbc.queryForMap("SELECT count(DISTINCT s.id) AS finalized_sessions, count(*) FILTER (WHERE m.status='PRESENT') AS present_count, count(*) FILTER (WHERE m.status='ABSENT') AS absent_count, count(*) FILTER (WHERE m.status='EXCUSED') AS excused_count, count(*) FILTER (WHERE m.status='LATE') AS late_count, coalesce(sum(m.late_minutes),0) AS late_minutes, coalesce(sum(CASE WHEN m.status='EXCUSED' THEN s.duration_minutes ELSE 0 END),0) / 60.0 AS justified_absence_hours, coalesce(sum(CASE WHEN m.status='ABSENT' THEN s.duration_minutes ELSE 0 END),0) / 60.0 AS unjustified_absence_hours FROM attendance_session s JOIN attendance_mark m ON m.attendance_session_id=s.id WHERE s.school_id=? AND s.academic_session_id=? AND m.student_id=? AND s.status='FINALIZED' AND s.session_date BETWEEN ? AND ?", TenantContext.get(), p.getAcademicSessionId(), studentId, p.getStartDate(), p.getEndDate());
-        int finalized = ((Number) row.getOrDefault("finalized_sessions", 0)).intValue(); int present = ((Number) row.getOrDefault("present_count", 0)).intValue(); int absent = ((Number) row.getOrDefault("absent_count", 0)).intValue(); int excused = ((Number) row.getOrDefault("excused_count", 0)).intValue(); int late = ((Number) row.getOrDefault("late_count", 0)).intValue(); int lateMinutes = ((Number) row.getOrDefault("late_minutes", 0)).intValue();
-        Map<String, Object> adjustment = jdbc.queryForMap("SELECT coalesce(sum(justified_absence_hours),0) AS justified, coalesce(sum(unjustified_absence_hours),0) AS unjustified, coalesce(sum(late_minutes),0) AS late_minutes FROM attendance_period_adjustment WHERE school_id=? AND reporting_period_id=? AND student_id=? AND status='APPROVED'", TenantContext.get(), p.getId(), studentId);
-        return new AttendanceSummaryView(finalized, present, absent, excused, late, lateMinutes, new BigDecimal(row.get("justified_absence_hours").toString()), new BigDecimal(row.get("unjustified_absence_hours").toString()), new BigDecimal(adjustment.get("justified").toString()), new BigDecimal(adjustment.get("unjustified").toString()), ((Number) adjustment.get("late_minutes")).intValue());
+        return attendanceEvidence.aggregate(p.getId(), studentId);
     }
-    private ConductSummaryView conduct(AcademicReportingPeriod p, UUID studentId) { return jdbc.query("SELECT work_warning,work_blame,conduct_warning,conduct_blame,honor_roll,encouragement,congratulations,exclusion_days,decision_code,council_observation,status FROM student_period_conduct WHERE school_id=? AND reporting_period_id=? AND student_id=?", rs -> rs.next() ? new ConductSummaryView(rs.getBoolean(1), rs.getBoolean(2), rs.getBoolean(3), rs.getBoolean(4), rs.getBoolean(5), rs.getBoolean(6), rs.getBoolean(7), rs.getInt(8), rs.getString(9), rs.getString(10), rs.getString(11)) : new ConductSummaryView(false,false,false,false,false,false,false,0,null,null,"DRAFT"), TenantContext.get(), p.getId(), studentId); }
+    private ConductSummaryView conduct(AcademicReportingPeriod p, UUID studentId) {
+        return attendanceEvidence.conductSummary(p.getId(), studentId);
+    }
     private String sha256(String v){try{byte[] h=MessageDigest.getInstance("SHA-256").digest(v.getBytes(StandardCharsets.UTF_8));StringBuilder b=new StringBuilder();for(byte x:h)b.append(String.format("%02x",x));return b.toString();}catch(Exception e){throw new IllegalStateException(e);}}
     private String sha256(byte[] value){try{byte[] h=MessageDigest.getInstance("SHA-256").digest(value);StringBuilder b=new StringBuilder();for(byte x:h)b.append(String.format("%02x",x));return b.toString();}catch(Exception e){throw new IllegalStateException(e);}}
     private static String value(String value){return value == null ? "" : value;}

@@ -1,12 +1,12 @@
 import { Component, ChangeDetectionStrategy, ElementRef, inject, signal, computed, ViewChild } from '@angular/core';
-import { DatePipe } from '@angular/common';
+import { DatePipe, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { forkJoin, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { StudentApi } from '../students/students.api';
 import { SetupApi, ClassView } from '../../core/setup.api';
-import { AcademicApi, BulletinView, BulletinSnapshotView, PvView, GradeEntryView, GradePacketQueueView, GradePacketQueueItem, GradePacketHistoryView, ReportCardInputsView, ReportCardInputRow, ReportCardInputUpsert, BulletinBatchJobView, BulletinBatchItemView, BulletinBatchPreviewView, BulletinBatchPreviewRow, BulletinBatchWindowView, BulletinBatchRepairTarget } from './academic.api';
+import { AcademicApi, BulletinView, BulletinSnapshotView, PvView, GradeEntryView, GradePacketQueueView, GradePacketQueueItem, GradePacketHistoryView, ReportCardInputsView, ReportCardInputRow, ReportCardInputUpsert, BulletinBatchJobView, BulletinBatchItemView, BulletinBatchPreviewView, BulletinBatchPreviewRow, BulletinBatchWindowView, BulletinBatchRepairTarget, AttendanceSourceBreakdown } from './academic.api';
 import { FoundationApi, AcademicReportingPeriodView, GeneratedDocumentView } from '../../core/foundation.api';
 import { AuthService } from '../../core/auth.service';
 import { ScopeService } from '../../core/scope.service';
@@ -21,6 +21,7 @@ import {
 } from '../../core/ui';
 
 type Mode = 'bulletin' | 'grade-entry' | 'inputs' | 'pv' | 'batch';
+type InputFilter = 'all' | 'missing' | 'pending-justification' | 'pending-adjustment' | 'missing-decision' | 'ready';
 
 const cleanDisplay = (value: string | null | undefined): string => {
   if (!value) return value ?? '';
@@ -92,7 +93,7 @@ const appreciation = (avg: number, fr: boolean): string => {
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
-    FormsModule, DatePipe, IconComponent, CardComponent, PageHeaderComponent,
+    FormsModule, DatePipe, DecimalPipe, IconComponent, CardComponent, PageHeaderComponent,
     EmptyComponent, AvatarComponent, TabsComponent, ApcBulletinComponent,
   ],
   template: `
@@ -416,9 +417,22 @@ const appreciation = (avg: number, fr: boolean): string => {
                 </div>
                 <div class="text-xs text-mute max-w-xl">{{ fr() ? 'Les chiffres de présence sont calculés à partir des appels finalisés. Les corrections et décisions sont conservées en brouillon, soumises puis approuvées avant d’entrer dans le bulletin.' : 'Attendance totals come from finalized calls. Corrections and decisions are drafted, submitted, and approved before they enter a report card.' }}</div>
               </div>
+              <div class="flex items-center gap-3 flex-wrap mt-4 pt-3 border-t border-slate-100">
+                <label class="field-label"><span>{{ fr() ? 'Filtrer les preuves' : 'Evidence filter' }}</span>
+                  <select class="field" [ngModel]="inputFilter()" (ngModelChange)="inputFilter.set($event)">
+                    <option value="all">{{ fr() ? 'Tous les élèves' : 'All students' }}</option>
+                    <option value="missing">{{ fr() ? 'Séances manquantes' : 'Missing sessions' }}</option>
+                    <option value="pending-justification">{{ fr() ? 'Justification en attente' : 'Pending justification' }}</option>
+                    <option value="pending-adjustment">{{ fr() ? 'Correction en attente' : 'Pending adjustment' }}</option>
+                    <option value="missing-decision">{{ fr() ? 'Décision manquante' : 'Missing decision' }}</option>
+                    <option value="ready">{{ fr() ? 'Prêts' : 'Ready' }}</option>
+                  </select>
+                </label>
+                <span class="text-xs text-mute">{{ filteredReportInputRows().length }} / {{ inputs.rows.length }} {{ fr() ? 'élèves affichés' : 'students shown' }}</span>
+              </div>
             </bbc-card>
             <div class="space-y-4">
-              @for (row of inputs.rows; track row.studentId) {
+              @for (row of filteredReportInputRows(); track row.studentId) {
                 <bbc-card>
                   <div class="flex items-start justify-between gap-3 flex-wrap border-b border-slate-100 pb-3">
                     <div>
@@ -427,11 +441,31 @@ const appreciation = (avg: number, fr: boolean): string => {
                     </div>
                     <div class="flex items-center gap-2 text-xs flex-wrap">
                       <span class="rounded-full bg-slate-100 px-2 py-1 font-semibold">{{ row.attendance?.finalizedSessions ?? 0 }} {{ fr() ? 'appels' : 'calls' }}</span>
+                      <span class="rounded-full bg-indigo-50 text-indigo-700 px-2 py-1 font-semibold">{{ (row.attendance?.coveragePercent ?? 0) | number:'1.0-1' }}% {{ fr() ? 'couverture' : 'coverage' }}</span>
+                      <span class="rounded-full bg-slate-50 text-slate-700 px-2 py-1 font-semibold">{{ (row.attendance?.finalizedHours ?? 0) | number:'1.0-2' }}/{{ (row.attendance?.expectedHours ?? 0) | number:'1.0-2' }}h</span>
                       <span class="rounded-full bg-rose-50 text-rose-700 px-2 py-1 font-semibold">{{ row.attendance?.absentCount ?? 0 }} {{ fr() ? 'abs.' : 'abs.' }}</span>
                       <span class="rounded-full bg-amber-50 text-amber-800 px-2 py-1 font-semibold">{{ row.attendance?.lateMinutes ?? 0 }} min</span>
                       @if (row.attendanceAdjustment) { <span class="rounded-full px-2 py-1 font-semibold" [class]="row.attendanceAdjustment.status === 'APPROVED' ? 'bg-emerald-50 text-emerald-700' : row.attendanceAdjustment.status === 'SUBMITTED' ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-800'">{{ row.attendanceAdjustment.status }}</span> }
                       @if (row.conduct) { <span class="rounded-full px-2 py-1 font-semibold" [class]="row.conduct.status === 'APPROVED' ? 'bg-emerald-50 text-emerald-700' : row.conduct.status === 'SUBMITTED' ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-800'">{{ row.conduct.status }}</span> }
                     </div>
+                  </div>
+                  @if ((row.attendance?.blockers?.length ?? 0) > 0 || (row.attendance?.warnings?.length ?? 0) > 0) {
+                    <div class="mt-3 space-y-1 text-xs">
+                      @for (issue of (row.attendance?.blockers ?? []); track issue.code + issue.date + issue.rollCallId) {
+                        <div class="rounded border border-rose-200 bg-rose-50 px-2 py-1 text-rose-800"><span class="font-bold">{{ issue.code }}</span> · {{ fr() ? issue.messageFr : issue.messageEn }} @if (issue.date) { · {{ issue.date }} } @if (issue.repairTarget) { <a class="underline font-semibold" [href]="issue.repairTarget">{{ fr() ? 'Réparer' : 'Repair' }}</a> }</div>
+                      }
+                      @for (issue of (row.attendance?.warnings ?? []); track issue.code + issue.date + issue.rollCallId) {
+                        <div class="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-amber-900"><span class="font-bold">{{ issue.code }}</span> · {{ fr() ? issue.messageFr : issue.messageEn }}</div>
+                      }
+                    </div>
+                  }
+                  <div class="mt-3">
+                    <button type="button" (click)="loadInputSources(row.studentId)" class="text-xs font-bold text-brand-700 underline">{{ fr() ? 'Voir le détail des appels' : 'View source roll-call breakdown' }}</button>
+                    @if (inputSources()[row.studentId]; as sources) {
+                      <div class="mt-2 overflow-x-auto rounded border border-slate-200">
+                        <table class="min-w-full text-xs"><thead class="bg-slate-50"><tr><th class="text-left px-2 py-1">{{ fr() ? 'Date' : 'Date' }}</th><th class="text-left px-2 py-1">{{ fr() ? 'Source' : 'Source' }}</th><th class="text-left px-2 py-1">{{ fr() ? 'État' : 'Status' }}</th><th class="text-left px-2 py-1">{{ fr() ? 'Durée' : 'Duration' }}</th><th class="text-left px-2 py-1">{{ fr() ? 'Marque' : 'Mark' }}</th></tr></thead><tbody>@for (source of sources; track $index) {<tr class="border-t border-slate-100"><td class="px-2 py-1">{{ source.date }}</td><td class="px-2 py-1">{{ source.model }} {{ source.periodKey || '' }} · {{ source.subjectCode || '—' }}</td><td class="px-2 py-1">{{ source.sessionStatus }}</td><td class="px-2 py-1">{{ source.durationMinutes }} min</td><td class="px-2 py-1">{{ source.markStatus }}</td></tr>}</tbody></table>
+                      </div>
+                    }
                   </div>
                   <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 mt-4">
                     <section class="rounded-lg border border-slate-200 bg-slate-50 p-3">
@@ -445,6 +479,9 @@ const appreciation = (avg: number, fr: boolean): string => {
                       <label class="field-label mt-2"><span>{{ fr() ? 'Motif (obligatoire)' : 'Reason (required)' }}</span><input [ngModel]="inputDraft(row.studentId).reason" (ngModelChange)="updateInput(row.studentId, { reason: $event })" maxlength="500" class="field" [class.border-rose-400]="!inputDraft(row.studentId).reason" placeholder="Ex. Certificat médical" /></label>
                       @if (!inputDraft(row.studentId).reason.trim()) { <div class="mt-1 text-xs font-semibold text-rose-600">{{ fr() ? 'Le motif est obligatoire avant l’enregistrement ou la soumission.' : 'A reason is required before saving or submitting.' }}</div> }
                       <label class="field-label mt-2"><span>{{ fr() ? 'Référence de preuve' : 'Evidence reference' }}</span><input [ngModel]="inputDraft(row.studentId).evidenceReference" (ngModelChange)="updateInput(row.studentId, { evidenceReference: $event })" maxlength="240" class="field" placeholder="Ex. CERT-2026-001" /></label>
+                      @if (row.attendanceAdjustment && ['APPROVED','LOCKED_BY_PUBLICATION'].includes(row.attendanceAdjustment.status)) {
+                        <div class="grid grid-cols-2 gap-2 mt-2"><label class="field-label"><span>{{ fr() ? 'Motif de correction' : 'Correction reason' }}</span><input [ngModel]="inputDraft(row.studentId).correctionReason" (ngModelChange)="updateInput(row.studentId, { correctionReason: $event })" maxlength="500" class="field" /></label><label class="field-label"><span>{{ fr() ? 'Preuve de correction' : 'Correction evidence' }}</span><input [ngModel]="inputDraft(row.studentId).correctionEvidenceReference" (ngModelChange)="updateInput(row.studentId, { correctionEvidenceReference: $event })" maxlength="240" class="field" /></label></div>
+                      }
                     </section>
                     <section class="rounded-lg border border-slate-200 bg-slate-50 p-3">
                       <div class="font-bold text-sm text-ink">{{ fr() ? 'Travail, conduite et décision du conseil' : 'Work, conduct and council decision' }}</div>
@@ -462,11 +499,18 @@ const appreciation = (avg: number, fr: boolean): string => {
                         <label class="field-label"><span>{{ fr() ? 'Code de décision' : 'Decision code' }}</span><input [ngModel]="inputDraft(row.studentId).decisionCode" (ngModelChange)="updateInput(row.studentId, { decisionCode: $event })" class="field" placeholder="PROMOTE / REPEAT / REVIEW" /></label>
                       </div>
                       <label class="field-label mt-2"><span>{{ fr() ? 'Observation du conseil' : 'Council observation' }}</span><textarea rows="2" [ngModel]="inputDraft(row.studentId).councilObservation" (ngModelChange)="updateInput(row.studentId, { councilObservation: $event })" maxlength="4000" class="field resize-y" placeholder="{{ fr() ? 'Observation imprimée sur le bulletin…' : 'Observation printed on the report card…' }}"></textarea></label>
+                      @if (row.conduct?.recommendation; as recommendation) {
+                        <div class="mt-2 rounded border border-indigo-200 bg-indigo-50 px-2 py-1.5 text-xs text-indigo-900"><span class="font-bold">{{ fr() ? 'Recommandation calculée' : 'Calculated recommendation' }}</span> · {{ recommendation.reason || (fr() ? 'Selon la politique en vigueur.' : 'Based on the active policy.') }} · {{ recommendation.policyVersion }}</div>
+                      }
+                      <label class="field-label mt-2"><span>{{ fr() ? 'Motif de dérogation (si choix différent)' : 'Override reason (if choice differs)' }}</span><input [ngModel]="inputDraft(row.studentId).overrideReason" (ngModelChange)="updateInput(row.studentId, { overrideReason: $event })" maxlength="500" class="field" /></label>
+                      @if (row.conduct && ['APPROVED','LOCKED','LOCKED_BY_PUBLICATION'].includes(row.conduct.status)) {
+                        <div class="grid grid-cols-2 gap-2 mt-2"><label class="field-label"><span>{{ fr() ? 'Motif de correction' : 'Correction reason' }}</span><input [ngModel]="inputDraft(row.studentId).correctionReason" (ngModelChange)="updateInput(row.studentId, { correctionReason: $event })" maxlength="500" class="field" /></label><label class="field-label"><span>{{ fr() ? 'Preuve de correction' : 'Correction evidence' }}</span><input [ngModel]="inputDraft(row.studentId).correctionEvidenceReference" (ngModelChange)="updateInput(row.studentId, { correctionEvidenceReference: $event })" maxlength="240" class="field" /></label></div>
+                      }
                     </section>
                   </div>
                   <div class="flex flex-wrap justify-end gap-2 mt-4 pt-3 border-t border-slate-100">
                     <button (click)="saveReportInput(row)" [disabled]="inputBusy() === row.studentId" class="h-9 px-3 rounded-lg border border-slate-300 text-sm font-semibold hover:bg-slate-50 disabled:opacity-50">{{ inputBusy() === row.studentId ? '…' : (fr() ? 'Enregistrer le brouillon' : 'Save draft') }}</button>
-                    @if (!row.conduct || !['SUBMITTED','APPROVED','LOCKED'].includes(row.conduct.status) || !row.attendanceAdjustment || !['SUBMITTED','APPROVED'].includes(row.attendanceAdjustment.status)) {
+                    @if (!row.conduct || !['SUBMITTED','APPROVED','LOCKED','LOCKED_BY_PUBLICATION'].includes(row.conduct.status) || !row.attendanceAdjustment || !['SUBMITTED','APPROVED','LOCKED_BY_PUBLICATION'].includes(row.attendanceAdjustment.status)) {
                       <button (click)="submitReportInput(row)" [disabled]="inputBusy() === row.studentId" class="h-9 px-3 rounded-lg bg-brand-600 text-white text-sm font-semibold disabled:opacity-50">{{ fr() ? 'Soumettre à la revue' : 'Submit for review' }}</button>
                     }
                     @if (canReview() && ((row.conduct?.status === 'SUBMITTED') || (row.attendanceAdjustment?.status === 'SUBMITTED'))) {
@@ -1078,6 +1122,8 @@ export class AcademicComponent {
   protected reportInputs = signal<ReportCardInputsView | null>(null);
   protected inputDrafts = signal<Record<string, ReportCardInputUpsert>>({});
   protected inputBusy = signal<string | null>(null);
+  protected inputFilter = signal<InputFilter>('all');
+  protected inputSources = signal<Record<string, AttendanceSourceBreakdown[]>>({});
   protected selectedGradeSubjectCode = signal('');
   protected gradeBusy = signal(false);
   protected gradeRowStates = signal<Record<string, 'Unsaved' | 'Saving' | 'Saved' | 'Conflict' | 'Error'>>({});
@@ -1132,6 +1178,21 @@ export class AcademicComponent {
   ]);
 
   protected canReview = computed(() => ['admin', 'principal', 'dean_of_studies', 'censor'].includes(this.auth.user()?.role ?? ''));
+
+  protected filteredReportInputRows = computed(() => {
+    const filter = this.inputFilter();
+    return (this.reportInputs()?.rows ?? []).filter((row) => {
+      const attendance = row.attendance;
+      const blockers = attendance?.blockers ?? [];
+      const missing = (attendance?.missingSessions?.length ?? 0) > 0 || blockers.some((x) => x.code === 'ATTENDANCE_COVERAGE_INCOMPLETE' || x.code === 'ATTENDANCE_DURATION_MISSING');
+      const justification = (attendance?.warnings ?? []).some((x) => x.code === 'ATTENDANCE_JUSTIFICATION_PENDING');
+      const adjustment = !!row.attendanceAdjustment && !['APPROVED', 'LOCKED_BY_PUBLICATION'].includes(row.attendanceAdjustment.status);
+      const decision = !row.conduct || !['APPROVED', 'LOCKED', 'LOCKED_BY_PUBLICATION'].includes(row.conduct.status) || !row.conduct.decisionCode;
+      return filter === 'all' || (filter === 'missing' && missing) || (filter === 'pending-justification' && justification)
+        || (filter === 'pending-adjustment' && adjustment) || (filter === 'missing-decision' && decision)
+        || (filter === 'ready' && blockers.length === 0);
+    });
+  });
 
   protected filteredClassStudents = computed(() => {
     const q = this.studentQuery().trim().toLowerCase();
@@ -1704,6 +1765,7 @@ export class AcademicComponent {
 
   private loadReportInputs(): void {
     const classId = this.selectedClassId(); const periodId = this.selectedReportingPeriodId();
+    this.inputSources.set({}); this.inputFilter.set('all');
     if (!classId || !periodId) { this.reportInputs.set(null); this.inputDrafts.set({}); return; }
     this.api.reportCardInputs(periodId, classId).subscribe({
       next: (view) => {
@@ -1725,6 +1787,7 @@ export class AcademicComponent {
             congratulations: conduct?.congratulations ?? false, exclusionDays: conduct?.exclusionDays ?? 0,
             decisionCode: conduct?.decisionCode ?? null, councilObservation: conduct?.councilObservation ?? null,
             attendanceVersion: adjustment?.version, conductVersion: conduct?.version,
+            overrideReason: conduct?.overrideReason ?? null, correctionReason: null, correctionEvidenceReference: null,
           };
         }
         this.inputDrafts.set(drafts);
@@ -1739,12 +1802,25 @@ export class AcademicComponent {
       justifiedAbsenceHours: 0, unjustifiedAbsenceHours: 0, lateMinutes: 0, reason: '', evidenceReference: null,
       workWarning: false, workBlame: false, conductWarning: false, conductBlame: false,
       honorRoll: false, encouragement: false, congratulations: false, exclusionDays: 0,
-      decisionCode: null, councilObservation: null,
+      decisionCode: null, councilObservation: null, overrideReason: null, correctionReason: null, correctionEvidenceReference: null,
     };
   }
 
   protected updateInput(studentId: string, patch: Partial<ReportCardInputUpsert>): void {
     this.inputDrafts.update((all) => ({ ...all, [studentId]: { ...this.inputDraft(studentId), ...patch } }));
+  }
+
+  protected loadInputSources(studentId: string): void {
+    const periodId = this.selectedReportingPeriodId();
+    if (!periodId) return;
+    if (this.inputSources()[studentId]) {
+      this.inputSources.update((all) => { const next = { ...all }; delete next[studentId]; return next; });
+      return;
+    }
+    this.api.attendanceSources(periodId, studentId).subscribe({
+      next: (sources) => this.inputSources.update((all) => ({ ...all, [studentId]: sources })),
+      error: (e) => this.fail(e),
+    });
   }
 
   protected saveReportInput(row: ReportCardInputRow): void {
@@ -1803,7 +1879,8 @@ export class AcademicComponent {
         reason: a?.reason ?? '', evidenceReference: a?.evidenceReference ?? null,
         workWarning: c?.workWarning ?? false, workBlame: c?.workBlame ?? false, conductWarning: c?.conductWarning ?? false, conductBlame: c?.conductBlame ?? false,
         honorRoll: c?.honorRoll ?? false, encouragement: c?.encouragement ?? false, congratulations: c?.congratulations ?? false, exclusionDays: c?.exclusionDays ?? 0,
-        decisionCode: c?.decisionCode ?? null, councilObservation: c?.councilObservation ?? null, attendanceVersion: a?.version, conductVersion: c?.version };
+        decisionCode: c?.decisionCode ?? null, councilObservation: c?.councilObservation ?? null, attendanceVersion: a?.version, conductVersion: c?.version,
+        overrideReason: c?.overrideReason ?? null, correctionReason: null, correctionEvidenceReference: null };
     }
     this.inputDrafts.set(drafts);
   }
