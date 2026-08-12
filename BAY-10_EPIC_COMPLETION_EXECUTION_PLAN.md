@@ -4,13 +4,20 @@
 
 This document is the execution contract for finishing **BAY-10 — Academic & report cards** and every child story: BAY-66, BAY-33, BAY-34, BAY-35, BAY-36, BAY-67, BAY-37, and BAY-38.
 
-Implementation starts from:
+Implementation starts from the consolidated branch and is maintained as an
+evidence log:
 
 - branch: `codex/settings-readiness-fix`;
-- commit: `63502601e3c8b70fa1db7906845de1200bd7d9d3`;
-- clean worktree: `C:\Users\joe tech\.codex\worktrees\1e56\bbcomplex`;
-- live acceptance stack: frontend `http://localhost:8085`, backend port `8084`, PostgreSQL port `5436`;
-- current migration level: Flyway V87.
+- consolidation worktree: `C:\Users\joe tech\.codex\worktrees\1e56\bbcomplex`;
+- last integrated implementation commit before the compatibility bridge:
+  `f47b9f4`;
+- live acceptance stack: frontend `http://localhost:8085`, backend
+  `http://localhost:8084`, and the isolated Compose volume
+  `bbcomplex-wave1_bbc_pgdata`;
+- current acceptance migration level: Flyway V103;
+- the populated production-simulation database remains separate on the
+  existing `5436` container/volume and was not modified by this acceptance
+  deployment.
 
 The older user worktree at `C:\Users\joe tech\bbcomplex` is not an integration base. It is on `feature/BAY-11-student-journey-promotions`, stops at `80dfbc0`, and contains unrelated uncommitted timetable and presentation work. Do not modify, clean, stage, reset, or copy those files.
 
@@ -57,6 +64,34 @@ These decisions supersede older wording where a Linear description or the origin
 - BAY-67: expected attendance sessions/hours, finalized coverage, missing dates/source IDs, completeness blockers, and immutable annual rollup are incomplete.
 - BAY-37: publishing the snapshot and issuing the PDF/generated document are separate transactions; parent visibility can be registered from VALIDATED evidence; no transactional outbox ties publication together.
 - BAY-38: no combined T3+Annual request/UI; cancellation/resume/history and the complete academic acceptance matrix are incomplete.
+
+### 3.3 Consolidated implementation audit (2026-08-12)
+
+The wave commits above now implement the listed backend/frontend/database
+scope through BAY-38. The final automated gate is green:
+
+- backend `mvn -q test`: passed; 89 migrations validated and applied through
+  V103 in Testcontainers;
+- frontend `npm run test:ci`: 12 test files / 35 tests passed;
+- frontend production build: passed; only the pre-existing NG8107 optional
+  chaining warning in `staff.ts` remains;
+- Docker rebuild: passed; the isolated database migrated in place from V102 to
+  V103, `/actuator/health` is HTTP 200, and `admin/admin` login succeeds after
+  restart.
+
+V103 is a production-safe compatibility bridge for the older V76
+`bulletin_batch_artifact` table. It adds `item_id`, `storage_key`, and
+`metadata`, backfills the new storage key from `file_storage_key`, and widens
+the artifact-type check without dropping historical rows.
+
+The isolated `8085` acceptance volume currently contains the school/session
+and 10 reporting periods but no classes, students, employees, subjects, or
+attendance records. This is a fixture/data-readiness gap, not a failed
+migration. The populated `5436` database still contains 25 classes, 991
+students, 34 employees, and 21 subjects. Do not copy that data or mutate either
+database without an explicit fixture/clone decision; use application/API
+fixtures or a reviewed data-loading procedure for the final academic click
+flow.
 
 ## 4. Dependency graph and dispatch rule
 
