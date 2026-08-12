@@ -24,6 +24,7 @@ import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.sql.Date;
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -571,7 +572,7 @@ public class AttendanceEvidenceService {
                  justified_absence_minutes,unjustified_absence_minutes,late_minutes,exclusion_days,
                  source_roll_call_ids,source_snapshot_ids,missing_sessions,approved_adjustments,raw_values,
                  display_values,blockers,warnings,created_by)
-                VALUES (?,?,?,?,?,?,?,?,?,?, ?,?,?,?,?,?,?,?,?,?, ?,?,?,?,?,?,?,?,?,?, ?,?,?,?,?)
+                VALUES (?,?,?,?,?,?,?,?,?, ?,?,?,?,?,?,?,?,?,?, ?,?,?,?,?,?,?, ?::jsonb,?::jsonb,?::jsonb,?::jsonb,?::jsonb,?::jsonb,?::jsonb,?::jsonb,?)
                 """, school, period.getAcademicSessionId(), period.getId(), studentId, enrollment.id(),
                 enrollment.classId(), period.getPeriodType(), nextVersion, bulletinVersionId, previous,
                 fingerprint, attendance.policyVersion(), attendance.expectedSessionCount(),
@@ -674,9 +675,9 @@ public class AttendanceEvidenceService {
                 """, (rs, n) -> new OfficialPart(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class),
                         rs.getString(3), rs.getLong(4), rs.getString(5), rs.getInt(6), rs.getBigDecimal(7),
                         rs.getInt(8), rs.getBigDecimal(9), rs.getBigDecimal(10), rs.getInt(11), rs.getInt(12),
-                        rs.getInt(13), rs.getInt(14), rs.getBigDecimal(16), rs.getBigDecimal(17),
-                        rs.getBigDecimal(18), rs.getBigDecimal(19), rs.getInt(20), rs.getString(21),
-                        rs.getString(22), rs.getString(23), rs.getString(24), rs.getString(25)),
+                        rs.getInt(13), rs.getInt(14), rs.getBigDecimal(15), rs.getBigDecimal(16),
+                        rs.getBigDecimal(17), rs.getBigDecimal(18), rs.getInt(19), rs.getString(20),
+                        rs.getString(21), rs.getString(22), rs.getString(23), rs.getString(24)),
                 TenantContext.get(), annual.getAcademicSessionId(), studentId);
         Map<String, OfficialPart> byTerm = new LinkedHashMap<>();
         for (OfficialPart part : parts) byTerm.put(termCode(part.code()), part);
@@ -1141,7 +1142,14 @@ public class AttendanceEvidenceService {
         if (value == null) return null;
         if (value instanceof Instant i) return i;
         if (value instanceof OffsetDateTime o) return o.toInstant();
-        return Instant.parse(value.toString());
+        if (value instanceof Timestamp t) return t.toInstant();
+        if (value instanceof java.time.LocalDateTime l) return l.toInstant(java.time.ZoneOffset.UTC);
+        String text = value.toString().trim();
+        try { return Instant.parse(text); }
+        catch (java.time.format.DateTimeParseException ignored) {
+            return java.time.LocalDateTime.parse(text.replace(' ', 'T'))
+                    .toInstant(java.time.ZoneOffset.UTC);
+        }
     }
 
     private record EnrollmentInfo(UUID id, UUID classId, String className, String level) {}

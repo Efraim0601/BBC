@@ -355,12 +355,13 @@ public class ReportCardBatchJobWorker {
                                  String storageKey, byte[] bytes, Map<String, Object> metadata) {
         jdbc.update("""
                 INSERT INTO bulletin_batch_artifact
-                    (id,school_id,job_id,item_id,artifact_type,file_name,storage_key,sha256,size_bytes,metadata)
-                VALUES (?,?,?,?,?,?,?,?,?,?::jsonb)
+                    (id,school_id,job_id,item_id,artifact_type,file_name,file_storage_key,storage_key,sha256,size_bytes,metadata)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?::jsonb)
                 ON CONFLICT (school_id,job_id,artifact_type,file_name) DO UPDATE SET
-                    item_id=EXCLUDED.item_id,storage_key=EXCLUDED.storage_key,sha256=EXCLUDED.sha256,
+                    item_id=EXCLUDED.item_id,file_storage_key=EXCLUDED.file_storage_key,
+                    storage_key=EXCLUDED.storage_key,sha256=EXCLUDED.sha256,
                     size_bytes=EXCLUDED.size_bytes,metadata=EXCLUDED.metadata
-                """, UUID.randomUUID(), schoolId, jobId, itemId, type, fileName, storageKey,
+                """, UUID.randomUUID(), schoolId, jobId, itemId, type, fileName, storageKey, storageKey,
                 sha256(bytes), (long) bytes.length, json(metadata));
     }
 

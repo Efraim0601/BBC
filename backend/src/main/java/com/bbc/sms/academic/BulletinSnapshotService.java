@@ -265,7 +265,10 @@ public class BulletinSnapshotService implements AuthoritativeBulletinSnapshotRea
         version.setTemplateVersion(templateReference(current.trace()));
         freezeDesign(version, current.trace(), enrollment);
         setPublicationIdentity(version, period, current.trace());
-        BulletinVersion saved = versions.save(version);
+        // The source-version index has a foreign key to bulletin_version. Flush
+        // the new snapshot before inserting that index so the first calculation
+        // of a sequence/term cannot fail with a misleading integrity conflict.
+        BulletinVersion saved = versions.saveAndFlush(version);
         persistSourceIndex(saved.getId(), current);
         audit.record("BULLETIN_DRAFT_CREATED", "BulletinVersion", saved.getId().toString(), null,
                 Map.of("id", saved.getId(), "periodCode", period.getCode(), "studentId", studentId,
@@ -398,7 +401,9 @@ public class BulletinSnapshotService implements AuthoritativeBulletinSnapshotRea
         replacement.setTemplateVersion(templateReference(trace));
         freezeDesign(replacement, trace, enrollment);
         setPublicationIdentity(replacement, period, trace);
-        BulletinVersion saved = versions.save(replacement);
+        // A correction draft also writes the source-version index immediately;
+        // make the parent row visible to PostgreSQL before that insert.
+        BulletinVersion saved = versions.saveAndFlush(replacement);
         persistSourceIndex(saved.getId(), current);
         recordLifecycleTransition(saved, null, "DRAFT", "BULLETIN_CORRECTION_DRAFT_CREATED",
                 request.reason().trim(), previous.getId(), null, List.of(previous.getId().toString()));

@@ -111,7 +111,7 @@ public class OfficialDocumentService {
         String normalizedType = in.documentType().trim().toUpperCase(Locale.ROOT);
         String prefix = normalizedType.replaceAll("[^A-Z0-9]", "");
         prefix = prefix.substring(0, Math.min(8, Math.max(1, prefix.length())));
-        String number = stableReportCardNumber(normalizedType, in.aggregateId(), in.locale());
+        String number = stableReportCardNumber(normalizedType, in.aggregateId(), in.aggregateVersion(), in.locale());
         if (number == null) {
             number = prefix + "-" + DateTimeFormatter.ofPattern("yyyyMMddHHmmss").withZone(ZoneOffset.UTC).format(Instant.now())
                     + "-" + id.toString().substring(0, 6).toUpperCase(Locale.ROOT);
@@ -277,13 +277,15 @@ public class OfficialDocumentService {
     }
 
     private static String pdfSafe(String value) { return value.replace('’', '\'').replace('–', '-').replace('—', '-').replace('…', '.'); }
-    private static String stableReportCardNumber(String type, String aggregateId, String locale) {
+    private static String stableReportCardNumber(String type, String aggregateId, String aggregateVersion, String locale) {
         if (!"REPORT_CARD".equals(type)) return null;
         try {
             UUID snapshotId = UUID.fromString(aggregateId.trim());
             String lang = "en".equalsIgnoreCase(locale) ? "EN" : "FR";
+            String version = blank(aggregateVersion, "1").replaceAll("[^A-Za-z0-9._-]", "");
+            if (version.isBlank()) version = "1";
             return "BUL-" + lang + "-" + snapshotId.toString().replace("-", "")
-                    .substring(0, 12).toUpperCase(Locale.ROOT);
+                    .substring(0, 12).toUpperCase(Locale.ROOT) + "-V" + version.toUpperCase(Locale.ROOT);
         } catch (RuntimeException ignored) {
             return null;
         }

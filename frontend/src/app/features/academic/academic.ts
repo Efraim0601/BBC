@@ -238,13 +238,75 @@ const appreciation = (avg: number, fr: boolean): string => {
       <!-- ============ TEACHER GRADE ENTRY ============ -->
       @if (mode() === 'grade-entry') {
         @if (gradeQueue(); as queue) {
-          <bbc-card className="mb-4 border-slate-200" data-testid="grade-packet-queues">
-            <div class="flex items-start justify-between gap-3 flex-wrap"><div><div class="text-xs font-semibold uppercase tracking-wide text-brand-700">{{ fr() ? 'Files des feuilles' : 'Grade packet queues' }}</div><h2 class="text-lg font-bold text-ink mt-1">{{ fr() ? 'À traiter par période, classe et matière' : 'Work grouped by period, class and subject' }}</h2></div><button type="button" (click)="loadGradeQueue()" class="h-9 px-3 rounded-lg border border-slate-300 bg-white text-sm font-semibold">{{ fr() ? 'Actualiser' : 'Refresh' }}</button></div>
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
-              <div><div class="text-xs font-bold uppercase text-mute">{{ fr() ? 'Mes feuilles' : 'Teacher queue' }}</div><div class="mt-2 space-y-2">@for (item of queue.teacherQueue; track item.packetId) { <button type="button" (click)="openGradeQueueItem(item)" class="w-full text-left rounded-lg border border-slate-200 bg-white px-3 py-2 hover:border-brand-400"><div class="flex justify-between gap-2"><span class="font-semibold text-ink">{{ item.reportingPeriodCode }} · {{ item.className }} · {{ item.subjectLabel }}</span><span class="text-xs font-bold">{{ item.packetStatus }}</span></div><div class="mt-1 text-xs text-mute">{{ item.completedStudents }}/{{ item.totalStudents }} · {{ item.completionState }} · {{ item.windowState }}</div>@if (item.returnedReason) { <div class="mt-1 text-xs text-rose-700">{{ item.returnedReason }}</div> }</button> } @empty { <div class="rounded-lg border border-dashed border-slate-300 px-3 py-3 text-sm text-mute">{{ fr() ? 'Aucune feuille à traiter.' : 'No teacher packets to process.' }}</div> }</div></div>
-              @if (canReview()) { <div><div class="text-xs font-bold uppercase text-mute">{{ fr() ? 'Revue direction' : 'Reviewer queue' }}</div><div class="mt-2 space-y-2">@for (item of queue.reviewerQueue; track item.packetId) { <button type="button" (click)="openGradeQueueItem(item)" class="w-full text-left rounded-lg border border-slate-200 bg-white px-3 py-2 hover:border-brand-400"><div class="flex justify-between gap-2"><span class="font-semibold text-ink">{{ item.reportingPeriodCode }} · {{ item.className }} · {{ item.subjectLabel }}</span><span class="text-xs font-bold">{{ item.packetStatus }}</span></div><div class="mt-1 text-xs text-mute">{{ item.completedStudents }}/{{ item.totalStudents }} · {{ item.completionState }} · {{ item.windowState }}</div></button> } @empty { <div class="rounded-lg border border-dashed border-slate-300 px-3 py-3 text-sm text-mute">{{ fr() ? 'Aucune feuille en revue.' : 'No packets awaiting review.' }}</div> }</div></div> }
+          <bbc-card className="mb-4 border-slate-200 bg-slate-50/40" data-testid="grade-packet-queues">
+            <div class="flex items-start justify-between gap-4 flex-wrap">
+              <div class="min-w-0">
+                <div class="text-xs font-semibold uppercase tracking-wide text-brand-700">{{ fr() ? 'Suivi des feuilles de notes' : 'Grade-sheet workflow' }}</div>
+                <h2 class="text-lg font-bold text-ink mt-1">{{ fr() ? 'Suivre les feuilles enregistrees ou envoyees' : 'Track saved and submitted grade sheets' }}</h2>
+                <p class="mt-1 max-w-3xl text-sm text-mute">{{ fr() ? 'Ce panneau indique uniquement l etat du circuit de validation. La saisie des notes se fait dans la feuille ci-dessous.' : 'This panel only shows the review workflow. Enter marks in the grade sheet below.' }}</p>
+              </div>
+              <div class="flex items-center gap-2 shrink-0">
+                <button type="button" (click)="loadGradeQueue()" class="h-9 px-3 rounded-lg border border-slate-300 bg-white text-sm font-semibold hover:bg-slate-50">{{ fr() ? 'Actualiser' : 'Refresh' }}</button>
+                <button type="button" (click)="toggleGradeQueue()" [attr.aria-expanded]="gradeQueueExpanded()" class="h-9 px-3 rounded-lg bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700">{{ gradeQueueExpanded() ? (fr() ? 'Masquer le detail' : 'Hide details') : (fr() ? 'Voir le detail' : 'What is this?') }}</button>
+              </div>
+            </div>
+            <div class="mt-3 flex items-center gap-3 flex-wrap">
+              <span class="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-ink">{{ gradeQueueSummary(queue) }}</span>
+              @if (!gradeQueueExpanded()) {
+                <span class="text-xs text-mute">{{ fr() ? 'Ouvrez le detail pour acceder rapidement a une feuille.' : 'Open details to jump directly to a sheet.' }}</span>
+              }
             </div>
           </bbc-card>
+          @if (gradeQueueExpanded()) {
+            <bbc-card className="mb-4 border-brand-200" data-testid="grade-packet-queue-details">
+              <div class="flex items-start justify-between gap-3 flex-wrap">
+                <div>
+                  <div class="text-xs font-semibold uppercase tracking-wide text-brand-700">{{ fr() ? 'Detail du circuit' : 'Workflow details' }}</div>
+                  <p class="mt-1 text-sm text-mute">{{ fr() ? 'Cliquez sur une feuille pour ouvrir la classe, la periode et la matiere correspondantes.' : 'Select a sheet to open its class, period, and subject.' }}</p>
+                </div>
+                <button type="button" (click)="toggleGradeQueue()" class="text-sm font-semibold text-brand-700 hover:underline">{{ fr() ? 'Fermer le detail' : 'Close details' }}</button>
+              </div>
+              <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+                <div>
+                  <div class="text-xs font-bold uppercase text-mute">{{ fr() ? 'Mes feuilles de notes' : 'My grade sheets' }}</div>
+                  <div class="mt-2 space-y-2 max-h-96 overflow-y-auto pr-1">
+                    @for (item of gradeQueue().teacherQueue; track item.packetId) {
+                      <button type="button" (click)="openGradeQueueItem(item)" class="w-full text-left rounded-lg border border-slate-200 bg-white px-3 py-3 hover:border-brand-400 hover:shadow-sm">
+                        <div class="flex items-start justify-between gap-3">
+                          <span class="font-semibold text-ink">{{ item.reportingPeriodCode }} · {{ item.className }} · {{ item.subjectLabel }}</span>
+                          <span class="shrink-0 rounded-full border px-2 py-1 text-[11px] font-bold" [class]="gradeQueueStatusClass(item.packetStatus)">{{ gradeQueueStatusLabel(item.packetStatus) }}</span>
+                        </div>
+                        <div class="mt-2 text-xs text-mute">{{ gradeQueueCompletionLabel(item) }} · {{ gradeQueueWindowLabel(item.windowState) }}</div>
+                        @if (item.packetStatus === 'RETURNED' && item.returnedReason) { <div class="mt-2 text-xs font-semibold text-rose-700">{{ fr() ? 'Motif du retour :' : 'Reason for return:' }} {{ item.returnedReason }}</div> }
+                        <div class="mt-2 text-xs font-semibold text-brand-700">{{ fr() ? 'Ouvrir cette feuille' : 'Open this grade sheet' }} <span aria-hidden="true">→</span></div>
+                      </button>
+                    } @empty {
+                      <div class="rounded-lg border border-dashed border-slate-300 px-3 py-3 text-sm text-mute">{{ fr() ? 'Aucune feuille a traiter.' : 'No grade sheets require your action.' }}</div>
+                    }
+                  </div>
+                </div>
+                @if (canReview()) {
+                  <div>
+                    <div class="text-xs font-bold uppercase text-mute">{{ fr() ? 'Feuilles en attente de revue direction' : 'Sheets awaiting management review' }}</div>
+                    <div class="mt-2 space-y-2 max-h-96 overflow-y-auto pr-1">
+                      @for (item of gradeQueue().reviewerQueue; track item.packetId) {
+                        <button type="button" (click)="openGradeQueueItem(item)" class="w-full text-left rounded-lg border border-slate-200 bg-white px-3 py-3 hover:border-brand-400 hover:shadow-sm">
+                          <div class="flex items-start justify-between gap-3">
+                            <span class="font-semibold text-ink">{{ item.reportingPeriodCode }} · {{ item.className }} · {{ item.subjectLabel }}</span>
+                            <span class="shrink-0 rounded-full border px-2 py-1 text-[11px] font-bold" [class]="gradeQueueStatusClass(item.packetStatus)">{{ gradeQueueStatusLabel(item.packetStatus) }}</span>
+                          </div>
+                          <div class="mt-2 text-xs text-mute">{{ gradeQueueCompletionLabel(item) }} · {{ gradeQueueWindowLabel(item.windowState) }}</div>
+                          <div class="mt-2 text-xs font-semibold text-brand-700">{{ fr() ? 'Ouvrir cette feuille' : 'Open this grade sheet' }} <span aria-hidden="true">→</span></div>
+                        </button>
+                      } @empty {
+                        <div class="rounded-lg border border-dashed border-slate-300 px-3 py-3 text-sm text-mute">{{ fr() ? 'Aucune feuille en attente de revue.' : 'No sheets are awaiting management review.' }}</div>
+                      }
+                    </div>
+                  </div>
+                }
+              </div>
+            </bbc-card>
+          }
         }
         @if (!selectedClass()) {
           <bbc-card className="border-brand-200">
@@ -1167,7 +1229,8 @@ export class AcademicComponent {
   protected bulletinLifecycle = signal<BulletinLifecycleStateView | null>(null);
   protected pv = signal<PvView | null>(null);
   protected gradeEntry = signal<GradeEntryView | null>(null);
-  protected gradeQueue = signal<GradePacketQueueView | null>(null);
+  protected gradeQueue = signal<GradePacketQueueView>({ teacherQueue: [], reviewerQueue: [] });
+  protected gradeQueueExpanded = signal(false);
   protected gradeHistory = signal<GradePacketHistoryView | null>(null);
   protected gradeEntryError = signal<string | null>(null);
   protected reportInputs = signal<ReportCardInputsView | null>(null);
@@ -1763,6 +1826,62 @@ export class AcademicComponent {
     return ({ DRAFT: 'Brouillon — non envoyé', SUBMITTED: 'Envoyée pour vérification', RETURNED: 'Retournée pour correction', ACCEPTED: 'Acceptée et verrouillée', LOCKED: 'Verrouillée' } as any)[status] ?? status;
   }
 
+  protected toggleGradeQueue(): void {
+    this.gradeQueueExpanded.update((expanded) => !expanded);
+  }
+
+  protected gradeQueueSummary(queue: GradePacketQueueView): string {
+    const teacherItems = queue.teacherQueue ?? [];
+    const reviewerItems = queue.reviewerQueue ?? [];
+    const accepted = teacherItems.filter((item) => item.packetStatus === 'ACCEPTED' || item.packetStatus === 'LOCKED').length;
+    const needsAction = teacherItems.length - accepted;
+    const parts: string[] = [];
+    if (accepted) parts.push(this.fr() ? `${accepted} feuille(s) acceptee(s) et verrouillee(s)` : `${accepted} accepted and locked`);
+    if (needsAction) parts.push(this.fr() ? `${needsAction} feuille(s) demandent votre action` : `${needsAction} need your action`);
+    if (reviewerItems.length) parts.push(this.fr() ? `${reviewerItems.length} en attente de revue direction` : `${reviewerItems.length} awaiting management review`);
+    if (!parts.length) return this.fr() ? 'Aucune feuille de notes n\'a encore ete creee.' : 'No grade sheets have been created yet.';
+    return parts.join(' · ');
+  }
+
+  protected gradeQueueStatusLabel(status: GradePacketQueueItem['packetStatus']): string {
+    if (!this.fr()) return ({
+      DRAFT: 'Draft — not submitted', SUBMITTED: 'Sent to management', IN_REVIEW: 'Under management review',
+      RETURNED: 'Returned for correction', ACCEPTED: 'Accepted and locked', LOCKED: 'Locked after publication',
+    } as any)[status] ?? status;
+    return ({
+      DRAFT: 'Brouillon - non envoye', SUBMITTED: 'Envoyee a la direction', IN_REVIEW: 'En revue direction',
+      RETURNED: 'Retournee pour correction', ACCEPTED: 'Acceptee et verrouillee', LOCKED: 'Verrouillee apres publication',
+    } as any)[status] ?? status;
+  }
+
+  protected gradeQueueStatusClass(status: GradePacketQueueItem['packetStatus']): string {
+    if (status === 'ACCEPTED' || status === 'LOCKED') return 'bg-emerald-100 text-emerald-800 border-emerald-200';
+    if (status === 'RETURNED') return 'bg-rose-100 text-rose-800 border-rose-200';
+    if (status === 'SUBMITTED' || status === 'IN_REVIEW') return 'bg-blue-100 text-blue-800 border-blue-200';
+    return 'bg-amber-100 text-amber-900 border-amber-200';
+  }
+
+  protected gradeQueueCompletionLabel(item: GradePacketQueueItem): string {
+    const completed = Math.max(0, item.completedStudents ?? 0);
+    const total = Math.max(0, item.totalStudents ?? 0);
+    if (!total) return this.fr() ? 'Aucun eleve dans cette feuille' : 'No students in this sheet';
+    if (completed >= total) return this.fr() ? `Tous les eleves sont saisis (${total}/${total})` : `All students completed (${total}/${total})`;
+    return this.fr() ? `${completed}/${total} eleve(s) saisi(s)` : `${completed} of ${total} students completed`;
+  }
+
+  protected gradeQueueWindowLabel(state: string): string {
+    switch (state?.toUpperCase()) {
+      case 'OPEN': return this.fr() ? 'Saisie ouverte' : 'Entry window open';
+      case 'CLOSED': return this.fr() ? 'Saisie fermee' : 'Entry window closed';
+      case 'NOT_STARTED':
+      case 'UPCOMING': return this.fr() ? 'Saisie pas encore ouverte' : 'Entry window not open yet';
+      case 'NO_RESTRICTION':
+      case 'UNRESTRICTED':
+      case 'NONE': return this.fr() ? 'Aucune restriction de date' : 'No date restriction';
+      default: return this.fr() ? 'Etat de la fenetre indisponible' : 'Window status unavailable';
+    }
+  }
+
   protected gradeBlockerLabel(blocker: string): string {
     const readable = cleanDisplay(blocker);
     return readable.replace(' · ', ' — ');
@@ -1821,7 +1940,7 @@ export class AcademicComponent {
   }
 
   protected loadGradeQueue(): void {
-    this.api.gradeEntryQueue().subscribe({ next: (queue) => this.gradeQueue.set(queue), error: () => this.gradeQueue.set(null) });
+    this.api.gradeEntryQueue().subscribe({ next: (queue) => this.gradeQueue.set(queue), error: () => this.gradeQueue.set({ teacherQueue: [], reviewerQueue: [] }) });
   }
 
   private loadGradeHistory(entry: GradeEntryView): void {
