@@ -57,9 +57,18 @@ public class OfficialDocumentService {
     public GeneratedDocumentView registerPdf(String documentType, String aggregateType, String aggregateId,
                                              String aggregateVersion, String locale, String title, String visibility,
                                              byte[] pdf, String idempotencyKey) {
+        return registerPdf(documentType, aggregateType, aggregateId, aggregateVersion, locale, title, visibility,
+                pdf, idempotencyKey, null);
+    }
+
+    /** Register an official PDF with a caller-owned, atomically allocated number. */
+    @Transactional
+    public GeneratedDocumentView registerPdf(String documentType, String aggregateType, String aggregateId,
+                                             String aggregateVersion, String locale, String title, String visibility,
+                                             byte[] pdf, String idempotencyKey, String documentNumber) {
         String normalizedLocale = blank(locale, "fr").toLowerCase(Locale.ROOT);
         PdfRegistration request = new PdfRegistration(documentType, aggregateType, aggregateId,
-                blank(aggregateVersion, "1"), normalizedLocale, title, visibility);
+                blank(aggregateVersion, "1"), normalizedLocale, title, visibility, documentNumber);
         String key = blank(idempotencyKey, "pdf:" + aggregateType + ":" + aggregateId + ":" + request.aggregateVersion() + ":" + normalizedLocale);
         return idempotency.execute("official-documents/pdf", key, request,
                 GeneratedDocumentView.class, () -> registerPdfNow(request, pdf));
@@ -74,14 +83,15 @@ public class OfficialDocumentService {
         String normalizedType = in.documentType().trim().toUpperCase(Locale.ROOT);
         String prefix = normalizedType.replaceAll("[^A-Z0-9]", "");
         prefix = prefix.substring(0, Math.min(8, Math.max(1, prefix.length())));
-        String number = prefix + "-" + DateTimeFormatter.ofPattern("yyyyMMddHHmmss").withZone(ZoneOffset.UTC).format(Instant.now())
-                + "-" + id.toString().substring(0, 6).toUpperCase(Locale.ROOT);
+        String number = blank(in.documentNumber(), prefix + "-" + DateTimeFormatter.ofPattern("yyyyMMddHHmmss")
+                .withZone(ZoneOffset.UTC).format(Instant.now()) + "-" + id.toString().substring(0, 6).toUpperCase(Locale.ROOT));
         GeneratedDocument d = new GeneratedDocument();
         d.setId(id); d.setSchoolId(schoolId); d.setDocumentType(normalizedType);
         d.setAggregateType(in.aggregateType().trim()); d.setAggregateId(in.aggregateId().trim());
         d.setAggregateVersion(in.aggregateVersion()); d.setLocale(in.locale()); d.setDocumentNumber(number);
         d.setTitle(in.title().trim()); d.setStorageKey(storage.store(schoolId.toString(), id.toString(), pdf));
         d.setSha256(sha256(pdf)); d.setSizeBytes(pdf.length); d.setVisibility(normalizeVisibility(in.visibility()));
+        d.setSourceEventKey("DOCUMENT:" + in.aggregateType() + ":" + in.aggregateId() + ":" + in.aggregateVersion());
         d.setGeneratedBy(currentUserId()); d.setIssuedAt(Instant.now());
         d = documents.saveAndFlush(d);
         GeneratedDocumentView result = view(d);
@@ -90,7 +100,8 @@ public class OfficialDocumentService {
     }
 
     private record PdfRegistration(String documentType, String aggregateType, String aggregateId,
-                                   String aggregateVersion, String locale, String title, String visibility) {}
+                                   String aggregateVersion, String locale, String title, String visibility,
+                                   String documentNumber) {}
 
     private GeneratedDocumentView generateNow(GenerateRequest in) {
         UUID schoolId = TenantContext.get();
@@ -146,6 +157,24 @@ public class OfficialDocumentService {
         return view(d);
     }
 
+    @Transactional
+    public GeneratedDocumentView supersede(UUID id, UUID replacementId, String reason) {
+        GeneratedDocument d = find(id);
+        if ("SUPERSEDED".equals(d.getStatus())) return view(d);
+        GeneratedDocument replacement = find(replacementId);
+        if (!d.getDocumentType().equals(replacement.getDocumentType())) {
+            throw ApiException.badRequest("Le document de remplacement doit être du même type.");
+        }
+        d.setStatus("SUPERSEDED"); d.setSupersededById(replacement.getId()); d.setSupersededAt(Instant.now());
+        d.setSupersededBy(currentUserId()); d.setVoidReason(reason == null ? null : reason.trim());
+        d = documents.saveAndFlush(d);
+        audit.record("DOCUMENT_SUPERSEDED", "GeneratedDocument", id.toString(), null, view(d), reason);
+        return view(d);
+    }
+
+    @Transactional(readOnly = true)
+    public GeneratedDocumentView byId(UUID id) { return view(find(id)); }
+
     /** Public verification deliberately returns no tenant, subject, or storage details. */
     @Transactional(readOnly = true)
     public VerificationView verify(String number) {
@@ -160,7 +189,8 @@ public class OfficialDocumentService {
         return new GeneratedDocumentView(d.getId(), d.getDocumentType(), d.getAggregateType(), d.getAggregateId(),
                 d.getAggregateVersion(), d.getLocale(), d.getDocumentNumber(), d.getTitle(), d.getSha256(),
                 d.getMimeType(), d.getSizeBytes(), d.getStatus(), d.getVisibility(), d.getGeneratedAt(),
-                d.getIssuedAt(), d.getRevokedAt(), d.getRevokeReason());
+                d.getIssuedAt(), d.getRevokedAt(), d.getRevokeReason(), d.getSupersededById(),
+                d.getSupersededAt(), d.getVoidReason(), d.getVersion());
     }
 
     private static String render(String template, Map<String, String> values) {

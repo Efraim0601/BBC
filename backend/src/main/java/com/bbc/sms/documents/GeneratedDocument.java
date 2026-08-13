@@ -34,4 +34,10 @@ public class GeneratedDocument {
     @Column(name = "revoked_at") private Instant revokedAt;
     @Column(name = "revoked_by") private UUID revokedBy;
     @Column(name = "revoke_reason") private String revokeReason;
+    @Column(name = "superseded_by_id") private UUID supersededById;
+    @Column(name = "superseded_at") private Instant supersededAt;
+    @Column(name = "superseded_by") private UUID supersededBy;
+    @Column(name = "void_reason") private String voidReason;
+    @Column(name = "source_event_key") private String sourceEventKey;
+    @Version private long version;
 }

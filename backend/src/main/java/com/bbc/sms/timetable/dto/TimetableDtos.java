@@ -11,6 +11,14 @@ public class TimetableDtos {
                            String model, String status, UUID homeroomTeacherId,
                            String homeroomTeacherName, long version) {}
 
+    /**
+     * The effective teacher for one subject in one class for the current session.
+     * The timetable displays this mapping but never treats its teacher as editable.
+     */
+    public record SubjectTeacherView(String subjectCode, UUID teacherId, String teacherName,
+                                     String teacherCode, String source, boolean locked,
+                                     String message) {}
+
     public record PeriodView(UUID id, int slotIdx, String label, String startTime,
                              String endTime, boolean active) {}
     public record PeriodRequest(@NotBlank String label, @NotBlank String startTime,

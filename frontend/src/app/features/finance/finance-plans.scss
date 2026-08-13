@@ -1,0 +1,19 @@
+.plans-shell { padding-bottom: 2rem; }
+.tab-button { min-height: 2.5rem; border: 1px solid #cbd5e1; border-radius: .65rem; padding: .55rem 1rem; font-size: .875rem; font-weight: 700; color: #475569; white-space: nowrap; }
+.tab-button:disabled { cursor: not-allowed; opacity: .5; }
+.tab-active { border-color: #0f766e; background: #0f766e; color: #fff; }
+.plan-card { border: 1px solid #cbd5e1; border-radius: 1rem; background: #fff; padding: 1.25rem; box-shadow: 0 1px 3px rgb(15 23 42 / .08); }
+.selected-card { border-color: #0f766e; box-shadow: 0 0 0 2px rgb(15 118 110 / .15); }
+.status-pill { display: inline-flex; border-radius: 999px; padding: .3rem .6rem; font-size: .7rem; font-weight: 800; }
+.detail-field { border: 1px solid #e2e8f0; border-radius: .7rem; padding: .65rem; }
+.detail-label { margin-bottom: .25rem; font-size: .65rem; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: #64748b; }
+.empty-state { border: 1px dashed #94a3b8; border-radius: 1rem; background: #fff; padding: 3.5rem 1.5rem; text-align: center; color: #64748b; }
+.empty-state h2 { margin-top: .6rem; font-size: 1.2rem; font-weight: 800; color: #0f172a; }
+.empty-mini { border: 1px dashed #cbd5e1; border-radius: .75rem; padding: 1rem; color: #64748b; }
+.modal-backdrop { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: rgb(15 23 42 / .45); padding: 1rem; }
+.modal-card { max-height: min(90vh, 720px); width: min(100%, 680px); overflow: auto; border: 1px solid #cbd5e1; border-radius: 1rem; background: #fff; padding: 1.25rem; box-shadow: 0 24px 60px rgb(15 23 42 / .25); }
+.uppercase { text-transform: uppercase; }
+.timeline { border-left: 2px solid #cbd5e1; padding-left: 1rem; }
+.timeline-item { position: relative; display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem; border-bottom: 1px solid #f1f5f9; padding: .75rem 0; }
+.timeline-item::before { position: absolute; left: -1.4rem; top: 1rem; width: .65rem; height: .65rem; border: 2px solid #0f766e; border-radius: 999px; background: #fff; content: ''; }
+.timeline-item:last-child { border-bottom: 0; }

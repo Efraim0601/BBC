@@ -43,6 +43,10 @@ public class PaymentChannel {
     @Column(name = "account_name")
     private String accountName;
 
+    /** Ledger account debited when a collection is posted through this channel. */
+    @Column(name = "debit_account_id")
+    private UUID debitAccountId;
+
     @Column(name = "instructions_fr", columnDefinition = "text")
     private String instructionsFr;
 

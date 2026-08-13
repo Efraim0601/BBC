@@ -19,7 +19,8 @@ public final class OfficialDocumentDtos {
                                         String documentNumber, String title, String sha256,
                                         String mimeType, long sizeBytes, String status, String visibility,
                                         Instant generatedAt, Instant issuedAt, Instant revokedAt,
-                                        String revokeReason) {}
+                                        String revokeReason, UUID supersededById, Instant supersededAt,
+                                        String voidReason, long version) {}
     public record RevokeRequest(@NotBlank String reason) {}
     public record VerificationView(String documentNumber, String documentType, String title,
                                    String status, Instant issuedAt, String sha256, boolean valid) {}
