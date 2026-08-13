@@ -3,6 +3,7 @@ package com.bbc.sms.academic;
 import com.bbc.sms.academic.dto.AcademicDtos.BulletinBatchItemView;
 import com.bbc.sms.academic.dto.AcademicDtos.BulletinBatchJobCreateRequest;
 import com.bbc.sms.academic.dto.AcademicDtos.BulletinBatchJobView;
+import com.bbc.sms.academic.dto.AcademicDtos.BulletinBatchCancelRequest;
 import com.bbc.sms.foundation.enrollment.StudentEnrollment;
 import com.bbc.sms.foundation.enrollment.StudentEnrollmentRepository;
 import com.bbc.sms.foundation.session.AcademicReportingPeriod;
@@ -22,6 +23,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 /** Creates and exposes durable class-level bulletin generation jobs. */
@@ -151,6 +153,22 @@ public class ReportCardBatchJobService {
                  WHERE school_id=? AND id=?
                 """, TenantContext.get(), id);
         startAfterCommit(id, TenantContext.get());
+        return view(id);
+    }
+
+    @Transactional
+    public BulletinBatchJobView cancel(UUID id, BulletinBatchCancelRequest request) {
+        JobRow job = job(id);
+        teacherScope.assertClass(job.classId());
+        if (Set.of("COMPLETED", "COMPLETED_ERRORS", "FAILED", "CANCELLED").contains(job.status())) {
+            throw ApiException.conflict("Cette génération est déjà terminée ou annulée");
+        }
+        int changed = jdbc.update("""
+                UPDATE bulletin_batch_job
+                   SET status='CANCELLED',cancelled_at=now(),cancelled_by=?,cancel_reason=?,version=version+1
+                 WHERE school_id=? AND id=? AND status IN ('QUEUED','RUNNING')
+                """, currentUserId(), request.reason().trim(), TenantContext.get(), id);
+        if (changed == 0) throw ApiException.conflict("La génération a changé entre-temps");
         return view(id);
     }
 

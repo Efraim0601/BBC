@@ -8,6 +8,7 @@ import jakarta.validation.constraints.NotNull;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.UUID;
 import java.util.List;
 
@@ -38,6 +39,47 @@ public class AcademicDtos {
                                    @NotNull @DecimalMin("0.01") BigDecimal weight,
                                    boolean mandatory, @Min(1) int displayOrder, Long version,
                                    UUID classId, String subjectCode) {}
+
+    public record AssessmentDefaultsPreviewRequest(@NotNull UUID academicSessionId,
+                                                   @NotNull UUID classId,
+                                                   @NotBlank String mode,
+                                                   UUID reportingPeriodId,
+                                                   List<AssessmentDefaultsRowInput> rows,
+                                                   String scopeFingerprint) {}
+
+    public record AssessmentDefaultsRowInput(@NotBlank String clientRowId,
+                                             @NotNull UUID reportingPeriodId,
+                                             @NotBlank String subjectCode,
+                                             String code, String label,
+                                             BigDecimal maxScore, BigDecimal weight,
+                                             Boolean mandatory) {}
+
+    public record AssessmentDefaultsRow(String clientRowId, UUID reportingPeriodId,
+                                        String reportingPeriodCode, String reportingPeriodLabel,
+                                        UUID curriculumSubjectId, String subjectCode,
+                                        String subjectLabel, int coefficient,
+                                        BigDecimal maxScore, BigDecimal weight,
+                                        boolean mandatory, UUID teacherId,
+                                        String teacherName, String teacherStatus,
+                                        String proposedCode, String proposedLabel,
+                                        String status, List<String> errors,
+                                        UUID existingAssessmentId, long existingVersion) {}
+
+    public record AssessmentDefaultsPeriod(UUID reportingPeriodId, String code,
+                                           String label, List<AssessmentDefaultsRow> rows) {}
+
+    public record AssessmentDefaultsPreview(UUID academicSessionId, UUID classId,
+                                            String className, String subsystem,
+                                            String contentLanguage, String mode,
+                                            String scopeFingerprint,
+                                            List<AssessmentDefaultsPeriod> periods,
+                                            int totalRows, int proposedRows,
+                                            int existingRows, int excludedRows) {}
+
+    public record AssessmentDefaultsApplyResponse(AssessmentDefaultsPreview preview,
+                                                  UUID generationBatchId,
+                                                  int createdCount, int existingCount,
+                                                  int skippedCount) {}
 
     public record AcademicGradeView(UUID id, UUID academicSessionId, UUID reportingPeriodId,
                                     UUID assessmentId, UUID studentId, UUID enrollmentId,
@@ -82,7 +124,146 @@ public class AcademicDtos {
                                        ClassStatsView classStats, UUID supersedesId,
                                        UUID correctsBulletinVersionId, String correctionReason,
                                        UUID correctionRequestedBy, Instant correctionRequestedAt,
-                                       List<GroupStatsView> groupStats) {}
+                                       List<GroupStatsView> groupStats,
+                                       SnapshotEvidenceView evidence,
+                                       String reportingPeriodType, String product,
+                                       BulletinWorkflowMetaView workflowMeta,
+                                       List<BulletinIssueView> issues) {
+        public BulletinSnapshotView {
+            lines = lines == null ? List.of() : List.copyOf(lines);
+            blockers = blockers == null ? List.of() : List.copyOf(blockers);
+            groupStats = groupStats == null ? List.of() : List.copyOf(groupStats);
+            issues = issues == null ? List.of() : List.copyOf(issues);
+            reportingPeriodType = reportingPeriodType == null ? "SEQUENCE" : reportingPeriodType;
+            product = product == null ? productFor(reportingPeriodType) : product;
+        }
+
+        /** Source-compatible constructor used by historical tests and callers. */
+        public BulletinSnapshotView(UUID id, UUID academicSessionId, UUID reportingPeriodId,
+                                    String reportingPeriodCode, String reportingPeriodLabel,
+                                    UUID studentId, String studentName, String matricule,
+                                    String educationalLevel, String subsystem, String className,
+                                    List<BulletinLineView> lines, BigDecimal average, Integer rank, int classSize,
+                                    String state, boolean complete, List<String> blockers,
+                                    String snapshotHash, String calculationPolicy,
+                                    String generalAppreciation, AttendanceSummaryView attendance,
+                                    ConductSummaryView conduct, long version, ClassStatsView classStats,
+                                    UUID supersedesId, UUID correctsBulletinVersionId, String correctionReason,
+                                    UUID correctionRequestedBy, Instant correctionRequestedAt,
+                                    List<GroupStatsView> groupStats, SnapshotEvidenceView evidence) {
+            this(id, academicSessionId, reportingPeriodId, reportingPeriodCode, reportingPeriodLabel,
+                    studentId, studentName, matricule, educationalLevel, subsystem, className, lines,
+                    average, rank, classSize, state, complete, blockers, snapshotHash, calculationPolicy,
+                    generalAppreciation, attendance, conduct, version, classStats, supersedesId,
+                    correctsBulletinVersionId, correctionReason, correctionRequestedBy, correctionRequestedAt,
+                    groupStats, evidence, null, null, null, null);
+        }
+
+        private static String productFor(String periodType) {
+            return switch (periodType) {
+                case "TERM_RESULT" -> "TERM";
+                case "ANNUAL_RESULT" -> "ANNUAL";
+                default -> "SEQUENCE";
+            };
+        }
+    }
+
+    public record BulletinWorkflowMetaView(
+            String inputReadiness,
+            String versionRelation,
+            String currentSourceHash,
+            UUID persistedVersionId,
+            String persistedVersionState,
+            Long persistedVersionNumber,
+            String persistedSnapshotHash,
+            BigDecimal persistedAverage,
+            boolean refreshRequired,
+            List<DependencyReadinessView> dependencies,
+            BulletinCapabilitiesView capabilities) {
+        public BulletinWorkflowMetaView {
+            dependencies = dependencies == null ? List.of() : List.copyOf(dependencies);
+            capabilities = capabilities == null
+                    ? new BulletinCapabilitiesView(false, false, false, false, List.of())
+                    : capabilities;
+        }
+    }
+
+    public record DependencyReadinessView(
+            UUID periodId, String code, String label, String periodType,
+            BigDecimal weight, boolean optional, String readiness,
+            int expectedPacketCount, int acceptedPacketCount, int lockedPacketCount,
+            int submittedPacketCount, int draftPacketCount, int returnedPacketCount,
+            int missingPacketCount) {}
+
+    public record BulletinCapabilitiesView(
+            boolean canCreateDraft, boolean canRefreshDraft,
+            boolean canValidate, boolean canPublish, List<String> validationBlockers) {
+        public BulletinCapabilitiesView {
+            validationBlockers = validationBlockers == null ? List.of() : List.copyOf(validationBlockers);
+        }
+    }
+
+    public record BulletinIssueView(
+            String code, String severity, String periodCode, String subjectCode,
+            String messageFr, String messageEn, String repairTarget) {}
+
+    /** Immutable evidence references used to render and audit an official result. */
+    public record SnapshotEvidenceView(
+            ProfileAssetEvidenceView profilePhoto,
+            DocumentDesignEvidenceView documentDesign,
+            List<ChildSnapshotEvidenceView> childSnapshots,
+            String formulaVersion,
+            String calculationPolicy,
+            List<DependencySourceEvidenceView> dependencySources,
+            List<PacketTraceEvidenceView> packetTraces,
+            String sourceHash) {
+        public SnapshotEvidenceView {
+            childSnapshots = childSnapshots == null ? List.of() : List.copyOf(childSnapshots);
+            dependencySources = dependencySources == null ? List.of() : List.copyOf(dependencySources);
+            packetTraces = packetTraces == null ? List.of() : List.copyOf(packetTraces);
+        }
+
+        public SnapshotEvidenceView(ProfileAssetEvidenceView profilePhoto,
+                                    DocumentDesignEvidenceView documentDesign,
+                                    List<ChildSnapshotEvidenceView> childSnapshots,
+                                    String formulaVersion,
+                                    String calculationPolicy) {
+            this(profilePhoto, documentDesign, childSnapshots, formulaVersion, calculationPolicy,
+                    List.of(), List.of(), null);
+        }
+    }
+
+    public record ProfileAssetEvidenceView(UUID assetVersionId, String ownerType, UUID ownerId,
+                                           String contentType, long byteSize,
+                                           Instant capturedAt, String sha256) {}
+
+    public record DocumentDesignEvidenceView(UUID templateId, String templateFamily,
+                                             String product, String locale,
+                                             int templateVersion, String templateHash,
+                                             UUID brandingId, int brandingVersion,
+                                             String brandingHash, String principalName,
+                                             String principalTitle, String classMasterTitle,
+                                             String councilTitle) {}
+
+    public record ChildSnapshotEvidenceView(UUID reportingPeriodId, String periodCode,
+                                            UUID snapshotId, long snapshotVersion,
+                                            String state, String snapshotHash) {}
+
+    public record DependencySourceEvidenceView(UUID childPeriodId, String childPeriodCode,
+                                               long childPeriodVersion, BigDecimal dependencyWeight,
+                                               boolean optional, String sourceKind, String sourceHash,
+                                               List<PacketTraceEvidenceView> packetTraces) {
+        public DependencySourceEvidenceView {
+            packetTraces = packetTraces == null ? List.of() : List.copyOf(packetTraces);
+        }
+    }
+
+    public record PacketTraceEvidenceView(UUID packetId, UUID classId,
+                                          UUID childReportingPeriodId, String childReportingPeriodCode,
+                                          String subjectCode, String status, long version,
+                                          UUID teacherId, UUID responsibleAssignmentId,
+                                          Long responsibleAssignmentVersion,
+                                          Instant submittedAt, Instant reviewedAt) {}
 
     /** Class master sheet built from the same session-aware calculation as a bulletin. */
     public record SessionPvRow(UUID snapshotId, UUID studentId, String studentName,
@@ -102,9 +283,11 @@ public class AcademicDtos {
 
     public record BulletinLifecycleRequest(@NotBlank String reason, Long version) {}
     public record BulletinCorrectionRequest(@NotBlank String reason, Long version) {}
+    public record BulletinRefreshRequest(@NotBlank String reason, @NotNull Long version) {}
 
     public record BulletinBatchJobCreateRequest(@NotNull UUID classId, @NotNull UUID reportingPeriodId,
                                                 String locale) {}
+    public record BulletinBatchCancelRequest(@NotBlank String reason) {}
 
     public record BulletinBatchJobView(UUID id, UUID academicSessionId, UUID reportingPeriodId, UUID classId,
                                        String locale, String status, int totalItems, int processedItems,
@@ -120,8 +303,46 @@ public class AcademicDtos {
                                            BigDecimal maxScore, BigDecimal weight,
                                            boolean mandatory, int displayOrder) {}
 
+    public record TeacherAssignmentReadinessView(String status, String code,
+                                                 UUID teacherId, String teacherName, String teacherCode,
+                                                 UUID assignmentId, long assignmentVersion,
+                                                 String source, String role,
+                                                 LocalDate effectiveFrom, LocalDate effectiveTo,
+                                                 String messageFr, String messageEn, boolean repairable) {}
+
+    public record GradeEntryBlockerView(String code, String subjectCode, String studentName,
+                                        String messageFr, String messageEn,
+                                        String repairTarget, String severity) {}
+
+    public record GradeEntryCapabilitiesView(boolean canEditDraft, boolean canSubmit,
+                                             boolean canReview, boolean restrictedTeacher,
+                                             String explanation) {}
+
     public record GradeEntrySubjectView(String code, String label, int coefficient,
-                                        UUID teacherId, String teacherName) {}
+                                        UUID teacherId, String teacherName,
+                                        String status, String errorCode, String message,
+                                        boolean remarkRequired,
+                                        TeacherAssignmentReadinessView assignmentReadiness) {
+        public GradeEntrySubjectView(String code, String label, int coefficient,
+                                     UUID teacherId, String teacherName) {
+            this(code, label, coefficient, teacherId, teacherName,
+                    teacherId == null ? "MISSING" : "RESOLVED",
+                    teacherId == null ? "ASSIGNMENT_MISSING" : "ASSIGNMENT_RESOLVED", null, false,
+                    teacherId == null
+                            ? new TeacherAssignmentReadinessView("MISSING", "ASSIGNMENT_MISSING", null, null, null,
+                            null, 0, null, null, null, null, null, null, true)
+                            : new TeacherAssignmentReadinessView("RESOLVED", "ASSIGNMENT_RESOLVED", teacherId, teacherName,
+                            null, null, 0, null, null, null, null, null, null, false));
+        }
+
+        public GradeEntrySubjectView(String code, String label, int coefficient,
+                                     UUID teacherId, String teacherName, String status,
+                                     String errorCode, String message, boolean remarkRequired) {
+            this(code, label, coefficient, teacherId, teacherName, status, errorCode, message,
+                    remarkRequired, new TeacherAssignmentReadinessView(status, errorCode, teacherId, teacherName,
+                            null, null, 0, null, null, null, null, message, message, teacherId == null));
+        }
+    }
 
     public record GradeEntryCellView(UUID assessmentId, BigDecimal mark,
                                      String valueStatus, long version) {}
@@ -138,7 +359,38 @@ public class AcademicDtos {
                                  List<GradeEntryStudentView> students,
                                  int totalStudents, int completedStudents,
                                  List<String> blockers,
-                                 List<GradeEntrySubjectView> availableSubjects) {}
+                                 List<GradeEntrySubjectView> availableSubjects,
+                                 List<GradeEntryBlockerView> completionBlockers,
+                                 List<GradeEntryBlockerView> submissionBlockers,
+                                 List<GradeEntryBlockerView> warnings,
+                                 TeacherAssignmentReadinessView assignmentReadiness,
+                                 GradeEntryCapabilitiesView capabilities) {
+        public GradeEntryView(UUID academicSessionId, UUID reportingPeriodId, UUID classId,
+                              String className, String subjectCode, String subjectLabel,
+                              int coefficient, UUID teacherId, String teacherName,
+                              String packetStatus, long packetVersion,
+                              List<GradeEntryAssessmentView> assessments,
+                              List<GradeEntryStudentView> students,
+                              int totalStudents, int completedStudents,
+                              List<String> blockers,
+                              List<GradeEntrySubjectView> availableSubjects) {
+            this(academicSessionId, reportingPeriodId, classId, className, subjectCode, subjectLabel,
+                    coefficient, teacherId, teacherName, packetStatus, packetVersion, assessments, students,
+                    totalStudents, completedStudents, blockers, availableSubjects,
+                    blockers.stream().map(message -> new GradeEntryBlockerView(
+                            "GRADE_ENTRY_INCOMPLETE", subjectCode, null, message, message,
+                            "grade-entry", "BLOCKER")).toList(),
+                    teacherId == null ? List.of(new GradeEntryBlockerView(
+                            "ASSIGNMENT_MISSING", subjectCode, null,
+                            "A responsible teacher assignment is required before submission.",
+                            "A responsible teacher assignment is required before submission.",
+                            "class-subjects", "BLOCKER")) : List.of(), List.of(),
+                    availableSubjects.stream().filter(x -> subjectCode.equalsIgnoreCase(x.code()))
+                            .findFirst().map(GradeEntrySubjectView::assignmentReadiness).orElse(null),
+                    new GradeEntryCapabilitiesView(true, teacherId != null && blockers.isEmpty(), false,
+                            false, null));
+        }
+    }
 
     public record GradeEntryCellUpsert(@NotNull UUID assessmentId, BigDecimal mark,
                                        String valueStatus, Long version) {}

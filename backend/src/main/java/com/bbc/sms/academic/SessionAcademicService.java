@@ -12,6 +12,7 @@ import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.student.StudentRepository;
 import com.bbc.sms.timetable.SchoolClassRepository;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.UUID;
 
 @Service
@@ -34,21 +36,25 @@ public class SessionAcademicService {
     private final BulletinVersionRepository bulletinVersions;
     private final SchoolClassRepository classes;
     private final SubjectRepository subjects;
+    private final CurriculumQueryService curriculum;
+    private final JdbcTemplate jdbc;
 
     public SessionAcademicService(AcademicReportingPeriodRepository periods, AcademicAssessmentRepository assessments,
                                   AcademicGradeRepository grades, SubjectResultCommentRepository comments,
                                   StudentEnrollmentRepository enrollments, StudentRepository students,
                                   AcademicWindowPolicyService windows, TeacherScopeService teacherScope,
                                   BulletinVersionRepository bulletinVersions,
-                                  SchoolClassRepository classes, SubjectRepository subjects) {
+                                  SchoolClassRepository classes, SubjectRepository subjects,
+                                  CurriculumQueryService curriculum, JdbcTemplate jdbc) {
         this.periods = periods; this.assessments = assessments; this.grades = grades; this.comments = comments;
         this.enrollments = enrollments; this.students = students; this.windows = windows; this.teacherScope = teacherScope; this.bulletinVersions = bulletinVersions;
-        this.classes = classes; this.subjects = subjects;
+        this.classes = classes; this.subjects = subjects; this.curriculum = curriculum; this.jdbc = jdbc;
     }
 
     @Transactional(readOnly = true)
     public List<AssessmentView> assessments(UUID periodId, UUID classId, String subjectCode) {
-        period(periodId);
+        AcademicReportingPeriod reportingPeriod = period(periodId);
+        if (!AcademicPeriodRules.isSequence(reportingPeriod)) return List.of();
         List<AcademicAssessment> rows = classId == null
                 ? assessments.findBySchoolIdAndReportingPeriodIdOrderByDisplayOrder(TenantContext.get(), periodId)
                 : (subjectCode == null || subjectCode.isBlank()
@@ -61,31 +67,77 @@ public class SessionAcademicService {
     @Transactional
     public AssessmentView createAssessment(AssessmentUpsert in) {
         AcademicReportingPeriod period = period(in.reportingPeriodId());
+        AcademicPeriodRules.assertRawGradePeriod(period);
         windows.assertOpen(period.getId(), AcademicWindowPolicyService.Action.GRADE_ENTRY);
-        if (in.classId() != null) {
-            classes.findByIdAndSchoolId(in.classId(), TenantContext.get())
-                    .orElseThrow(() -> ApiException.notFound("Classe d'évaluation"));
-        }
+        assertAssessmentScope(period, in.classId(), in.subjectCode());
+        if (in.classId() == null) throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST,
+                "CLASS_REQUIRED", "Une évaluation doit être rattachée à une classe.", "classId", "Sélectionnez une classe.");
         String subjectCode = in.subjectCode() == null || in.subjectCode().isBlank()
                 ? null : in.subjectCode().trim().toUpperCase(Locale.ROOT);
-        if (subjectCode != null) {
-            subjects.findBySchoolIdAndCode(TenantContext.get(), subjectCode)
-                    .orElseThrow(() -> ApiException.notFound("Matière d'évaluation"));
-        }
         String code = in.code().trim().toUpperCase(Locale.ROOT);
         if (assessments.existsScoped(TenantContext.get(), period.getId(), in.classId(), subjectCode, code))
-            throw ApiException.conflict("Ce code d'évaluation existe déjà dans cette portée");
+            throw ApiException.coded(org.springframework.http.HttpStatus.CONFLICT,
+                    "ASSESSMENT_CODE_ALREADY_EXISTS",
+                    "Ce code d'évaluation existe déjà pour cette matière et cette séquence.");
         AcademicAssessment a = new AcademicAssessment();
         a.setSchoolId(TenantContext.get()); a.setAcademicSessionId(period.getAcademicSessionId()); a.setReportingPeriodId(period.getId());
         a.setClassId(in.classId()); a.setSubjectCode(subjectCode);
         a.setCode(code); a.setLabel(in.label().trim()); a.setAssessmentType(in.assessmentType() == null ? "EVALUATION" : in.assessmentType().trim().toUpperCase(Locale.ROOT));
         a.setMaxScore(in.maxScore()); a.setWeight(in.weight()); a.setMandatory(in.mandatory()); a.setDisplayOrder(in.displayOrder());
+        a.setAssessmentType("SEQUENCE_EVALUATION"); a.setSource("MANUAL");
         return assessmentView(assessments.save(a));
+    }
+
+    @Transactional
+    public AssessmentView updateAssessment(UUID id, AssessmentUpsert in) {
+        AcademicAssessment a = assessments.findByIdAndSchoolId(id, TenantContext.get())
+                .orElseThrow(() -> ApiException.notFound("Évaluation"));
+        AcademicReportingPeriod period = period(in.reportingPeriodId());
+        AcademicPeriodRules.assertRawGradePeriod(period);
+        if (!a.getReportingPeriodId().equals(period.getId())) {
+            throw ApiException.badRequest("L'évaluation n'appartient pas à cette séquence.");
+        }
+        if (in.version() != null && in.version() != a.getVersion()) {
+            throw ApiException.conflict("Cette évaluation a été modifiée par un autre utilisateur. Rechargez-la avant de continuer.");
+        }
+        Integer gradeCount = jdbcCount("SELECT count(*) FROM academic_grade WHERE school_id=? AND assessment_id=?", id);
+        if (gradeCount > 0) throw ApiException.coded(org.springframework.http.HttpStatus.CONFLICT,
+                "ASSESSMENT_HAS_GRADES", "Cette évaluation possède déjà des notes et ne peut plus être modifiée.");
+        assertAssessmentScope(period, in.classId(), in.subjectCode());
+        String subjectCode = in.subjectCode().trim().toUpperCase(Locale.ROOT);
+        String code = in.code().trim().toUpperCase(Locale.ROOT);
+        if (assessments.existsScoped(TenantContext.get(), period.getId(), in.classId(), subjectCode, code)
+                && !(a.getCode().equalsIgnoreCase(code) && Objects.equals(a.getClassId(), in.classId())
+                && a.getSubjectCode().equalsIgnoreCase(subjectCode))) {
+            throw ApiException.coded(org.springframework.http.HttpStatus.CONFLICT,
+                    "ASSESSMENT_CODE_ALREADY_EXISTS",
+                    "Ce code d'évaluation existe déjà pour cette matière et cette séquence.");
+        }
+        a.setClassId(in.classId()); a.setSubjectCode(subjectCode); a.setCode(code); a.setLabel(in.label().trim());
+        a.setMaxScore(in.maxScore()); a.setWeight(in.weight()); a.setMandatory(in.mandatory());
+        a.setDisplayOrder(in.displayOrder());
+        return assessmentView(assessments.saveAndFlush(a));
+    }
+
+    @Transactional
+    public void deleteAssessment(UUID id, Long version) {
+        AcademicAssessment a = assessments.findByIdAndSchoolId(id, TenantContext.get())
+                .orElseThrow(() -> ApiException.notFound("Évaluation"));
+        AcademicReportingPeriod period = period(a.getReportingPeriodId());
+        AcademicPeriodRules.assertRawGradePeriod(period);
+        if (version != null && version != a.getVersion()) {
+            throw ApiException.conflict("Cette évaluation a été modifiée par un autre utilisateur. Rechargez-la avant de continuer.");
+        }
+        Integer gradeCount = jdbcCount("SELECT count(*) FROM academic_grade WHERE school_id=? AND assessment_id=?", id);
+        if (gradeCount > 0) throw ApiException.coded(org.springframework.http.HttpStatus.CONFLICT,
+                "ASSESSMENT_HAS_GRADES", "Cette évaluation possède déjà des notes et ne peut pas être supprimée.");
+        assessments.delete(a);
     }
 
     @Transactional(readOnly = true)
     public List<AcademicGradeView> grades(UUID studentId, UUID periodId) {
-        teacherScope.assertStudent(studentId); period(periodId); assertStudent(studentId);
+        teacherScope.assertStudent(studentId); AcademicReportingPeriod period = period(periodId);
+        AcademicPeriodRules.assertRawGradePeriod(period); assertStudent(studentId);
         return grades.findBySchoolIdAndStudentIdAndReportingPeriodIdOrderBySubjectCodeAscAssessmentIdAsc(TenantContext.get(), studentId, periodId)
                 .stream().map(this::gradeView).toList();
     }
@@ -94,6 +146,7 @@ public class SessionAcademicService {
     public AcademicGradeView upsertGrade(AcademicGradeUpsert in) {
         teacherScope.assertStudent(in.studentId());
         AcademicReportingPeriod period = period(in.reportingPeriodId());
+        AcademicPeriodRules.assertRawGradePeriod(period);
         windows.assertOpen(period.getId(), AcademicWindowPolicyService.Action.GRADE_ENTRY);
         invalidatePublished(in.studentId(), period.getId());
         AcademicAssessment assessment = assessments.findById(in.assessmentId())
@@ -128,6 +181,7 @@ public class SessionAcademicService {
     public SubjectResultCommentView upsertComment(SubjectResultCommentUpsert in) {
         teacherScope.assertStudent(in.studentId());
         AcademicReportingPeriod period = period(in.reportingPeriodId());
+        AcademicPeriodRules.assertRawGradePeriod(period);
         windows.assertOpen(period.getId(), AcademicWindowPolicyService.Action.GRADE_ENTRY);
         invalidatePublished(in.studentId(), period.getId());
         assertStudent(in.studentId());
@@ -140,6 +194,25 @@ public class SessionAcademicService {
     }
 
     private AcademicReportingPeriod period(UUID id) { return periods.findByIdAndSchoolId(id, TenantContext.get()).orElseThrow(() -> ApiException.notFound("Période de résultat")); }
+    private void assertAssessmentScope(AcademicReportingPeriod period, UUID classId, String rawSubjectCode) {
+        if (classId == null) throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST,
+                "CLASS_REQUIRED", "Une évaluation doit être rattachée à une classe.", "classId", "Sélectionnez une classe.");
+        teacherScope.assertClass(classId);
+        String subjectCode = rawSubjectCode == null ? "" : rawSubjectCode.trim().toUpperCase(Locale.ROOT);
+        if (subjectCode.isBlank()) throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST,
+                "SUBJECT_REQUIRED", "Une évaluation doit être rattachée à une matière affectée à la classe.",
+                "subjectCode", "Sélectionnez une matière affectée à la classe.");
+        CurriculumQueryService.Scope scope = curriculum.scope(period.getAcademicSessionId(), classId);
+        boolean assigned = curriculum.applicable(scope, period).stream()
+                .anyMatch(row -> row.subjectCode().equalsIgnoreCase(subjectCode));
+        if (!assigned) throw ApiException.coded(org.springframework.http.HttpStatus.BAD_REQUEST,
+                "SUBJECT_NOT_ASSIGNED_TO_CLASS",
+                "Cette matière n'est pas affectée à la classe pour cette séquence.");
+    }
+    private int jdbcCount(String sql, UUID id) {
+        Integer count = jdbc.queryForObject(sql, Integer.class, TenantContext.get(), id);
+        return count == null ? 0 : count;
+    }
     private void invalidatePublished(UUID studentId, UUID periodId) {
         List<BulletinVersion> published = bulletinVersions.findBySchoolIdAndStudentIdAndReportingPeriodIdAndState(
                 TenantContext.get(), studentId, periodId, "PUBLISHED");

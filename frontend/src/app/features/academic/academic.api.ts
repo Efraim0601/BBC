@@ -8,10 +8,10 @@ export interface BulletinLine {
   subjectCode: string;
   subjectLabel: string;
   coef: number;
-  mark: number;
-  weighted: number;
+  mark: number | null;
+  weighted: number | null;
   teacherRemark?: string;
-  periodMarks?: Array<{ periodCode: string; mark: number }>;
+  periodMarks?: Array<{ periodCode: string; mark: number | null }>;
   teacherName?: string | null;
   subjectGroupCode?: string | null;
   subjectGroupLabel?: string | null;
@@ -23,16 +23,19 @@ export interface BulletinView {
   studentName: string;
   className: string;
   sequence: number;
+  reportingPeriodType?: string;
+  product?: string;
   lines: BulletinLine[];
-  average: number;
-  rank: number;
+  average: number | null;
+  rank: number | null;
   classSize: number;
-  classAverage: number;
+  classAverage: number | null;
   validated: boolean;
   generalAppreciation: string | null;
   financiallyBlocked: boolean;
   reportingPeriodId?: string;
   reportingPeriodCode?: string;
+  reportingPeriodLabel?: string;
   state?: string;
   complete?: boolean;
   blockers?: string[];
@@ -41,24 +44,51 @@ export interface BulletinView {
   attendance?: { finalizedSessions: number; presentCount: number; absentCount: number; excusedCount: number; lateCount: number; lateMinutes: number; justifiedAbsenceHours: number; unjustifiedAbsenceHours: number; adjustedJustifiedHours: number; adjustedUnjustifiedHours: number; adjustedLateMinutes: number };
   conduct?: { workWarning: boolean; workBlame: boolean; conductWarning: boolean; conductBlame: boolean; honorRoll: boolean; encouragement: boolean; congratulations: boolean; exclusionDays: number; decisionCode: string | null; councilObservation: string | null; status: string };
   groupStats?: Array<{ code: string; label: string | null; average: number; total: number; coefficient: number; subjectCount: number }>;
+  workflowMeta?: BulletinWorkflowMeta;
+  issues?: BulletinIssue[];
+  capabilities?: BulletinCapabilities;
+}
+
+export interface BulletinIssue {
+  code: string; severity: 'ERROR' | 'WARNING' | string; periodCode?: string | null;
+  subjectCode?: string | null; messageFr: string; messageEn: string; repairTarget?: string | null;
+}
+export interface DependencyReadiness {
+  periodId: string; code: string; label: string; periodType: string; weight: number;
+  optional: boolean; readiness: string; expectedPacketCount: number; acceptedPacketCount: number;
+  lockedPacketCount: number; submittedPacketCount: number; draftPacketCount: number;
+  returnedPacketCount: number; missingPacketCount: number;
+}
+export interface BulletinCapabilities {
+  canCreateDraft: boolean; canRefreshDraft: boolean; canValidate: boolean; canPublish: boolean;
+  validationBlockers: string[];
+}
+export interface BulletinWorkflowMeta {
+  inputReadiness: string; versionRelation: string; currentSourceHash?: string | null;
+  persistedVersionId?: string | null; persistedVersionState?: string | null;
+  persistedVersionNumber?: number | null; persistedSnapshotHash?: string | null;
+  persistedAverage?: number | null; refreshRequired: boolean;
+  dependencies: DependencyReadiness[]; capabilities: BulletinCapabilities;
 }
 
 export interface BulletinSnapshotView {
-  id: string; academicSessionId: string; reportingPeriodId: string;
+  id?: string; academicSessionId: string; reportingPeriodId: string;
   reportingPeriodCode: string; reportingPeriodLabel: string; studentId: string;
   studentName: string; matricule: string; educationalLevel?: string | null; subsystem?: string | null; className: string | null;
-  lines: Array<{ subjectCode: string; subjectLabel: string; coefficient: number; mark: number; weighted: number; teacherRemark: string | null; appreciation: string; assessments: unknown[]; periodMarks?: Array<{ periodCode: string; mark: number }> | null; teacherName?: string | null; subjectGroupCode?: string | null; subjectGroupLabel?: string | null }>;
-  average: number; rank: number | null; classSize: number; state: string; complete: boolean;
+  lines: Array<{ subjectCode: string; subjectLabel: string; coefficient: number; mark: number | null; weighted: number | null; teacherRemark: string | null; appreciation: string; assessments: unknown[]; periodMarks?: Array<{ periodCode: string; mark: number | null }> | null; teacherName?: string | null; subjectGroupCode?: string | null; subjectGroupLabel?: string | null }>;
+  average: number | null; rank: number | null; classSize: number; state: string; complete: boolean;
   blockers: string[]; snapshotHash: string; calculationPolicy: string; generalAppreciation: string | null; version: number;
   attendance: BulletinView['attendance']; conduct: BulletinView['conduct'];
   classStats?: { average: number; minimum: number; maximum: number; successCount: number; successRate: number; rankedCount: number } | null;
   groupStats?: Array<{ code: string; label: string | null; average: number; total: number; coefficient: number; subjectCount: number }> | null;
+  reportingPeriodType?: string; product?: string; workflowMeta?: BulletinWorkflowMeta;
+  issues?: BulletinIssue[];
 }
 
 export interface PvRow {
   studentId: string;
   studentName: string;
-  average: number;
+  average: number | null;
   rank: number | null;
   state?: string;
   complete?: boolean;
@@ -92,8 +122,36 @@ export interface AssessmentUpsert {
   maxScore: number; weight: number; mandatory: boolean; displayOrder: number;
   version?: number; classId?: string | null; subjectCode?: string | null;
 }
+export type AssessmentDefaultsMode = 'ONE_SEQUENCE' | 'ALL_SEQUENCES';
+export interface AssessmentDefaultsRowInput {
+  clientRowId: string; reportingPeriodId: string; subjectCode: string;
+  code?: string; label?: string; maxScore?: number; weight?: number; mandatory?: boolean;
+}
+export interface AssessmentDefaultsRequest {
+  academicSessionId: string; classId: string; mode: AssessmentDefaultsMode;
+  reportingPeriodId?: string; rows?: AssessmentDefaultsRowInput[]; scopeFingerprint?: string;
+}
+export interface AssessmentDefaultsRow {
+  clientRowId: string; reportingPeriodId: string; reportingPeriodCode: string; reportingPeriodLabel: string;
+  curriculumSubjectId: string; subjectCode: string; subjectLabel: string; coefficient: number;
+  maxScore: number; weight: number; mandatory: boolean; teacherId: string | null; teacherName: string | null;
+  teacherStatus: string; proposedCode: string; proposedLabel: string; status: 'PROPOSED' | 'EXISTING' | 'INVALID';
+  errors: string[]; existingAssessmentId: string | null; existingVersion: number;
+}
+export interface AssessmentDefaultsPeriod { reportingPeriodId: string; code: string; label: string; rows: AssessmentDefaultsRow[]; }
+export interface AssessmentDefaultsPreview {
+  academicSessionId: string; classId: string; className: string; subsystem: string; contentLanguage: string;
+  mode: AssessmentDefaultsMode; scopeFingerprint: string; periods: AssessmentDefaultsPeriod[];
+  totalRows: number; proposedRows: number; existingRows: number; excludedRows: number;
+}
+export interface AssessmentDefaultsApplyResponse {
+  preview: AssessmentDefaultsPreview; generationBatchId: string;
+  createdCount: number; existingCount: number; skippedCount: number;
+}
 export interface GradeEntrySubject {
   code: string; label: string; coefficient: number; teacherId: string | null; teacherName: string | null;
+  status?: string; errorCode?: string; message?: string | null; remarkRequired?: boolean;
+  assignmentReadiness?: { status: string; code: string; teacherId: string | null; teacherName: string | null; teacherCode?: string | null; assignmentId?: string | null; assignmentVersion?: number; source?: string | null; role?: string | null; messageFr?: string | null; messageEn?: string | null; repairable?: boolean };
 }
 export interface GradeEntryCell {
   assessmentId: string; mark: number | null; valueStatus: 'SCORED' | 'MISSING' | 'ABSENT' | 'EXEMPT'; version: number;
@@ -108,6 +166,11 @@ export interface GradeEntryView {
   packetStatus: 'DRAFT' | 'SUBMITTED' | 'RETURNED' | 'ACCEPTED' | 'LOCKED'; packetVersion: number;
   assessments: GradeEntryAssessment[]; students: GradeEntryStudent[]; totalStudents: number;
   completedStudents: number; blockers: string[]; availableSubjects: GradeEntrySubject[];
+  completionBlockers?: Array<{ code: string; subjectCode: string; studentName?: string | null; messageFr: string; messageEn: string; repairTarget: string; severity: string }>;
+  submissionBlockers?: Array<{ code: string; subjectCode: string; studentName?: string | null; messageFr: string; messageEn: string; repairTarget: string; severity: string }>;
+  warnings?: Array<{ code: string; subjectCode: string; studentName?: string | null; messageFr: string; messageEn: string; repairTarget: string; severity: string }>;
+  assignmentReadiness?: GradeEntrySubject['assignmentReadiness'];
+  capabilities?: { canEditDraft: boolean; canSubmit: boolean; canReview: boolean; restrictedTeacher: boolean; explanation?: string | null };
 }
 export interface GradeEntryCellUpsert { assessmentId: string; mark: number | null; valueStatus: string; version?: number; }
 export interface GradeEntryStudentUpsert { studentId: string; values: GradeEntryCellUpsert[]; comment: string | null; }
@@ -155,6 +218,36 @@ export interface BulletinBatchItemView {
   attempts: number; fileName: string; sizeBytes: number; error: string;
 }
 
+export interface SecondaryCompetencyView {
+  id: string; code: string; description: string; maxScore: number;
+  displayOrder: number; active: boolean;
+}
+export interface SecondaryCompetencyMarkView {
+  id: string; competencyId: string; reportingPeriodId: string; studentId: string;
+  enrollmentId?: string | null; teacherId?: string | null; mark: number | null;
+  valueStatus: 'SCORED' | 'ABSENT' | 'EXEMPT' | 'MISSING'; version: number;
+}
+export interface SecondaryCompetencyModelView {
+  id: string; academicSessionId: string; reportingPeriodId: string; classId: string;
+  subjectId: string; locale: string; name: string; version: number;
+  status: 'DRAFT' | 'PUBLISHED' | 'RETIRED'; source: 'MANUAL' | 'IMPORT' | 'SEED';
+  competencies: SecondaryCompetencyView[];
+}
+export interface SecondaryCompetencyModelRequest {
+  academicSessionId: string; reportingPeriodId: string; classId: string;
+  subjectId: string; locale: string; name: string; reason?: string;
+  competencies: Array<{ code: string; description: string; maxScore?: number; displayOrder?: number }>;
+}
+export interface SecondaryCompetencyMarkRequest {
+  modelId: string; competencyId: string; reportingPeriodId: string; studentId: string;
+  enrollmentId?: string | null; teacherId?: string | null; mark?: number | null;
+  valueStatus?: string; version?: number;
+}
+export interface SecondaryCompetencyImportRequest {
+  modelId: string; reportingPeriodId: string;
+  rows: Array<{ studentId: string; competencyCode: string; mark?: number | null; valueStatus?: string }>;
+}
+
 @Injectable({ providedIn: 'root' })
 export class AcademicApi {
   private http = inject(HttpClient);
@@ -168,9 +261,16 @@ export class AcademicApi {
   bulletinSnapshot(studentId: string, reportingPeriodId: string): Observable<BulletinSnapshotView> {
     return this.http.post<BulletinSnapshotView>(`${this.base}/students/${encodeURIComponent(studentId)}/bulletin-snapshots`, {}, { params: { reportingPeriodId } });
   }
+  previewBulletinSnapshot(studentId: string, reportingPeriodId: string): Observable<BulletinSnapshotView> {
+    return this.http.get<BulletinSnapshotView>(`${this.base}/students/${encodeURIComponent(studentId)}/bulletin-snapshots/preview`, { params: { reportingPeriodId } });
+  }
 
   validateSnapshot(id: string): Observable<BulletinSnapshotView> {
     return this.http.post<BulletinSnapshotView>(`${this.base}/bulletin-snapshots/${encodeURIComponent(id)}/validate`, {});
+  }
+
+  refreshBulletinDraft(id: string, reason: string, version: number): Observable<BulletinSnapshotView> {
+    return this.http.post<BulletinSnapshotView>(`${this.base}/bulletin-snapshots/${encodeURIComponent(id)}/refresh`, { reason, version });
   }
 
   publishSnapshot(id: string, reason: string, version?: number): Observable<BulletinSnapshotView> {
@@ -225,6 +325,14 @@ export class AcademicApi {
   createAssessment(body: AssessmentUpsert): Observable<AssessmentDefinition> {
     return this.http.post<AssessmentDefinition>(`${this.base}/assessments`, body);
   }
+  previewAssessmentDefaults(body: AssessmentDefaultsRequest): Observable<AssessmentDefaultsPreview> {
+    return this.http.post<AssessmentDefaultsPreview>(`${this.base}/assessment-defaults/preview`, body);
+  }
+  applyAssessmentDefaults(body: AssessmentDefaultsRequest, idempotencyKey: string): Observable<AssessmentDefaultsApplyResponse> {
+    return this.http.post<AssessmentDefaultsApplyResponse>(`${this.base}/assessment-defaults/apply`, body, {
+      headers: { 'Idempotency-Key': idempotencyKey },
+    });
+  }
   reportCardInputs(reportingPeriodId: string, classId: string): Observable<ReportCardInputsView> {
     return this.http.get<ReportCardInputsView>(`${this.base}/report-card-inputs`, { params: { reportingPeriodId, classId } });
   }
@@ -257,5 +365,33 @@ export class AcademicApi {
   }
   downloadBulletinBatchJob(id: string): Observable<Blob> {
     return this.http.get(`${this.base}/bulletin-batch-jobs/${encodeURIComponent(id)}/download`, { responseType: 'blob' });
+  }
+
+  secondaryCompetencyModels(params: { reportingPeriodId?: string; classId?: string; subjectId?: string; locale?: string } = {}): Observable<SecondaryCompetencyModelView[]> {
+    return this.http.get<SecondaryCompetencyModelView[]>(`${this.base}/secondary-competencies`, { params: params as Record<string, string> });
+  }
+  secondaryCompetencyModel(id: string): Observable<SecondaryCompetencyModelView> {
+    return this.http.get<SecondaryCompetencyModelView>(`${this.base}/secondary-competencies/${encodeURIComponent(id)}`);
+  }
+  createSecondaryCompetencyModel(body: SecondaryCompetencyModelRequest): Observable<SecondaryCompetencyModelView> {
+    return this.http.post<SecondaryCompetencyModelView>(`${this.base}/secondary-competencies/models`, body);
+  }
+  copySecondaryCompetencyModel(id: string, reason: string): Observable<SecondaryCompetencyModelView> {
+    return this.http.post<SecondaryCompetencyModelView>(`${this.base}/secondary-competencies/models/${encodeURIComponent(id)}/copy`, {}, { params: { reason } });
+  }
+  publishSecondaryCompetencyModel(id: string, reason: string): Observable<SecondaryCompetencyModelView> {
+    return this.http.post<SecondaryCompetencyModelView>(`${this.base}/secondary-competencies/models/${encodeURIComponent(id)}/publish`, {}, { params: { reason } });
+  }
+  secondaryCompetencyMarks(modelId: string, reportingPeriodId: string, studentId?: string): Observable<SecondaryCompetencyMarkView[]> {
+    const params: Record<string, string> = {};
+    params['reportingPeriodId'] = reportingPeriodId;
+    if (studentId) params['studentId'] = studentId;
+    return this.http.get<SecondaryCompetencyMarkView[]>(`${this.base}/secondary-competencies/${encodeURIComponent(modelId)}/marks`, { params });
+  }
+  saveSecondaryCompetencyMark(body: SecondaryCompetencyMarkRequest): Observable<SecondaryCompetencyMarkView> {
+    return this.http.put<SecondaryCompetencyMarkView>(`${this.base}/secondary-competencies/marks`, body);
+  }
+  importSecondaryCompetencyMarks(body: SecondaryCompetencyImportRequest): Observable<SecondaryCompetencyMarkView[]> {
+    return this.http.post<SecondaryCompetencyMarkView[]>(`${this.base}/secondary-competencies/marks/import`, body);
   }
 }

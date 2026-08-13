@@ -391,48 +391,63 @@ CH_EMPLOI = {
              "img": "100-emploi-du-temps",
              "caption": {"fr": "Grille d'une classe ; les cases vides portent un « + » en mode édition.",
                          "en": "A class grid; empty cells show a “+” in edit mode."}},
-            {"fr": "**Cliquez une case** — vide ou occupée — pour ouvrir l'éditeur de créneau sous la grille.",
-             "en": "**Click a cell** — empty or filled — to open the slot editor under the grid.",
+            {"fr": "**Cliquez une case** — vide ou occupée — pour ouvrir l'éditeur de créneau sous la grille. Une "
+                   "version publiée est verrouillée : utilisez __Créer un brouillon depuis la version publiée__ pour "
+                   "préparer un changement.",
+             "en": "**Click a cell** — empty or filled — to open the slot editor under the grid. A published version is "
+                   "locked: use __Create draft from published version__ to prepare a change.",
              "img": "101-emploi-du-temps-creneau",
              "caption": {"fr": "Éditeur : matière, enseignant et salle pour le jour et l'heure indiqués.",
                          "en": "Editor: subject, teacher and room for the given day and time."}},
-            {"fr": "Renseignez la **matière** (liste filtrée sur le sous-système de la classe), l'**enseignant** et "
-                   "la **salle** — le champ salle propose les salles déjà utilisées.",
-             "en": "Fill in the **subject** (list filtered on the class sub-system), the **teacher** and the "
-                   "**room** — the room field suggests rooms already in use."},
-            {"fr": "__Enregistrer__. Sur un créneau existant, __Supprimer__ le libère.",
-             "en": "__Save__. On an existing slot, __Delete__ frees it."},
+            {"fr": "Renseignez la **matière** et la **salle** — le champ salle propose les salles déjà utilisées. "
+                   "L'enseignant est résolu automatiquement depuis __Paramètres → Scolarité → Matières par classe__ : "
+                   "professeur principal au primaire, responsable de la matière au secondaire. Il n'est pas éditable ici.",
+             "en": "Fill in the **subject** and **room** — the room field suggests rooms already in use. The teacher is "
+                   "resolved automatically from __Settings → Academics → Subjects by class__: homeroom teacher in primary, "
+                   "subject responsible in secondary. It is not editable here."},
+            {"fr": "__Enregistrer__. Si l'affectation canonique manque ou est ambiguë, le bouton reste désactivé et "
+                   "l'écran indique le lien de réparation. Une modification après publication signale le drift et "
+                   "demande un nouveau brouillon.",
+             "en": "__Save__. If the canonical assignment is missing or ambiguous, the button stays disabled and the screen "
+                   "links to the repair page. A post-publication assignment change reports drift and requires a new draft."},
         ]},
         {"type": "note", "tone": "warn", "fr":
-            "**Un enseignant ne peut pas être dans deux salles à la même heure.** Si le professeur choisi assure "
-            "déjà un cours sur ce créneau dans une autre classe, l'enregistrement est **refusé** : l'éditeur reste "
-            "ouvert et affiche la classe, la matière et la salle qui l'occupent déjà. Corrigez l'enseignant ou "
-            "l'heure — ou, si les deux classes sont réellement regroupées, cliquez __Forcer l'enregistrement__.",
+            "**Un enseignant ne peut pas être dans deux salles à la même heure.** Le contrôle se fait sur l'affectation "
+            "résolue, les salles et les groupes. Si un conflit subsiste, l'enregistrement est refusé avec les cours "
+            "concernés. Une substitution d'un jour n'est jamais saisie dans le créneau : ouvrez l'onglet "
+            "__Remplacements__, indiquez dates, motif et validation pour conserver l'enseignant d'origine.",
          "en":
-            "**A teacher cannot be in two rooms at the same time.** If the chosen teacher already has a class in "
-            "that slot, the save is **refused**: the editor stays open and names the class, subject and room that "
-            "already hold them. Change the teacher or the hour — or, if the two classes are genuinely merged, "
-            "click __Force the save__."},
+            "**A teacher cannot be in two rooms at the same time.** The check uses the resolved assignment, rooms and "
+            "groups. If a conflict remains, saving is refused with the affected lessons. A one-day substitution is never "
+            "entered in the slot: use the __Substitutions__ tab with dates, reason and approval so the original teacher remains visible."},
         {"type": "p", "fr":
-            "Les chevauchements **déjà présents** dans la grille (import, saisie antérieure, enregistrement forcé) "
+            "Les chevauchements **déjà présents** dans la grille (import ou historique) "
             "sont recalculés à chaque ouverture du module : un bandeau rouge en haut de page les liste tous — "
             "jour, heure, enseignant, puis les cours qui se chevauchent avec leur salle — et les cases concernées "
             "de la classe affichée sont cerclées de rouge avec un triangle d'alerte. Le bandeau disparaît de "
             "lui-même dès que le dernier chevauchement est résolu.",
          "en":
-            "Clashes **already present** in the grid (import, earlier entry, forced save) are recomputed every time "
+            "Clashes **already present** in the grid (import or historical data) are recomputed every time "
             "the module opens: a red banner at the top lists them all — day, hour, teacher, then the overlapping "
             "lessons with their rooms — and the affected cells of the displayed class are ringed in red with a "
             "warning triangle. The banner clears itself as soon as the last clash is resolved."},
+        {"type": "note", "tone": "info", "fr":
+            "Les onglets __Vue maître__, __Planning des enseignants__, __Salles__ et __Remplacements__ réutilisent "
+            "la même version publiée. Les exports CSV, ICS, XLSX et PDF portent le même identifiant de version ; "
+            "la vue drift indique les créneaux publiés qui ne correspondent plus à l'affectation canonique.",
+         "en":
+            "The __Master view__, __Teacher planning__, __Rooms__ and __Substitutions__ tabs use the same published "
+            "version. CSV, ICS, XLSX and PDF exports carry the same version identifier; the drift view lists published "
+            "slots that no longer match the canonical assignment."},
         {"type": "check", "items": [
-            {"fr": "Créer un créneau avec matière, enseignant et salle.",
-             "en": "Create a slot with subject, teacher and room."},
-            {"fr": "Tenter de placer un enseignant déjà occupé sur ce créneau et lire le refus.",
-             "en": "Try to book a teacher who is already busy in that slot and read the refusal."},
-            {"fr": "Forcer un regroupement de classes, puis retrouver le chevauchement dans le bandeau rouge.",
-             "en": "Force a merged-class slot, then find the clash listed in the red banner."},
-            {"fr": "Supprimer un créneau puis vérifier la case libérée.",
-             "en": "Delete a slot then check the cell is free."},
+            {"fr": "Créer un créneau avec matière et salle, puis vérifier que l'enseignant est résolu automatiquement.",
+             "en": "Create a slot with subject and room, then verify the teacher resolves automatically."},
+            {"fr": "Changer une affectation publiée, constater le drift et vérifier qu'un nouveau brouillon est requis.",
+             "en": "Change a published assignment, observe drift, and verify a new draft is required."},
+            {"fr": "Créer un remplacement daté avec motif et retrouver l'enseignant d'origine dans l'audit.",
+             "en": "Create a dated substitution with a reason and find the original teacher in the audit."},
+            {"fr": "Exporter la même version en CSV et PDF puis comparer les contrôles d'intégrité.",
+             "en": "Export the same version as CSV and PDF, then compare integrity checks."},
         ]},
     ],
 }

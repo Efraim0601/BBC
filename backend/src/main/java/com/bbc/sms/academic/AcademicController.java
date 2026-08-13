@@ -3,9 +3,11 @@ package com.bbc.sms.academic;
 import com.bbc.sms.academic.dto.AcademicDtos.*;
 import com.bbc.sms.documents.OfficialDocumentDtos.GeneratedDocumentView;
 import com.bbc.sms.documents.OfficialDocumentService;
+import com.bbc.sms.foundation.idempotency.IdempotencyService;
 import jakarta.validation.Valid;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -27,8 +29,10 @@ public class AcademicController {
     private final ReportCardBatchJobService reportCardBatchJobService;
     private final ReportCardPdfService reportCardPdfService;
     private final OfficialDocumentService officialDocuments;
+    private final AssessmentDefaultsService assessmentDefaults;
+    private final IdempotencyService idempotency;
 
-    public AcademicController(AcademicService service, SessionAcademicService sessionService, BulletinSnapshotService snapshotService, GradeEntryService gradeEntryService, ReportCardInputService reportCardInputService, ReportCardBatchService reportCardBatchService, ReportCardBatchJobService reportCardBatchJobService, ReportCardPdfService reportCardPdfService, OfficialDocumentService officialDocuments) { this.service = service; this.sessionService = sessionService; this.snapshotService = snapshotService; this.gradeEntryService = gradeEntryService; this.reportCardInputService = reportCardInputService; this.reportCardBatchService = reportCardBatchService; this.reportCardBatchJobService = reportCardBatchJobService; this.reportCardPdfService = reportCardPdfService; this.officialDocuments = officialDocuments; }
+    public AcademicController(AcademicService service, SessionAcademicService sessionService, BulletinSnapshotService snapshotService, GradeEntryService gradeEntryService, ReportCardInputService reportCardInputService, ReportCardBatchService reportCardBatchService, ReportCardBatchJobService reportCardBatchJobService, ReportCardPdfService reportCardPdfService, OfficialDocumentService officialDocuments, AssessmentDefaultsService assessmentDefaults, IdempotencyService idempotency) { this.service = service; this.sessionService = sessionService; this.snapshotService = snapshotService; this.gradeEntryService = gradeEntryService; this.reportCardInputService = reportCardInputService; this.reportCardBatchService = reportCardBatchService; this.reportCardBatchJobService = reportCardBatchJobService; this.reportCardPdfService = reportCardPdfService; this.officialDocuments = officialDocuments; this.assessmentDefaults = assessmentDefaults; this.idempotency = idempotency; }
 
     @GetMapping("/students/{studentId}/grades")
     @PreAuthorize("@perm.can('academic','read') and @perm.staffOnly()")
@@ -39,7 +43,8 @@ public class AcademicController {
     @PostMapping("/grades")
     @PreAuthorize("@perm.can('academic','write') and @perm.staffOnly()")
     public GradeView upsert(@Valid @RequestBody GradeUpsert in) {
-        return service.upsert(in);
+        throw com.bbc.sms.platform.common.ApiException.coded(HttpStatus.GONE, "CANONICAL_GRADE_PACKET_REQUIRED",
+                "La saisie directe est désactivée. Utilisez la feuille de notes par classe et matière.");
     }
 
     @GetMapping("/reporting-periods/{periodId}/assessments")
@@ -54,21 +59,62 @@ public class AcademicController {
     @PreAuthorize("@perm.can('academic','write') and @perm.staffOnly()")
     public AssessmentView createAssessment(@Valid @RequestBody AssessmentUpsert in) { return sessionService.createAssessment(in); }
 
+    @PutMapping("/assessments/{id}")
+    @PreAuthorize("@perm.can('academic','write') and @perm.staffOnly()")
+    public AssessmentView updateAssessment(@PathVariable UUID id, @Valid @RequestBody AssessmentUpsert in) {
+        return sessionService.updateAssessment(id, in);
+    }
+
+    @DeleteMapping("/assessments/{id}")
+    @PreAuthorize("@perm.can('academic','write') and @perm.staffOnly()")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteAssessment(@PathVariable UUID id, @RequestParam(required = false) Long version) {
+        sessionService.deleteAssessment(id, version);
+    }
+
+    @PostMapping("/assessment-defaults/preview")
+    @PreAuthorize("@perm.can('academic','read') and @perm.staffOnly()")
+    public AssessmentDefaultsPreview previewAssessmentDefaults(
+            @Valid @RequestBody AssessmentDefaultsPreviewRequest request) {
+        return assessmentDefaults.preview(request);
+    }
+
+    @PostMapping("/assessment-defaults/apply")
+    @PreAuthorize("@perm.can('academic','write') and @perm.staffOnly()")
+    public AssessmentDefaultsApplyResponse applyAssessmentDefaults(
+            @Valid @RequestBody AssessmentDefaultsPreviewRequest request,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+        return idempotency.execute("academic.assessment-defaults.apply", idempotencyKey, request,
+                AssessmentDefaultsApplyResponse.class, () -> assessmentDefaults.apply(request, idempotencyKey));
+    }
+
     @GetMapping("/students/{studentId}/session-grades")
     @PreAuthorize("@perm.can('academic','read') and @perm.staffOnly()")
     public List<AcademicGradeView> sessionGrades(@PathVariable UUID studentId, @RequestParam UUID reportingPeriodId) { return sessionService.grades(studentId, reportingPeriodId); }
 
     @PostMapping("/session-grades")
     @PreAuthorize("@perm.can('academic','write') and @perm.staffOnly()")
-    public AcademicGradeView upsertSessionGrade(@Valid @RequestBody AcademicGradeUpsert in) { return sessionService.upsertGrade(in); }
+    public AcademicGradeView upsertSessionGrade(@Valid @RequestBody AcademicGradeUpsert in) {
+        throw com.bbc.sms.platform.common.ApiException.coded(HttpStatus.GONE, "CANONICAL_GRADE_PACKET_REQUIRED",
+                "La saisie directe est désactivée. Utilisez la feuille de notes par classe et matière.");
+    }
 
     @PostMapping("/subject-comments")
     @PreAuthorize("@perm.can('academic','write') and @perm.staffOnly()")
-    public SubjectResultCommentView upsertSubjectComment(@Valid @RequestBody SubjectResultCommentUpsert in) { return sessionService.upsertComment(in); }
+    public SubjectResultCommentView upsertSubjectComment(@Valid @RequestBody SubjectResultCommentUpsert in) {
+        throw com.bbc.sms.platform.common.ApiException.coded(HttpStatus.GONE, "CANONICAL_GRADE_PACKET_REQUIRED",
+                "La saisie directe des remarques est désactivée. Utilisez la feuille de notes par classe et matière.");
+    }
 
     @PostMapping("/students/{studentId}/bulletin-snapshots")
     @PreAuthorize("@perm.can('academic','write') and @perm.staffOnly()")
     public BulletinSnapshotView calculateSnapshot(@PathVariable UUID studentId, @RequestParam UUID reportingPeriodId) { return snapshotService.calculate(studentId, reportingPeriodId); }
+
+    @GetMapping("/students/{studentId}/bulletin-snapshots/preview")
+    @PreAuthorize("@perm.can('academic','read') and @perm.staffOnly()")
+    public BulletinSnapshotView previewSnapshot(@PathVariable UUID studentId, @RequestParam UUID reportingPeriodId) {
+        return snapshotService.preview(studentId, reportingPeriodId);
+    }
 
     @GetMapping("/students/{studentId}/bulletin-snapshots/latest")
     @PreAuthorize("@perm.can('academic','read') and @perm.staffOnly()")
@@ -80,9 +126,19 @@ public class AcademicController {
         return snapshotService.startCorrection(id, request);
     }
 
+    @PostMapping("/bulletin-snapshots/{id}/refresh")
+    @PreAuthorize("@perm.can('academic','write') and @perm.staffOnly()")
+    public BulletinSnapshotView refreshSnapshot(@PathVariable UUID id, @Valid @RequestBody BulletinRefreshRequest request) {
+        return snapshotService.refresh(id, request);
+    }
+
     @GetMapping("/bulletin-snapshots/{id}/pdf")
     @PreAuthorize("@perm.can('academic','read') and @perm.staffOnly()")
     public ResponseEntity<byte[]> reportCardPdf(@PathVariable UUID id, @RequestParam(defaultValue = "fr") String locale) {
+        BulletinSnapshotView snapshot = snapshotService.byId(id);
+        if (!"VALIDATED".equals(snapshot.state()) && !"PUBLISHED".equals(snapshot.state())) {
+            throw com.bbc.sms.platform.common.ApiException.badRequest("Le bulletin doit être validé avant la génération du document officiel");
+        }
         byte[] pdf = reportCardPdfService.render(id, !"en".equalsIgnoreCase(locale));
         return ResponseEntity.ok().contentType(MediaType.APPLICATION_PDF)
                 .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=bulletin-" + id + ".pdf")
@@ -155,6 +211,13 @@ public class AcademicController {
         return reportCardBatchJobService.retry(id, itemId);
     }
 
+    @PostMapping("/bulletin-batch-jobs/{id}/cancel")
+    @PreAuthorize("@perm.can('academic','write') and @perm.staffOnly()")
+    public BulletinBatchJobView cancelBulletinBatchJob(@PathVariable UUID id,
+                                                        @Valid @RequestBody BulletinBatchCancelRequest request) {
+        return reportCardBatchJobService.cancel(id, request);
+    }
+
     @GetMapping("/bulletin-batch-jobs/{id}/download")
     @PreAuthorize("@perm.can('academic','read') and @perm.staffOnly()")
     public ResponseEntity<byte[]> downloadBulletinBatchJob(@PathVariable UUID id) {
@@ -178,7 +241,7 @@ public class AcademicController {
     }
 
     @PostMapping("/grade-entry/workflow")
-    @PreAuthorize("@perm.can('academic','write') and @perm.staffOnly()")
+    @PreAuthorize("@perm.canAction('GRADE_SUBMIT') and @perm.staffOnly()")
     public GradeEntryView gradeEntryWorkflow(@Valid @RequestBody GradeEntryReviewRequest request) {
         return gradeEntryService.submit(request);
     }

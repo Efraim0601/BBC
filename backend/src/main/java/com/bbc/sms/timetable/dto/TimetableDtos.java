@@ -17,7 +17,16 @@ public class TimetableDtos {
      */
     public record SubjectTeacherView(String subjectCode, UUID teacherId, String teacherName,
                                      String teacherCode, String source, boolean locked,
-                                     String message) {}
+                                     String message, String status, String errorCode,
+                                     UUID assignmentId, long assignmentVersion) {
+        public SubjectTeacherView(String subjectCode, UUID teacherId, String teacherName,
+                                  String teacherCode, String source, boolean locked, String message) {
+            this(subjectCode, teacherId, teacherName, teacherCode, source, locked, message,
+                    teacherId == null ? "MISSING" : "RESOLVED",
+                    teacherId == null ? "ASSIGNMENT_MISSING" : "ASSIGNMENT_RESOLVED",
+                    null, 0);
+        }
+    }
 
     public record PeriodView(UUID id, int slotIdx, String label, String startTime,
                              String endTime, boolean active) {}

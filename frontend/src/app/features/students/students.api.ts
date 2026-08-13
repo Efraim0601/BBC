@@ -121,6 +121,9 @@ export class StudentApi {
     const q = className ? `?className=${encodeURIComponent(className)}` : '';
     return this.http.get<Student[]>(`${this.base}${q}`);
   }
+  listRoster(sessionId: string, classId: string): Observable<Student[]> {
+    return this.http.get<Student[]>(`${this.base}/roster`, { params: { sessionId, classId } });
+  }
   get(id:string):Observable<Student>{ return this.http.get<Student>(`${this.base}/${id}`); }
   create(body: StudentUpsert): Observable<Student> {
     return this.http.post<Student>(this.base, body);

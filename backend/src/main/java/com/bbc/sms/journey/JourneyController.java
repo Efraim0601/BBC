@@ -1,6 +1,7 @@
 package com.bbc.sms.journey;
 
 import com.bbc.sms.journey.dto.JourneyDtos.*;
+import com.bbc.sms.platform.common.ApiException;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -29,10 +30,15 @@ public class JourneyController {
         return service.upsert(in);
     }
 
+    @PostMapping("/{id}/void")
+    @PreAuthorize("@perm.can('journey','write')")
+    public JourneyView voidEntry(@PathVariable UUID id, @Valid @RequestBody JourneyCorrectionRequest request) {
+        return service.voidEntry(id, request);
+    }
+
     @DeleteMapping("/{id}")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
     @PreAuthorize("@perm.can('journey','write')")
     public void delete(@PathVariable UUID id) {
-        service.delete(id);
+        throw ApiException.coded(HttpStatus.GONE, "JOURNEY_DELETE_REPLACED", "Les entrées de parcours sont append-only. Utilisez la correction/annulation auditée avec un motif.");
     }
 }

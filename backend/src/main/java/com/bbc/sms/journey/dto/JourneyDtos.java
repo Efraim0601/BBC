@@ -62,4 +62,6 @@ public class JourneyDtos {
             Integer classSize,
             String decision,
             String note) {}
+
+    public record JourneyCorrectionRequest(@NotBlank String reason) {}
 }

@@ -28,6 +28,10 @@ public class BulletinVersion {
     @Column(name = "class_size", nullable = false) private int classSize;
     @Column(name = "calculation_policy", nullable = false) private String calculationPolicy = "DEFAULT";
     @Column(name = "template_version") private String templateVersion;
+    @Column(name = "template_id") private UUID templateId;
+    @Column(name = "branding_id") private UUID brandingId;
+    @Column(name = "snapshot_locale") private String snapshotLocale;
+    @Column(name = "evidence_generated_at") private Instant evidenceGeneratedAt;
     @Column(name = "general_appreciation", columnDefinition = "text") private String generalAppreciation;
     @Column(name = "supersedes_id") private UUID supersedesId;
     @Column(name = "corrects_bulletin_version_id") private UUID correctsBulletinVersionId;

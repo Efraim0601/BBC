@@ -1,6 +1,5 @@
 package com.bbc.sms.platform.common;
 
-import jakarta.persistence.OptimisticLockException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -13,8 +12,9 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
-import org.springframework.web.context.request.RequestContextHolder;
-import org.springframework.web.context.request.ServletRequestAttributes;
+import org.springframework.web.bind.MissingPathVariableException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.time.OffsetDateTime;
@@ -23,61 +23,75 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/** Turns exceptions into a consistent JSON error body. */
+/** Turns exceptions into one stable, bilingual-client-friendly JSON envelope. */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
-
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
-    /** The extra fields are additive; existing clients may continue reading status/message. */
-    public record ApiError(OffsetDateTime timestamp, int status, String error, Object message,
+    public record ApiError(OffsetDateTime timestamp, int status, String error, String message,
                            String code, Map<String, String> fieldErrors,
-                           List<ApiException.Blocker> blockers, String correlationId) {}
+                           List<Map<String, Object>> conflicts, List<?> blockers,
+                           String correlationId, Long currentVersion, Long staleVersion,
+                           String messageKey, Map<String, Object> messageParams) {}
 
     @ExceptionHandler(ApiException.class)
     public ResponseEntity<ApiError> handleApi(ApiException ex) {
-        String correlation = ex.getCorrelationId() == null ? correlationId() : ex.getCorrelationId();
-        ex.withCorrelationId(correlation);
-        return ResponseEntity.status(ex.getStatus()).body(new ApiError(
-                OffsetDateTime.now(), ex.getStatus().value(), ex.getStatus().getReasonPhrase(),
-                ex.getMessage(), ex.getCode(), ex.getFieldErrors(), ex.getBlockers(), correlation));
+        String correlationId = UUID.randomUUID().toString();
+        return ResponseEntity.status(ex.getStatus()).header("X-Correlation-Id", correlationId)
+                .body(error(ex.getStatus(), ex.getMessage(), ex.getCode(), ex.getFieldErrors(), ex.getConflicts(),
+                        ex.getResponseBlockers(), correlationId, ex.getCurrentVersion(), ex.getStaleVersion(),
+                        ex.getMessageKey(), ex.getMessageParams()));
     }
 
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ApiError> handleDenied(AccessDeniedException ex) {
-        return body(HttpStatus.FORBIDDEN, "Accès refusé.", "PERMISSION_DENIED", Map.of(), List.of());
+        return body(HttpStatus.FORBIDDEN, "FORBIDDEN", "Accès refusé");
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiError> handleValidation(MethodArgumentNotValidException ex) {
         Map<String, String> fields = new HashMap<>();
         for (FieldError fe : ex.getBindingResult().getFieldErrors()) {
-            fields.putIfAbsent(fe.getField(), fe.getDefaultMessage());
+            fields.put(fe.getField(), fe.getDefaultMessage());
         }
-        return body(HttpStatus.BAD_REQUEST, "Corrigez les champs signalés.",
-                "VALIDATION_ERROR", fields, List.of());
+        return body(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Corrigez les champs indiqués.", fields);
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ApiError> handleUnreadable(HttpMessageNotReadableException ex) {
-        return body(HttpStatus.BAD_REQUEST, "Le format de la requête est invalide. Vérifiez les champs et les dates envoyés.",
-                "MALFORMED_REQUEST", Map.of(), List.of());
+        return body(HttpStatus.BAD_REQUEST, "MALFORMED_REQUEST",
+                "Le format de la requête est invalide. Vérifiez les champs et les dates envoyés.");
     }
 
-    @ExceptionHandler(OptimisticLockException.class)
-    public ResponseEntity<ApiError> handleOptimisticLock(OptimisticLockException ex) {
-        return body(HttpStatus.CONFLICT, "Cet enregistrement a changé ailleurs. Rechargez-le avant de réessayer.",
-                "VERSION_CONFLICT", Map.of(), List.of());
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ApiError> handleMissingParameter(MissingServletRequestParameterException ex) {
+        return body(HttpStatus.BAD_REQUEST, "REQUEST_PARAMETER_REQUIRED",
+                "A required request parameter is missing.",
+                Map.of(ex.getParameterName(), "This request parameter is required."));
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiError> handleParameterType(MethodArgumentTypeMismatchException ex) {
+        return body(HttpStatus.BAD_REQUEST, "REQUEST_PARAMETER_INVALID",
+                "A request parameter has an invalid format.",
+                Map.of(ex.getName(), "Use the expected identifier or date format."));
+    }
+
+    @ExceptionHandler(MissingPathVariableException.class)
+    public ResponseEntity<ApiError> handleMissingPathVariable(MissingPathVariableException ex) {
+        return body(HttpStatus.BAD_REQUEST, "PATH_VARIABLE_REQUIRED",
+                "A required resource identifier is missing.",
+                Map.of(ex.getVariableName(), "This path value is required."));
     }
 
     @ExceptionHandler(NoResourceFoundException.class)
     public ResponseEntity<ApiError> handleNotFound(NoResourceFoundException ex) {
-        return body(HttpStatus.NOT_FOUND, "Ressource introuvable.", "NOT_FOUND", Map.of(), List.of());
+        return body(HttpStatus.NOT_FOUND, "RESOURCE_NOT_FOUND", "Ressource introuvable.");
     }
 
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
     public ResponseEntity<ApiError> handleMethod(HttpRequestMethodNotSupportedException ex) {
-        return body(HttpStatus.METHOD_NOT_ALLOWED, "Méthode non autorisée.", "METHOD_NOT_ALLOWED", Map.of(), List.of());
+        return body(HttpStatus.METHOD_NOT_ALLOWED, "METHOD_NOT_ALLOWED", "Méthode non autorisée.");
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)
@@ -94,29 +108,37 @@ public class GlobalExceptionHandler {
         } else if (detail != null && detail.toLowerCase().contains("unique")) {
             msg = "Une entrée avec ces valeurs existe déjà.";
         }
-        return body(HttpStatus.BAD_REQUEST, msg, "DATA_INTEGRITY_ERROR", Map.of(), List.of());
+        return body(HttpStatus.CONFLICT, "DATA_INTEGRITY_CONFLICT", msg);
     }
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiError> handleOther(Exception ex) {
         log.error("Unhandled exception", ex);
-        return body(HttpStatus.INTERNAL_SERVER_ERROR, "Erreur interne du serveur.", "INTERNAL_ERROR", Map.of(), List.of());
+        return body(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "Erreur interne du serveur.");
     }
 
-    private ResponseEntity<ApiError> body(HttpStatus status, Object message, String code,
-                                          Map<String, String> fields, List<ApiException.Blocker> blockers) {
-        String correlation = correlationId();
-        return ResponseEntity.status(status).body(new ApiError(
-                OffsetDateTime.now(), status.value(), status.getReasonPhrase(), message,
-                code, fields, blockers, correlation));
+    private ResponseEntity<ApiError> body(HttpStatus status, String code, String message) {
+        return body(status, code, message, Map.of());
     }
 
-    private String correlationId() {
-        var attributes = RequestContextHolder.getRequestAttributes();
-        if (attributes instanceof ServletRequestAttributes servlet) {
-            String incoming = servlet.getRequest().getHeader("X-Correlation-ID");
-            if (incoming != null && !incoming.isBlank()) return incoming.trim();
-        }
-        return UUID.randomUUID().toString();
+    private ResponseEntity<ApiError> body(HttpStatus status, String code, String message,
+                                         Map<String, String> fields) {
+        String correlationId = UUID.randomUUID().toString();
+        return ResponseEntity.status(status).header("X-Correlation-Id", correlationId)
+                .body(error(status, message, code, fields, List.of(), List.of(), correlationId,
+                        null, null, null, Map.of()));
+    }
+
+    private ApiError error(HttpStatus status, String message, String code,
+                           Map<String, String> fields, List<Map<String, Object>> conflicts,
+                           List<?> blockers, String correlationId,
+                           Long currentVersion, Long staleVersion,
+                           String messageKey, Map<String, Object> messageParams) {
+        return new ApiError(OffsetDateTime.now(), status.value(), status.getReasonPhrase(), message, code,
+                fields == null ? Map.of() : fields,
+                conflicts == null ? List.of() : conflicts,
+                blockers == null ? List.of() : blockers,
+                correlationId, currentVersion, staleVersion, messageKey,
+                messageParams == null ? Map.of() : messageParams);
     }
 }

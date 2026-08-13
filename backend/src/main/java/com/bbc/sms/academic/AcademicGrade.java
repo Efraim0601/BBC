@@ -25,6 +25,7 @@ public class AcademicGrade {
     private BigDecimal mark;
     @Column(name = "value_status", nullable = false) private String valueStatus = "MISSING";
     @Column(name = "workflow_status", nullable = false) private String workflowStatus = "DRAFT";
+    @Column(name = "legacy_secondary_mark_id") private UUID legacySecondaryMarkId;
     @Version private long version;
     @Column(name = "created_at", insertable = false, updatable = false) private Instant createdAt;
     @Column(name = "updated_at", insertable = false, updatable = false) private Instant updatedAt;

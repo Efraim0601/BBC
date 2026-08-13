@@ -43,4 +43,15 @@ public interface AcademicAssessmentRepository extends JpaRepository<AcademicAsse
     List<AcademicAssessment> findApplicableForClass(@Param("schoolId") UUID schoolId,
                                                     @Param("periodId") UUID periodId,
                                                     @Param("classId") UUID classId);
+
+    @Query("""
+            select a from AcademicAssessment a
+             where a.schoolId = :schoolId and a.reportingPeriodId = :periodId
+               and a.classId = :classId and upper(a.subjectCode) = upper(:subjectCode)
+             order by a.displayOrder, a.code
+            """)
+    List<AcademicAssessment> findScopedForSubject(@Param("schoolId") UUID schoolId,
+                                                  @Param("periodId") UUID periodId,
+                                                  @Param("classId") UUID classId,
+                                                  @Param("subjectCode") String subjectCode);
 }

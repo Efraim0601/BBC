@@ -35,17 +35,37 @@ export interface CurriculumSubjectView {
   id: string; subjectId: string; subjectCode: string; subjectLabel: string; classId?: string; className?: string; defaultCoef?: number; groupId: string | null; groupCode: string | null;
   displayOrder: number; coefficient: number; maxScore: number; mandatory: boolean; passThreshold: number;
   showSubjectRank: boolean; remarkRequired: boolean; responsibleTeacher: CurriculumTeacherView | null; version: number;
+  activeFrom?: string | null; activeTo?: string | null;
 }
-export interface CurriculumView { academicSessionId: string; sessionCode: string; sessionLabel: string; classId: string; className: string; groups: SubjectGroupView[]; subjects: CurriculumSubjectView[]; }
+export interface CurriculumView { academicSessionId: string; sessionCode: string; sessionLabel: string; classId: string; className: string; groups: SubjectGroupView[]; subjects: CurriculumSubjectView[]; homeroomTeacher: CurriculumTeacherView | null; }
 export interface CurriculumSubjectUpsert {
   academicSessionId: string; classId: string; subjectId: string; groupId?: string | null; displayOrder?: number;
   coefficient?: number; maxScore?: number; mandatory?: boolean; passThreshold?: number; showSubjectRank?: boolean;
-  remarkRequired?: boolean; version?: number;
+  remarkRequired?: boolean; version?: number; activeFrom?: string | null; activeTo?: string | null;
 }
 export interface CurriculumTeacherUpsert {
   academicSessionId: string; classId: string; subjectId: string; employeeId: string; role: string; source?: string;
   effectiveFrom?: string | null; effectiveTo?: string | null; version?: number;
 }
+export interface HomeroomAssignmentUpsert { academicSessionId: string; classId: string; employeeId: string; effectiveFrom?: string | null; effectiveTo?: string | null; version?: number; }
+export interface AssignmentImpactRequest { academicSessionId: string; classId: string; subjectId?: string | null; employeeId: string; role: 'HOMEROOM' | 'RESPONSIBLE'; effectiveFrom?: string | null; effectiveTo?: string | null; }
+export interface AssignmentImpactSlotView { versionId: string; versionNo: number; versionStatus: string; slotId: string; subjectCode: string; dayIdx: number; slotIdx: number; publishedTeacherId: string | null; publishedTeacherName: string | null; teacherChanges: boolean; }
+export interface AssignmentImpactView { academicSessionId: string; classId: string; subjectId: string | null; role: string; proposedTeacherId: string; effectiveFrom: string; effectiveTo: string | null; draftSlotCount: number; publishedSlotCount: number; publishedScheduleDrift: boolean; requiresNewDraftVersion: boolean; affectedPublishedSlots: AssignmentImpactSlotView[]; warnings: string[]; blockers: string[]; }
+export interface CurriculumCopyPreviewRequest {
+  sourceSessionId: string; targetSessionId: string; classIds?: string[]; allMatchingClasses?: boolean;
+  includeGroups?: boolean; includeTeachers?: boolean; mergeMode?: string; selectedKeys?: string[]; edits?: CurriculumCopyEdit[];
+}
+export interface CurriculumCopyEdit { key: string; field: string; value: string | null; }
+export interface CurriculumCopyRow {
+  key: string; classId: string; className: string; subjectId: string | null; subjectCode: string; subjectLabel: string;
+  status: string; source: Record<string, unknown>; proposed: Record<string, unknown>; existing: Record<string, unknown> | null;
+  teacherStatus: string; teacherMessage: string | null; warnings: string[]; blockers: string[];
+}
+export interface CurriculumCopyPreview {
+  sourceSessionId: string; targetSessionId: string; classCount: number; groups: SubjectGroupView[]; rows: CurriculumCopyRow[];
+  warnings: string[]; blockers: string[]; fingerprint: string; createCount: number; updateCount: number; keepCount: number;
+}
+export interface CurriculumCopyApplyRequest extends CurriculumCopyPreviewRequest { reason: string; previewFingerprint: string; }
 
 /** Academic Setup — the relational backbone (sections, classes, subjects). */
 @Injectable({ providedIn: 'root' })
@@ -97,6 +117,12 @@ export class SetupApi {
   curriculum(academicSessionId: string, classId: string): Observable<CurriculumView> {
     return this.http.get<CurriculumView>(`${this.base}/curriculum`, { params: { academicSessionId, classId } });
   }
+  previewCurriculumCopy(body: CurriculumCopyPreviewRequest): Observable<CurriculumCopyPreview> {
+    return this.http.post<CurriculumCopyPreview>(`${this.base}/curriculum/copy/preview`, body);
+  }
+  applyCurriculumCopy(body: CurriculumCopyApplyRequest, key: string): Observable<CurriculumCopyPreview> {
+    return this.http.post<CurriculumCopyPreview>(`${this.base}/curriculum/copy/apply`, body, { headers: { 'Idempotency-Key': key } });
+  }
   createCurriculumGroup(body: SubjectGroupUpsert): Observable<SubjectGroupView> { return this.http.post<SubjectGroupView>(`${this.base}/curriculum/groups`, body); }
   updateCurriculumGroup(id: string, body: SubjectGroupUpsert): Observable<SubjectGroupView> { return this.http.put<SubjectGroupView>(`${this.base}/curriculum/groups/${id}`, body); }
   deleteCurriculumGroup(id: string): Observable<void> { return this.http.delete<void>(`${this.base}/curriculum/groups/${id}`); }
@@ -105,5 +131,7 @@ export class SetupApi {
     return this.http.delete<void>(`${this.base}/curriculum/subjects`, { params: { academicSessionId, classId, subjectId } });
   }
   upsertCurriculumTeacher(body: CurriculumTeacherUpsert): Observable<CurriculumTeacherView> { return this.http.post<CurriculumTeacherView>(`${this.base}/curriculum/teachers`, body); }
+  upsertHomeroom(body: HomeroomAssignmentUpsert): Observable<CurriculumTeacherView> { return this.http.post<CurriculumTeacherView>(`${this.base}/curriculum/homeroom`, body); }
+  assignmentImpactPreview(body: AssignmentImpactRequest): Observable<AssignmentImpactView> { return this.http.post<AssignmentImpactView>(`${this.base}/curriculum/assignments/impact-preview`, body); }
   deleteCurriculumTeacher(id: string): Observable<void> { return this.http.delete<void>(`${this.base}/curriculum/teachers/${id}`); }
 }

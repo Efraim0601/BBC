@@ -9,10 +9,12 @@ const current: AcademicSessionView = {
   startDate: '2026-09-01', endDate: '2027-07-31', status: 'OPEN', current: true,
   version: 0, gradeEntryOpensAt: null, gradeEntryClosesAt: null,
   bulletinPublishOpensAt: null, bulletinPublishClosesAt: null,
+  teacherSubmissionOpensAt: null, teacherSubmissionClosesAt: null, timezone: 'Africa/Douala',
   terms: [{ id: 't1', code: 'T1', label: 'Term 1', sequenceNo: 1,
     startDate: '2026-09-01', endDate: '2026-12-20', gradeEntryOpensAt: null,
     gradeEntryClosesAt: null, bulletinPublishOpensAt: null,
-    bulletinPublishClosesAt: null, version: 0 }],
+    bulletinPublishClosesAt: null, teacherSubmissionOpensAt: null,
+    teacherSubmissionClosesAt: null, timezone: 'Africa/Douala', version: 0 }],
 };
 
 describe('AcademicContextService', () => {

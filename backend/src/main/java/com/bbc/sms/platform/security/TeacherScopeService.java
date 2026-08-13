@@ -63,11 +63,20 @@ public class TeacherScopeService {
         List<UUID> ids = jdbc.query("""
                 SELECT c.id FROM school_class c
                  WHERE c.school_id = ?
-                   AND (c.id IN (SELECT class_id FROM teacher_class WHERE employee_id = ?)
-                        OR c.name = (SELECT form_class FROM employee WHERE id = ?))
+                   AND (c.id IN (
+                            SELECT a.class_id FROM class_teacher_assignment a
+                             JOIN academic_session s ON s.id=a.academic_session_id
+                            WHERE a.school_id=? AND a.employee_id=? AND a.role='HOMEROOM'
+                              AND a.status='ACTIVE' AND s.is_current
+                        ) OR c.id IN (
+                            SELECT a.class_id FROM academic_class_subject_teacher a
+                             JOIN academic_session s ON s.id=a.academic_session_id
+                            WHERE a.school_id=? AND a.employee_id=? AND a.role='RESPONSIBLE'
+                              AND a.active AND s.is_current
+                        ))
                 """,
                 (rs, n) -> UUID.fromString(rs.getString(1)),
-                TenantContext.get(), employeeId, employeeId);
+                TenantContext.get(), TenantContext.get(), employeeId, TenantContext.get(), employeeId);
         return Set.copyOf(ids);
     }
 
@@ -80,11 +89,20 @@ public class TeacherScopeService {
         List<String> names = jdbc.query("""
                 SELECT c.name FROM school_class c
                  WHERE c.school_id = ?
-                   AND (c.id IN (SELECT class_id FROM teacher_class WHERE employee_id = ?)
-                        OR c.name = (SELECT form_class FROM employee WHERE id = ?))
+                   AND (c.id IN (
+                            SELECT a.class_id FROM class_teacher_assignment a
+                             JOIN academic_session s ON s.id=a.academic_session_id
+                            WHERE a.school_id=? AND a.employee_id=? AND a.role='HOMEROOM'
+                              AND a.status='ACTIVE' AND s.is_current
+                        ) OR c.id IN (
+                            SELECT a.class_id FROM academic_class_subject_teacher a
+                             JOIN academic_session s ON s.id=a.academic_session_id
+                            WHERE a.school_id=? AND a.employee_id=? AND a.role='RESPONSIBLE'
+                              AND a.active AND s.is_current
+                        ))
                 """,
                 (rs, n) -> rs.getString(1),
-                TenantContext.get(), employeeId, employeeId);
+                TenantContext.get(), TenantContext.get(), employeeId, TenantContext.get(), employeeId);
         return Set.copyOf(names);
     }
 

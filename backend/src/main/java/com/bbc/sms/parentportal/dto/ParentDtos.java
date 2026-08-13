@@ -4,6 +4,7 @@ import jakarta.validation.constraints.NotBlank;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.time.Instant;
 import java.util.UUID;
 
 /** DTOs for the parent portal module. */
@@ -47,4 +48,8 @@ public final class ParentDtos {
             @NotBlank String category,   // suggestion | question | complaint | thanks
             @NotBlank String message
     ) {}
+
+    public record ParentJourneyEventView(UUID id, String eventType, String sessionLabel,
+                                         String className, BigDecimal average, String decision,
+                                         Instant occurredAt, UUID sourceId) {}
 }

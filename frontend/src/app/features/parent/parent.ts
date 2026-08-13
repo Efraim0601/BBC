@@ -18,6 +18,7 @@ import {
   StudentFeeStatementView,
   PaymentChannelView,
   PublishedBulletinView,
+  ParentJourneyEventView,
 } from './parent.api';
 
 interface CategoryOption {
@@ -139,6 +140,13 @@ const fmtMoney = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} FCFA`;
                 </div>
               </bbc-card>
             }
+          }
+
+          @case ('journey') {
+            <bbc-card [title]="fr() ? 'Parcours officiel' : 'Official journey'" [subtitle]="fr() ? 'Résultats publiés et décisions visibles pour la famille.' : 'Published results and family-visible decisions.'">
+              @if (journeyEvents().length === 0) { <bbc-empty icon="route" [label]="fr() ? 'Aucun événement officiel publié.' : 'No published official event yet.'" /> }
+              @else { <div class="space-y-2">@for (event of journeyEvents(); track event.id) { <div class="rounded-lg border border-slate-200 p-3"><div class="flex items-center justify-between gap-2"><span class="font-semibold text-ink">{{ eventLabel(event.eventType) }}</span><span class="text-xs text-mute">{{ event.occurredAt ? fmtDate(event.occurredAt) : '—' }}</span></div><div class="text-xs text-mute mt-1">{{ event.sessionLabel || '—' }} @if (event.className) { · {{ event.className }} }</div>@if (event.average != null) { <div class="text-sm font-bold text-brand-700 mt-1">{{ event.average }}/20</div> } @if (event.decision) { <div class="text-sm text-ink mt-1">{{ event.decision }}</div> }</div> } </div> }
+            </bbc-card>
           }
 
           @case ('fees') {
@@ -487,16 +495,18 @@ export class ParentComponent {
   protected suggestions = signal<SuggestionView[]>([]);
   protected supplies = signal<ClassResourceView | null>(null);
   protected books = signal<ClassResourceView | null>(null);
-  protected tab = signal<'overview' | 'fees' | 'grades' | 'resources' | 'suggest'>('overview');
+  protected tab = signal<'overview' | 'journey' | 'fees' | 'grades' | 'resources' | 'suggest'>('overview');
   /** Situation de scolarité de l'enfant sélectionné (grille de sa classe). */
   protected statement = signal<StudentFeeStatementView | null>(null);
   protected channels = signal<PaymentChannelView[]>([]);
+  protected journeyEvents = signal<ParentJourneyEventView[]>([]);
 
   protected fr = () => this.i18n.lang() === 'fr';
   protected money = fmtMoney;
 
   protected tabs = computed(() => [
     { id: 'overview', label: this.fr() ? 'Vue d’ensemble' : 'Overview' },
+    { id: 'journey', label: this.fr() ? 'Parcours officiel' : 'Official journey' },
     { id: 'fees', label: this.fr() ? 'Frais & paiements' : 'Fees & payments' },
     { id: 'grades', label: this.fr() ? 'Notes' : 'Grades' },
     { id: 'resources', label: this.fr() ? 'Fournitures & manuels' : 'Supplies & textbooks' },
@@ -589,6 +599,15 @@ export class ParentComponent {
     return m ? (this.fr() ? m[0] : m[1]) : s;
   }
 
+  protected eventLabel(type: string): string {
+    const labels: Record<string, [string, string]> = {
+      PUBLISHED_RESULT: ['Résultat publié', 'Published result'],
+      PROMOTION_ACTIVATED: ['Passage activé', 'Promotion activated'],
+    };
+    const value = labels[type];
+    return value ? (this.fr() ? value[0] : value[1]) : (this.fr() ? 'Événement officiel' : 'Official event');
+  }
+
   /** The API sends an ISO OffsetDateTime; showing it raw leaked "2026-07-16T09:12:33.14Z". */
   protected fmtDate(iso: string): string {
     const d = new Date(iso);
@@ -627,6 +646,7 @@ export class ParentComponent {
     this.supplies.set(null);
     this.books.set(null);
     this.statement.set(null);
+    this.journeyEvents.set([]);
     this.api.latestPublishedBulletin(child.studentId).subscribe({
       next: (b) => {
         this.publishedBulletin.set(b);
@@ -642,6 +662,7 @@ export class ParentComponent {
     this.api.fees(child.studentId).subscribe((st) => this.statement.set(st));
     this.api.resources(child.studentId, 'supplies').subscribe((r) => this.supplies.set(r));
     this.api.resources(child.studentId, 'books').subscribe((r) => this.books.set(r));
+    this.api.journey(child.studentId).subscribe((events) => this.journeyEvents.set(events));
   }
 
   protected send(): void {
