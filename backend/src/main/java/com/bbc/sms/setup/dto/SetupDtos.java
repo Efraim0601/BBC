@@ -34,7 +34,12 @@ public class SetupDtos {
 
     // ---- Class ↔ teachers (N:N, 0..N teachers per class) --------------------
     /** @param section cycle de rattachement (maternelle|primary|secondary), null si non défini. */
-    public record TeacherOption(UUID id, String name, String code, String section) {}
+    public record TeacherOption(UUID id, String name, String code, String section,
+                                String accountUsername, String accountRole, boolean accountActive) {
+        public TeacherOption(UUID id, String name, String code, String section) {
+            this(id, name, code, section, null, null, false);
+        }
+    }
 
     public record SetClassTeachers(List<UUID> employeeIds) {}
 
@@ -89,7 +94,15 @@ public class SetupDtos {
 
     public record CurriculumTeacherView(UUID id, UUID employeeId, String employeeName,
                                         String employeeCode, String role, String source,
-                                        boolean active, long version) {}
+                                        boolean active, long version, String accountUsername,
+                                        String accountRole, boolean accountActive) {
+        public CurriculumTeacherView(UUID id, UUID employeeId, String employeeName,
+                                     String employeeCode, String role, String source,
+                                     boolean active, long version) {
+            this(id, employeeId, employeeName, employeeCode, role, source, active, version,
+                    null, null, false);
+        }
+    }
 
     public record CurriculumSubjectView(UUID id, UUID subjectId, String subjectCode,
                                         String subjectLabel, UUID groupId, String groupCode,

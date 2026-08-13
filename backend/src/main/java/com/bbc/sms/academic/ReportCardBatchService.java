@@ -4,8 +4,8 @@ import com.bbc.sms.foundation.enrollment.StudentEnrollment;
 import com.bbc.sms.foundation.enrollment.StudentEnrollmentRepository;
 import com.bbc.sms.foundation.session.AcademicReportingPeriod;
 import com.bbc.sms.foundation.session.AcademicReportingPeriodRepository;
+import com.bbc.sms.academic.security.AcademicAccessPolicyService;
 import com.bbc.sms.platform.common.ApiException;
-import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.timetable.SchoolClassRepository;
 import com.bbc.sms.student.StudentRepository;
@@ -35,7 +35,7 @@ public class ReportCardBatchService {
     private final SchoolClassRepository classes;
     private final BulletinSnapshotService snapshots;
     private final ReportCardPdfService pdf;
-    private final TeacherScopeService teacherScope;
+    private final AcademicAccessPolicyService accessPolicy;
 
     public ReportCardBatchService(BulletinVersionRepository versions,
                                    StudentEnrollmentRepository enrollments,
@@ -44,7 +44,7 @@ public class ReportCardBatchService {
                                    SchoolClassRepository classes,
                                    BulletinSnapshotService snapshots,
                                    ReportCardPdfService pdf,
-                                   TeacherScopeService teacherScope) {
+                                   AcademicAccessPolicyService accessPolicy) {
         this.versions = versions;
         this.enrollments = enrollments;
         this.periods = periods;
@@ -52,18 +52,22 @@ public class ReportCardBatchService {
         this.classes = classes;
         this.snapshots = snapshots;
         this.pdf = pdf;
-        this.teacherScope = teacherScope;
+        this.accessPolicy = accessPolicy;
     }
 
     @Transactional(readOnly = true)
     public byte[] render(UUID classId, UUID periodId, String locale) {
-        teacherScope.assertClass(classId);
         classes.findByIdAndSchoolId(classId, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Classe"));
         AcademicReportingPeriod period = periods.findByIdAndSchoolId(periodId, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Période de résultat"));
+        accessPolicy.require(AcademicAccessPolicyService.Capability.CLASS_REPORT_CARD_VIEW,
+                period.getAcademicSessionId(), classId, null, null, period.getStartDate());
         List<StudentEnrollment> roster = enrollments.findBySchoolIdAndAcademicSessionIdAndSchoolClassIdAndStatusOrderByClassNameSnapshotAsc(
-                TenantContext.get(), period.getAcademicSessionId(), classId, "ACTIVE");
+                TenantContext.get(), period.getAcademicSessionId(), classId, "ACTIVE").stream()
+                .filter(e -> !e.getEnrolledOn().isAfter(period.getStartDate())
+                        && (e.getExitedOn() == null || !e.getExitedOn().isBefore(period.getStartDate())))
+                .toList();
         if (roster.isEmpty()) throw ApiException.conflict("Aucun élève actif dans cette classe");
         boolean french = !"en".equalsIgnoreCase(locale);
         List<String> manifest = new ArrayList<>();

@@ -1,6 +1,7 @@
 package com.bbc.sms.academic;
 
 import com.bbc.sms.academic.dto.AcademicDtos.*;
+import com.bbc.sms.academic.security.AcademicAccessPolicyService;
 import com.bbc.sms.foundation.enrollment.StudentEnrollment;
 import com.bbc.sms.foundation.enrollment.StudentEnrollmentRepository;
 import com.bbc.sms.foundation.session.AcademicReportingPeriod;
@@ -8,7 +9,6 @@ import com.bbc.sms.foundation.session.AcademicReportingPeriodRepository;
 import com.bbc.sms.foundation.session.AcademicWindowPolicyService;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AppUserPrincipal;
-import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.student.StudentRepository;
 import com.bbc.sms.timetable.SchoolClassRepository;
@@ -32,7 +32,7 @@ public class SessionAcademicService {
     private final StudentEnrollmentRepository enrollments;
     private final StudentRepository students;
     private final AcademicWindowPolicyService windows;
-    private final TeacherScopeService teacherScope;
+    private final AcademicAccessPolicyService accessPolicy;
     private final BulletinVersionRepository bulletinVersions;
     private final SchoolClassRepository classes;
     private final SubjectRepository subjects;
@@ -42,12 +42,12 @@ public class SessionAcademicService {
     public SessionAcademicService(AcademicReportingPeriodRepository periods, AcademicAssessmentRepository assessments,
                                   AcademicGradeRepository grades, SubjectResultCommentRepository comments,
                                   StudentEnrollmentRepository enrollments, StudentRepository students,
-                                  AcademicWindowPolicyService windows, TeacherScopeService teacherScope,
+                                  AcademicWindowPolicyService windows, AcademicAccessPolicyService accessPolicy,
                                   BulletinVersionRepository bulletinVersions,
                                   SchoolClassRepository classes, SubjectRepository subjects,
                                   CurriculumQueryService curriculum, JdbcTemplate jdbc) {
         this.periods = periods; this.assessments = assessments; this.grades = grades; this.comments = comments;
-        this.enrollments = enrollments; this.students = students; this.windows = windows; this.teacherScope = teacherScope; this.bulletinVersions = bulletinVersions;
+        this.enrollments = enrollments; this.students = students; this.windows = windows; this.accessPolicy = accessPolicy; this.bulletinVersions = bulletinVersions;
         this.classes = classes; this.subjects = subjects; this.curriculum = curriculum; this.jdbc = jdbc;
     }
 
@@ -55,13 +55,29 @@ public class SessionAcademicService {
     public List<AssessmentView> assessments(UUID periodId, UUID classId, String subjectCode) {
         AcademicReportingPeriod reportingPeriod = period(periodId);
         if (!AcademicPeriodRules.isSequence(reportingPeriod)) return List.of();
+        if (classId == null && accessPolicy.restrictedTeacher()) {
+            throw ApiException.coded(org.springframework.http.HttpStatus.FORBIDDEN,
+                    "ACADEMIC_CLASS_ACCESS_DENIED", "La classe est obligatoire pour votre périmètre académique.");
+        }
+        String normalizedSubject = subjectCode == null || subjectCode.isBlank()
+                ? null : subjectCode.trim().toUpperCase(Locale.ROOT);
+        if (classId != null && normalizedSubject != null) {
+            accessPolicy.require(AcademicAccessPolicyService.Capability.ASSESSMENT_VIEW,
+                    reportingPeriod.getAcademicSessionId(), classId, normalizedSubject, null,
+                    reportingPeriod.getStartDate());
+        }
         List<AcademicAssessment> rows = classId == null
                 ? assessments.findBySchoolIdAndReportingPeriodIdOrderByDisplayOrder(TenantContext.get(), periodId)
-                : (subjectCode == null || subjectCode.isBlank()
+                : (normalizedSubject == null
                     ? assessments.findApplicableForClass(TenantContext.get(), periodId, classId)
-                    : assessments.findApplicable(TenantContext.get(), periodId, classId, subjectCode.trim()));
+                    : assessments.findApplicable(TenantContext.get(), periodId, classId, normalizedSubject));
         return rows
-                .stream().map(this::assessmentView).toList();
+                .stream()
+                .filter(row -> classId == null || normalizedSubject != null
+                        || accessPolicy.can(AcademicAccessPolicyService.Capability.ASSESSMENT_VIEW,
+                        reportingPeriod.getAcademicSessionId(), classId, row.getSubjectCode(), null,
+                        reportingPeriod.getStartDate()))
+                .map(this::assessmentView).toList();
     }
 
     @Transactional
@@ -103,6 +119,11 @@ public class SessionAcademicService {
         Integer gradeCount = jdbcCount("SELECT count(*) FROM academic_grade WHERE school_id=? AND assessment_id=?", id);
         if (gradeCount > 0) throw ApiException.coded(org.springframework.http.HttpStatus.CONFLICT,
                 "ASSESSMENT_HAS_GRADES", "Cette évaluation possède déjà des notes et ne peut plus être modifiée.");
+        if (a.getClassId() != null && a.getSubjectCode() != null) {
+            accessPolicy.require(AcademicAccessPolicyService.Capability.ASSESSMENT_MANAGE,
+                    period.getAcademicSessionId(), a.getClassId(), a.getSubjectCode(), null,
+                    period.getStartDate());
+        }
         assertAssessmentScope(period, in.classId(), in.subjectCode());
         String subjectCode = in.subjectCode().trim().toUpperCase(Locale.ROOT);
         String code = in.code().trim().toUpperCase(Locale.ROOT);
@@ -131,20 +152,29 @@ public class SessionAcademicService {
         Integer gradeCount = jdbcCount("SELECT count(*) FROM academic_grade WHERE school_id=? AND assessment_id=?", id);
         if (gradeCount > 0) throw ApiException.coded(org.springframework.http.HttpStatus.CONFLICT,
                 "ASSESSMENT_HAS_GRADES", "Cette évaluation possède déjà des notes et ne peut pas être supprimée.");
+        if (a.getClassId() != null && a.getSubjectCode() != null) {
+            accessPolicy.require(AcademicAccessPolicyService.Capability.ASSESSMENT_MANAGE,
+                    period.getAcademicSessionId(), a.getClassId(), a.getSubjectCode(), null,
+                    period.getStartDate());
+        }
         assessments.delete(a);
     }
 
     @Transactional(readOnly = true)
     public List<AcademicGradeView> grades(UUID studentId, UUID periodId) {
-        teacherScope.assertStudent(studentId); AcademicReportingPeriod period = period(periodId);
+        AcademicReportingPeriod period = period(periodId);
         AcademicPeriodRules.assertRawGradePeriod(period); assertStudent(studentId);
+        StudentEnrollment enrollment = resolveEnrollment(studentId, period.getAcademicSessionId(), null,
+                period.getStartDate());
+        accessPolicy.require(AcademicAccessPolicyService.Capability.CLASS_RESULTS_VIEW,
+                period.getAcademicSessionId(), enrollment.getSchoolClassId(), null, studentId,
+                period.getStartDate());
         return grades.findBySchoolIdAndStudentIdAndReportingPeriodIdOrderBySubjectCodeAscAssessmentIdAsc(TenantContext.get(), studentId, periodId)
                 .stream().map(this::gradeView).toList();
     }
 
     @Transactional
     public AcademicGradeView upsertGrade(AcademicGradeUpsert in) {
-        teacherScope.assertStudent(in.studentId());
         AcademicReportingPeriod period = period(in.reportingPeriodId());
         AcademicPeriodRules.assertRawGradePeriod(period);
         windows.assertOpen(period.getId(), AcademicWindowPolicyService.Action.GRADE_ENTRY);
@@ -153,8 +183,13 @@ public class SessionAcademicService {
                 .filter(a -> a.getSchoolId().equals(TenantContext.get()) && a.getReportingPeriodId().equals(period.getId()))
                 .orElseThrow(() -> ApiException.badRequest("L'évaluation n'appartient pas à cette période"));
         assertStudent(in.studentId());
-        StudentEnrollment enrollment = resolveEnrollment(in.studentId(), period.getAcademicSessionId(), in.enrollmentId());
+        StudentEnrollment enrollment = resolveEnrollment(in.studentId(), period.getAcademicSessionId(), in.enrollmentId(),
+                period.getStartDate());
         String subjectCode = in.subjectCode().trim().toUpperCase(Locale.ROOT);
+        UUID scopeClassId = assessment.getClassId() == null ? enrollment.getSchoolClassId() : assessment.getClassId();
+        String scopedSubjectCode = assessment.getSubjectCode() == null ? subjectCode : assessment.getSubjectCode();
+        accessPolicy.require(AcademicAccessPolicyService.Capability.SUBJECT_GRADE_EDIT,
+                period.getAcademicSessionId(), scopeClassId, scopedSubjectCode, in.studentId(), period.getStartDate());
         if (assessment.getClassId() != null && !assessment.getClassId().equals(enrollment.getSchoolClassId())) {
             throw ApiException.badRequest("L'évaluation est limitée à une autre classe");
         }
@@ -179,17 +214,21 @@ public class SessionAcademicService {
 
     @Transactional
     public SubjectResultCommentView upsertComment(SubjectResultCommentUpsert in) {
-        teacherScope.assertStudent(in.studentId());
         AcademicReportingPeriod period = period(in.reportingPeriodId());
         AcademicPeriodRules.assertRawGradePeriod(period);
         windows.assertOpen(period.getId(), AcademicWindowPolicyService.Action.GRADE_ENTRY);
         invalidatePublished(in.studentId(), period.getId());
         assertStudent(in.studentId());
-        StudentEnrollment enrollment = resolveEnrollment(in.studentId(), period.getAcademicSessionId(), in.enrollmentId());
+        StudentEnrollment enrollment = resolveEnrollment(in.studentId(), period.getAcademicSessionId(), in.enrollmentId(),
+                period.getStartDate());
+        String subjectCode = in.subjectCode().trim().toUpperCase(Locale.ROOT);
+        accessPolicy.require(AcademicAccessPolicyService.Capability.SUBJECT_GRADE_EDIT,
+                period.getAcademicSessionId(), enrollment.getSchoolClassId(), subjectCode, in.studentId(),
+                period.getStartDate());
         if (in.comment() != null && in.comment().length() > 500) throw ApiException.badRequest("La remarque ne peut pas dépasser 500 caractères");
-        SubjectResultComment c = comments.findBySchoolIdAndStudentIdAndReportingPeriodIdAndSubjectCode(TenantContext.get(), in.studentId(), period.getId(), in.subjectCode().trim().toUpperCase(Locale.ROOT)).orElseGet(SubjectResultComment::new);
+        SubjectResultComment c = comments.findBySchoolIdAndStudentIdAndReportingPeriodIdAndSubjectCode(TenantContext.get(), in.studentId(), period.getId(), subjectCode).orElseGet(SubjectResultComment::new);
         if (in.version() != null && c.getId() != null && in.version() != c.getVersion()) throw ApiException.conflict("Cette remarque a été modifiée par un autre utilisateur");
-        c.setSchoolId(TenantContext.get()); c.setAcademicSessionId(period.getAcademicSessionId()); c.setReportingPeriodId(period.getId()); c.setStudentId(in.studentId()); c.setEnrollmentId(enrollment.getId()); c.setSubjectCode(in.subjectCode().trim().toUpperCase(Locale.ROOT)); c.setComment(in.comment() == null ? null : in.comment().trim()); c.setAppreciationCode(in.appreciationCode()); c.setWorkflowStatus("DRAFT");
+        c.setSchoolId(TenantContext.get()); c.setAcademicSessionId(period.getAcademicSessionId()); c.setReportingPeriodId(period.getId()); c.setStudentId(in.studentId()); c.setEnrollmentId(enrollment.getId()); c.setSubjectCode(subjectCode); c.setComment(in.comment() == null ? null : in.comment().trim()); c.setAppreciationCode(in.appreciationCode()); c.setWorkflowStatus("DRAFT");
         return commentView(comments.save(c));
     }
 
@@ -197,8 +236,9 @@ public class SessionAcademicService {
     private void assertAssessmentScope(AcademicReportingPeriod period, UUID classId, String rawSubjectCode) {
         if (classId == null) throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST,
                 "CLASS_REQUIRED", "Une évaluation doit être rattachée à une classe.", "classId", "Sélectionnez une classe.");
-        teacherScope.assertClass(classId);
         String subjectCode = rawSubjectCode == null ? "" : rawSubjectCode.trim().toUpperCase(Locale.ROOT);
+        accessPolicy.require(AcademicAccessPolicyService.Capability.ASSESSMENT_MANAGE,
+                period.getAcademicSessionId(), classId, subjectCode, null, period.getStartDate());
         if (subjectCode.isBlank()) throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST,
                 "SUBJECT_REQUIRED", "Une évaluation doit être rattachée à une matière affectée à la classe.",
                 "subjectCode", "Sélectionnez une matière affectée à la classe.");
@@ -222,6 +262,20 @@ public class SessionAcademicService {
         bulletinVersions.saveAllAndFlush(published);
     }
     private void assertStudent(UUID id) { students.findByIdAndSchoolId(id, TenantContext.get()).orElseThrow(() -> ApiException.notFound("Élève")); }
+    private StudentEnrollment resolveEnrollment(UUID studentId, UUID sessionId, UUID enrollmentId,
+                                                java.time.LocalDate effectiveDate) {
+        if (enrollmentId != null) return enrollments.findByIdAndSchoolId(enrollmentId, TenantContext.get())
+                .filter(e -> e.getStudentId().equals(studentId) && e.getAcademicSessionId().equals(sessionId)
+                        && !e.getEnrolledOn().isAfter(effectiveDate)
+                        && (e.getExitedOn() == null || !e.getExitedOn().isBefore(effectiveDate)))
+                .orElseThrow(() -> ApiException.badRequest("L'inscription ne correspond pas à l'élève, à la session ou à la date."));
+        return enrollments.findFirstBySchoolIdAndStudentIdAndAcademicSessionIdAndStatus(
+                        TenantContext.get(), studentId, sessionId, "ACTIVE")
+                .filter(e -> !e.getEnrolledOn().isAfter(effectiveDate)
+                        && (e.getExitedOn() == null || !e.getExitedOn().isBefore(effectiveDate)))
+                .orElseThrow(() -> ApiException.conflict("Aucune inscription active pour cet élève à cette date."));
+    }
+
     private StudentEnrollment resolveEnrollment(UUID studentId, UUID sessionId, UUID enrollmentId) {
         if (enrollmentId != null) return enrollments.findByIdAndSchoolId(enrollmentId, TenantContext.get()).filter(e -> e.getStudentId().equals(studentId) && e.getAcademicSessionId().equals(sessionId)).orElseThrow(() -> ApiException.badRequest("L'inscription ne correspond pas à l'élève et à la session"));
         return enrollments.findFirstBySchoolIdAndStudentIdAndAcademicSessionIdAndStatus(TenantContext.get(), studentId, sessionId, "ACTIVE").orElseThrow(() -> ApiException.conflict("Aucune inscription active pour cet élève dans cette session"));

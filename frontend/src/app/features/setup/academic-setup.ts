@@ -9,7 +9,7 @@ import {
   ClassCoefView, CoefImportRow, CoefImportResult, CurriculumView, CurriculumSubjectView, SubjectGroupView, AssignmentImpactView,
 } from '../../core/setup.api';
 import { FoundationApi, AcademicSessionView, AcademicReportingPeriodView, DocumentDesignView } from '../../core/foundation.api';
-import { AcademicApi, SecondaryCompetencyModelView } from '../academic/academic.api';
+import { AcademicApi, AcademicReadinessView, AcademicAccessDelegation, AcademicAccessDelegationPreview, AcademicAccessDelegationRequest, SecondaryCompetencyModelView } from '../academic/academic.api';
 import { AssessmentDefaultsComponent } from './assessment-defaults/assessment-defaults';
 import { CurriculumCopyComponent } from './curriculum-copy';
 import { defaultSubjects } from './subject-defaults';
@@ -215,7 +215,7 @@ import { downloadCsv } from '../../core/csv';
                       <input type="checkbox" [checked]="picked().has(t.id)" (change)="toggleTeacher(t.id)" [disabled]="!canWrite"
                         class="rounded border-slate-300 text-brand-600 focus:ring-brand-400" />
                       <span class="text-sm text-ink truncate">{{ t.name }}</span>
-                      <span class="ml-auto text-[11px] font-mono text-mute">{{ t.code }}</span>
+                      <span class="ml-auto text-[11px] text-mute">{{ t.code }} · {{ t.accountUsername || (fr() ? 'sans compte' : 'no account') }}{{ t.accountRole ? ' · ' + t.accountRole : '' }}</span>
                     </label>
                   }
                 </div>
@@ -234,6 +234,98 @@ import { downloadCsv } from '../../core/csv';
             <bbc-empty icon="book" [label]="fr() ? 'Aucune classe.' : 'No classes.'" />
           }
         </bbc-card>
+      }
+
+      <!-- ===================== ACADEMIC ACCESS ===================== -->
+      @case ('access-exceptions') {
+        <div class="space-y-4">
+          <bbc-card [title]="fr() ? 'Accès académique et exceptions' : 'Academic access and exceptions'"
+            [subtitle]="fr() ? 'Les affectations de programme restent séparées des délégations temporaires. Toute exception est bornée, prévisualisée et auditée.' : 'Curriculum assignments stay separate from temporary delegations. Every exception is scoped, previewed, time-bounded, and audited.'">
+            <div class="flex flex-wrap items-center gap-2 mb-4">
+              <label class="inline-flex items-center gap-2 text-xs font-semibold text-ink">{{ fr() ? 'Session' : 'Session' }}
+                <select [ngModel]="accessSessionId()" (ngModelChange)="selectAccessSession($event)" class="h-9 px-2 rounded-lg border border-slate-300 bg-white text-sm">
+                  @for (session of academicSessions(); track session.id) { <option [value]="session.id">{{ session.label }}{{ session.current ? ' · current' : '' }}</option> }
+                </select>
+              </label>
+              <button type="button" (click)="loadAcademicAccess()" class="h-9 px-3 rounded-lg border border-slate-300 bg-white text-xs font-semibold">{{ fr() ? 'Actualiser' : 'Refresh' }}</button>
+            </div>
+            @if (accessReadiness(); as readiness) {
+              <div class="grid grid-cols-2 md:grid-cols-5 gap-2 mb-4 text-xs">
+                <div class="rounded-lg border border-slate-200 bg-slate-50 p-3"><div class="text-mute">{{ fr() ? 'Problèmes' : 'Issues' }}</div><div class="text-xl font-bold text-ink">{{ readiness.issueCount }}</div></div>
+                <div class="rounded-lg border border-rose-200 bg-rose-50 p-3"><div class="text-rose-700">{{ fr() ? 'Titulaires manquants' : 'Missing homerooms' }}</div><div class="text-xl font-bold text-rose-800">{{ readiness.missingHomeroomCount }}</div></div>
+                <div class="rounded-lg border border-amber-200 bg-amber-50 p-3"><div class="text-amber-700">{{ fr() ? 'Responsables manquants' : 'Missing responsible' }}</div><div class="text-xl font-bold text-amber-800">{{ readiness.missingResponsibleCount }}</div></div>
+                <div class="rounded-lg border border-amber-200 bg-amber-50 p-3"><div class="text-amber-700">{{ fr() ? 'Noms ambigus' : 'Duplicate names' }}</div><div class="text-xl font-bold text-amber-800">{{ readiness.duplicateNameCount }}</div></div>
+                <div class="rounded-lg border border-slate-200 bg-white p-3"><div class="text-mute">{{ fr() ? 'Comptes manquants' : 'Unlinked accounts' }}</div><div class="text-xl font-bold text-ink">{{ readiness.unlinkedTeacherCount }}</div></div>
+              </div>
+              @if (readiness.issues.length) {
+                <div class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950">
+                  <div class="font-bold mb-2">{{ fr() ? 'Réparations prioritaires' : 'Priority repairs' }}</div>
+                  <div class="space-y-1 max-h-44 overflow-y-auto">@for (issue of readiness.issues; track issue.code + issue.classId + issue.subjectCode + issue.employeeId) { <div class="flex flex-wrap gap-2 items-center"><span class="font-mono font-bold">{{ issue.code }}</span><span>{{ fr() ? issue.messageFr : issue.messageEn }}</span><span class="font-semibold">{{ issue.employeeName || issue.className || issue.subjectCode }}</span></div> }</div>
+                </div>
+              } @else {
+                <div class="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">{{ fr() ? 'La configuration est prête pour la résolution académique.' : 'The configuration is ready for academic access resolution.' }}</div>
+              }
+            } @else {
+              <div class="text-sm text-mute">{{ fr() ? 'Chargement de la préparation…' : 'Loading readiness…' }}</div>
+            }
+          </bbc-card>
+
+          @if (canWrite) {
+            <bbc-card [title]="fr() ? 'Créer une délégation temporaire' : 'Create a temporary delegation'"
+              [subtitle]="fr() ? 'Une exception doit rester limitée à une session, une classe, une capacité et une période datée.' : 'Every exception is limited to one session, class, capability, and dated period.'">
+              <form (ngSubmit)="previewDelegation()" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+                <label class="block xl:col-span-2"><span class="text-xs font-semibold">{{ fr() ? 'Enseignant / identité' : 'Teacher / identity' }} *</span>
+                  <select [(ngModel)]="delegationDraft.employeeId" name="delegationEmployee" required class="field mt-1">
+                    <option value="">{{ fr() ? 'Choisir un enseignant' : 'Choose a teacher' }}</option>
+                    @for (teacher of allTeachers(); track teacher.id) {
+                      <option [value]="teacher.id">{{ teacher.name }} · {{ teacher.code }} · {{ teacher.accountUsername || (fr() ? 'Compte non lié' : 'No linked account') }} · {{ teacher.accountRole || '—' }}</option>
+                    }
+                  </select>
+                </label>
+                <label class="block"><span class="text-xs font-semibold">{{ fr() ? 'Classe' : 'Class' }} *</span>
+                  <select [(ngModel)]="delegationDraft.classId" name="delegationClass" required class="field mt-1">
+                    <option value="">{{ fr() ? 'Choisir une classe' : 'Choose a class' }}</option>
+                    @for (klass of classes(); track klass.id) { <option [value]="klass.id">{{ klass.name }} · {{ levelLabel(klass.level) }}</option> }
+                  </select>
+                </label>
+                <label class="block"><span class="text-xs font-semibold">{{ fr() ? 'Capacité' : 'Capability' }} *</span>
+                  <select [(ngModel)]="delegationDraft.capabilityCode" name="delegationCapability" required class="field mt-1">
+                    @for (capability of delegationCapabilities; track capability.code) { <option [value]="capability.code">{{ fr() ? capability.fr : capability.en }}</option> }
+                  </select>
+                </label>
+                <label class="block"><span class="text-xs font-semibold">{{ fr() ? 'Matière (optionnelle)' : 'Subject (optional)' }}</span>
+                  <select [ngModel]="delegationDraft.subjectCode || ''" (ngModelChange)="setDelegationSubject($event)" name="delegationSubject" class="field mt-1">
+                    <option value="">{{ fr() ? 'Classe entière' : 'Whole class' }}</option>
+                    @for (subject of subjects(); track subject.id) { <option [value]="subject.code">{{ subject.code }} · {{ subjectLabel(subject) }}</option> }
+                  </select>
+                </label>
+                <label class="block"><span class="text-xs font-semibold">{{ fr() ? 'Du' : 'From' }} *</span><input [(ngModel)]="delegationDraft.effectiveFrom" name="delegationFrom" type="date" required class="field mt-1" /></label>
+                <label class="block"><span class="text-xs font-semibold">{{ fr() ? 'Au (obligatoire pour modifier)' : 'To (required for edits)' }}</span><input [(ngModel)]="delegationDraft.effectiveTo" name="delegationTo" type="date" class="field mt-1" /></label>
+                <label class="block md:col-span-2"><span class="text-xs font-semibold">{{ fr() ? 'Motif' : 'Reason' }} *</span><input [(ngModel)]="delegationDraft.reason" name="delegationReason" required minlength="3" maxlength="500" class="field mt-1" [placeholder]="fr() ? 'Ex. Remplacement daté après mutation.' : 'E.g. Dated substitution after transfer.'" /></label>
+                <div class="md:col-span-2 xl:col-span-4 flex items-center justify-between gap-3 pt-1">
+                  <span class="text-xs text-mute">{{ fr() ? 'La prévisualisation montre le périmètre et les avertissements avant création.' : 'Preview the exact scope and warnings before creating the grant.' }}</span>
+                  <button type="submit" [disabled]="delegationBusy()" class="btn-primary">{{ delegationBusy() ? '…' : (fr() ? 'Prévisualiser' : 'Preview') }}</button>
+                </div>
+              </form>
+              @if (delegationPreview(); as preview) {
+                <div class="mt-4 rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-950">
+                  <div class="font-bold">{{ fr() ? 'Aperçu d’impact' : 'Impact preview' }} · {{ preview.employeeName }} · {{ preview.employeeCode }}</div>
+                  <div class="mt-1 text-xs">{{ preview.capabilityCode }} · {{ preview.subjectCode || (fr() ? 'classe entière' : 'whole class') }} · {{ preview.effectiveFrom }} → {{ preview.effectiveTo || '∞' }}</div>
+                  @if (preview.warnings.length) { <div class="mt-2 text-amber-800">{{ fr() ? 'Avertissements :' : 'Warnings:' }} {{ preview.warnings.join(' · ') }}</div> }
+                  @if (preview.blockers.length) { <div class="mt-2 text-rose-800">{{ fr() ? 'Bloqueurs :' : 'Blockers:' }} {{ preview.blockers.join(' · ') }}</div> }
+                  <div class="flex justify-end gap-2 mt-3"><button type="button" (click)="delegationPreview.set(null)" class="btn-secondary">{{ fr() ? 'Annuler' : 'Cancel' }}</button><button type="button" (click)="createDelegation()" [disabled]="delegationBusy() || preview.blockers.length > 0" class="btn-primary">{{ fr() ? 'Créer et auditer' : 'Create and audit' }}</button></div>
+                </div>
+              }
+            </bbc-card>
+          }
+
+          <bbc-card [title]="fr() ? 'Délégations d’accès actives' : 'Active access delegations'"
+            [subtitle]="fr() ? 'Une délégation ne remplace jamais l’affectation curriculaire et expire automatiquement.' : 'A delegation never replaces the curriculum assignment and expires automatically.'">
+            @if (accessDelegations().length) {
+              <div class="overflow-x-auto"><table class="min-w-full text-xs"><thead><tr class="border-b border-slate-200 text-left uppercase text-mute"><th class="py-2 pr-3">{{ fr() ? 'Enseignant / compte' : 'Teacher / account' }}</th><th class="py-2 px-3">{{ fr() ? 'Classe / matière' : 'Class / subject' }}</th><th class="py-2 px-3">{{ fr() ? 'Capacité' : 'Capability' }}</th><th class="py-2 px-3">{{ fr() ? 'Période' : 'Period' }}</th><th class="py-2 px-3">{{ fr() ? 'État' : 'Status' }}</th><th></th></tr></thead><tbody>@for (grant of accessDelegations(); track grant.id) { <tr class="border-b border-slate-100"><td class="py-2 pr-3"><div class="font-semibold">{{ grant.employeeName }} · {{ grant.employeeCode }}</div><div class="text-mute">{{ grant.accountUsername || (fr() ? 'Compte non lié' : 'No linked account') }} · {{ grant.accountRole || '—' }}</div></td><td class="py-2 px-3">{{ grant.className }} · {{ grant.subjectCode || (fr() ? 'Classe entière' : 'Whole class') }}</td><td class="py-2 px-3 font-mono">{{ grant.capabilityCode }}</td><td class="py-2 px-3">{{ grant.effectiveFrom }} → {{ grant.effectiveTo || '∞' }}</td><td class="py-2 px-3"><span class="chip">{{ grant.status }}</span></td><td class="py-2 pl-3 text-right">@if (canWrite && grant.status === 'ACTIVE') { <button type="button" (click)="revokeAcademicDelegation(grant)" class="text-rose-700 font-semibold">{{ fr() ? 'Révoquer' : 'Revoke' }}</button> }</td></tr> }</tbody></table></div>
+            } @else { <bbc-empty icon="shield" [label]="fr() ? 'Aucune délégation temporaire.' : 'No temporary delegations.'" /> }
+          </bbc-card>
+        </div>
       }
 
       <!-- ===================== CLASS SUBJECTS ===================== -->
@@ -400,7 +492,7 @@ import { downloadCsv } from '../../core/csv';
                 <div class="font-semibold text-ink">{{ fr() ? 'Titulaire de classe' : 'Homeroom teacher' }} <b class="text-rose-600">*</b></div>
                 <div class="text-xs text-mute mt-1 mb-3">{{ fr() ? 'Une classe primaire utilise un seul titulaire daté. Toutes les matières héritent automatiquement de cette affectation.' : 'A primary class uses one dated homeroom assignment. Every subject inherits this authority automatically.' }}</div>
                 <div class="flex flex-col md:flex-row md:items-end gap-3">
-                    <label class="block flex-1"><span class="meta">{{ fr() ? 'Enseignant titulaire' : 'Homeroom teacher' }} <b class="text-rose-600">*</b></span><select class="field" [class.invalid]="!curriculum()?.homeroomTeacher" [ngModel]="curriculum()?.homeroomTeacher?.employeeId ?? ''" (ngModelChange)="prepareHomeroom($event)" [disabled]="!canWrite"><option value="">{{ fr() ? 'Choisir un titulaire' : 'Choose a homeroom teacher' }}</option>@for (teacher of allTeachers(); track teacher.id) { <option [value]="teacher.id">{{ teacher.name }}</option> }</select></label>
+                    <label class="block flex-1"><span class="meta">{{ fr() ? 'Enseignant titulaire' : 'Homeroom teacher' }} <b class="text-rose-600">*</b></span><select class="field" [class.invalid]="!curriculum()?.homeroomTeacher" [ngModel]="curriculum()?.homeroomTeacher?.employeeId ?? ''" (ngModelChange)="prepareHomeroom($event)" [disabled]="!canWrite"><option value="">{{ fr() ? 'Choisir un titulaire' : 'Choose a homeroom teacher' }}</option>@for (teacher of allTeachers(); track teacher.id) { <option [value]="teacher.id">{{ teacher.name }} · {{ teacher.code }} · {{ teacher.accountUsername || (fr() ? 'sans compte' : 'no account') }}{{ teacher.accountRole ? ' · ' + teacher.accountRole : '' }}</option> }</select></label>
                   <div class="text-xs text-slate-600 md:max-w-sm">{{ fr() ? 'Le planning et la saisie des notes sont verrouillés tant que cette affectation est absente.' : 'Timetable and grade entry remain blocked while this assignment is missing.' }}</div>
                 </div>
                 @if (!curriculum()?.homeroomTeacher) { <div class="mt-2 text-xs text-rose-700">{{ fr() ? 'Affectation titulaire manquante — action requise.' : 'Homeroom assignment missing — repair required.' }}</div> }
@@ -422,7 +514,7 @@ import { downloadCsv } from '../../core/csv';
                     <label class="flex items-start gap-2 text-xs font-semibold pt-2"><input type="checkbox" [ngModel]="row.mandatory" (ngModelChange)="row.mandatory = $event" /> <span>{{ fr() ? 'Obligatoire pour compléter le résultat' : 'Required for result completeness' }}</span></label>
                     <label class="flex items-center gap-2 text-xs font-semibold pt-4"><input type="checkbox" [ngModel]="row.remarkRequired" (ngModelChange)="row.remarkRequired = $event" /> {{ fr() ? 'Remarque' : 'Remark' }}</label>
                     @if (selectedAssignmentClass()?.level === 'secondary') {
-                      <div class="flex items-end gap-1"><select [ngModel]="row.responsibleTeacher?.employeeId ?? ''" (ngModelChange)="prepareSubjectTeacher(row, $event)" class="field" [class.invalid]="!row.responsibleTeacher" [disabled]="!canWrite"><option value="">{{ fr() ? 'Enseignant RESPONSIBLE' : 'RESPONSIBLE teacher' }}</option>@for (teacher of allTeachers(); track teacher.id) { <option [value]="teacher.id">{{ teacher.name }}</option> }</select><button type="button" (click)="saveAssignment(row)" [disabled]="!canWrite" class="h-10 px-2 rounded-lg bg-brand-50 text-brand-700 text-xs font-bold">{{ fr() ? 'Sauver' : 'Save' }}</button></div>
+                      <div class="flex items-end gap-1"><select [ngModel]="row.responsibleTeacher?.employeeId ?? ''" (ngModelChange)="prepareSubjectTeacher(row, $event)" class="field" [class.invalid]="!row.responsibleTeacher" [disabled]="!canWrite"><option value="">{{ fr() ? 'Enseignant RESPONSIBLE' : 'RESPONSIBLE teacher' }}</option>@for (teacher of allTeachers(); track teacher.id) { <option [value]="teacher.id">{{ teacher.name }} · {{ teacher.code }} · {{ teacher.accountUsername || (fr() ? 'sans compte' : 'no account') }}{{ teacher.accountRole ? ' · ' + teacher.accountRole : '' }}</option> }</select><button type="button" (click)="saveAssignment(row)" [disabled]="!canWrite" class="h-10 px-2 rounded-lg bg-brand-50 text-brand-700 text-xs font-bold">{{ fr() ? 'Sauver' : 'Save' }}</button></div>
                     } @else {
                       <div><span class="meta">{{ fr() ? 'Enseignant hérité' : 'Inherited teacher' }}</span><div class="field bg-slate-100 text-slate-600 cursor-not-allowed">{{ curriculum()?.homeroomTeacher?.employeeName ?? (fr() ? 'Affectation manquante' : 'Assignment missing') }}</div><div class="text-[11px] text-slate-500 mt-1">{{ fr() ? 'Hérité du titulaire de classe — non modifiable ici.' : 'Inherited from homeroom — not editable here.' }}</div></div>
                     }
@@ -778,7 +870,7 @@ export class AcademicSetupComponent {
       : `Active parcours: ${lvl} · ${sub}. Other parcours data is hidden — switch from the top bar.`;
   });
 
-  protected sub = signal<'sections' | 'classes' | 'subjects' | 'class-subjects' | 'assessments' | 'competencies' | 'design'>('sections');
+  protected sub = signal<'sections' | 'classes' | 'subjects' | 'class-subjects' | 'access-exceptions' | 'assessments' | 'competencies' | 'design'>('sections');
   protected sections = signal<SectionView[]>([]);
   protected classes = signal<ClassView[]>([]);
   protected subjects = signal<SubjectView[]>([]);
@@ -789,6 +881,7 @@ export class AcademicSetupComponent {
     { id: 'classes', label: this.fr() ? 'Classes' : 'Classes' },
     { id: 'subjects', label: this.fr() ? 'Matières' : 'Subjects' },
     { id: 'class-subjects', label: this.fr() ? 'Matières par classe' : 'Class subjects' },
+    { id: 'access-exceptions', label: this.fr() ? 'Exceptions d’accès' : 'Access exceptions' },
     { id: 'competencies', label: this.fr() ? 'Compétences secondaire' : 'Secondary competencies' },
     { id: 'design', label: this.fr() ? 'Modèles / marque' : 'Templates / branding' },
   ]);
@@ -894,6 +987,26 @@ export class AcademicSetupComponent {
   protected competencyModelId = signal('');
   protected competencyBusy = signal(false);
   protected competencyNotice = signal<{ ok: boolean; text: string } | null>(null);
+  protected accessSessionId = signal('');
+  protected accessReadiness = signal<AcademicReadinessView | null>(null);
+  protected accessDelegations = signal<AcademicAccessDelegation[]>([]);
+  protected delegationPreview = signal<AcademicAccessDelegationPreview | null>(null);
+  protected delegationBusy = signal(false);
+  protected delegationDraft: AcademicAccessDelegationRequest = {
+    academicSessionId: '', employeeId: '', classId: '', subjectId: null, subjectCode: null,
+    capabilityCode: 'SUBJECT_GRADE_EDIT', effectiveFrom: '', effectiveTo: null,
+    reason: '', source: 'MANUAL',
+  };
+  protected readonly delegationCapabilities = [
+    { code: 'SUBJECT_GRADE_VIEW', fr: 'Voir les notes et remarques d’une matière', en: 'View one subject’s marks and remarks' },
+    { code: 'SUBJECT_GRADE_EDIT', fr: 'Modifier les notes et remarques d’une matière', en: 'Edit one subject’s marks and remarks' },
+    { code: 'SUBJECT_GRADE_SUBMIT', fr: 'Soumettre une feuille de matière', en: 'Submit one subject sheet' },
+    { code: 'ASSESSMENT_VIEW', fr: 'Voir les évaluations d’une matière', en: 'View one subject’s assessments' },
+    { code: 'ASSESSMENT_MANAGE', fr: 'Gérer les évaluations d’une matière', en: 'Manage one subject’s assessments' },
+    { code: 'CLASS_RESULTS_VIEW', fr: 'Voir les résultats complets d’une classe', en: 'View complete class results' },
+    { code: 'CLASS_REPORT_CARD_VIEW', fr: 'Voir les bulletins d’une classe', en: 'View class report-card data' },
+    { code: 'COUNCIL_INPUT_EDIT', fr: 'Modifier les éléments du conseil', en: 'Edit class-council inputs' },
+  ];
 
   protected secondaryClasses = computed(() => this.classes().filter((klass) => klass.level.toLowerCase() === 'secondary'));
   protected secondarySubjects = computed(() => {
@@ -921,7 +1034,7 @@ export class AcademicSetupComponent {
     const params = this.route.snapshot.queryParamMap;
     const requestedSubtab = params.get('subtab');
     if (requestedSubtab === 'sections' || requestedSubtab === 'classes' || requestedSubtab === 'subjects'
-      || requestedSubtab === 'class-subjects' || requestedSubtab === 'assessments' || requestedSubtab === 'competencies' || requestedSubtab === 'design') {
+      || requestedSubtab === 'class-subjects' || requestedSubtab === 'access-exceptions' || requestedSubtab === 'assessments' || requestedSubtab === 'competencies' || requestedSubtab === 'design') {
       this.sub.set(requestedSubtab === 'competencies' ? 'assessments' : requestedSubtab);
     }
     const requestedSessionId = params.get('sessionId');
@@ -943,8 +1056,10 @@ export class AcademicSetupComponent {
         ?? rows.find((s) => s.current) ?? rows.find((s) => s.status === 'OPEN') ?? rows[0];
       if (current) {
         this.curriculumSessionId.set(current.id);
+        this.accessSessionId.set(current.id);
         this.loadCurriculum();
         this.selectCompetencySession(current.id);
+        if (this.sub() === 'access-exceptions') this.loadAcademicAccess();
       }
     });
   }
@@ -1228,10 +1343,76 @@ export class AcademicSetupComponent {
     return out;
   }
 
-  protected switchTo(t: 'sections' | 'classes' | 'subjects' | 'class-subjects' | 'assessments' | 'competencies' | 'design'): void {
+  protected switchTo(t: 'sections' | 'classes' | 'subjects' | 'class-subjects' | 'access-exceptions' | 'assessments' | 'competencies' | 'design'): void {
     this.sub.set(t === 'competencies' ? 'assessments' : t);
     this.secForm.set(false); this.clsForm.set(false); this.subjForm.set(false);
     this.assignmentNotice.set(null);
+    if (t === 'access-exceptions') this.loadAcademicAccess();
+  }
+
+  protected selectAccessSession(sessionId: string): void {
+    this.accessSessionId.set(sessionId);
+    this.loadAcademicAccess();
+  }
+
+  protected loadAcademicAccess(): void {
+    const sessionId = this.accessSessionId() || this.curriculumSessionId();
+    if (!sessionId) return;
+    this.delegationDraft.academicSessionId = sessionId;
+    if (!this.delegationDraft.effectiveFrom) {
+      this.delegationDraft.effectiveFrom = this.academicSessions().find((session) => session.id === sessionId)?.startDate ?? '';
+    }
+    this.api.assignableTeachers(null).subscribe({ next: (teachers) => this.allTeachers.set(teachers), error: (error) => this.fail(error) });
+    this.academicApi.academicAccessReadiness(sessionId).subscribe({
+      next: (value) => this.accessReadiness.set(value),
+      error: (error) => this.fail(error),
+    });
+    this.academicApi.academicAccessDelegations({ sessionId }).subscribe({
+      next: (value) => this.accessDelegations.set(value),
+      error: (error) => this.fail(error),
+    });
+  }
+
+  protected setDelegationSubject(code: string): void {
+    const subject = this.subjects().find((item) => item.code.toUpperCase() === (code || '').toUpperCase());
+    this.delegationDraft.subjectCode = subject?.code ?? null;
+    this.delegationDraft.subjectId = subject?.id ?? null;
+  }
+
+  protected previewDelegation(): void {
+    const sessionId = this.accessSessionId() || this.curriculumSessionId();
+    if (!sessionId || !this.delegationDraft.employeeId || !this.delegationDraft.classId
+      || !this.delegationDraft.effectiveFrom || !this.delegationDraft.reason.trim()) return;
+    this.delegationDraft.academicSessionId = sessionId;
+    this.delegationBusy.set(true);
+    this.academicApi.previewAcademicDelegation(this.delegationDraft).subscribe({
+      next: (preview) => { this.delegationPreview.set(preview); this.delegationBusy.set(false); },
+      error: (error) => { this.delegationBusy.set(false); this.fail(error); },
+    });
+  }
+
+  protected createDelegation(): void {
+    const preview = this.delegationPreview();
+    if (!preview) return;
+    this.delegationBusy.set(true);
+    this.academicApi.createAcademicDelegation(this.delegationDraft).subscribe({
+      next: () => {
+        this.delegationBusy.set(false);
+        this.delegationPreview.set(null);
+        this.delegationDraft.reason = '';
+        this.loadAcademicAccess();
+      },
+      error: (error) => { this.delegationBusy.set(false); this.fail(error); },
+    });
+  }
+
+  protected revokeAcademicDelegation(grant: AcademicAccessDelegation): void {
+    if (!this.canWrite) return;
+    const reason = window.prompt(this.fr() ? 'Motif de révocation' : 'Revocation reason', this.fr() ? 'Fin du remplacement' : 'Substitution ended');
+    if (!reason?.trim()) return;
+    this.academicApi.revokeAcademicDelegation(grant.id, reason.trim(), grant.version).subscribe({
+      next: () => this.loadAcademicAccess(), error: (error) => this.fail(error),
+    });
   }
 
   private loadDocumentDesign(): void {

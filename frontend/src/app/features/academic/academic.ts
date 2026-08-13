@@ -19,7 +19,7 @@ import {
   AvatarComponent, TabsComponent,
 } from '../../core/ui';
 
-type Mode = 'bulletin' | 'grade-entry' | 'inputs' | 'pv' | 'batch';
+type Mode = 'bulletin' | 'grade-entry' | 'inputs' | 'pv' | 'overview' | 'batch';
 
 const cleanDisplay = (value: string | null | undefined): string => {
   if (!value) return value ?? '';
@@ -112,7 +112,7 @@ const appreciation = (avg: number, fr: boolean): string => {
               <bbc-icon name="printer" [s]="16" /> {{ fr() ? 'Imprimer' : 'Print' }}
             </button>
           }
-          @if (mode() === 'pv' && pv()) {
+          @if ((mode() === 'pv' || mode() === 'overview') && pv()) {
             <button (click)="print()"
               class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
               <bbc-icon name="printer" [s]="16" /> {{ fr() ? 'Imprimer' : 'Print' }}
@@ -179,7 +179,7 @@ const appreciation = (avg: number, fr: boolean): string => {
               <div class="mt-1 text-xs text-mute">{{ fr() ? 'Les élèves et les évaluations apparaîtront ci-dessous.' : 'The students and assessments appear below.' }}</div>
             </div>
           }
-          @if (mode() === 'pv') {
+          @if (mode() === 'pv' || mode() === 'overview') {
             <div class="flex flex-col justify-end shrink-0">
               <div class="text-xs font-semibold text-transparent uppercase mb-2">.</div>
               <button (click)="loadPv()" [disabled]="!selectedClass()"
@@ -862,9 +862,9 @@ const appreciation = (avg: number, fr: boolean): string => {
       }
 
       <!-- ============ PV ============ -->
-      @if (mode() === 'pv') {
+      @if (mode() === 'pv' || mode() === 'overview') {
         @if (pv(); as p) {
-          <bbc-card [title]="(fr() ? 'Procès-verbal' : 'Master sheet') + ' — ' + p.className"
+          <bbc-card [title]="(mode() === 'overview' ? (fr() ? 'Vue de classe (lecture seule)' : 'Class overview (read-only)') : (fr() ? 'Procès-verbal' : 'Master sheet')) + ' — ' + p.className"
             [subtitle]="p.reportingPeriodCode ? p.rows.length + (fr() ? ' élèves · ' : ' students · ') + p.reportingPeriodCode + ' · ' + (p.completeStudents ?? 0) + (fr() ? ' complets' : ' complete') : p.rows.length + (fr() ? ' élèves · Séquence ' : ' students · Sequence ') + p.sequence">
             <div action class="text-right">
               <div class="text-[10px] uppercase tracking-wide text-mute font-semibold">{{ fr() ? 'Moy. classe' : 'Class avg' }}</div>
@@ -1040,6 +1040,7 @@ export class AcademicComponent {
     { id: 'bulletin', label: this.fr() ? 'Bulletin' : 'Report card' },
     { id: 'grade-entry', label: this.fr() ? 'Saisie des notes' : 'Grade entry' },
     { id: 'inputs', label: this.fr() ? 'Assiduité & conseil' : 'Attendance & council' },
+    { id: 'overview', label: this.fr() ? 'Vue de classe (lecture)' : 'Class overview (read-only)' },
     { id: 'pv', label: this.fr() ? 'Procès-verbal' : 'Master sheet' },
   ]);
 
@@ -1059,7 +1060,7 @@ export class AcademicComponent {
     const requestedPeriodId = this.route.snapshot.queryParamMap.get('periodId');
     const requestedSubjectCode = this.route.snapshot.queryParamMap.get('subjectCode');
     if (requestedSubjectCode) this.selectedGradeSubjectCode.set(requestedSubjectCode.toUpperCase());
-    if (requestedMode && ['bulletin', 'grade-entry', 'inputs', 'pv', 'batch'].includes(requestedMode)) this.mode.set(requestedMode);
+    if (requestedMode && ['bulletin', 'grade-entry', 'inputs', 'pv', 'overview', 'batch'].includes(requestedMode)) this.mode.set(requestedMode);
     this.setupApi.listClasses().subscribe({
       next: (c) => { this.classes.set(c); const klass = c.find((item) => item.id === requestedClassId); if (klass && this.academicSessionId()) this.onClassChange(klass.name, !!requestedSubjectCode); },
       error: () => this.classes.set([]),
@@ -1118,6 +1119,7 @@ export class AcademicComponent {
     if (m === 'grade-entry' && this.selectedClassId() && this.selectedReportingPeriodId()) this.loadGradeEntry();
     if (m === 'inputs' && this.selectedClassId() && this.selectedReportingPeriodId()) this.loadReportInputs();
     if (m === 'batch' && this.selectedClassId() && this.selectedReportingPeriodId()) this.loadBatchJobs();
+    if ((m === 'pv' || m === 'overview') && this.selectedClassId() && this.selectedReportingPeriodId()) this.loadPv();
   }
 
   protected onClassChange(name: string, preserveSubjectCode = false): void {
@@ -1156,7 +1158,7 @@ export class AcademicComponent {
         }
       },
     });
-    if (this.mode() === 'pv') this.loadPv();
+    if (this.mode() === 'pv' || this.mode() === 'overview') this.loadPv();
     if (this.mode() === 'grade-entry') this.loadGradeEntry();
     if (this.mode() === 'inputs') this.loadReportInputs();
     if (this.mode() === 'batch') this.loadBatchJobs();
@@ -1196,6 +1198,7 @@ export class AcademicComponent {
     if (this.mode() === 'grade-entry' && this.selectedClassId()) this.loadGradeEntry();
     if (this.mode() === 'inputs' && this.selectedClassId()) this.loadReportInputs();
     if (this.mode() === 'batch' && this.selectedClassId()) this.loadBatchJobs();
+    if ((this.mode() === 'pv' || this.mode() === 'overview') && this.selectedClassId()) this.loadPv();
   }
 
   private loadBatchJobs(): void {

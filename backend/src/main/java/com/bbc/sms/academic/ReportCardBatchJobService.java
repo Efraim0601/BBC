@@ -4,13 +4,13 @@ import com.bbc.sms.academic.dto.AcademicDtos.BulletinBatchItemView;
 import com.bbc.sms.academic.dto.AcademicDtos.BulletinBatchJobCreateRequest;
 import com.bbc.sms.academic.dto.AcademicDtos.BulletinBatchJobView;
 import com.bbc.sms.academic.dto.AcademicDtos.BulletinBatchCancelRequest;
+import com.bbc.sms.academic.security.AcademicAccessPolicyService;
 import com.bbc.sms.foundation.enrollment.StudentEnrollment;
 import com.bbc.sms.foundation.enrollment.StudentEnrollmentRepository;
 import com.bbc.sms.foundation.session.AcademicReportingPeriod;
 import com.bbc.sms.foundation.session.AcademicReportingPeriodRepository;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AppUserPrincipal;
-import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.student.StudentRepository;
 import com.bbc.sms.timetable.SchoolClassRepository;
@@ -34,7 +34,7 @@ public class ReportCardBatchJobService {
     private final AcademicReportingPeriodRepository periods;
     private final SchoolClassRepository classes;
     private final StudentRepository students;
-    private final TeacherScopeService teacherScope;
+    private final AcademicAccessPolicyService accessPolicy;
     private final ReportCardBatchJobWorker worker;
 
     public ReportCardBatchJobService(JdbcTemplate jdbc,
@@ -42,14 +42,14 @@ public class ReportCardBatchJobService {
                                      AcademicReportingPeriodRepository periods,
                                      SchoolClassRepository classes,
                                      StudentRepository students,
-                                     TeacherScopeService teacherScope,
+                                     AcademicAccessPolicyService accessPolicy,
                                      ReportCardBatchJobWorker worker) {
         this.jdbc = jdbc;
         this.enrollments = enrollments;
         this.periods = periods;
         this.classes = classes;
         this.students = students;
-        this.teacherScope = teacherScope;
+        this.accessPolicy = accessPolicy;
         this.worker = worker;
     }
 
@@ -59,14 +59,18 @@ public class ReportCardBatchJobService {
         if (request == null || request.classId() == null || request.reportingPeriodId() == null) {
             throw ApiException.badRequest("La classe et la période de résultat sont obligatoires");
         }
-        teacherScope.assertClass(request.classId());
         classes.findByIdAndSchoolId(request.classId(), schoolId)
                 .orElseThrow(() -> ApiException.notFound("Classe"));
         AcademicReportingPeriod period = periods.findByIdAndSchoolId(request.reportingPeriodId(), schoolId)
                 .orElseThrow(() -> ApiException.notFound("Période de résultat"));
+        accessPolicy.require(AcademicAccessPolicyService.Capability.REPORT_CARD_PUBLISH,
+                period.getAcademicSessionId(), request.classId(), null, null, period.getStartDate());
         List<StudentEnrollment> roster = enrollments
                 .findBySchoolIdAndAcademicSessionIdAndSchoolClassIdAndStatusOrderByClassNameSnapshotAsc(
-                        schoolId, period.getAcademicSessionId(), request.classId(), "ACTIVE");
+                        schoolId, period.getAcademicSessionId(), request.classId(), "ACTIVE").stream()
+                .filter(e -> !e.getEnrolledOn().isAfter(period.getStartDate())
+                        && (e.getExitedOn() == null || !e.getExitedOn().isBefore(period.getStartDate())))
+                .toList();
         if (roster.isEmpty()) throw ApiException.conflict("Aucun élève actif dans cette classe");
 
         UUID id = UUID.randomUUID();
@@ -90,14 +94,17 @@ public class ReportCardBatchJobService {
     @Transactional(readOnly = true)
     public BulletinBatchJobView view(UUID id) {
         JobRow job = job(id);
-        teacherScope.assertClass(job.classId());
+        assertJobAccess(job, AcademicAccessPolicyService.Capability.CLASS_REPORT_CARD_VIEW);
         return toView(job);
     }
 
     @Transactional(readOnly = true)
     public List<BulletinBatchJobView> list(UUID classId, UUID periodId) {
-        teacherScope.assertClass(classId);
         UUID schoolId = TenantContext.get();
+        AcademicReportingPeriod period = periods.findByIdAndSchoolId(periodId, schoolId)
+                .orElseThrow(() -> ApiException.notFound("Période"));
+        accessPolicy.require(AcademicAccessPolicyService.Capability.CLASS_REPORT_CARD_VIEW,
+                period.getAcademicSessionId(), classId, null, null, period.getStartDate());
         return jdbc.query("""
                 SELECT id FROM bulletin_batch_job
                  WHERE school_id=? AND class_id=? AND reporting_period_id=?
@@ -108,7 +115,7 @@ public class ReportCardBatchJobService {
     @Transactional(readOnly = true)
     public List<BulletinBatchItemView> items(UUID id) {
         JobRow job = job(id);
-        teacherScope.assertClass(job.classId());
+        assertJobAccess(job, AcademicAccessPolicyService.Capability.CLASS_REPORT_CARD_VIEW);
         return jdbc.query("""
                 SELECT i.id,i.student_id,coalesce(s.last_name||' '||s.first_name,i.student_id::text),
                        i.status,i.attempts,coalesce(i.file_name,''),coalesce(i.size_bytes,0),coalesce(i.error,'')
@@ -125,7 +132,7 @@ public class ReportCardBatchJobService {
     @Transactional
     public BulletinBatchJobView retry(UUID id, UUID itemId) {
         JobRow job = job(id);
-        teacherScope.assertClass(job.classId());
+        assertJobAccess(job, AcademicAccessPolicyService.Capability.REPORT_CARD_PUBLISH);
         if ("RUNNING".equals(job.status())) throw ApiException.conflict("La génération est déjà en cours");
         int changed;
         if (itemId == null) {
@@ -159,7 +166,7 @@ public class ReportCardBatchJobService {
     @Transactional
     public BulletinBatchJobView cancel(UUID id, BulletinBatchCancelRequest request) {
         JobRow job = job(id);
-        teacherScope.assertClass(job.classId());
+        assertJobAccess(job, AcademicAccessPolicyService.Capability.REPORT_CARD_PUBLISH);
         if (Set.of("COMPLETED", "COMPLETED_ERRORS", "FAILED", "CANCELLED").contains(job.status())) {
             throw ApiException.conflict("Cette génération est déjà terminée ou annulée");
         }
@@ -175,7 +182,7 @@ public class ReportCardBatchJobService {
     @Transactional(readOnly = true)
     public byte[] archive(UUID id) {
         JobRow job = job(id);
-        teacherScope.assertClass(job.classId());
+        assertJobAccess(job, AcademicAccessPolicyService.Capability.CLASS_REPORT_CARD_VIEW);
         if (job.archiveStorageKey() == null || job.archiveStorageKey().isBlank()) {
             throw ApiException.conflict("L'archive n'est pas encore disponible");
         }
@@ -189,6 +196,13 @@ public class ReportCardBatchJobService {
                 @Override public void afterCommit() { start.run(); }
             });
         } else start.run();
+    }
+
+    private void assertJobAccess(JobRow job, AcademicAccessPolicyService.Capability capability) {
+        AcademicReportingPeriod period = periods.findByIdAndSchoolId(job.reportingPeriodId(), TenantContext.get())
+                .orElseThrow(() -> ApiException.notFound("Période"));
+        accessPolicy.require(capability, job.academicSessionId(), job.classId(), null, null,
+                period.getStartDate());
     }
 
     private JobRow job(UUID id) {

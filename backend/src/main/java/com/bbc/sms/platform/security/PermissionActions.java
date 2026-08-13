@@ -26,6 +26,19 @@ public final class PermissionActions {
             Map.entry("ATTENDANCE_FINALIZE", new Requirement("presence", "write")),
             Map.entry("ATTENDANCE_REOPEN", new Requirement("presence", "write")),
             Map.entry("GRADE_SUBMIT", new Requirement("academic", "write")),
+            // Academic data-scope management remains separate from the module
+            // gate.  AcademicAccessPolicyService still resolves the requested
+            // session/class/subject before allowing an operation.
+            Map.entry("ACADEMIC_CLASS_RESULTS_VIEW", new Requirement("academic", "read")),
+            Map.entry("ACADEMIC_REPORT_CARD_VIEW", new Requirement("academic", "read")),
+            Map.entry("ACADEMIC_SUBJECT_GRADE_EDIT", new Requirement("academic", "write")),
+            Map.entry("ACADEMIC_ASSESSMENT_MANAGE", new Requirement("academic", "write")),
+            Map.entry("ACADEMIC_GRADE_PACKET_REVIEW", new Requirement("academic", "write")),
+            Map.entry("ACADEMIC_REPORT_CARD_VALIDATE", new Requirement("academic", "write")),
+            Map.entry("ACADEMIC_REPORT_CARD_PUBLISH", new Requirement("academic", "write")),
+            Map.entry("ACADEMIC_ACCESS_DELEGATE", new Requirement("settings", "write")),
+            Map.entry("ACADEMIC_ACCESS_AUDIT_VIEW", new Requirement("settings", "read")),
+            Map.entry("ACADEMIC_COUNCIL_INPUT_EDIT", new Requirement("academic", "write")),
             Map.entry("BULLETIN_VALIDATE", new Requirement("academic", "write")),
             Map.entry("BULLETIN_PUBLISH", new Requirement("academic", "write")),
             Map.entry("PROMOTION_RECOMMEND", new Requirement("academic", "write")),

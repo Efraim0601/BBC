@@ -1,12 +1,12 @@
 package com.bbc.sms.academic;
 
 import com.bbc.sms.academic.dto.AcademicDtos.*;
+import com.bbc.sms.academic.security.AcademicAccessPolicyService;
 import com.bbc.sms.foundation.audit.AuditService;
 import com.bbc.sms.foundation.session.AcademicReportingPeriod;
 import com.bbc.sms.foundation.session.AcademicReportingPeriodRepository;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AppUserPrincipal;
-import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.tenant.TenantContext;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
@@ -31,20 +31,20 @@ public class AssessmentDefaultsService {
     private final AcademicReportingPeriodRepository periods;
     private final AcademicAssessmentRepository assessments;
     private final CurriculumQueryService curriculum;
-    private final TeacherScopeService teacherScope;
+    private final AcademicAccessPolicyService accessPolicy;
     private final JdbcTemplate jdbc;
     private final AuditService audit;
 
     public AssessmentDefaultsService(AcademicReportingPeriodRepository periods,
                                      AcademicAssessmentRepository assessments,
                                      CurriculumQueryService curriculum,
-                                     TeacherScopeService teacherScope,
+                                     AcademicAccessPolicyService accessPolicy,
                                      JdbcTemplate jdbc,
                                      AuditService audit) {
         this.periods = periods;
         this.assessments = assessments;
         this.curriculum = curriculum;
-        this.teacherScope = teacherScope;
+        this.accessPolicy = accessPolicy;
         this.jdbc = jdbc;
         this.audit = audit;
     }
@@ -158,7 +158,6 @@ public class AssessmentDefaultsService {
                     "Sélectionnez une séquence pour préparer une évaluation.", "reportingPeriodId",
                     "Sélectionnez une séquence.");
         }
-        teacherScope.assertClass(request.classId());
         CurriculumQueryService.Scope scope = curriculum.scope(request.academicSessionId(), request.classId());
         List<AcademicReportingPeriod> sessionPeriods = periods.findBySchoolIdAndAcademicSessionIdOrderByDisplayOrder(
                 TenantContext.get(), request.academicSessionId());
@@ -187,7 +186,11 @@ public class AssessmentDefaultsService {
         List<AssessmentDefaultsPeriod> periodViews = new ArrayList<>();
         int excluded = 0;
         for (AcademicReportingPeriod period : data.periods()) {
-            List<CurriculumQueryService.SubjectRow> subjects = curriculum.applicable(data.scope(), period);
+            List<CurriculumQueryService.SubjectRow> subjects = curriculum.applicable(data.scope(), period).stream()
+                    .filter(subject -> accessPolicy.can(AcademicAccessPolicyService.Capability.ASSESSMENT_MANAGE,
+                            period.getAcademicSessionId(), data.scope().classId(), subject.subjectCode(), null,
+                            period.getStartDate()))
+                    .toList();
             excluded += data.scope().subjects().size() - subjects.size();
             List<AssessmentDefaultsRow> rows = new ArrayList<>();
             for (CurriculumQueryService.SubjectRow subject : subjects) {

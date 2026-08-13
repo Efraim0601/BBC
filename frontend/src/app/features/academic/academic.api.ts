@@ -248,10 +248,47 @@ export interface SecondaryCompetencyImportRequest {
   rows: Array<{ studentId: string; competencyCode: string; mark?: number | null; valueStatus?: string }>;
 }
 
+export interface AcademicAccessDelegation {
+  id: string; academicSessionId: string; employeeId: string; employeeName: string; employeeCode: string;
+  accountUsername: string | null; accountRole: string | null; accountActive: boolean;
+  classId: string; className: string; subjectId: string | null; subjectCode: string | null;
+  capabilityCode: string; effectiveFrom: string; effectiveTo: string | null; status: string; reason: string;
+  requestedBy: string | null; approvedBy: string | null; approvedAt: string | null;
+  revokedBy: string | null; revokedAt: string | null; revocationReason: string | null; source: string; version: number;
+}
+export interface AcademicAccessDelegationRequest {
+  academicSessionId: string; employeeId: string; classId: string; subjectId?: string | null; subjectCode?: string | null;
+  capabilityCode: string; effectiveFrom: string; effectiveTo?: string | null; reason: string; source?: string;
+}
+export interface AcademicAccessDelegationPreview {
+  academicSessionId: string; employeeId: string; classId: string; subjectId: string | null; subjectCode: string | null;
+  capabilityCode: string; effectiveFrom: string; effectiveTo: string | null; employeeName: string; employeeCode: string;
+  accountUsername: string | null; capabilitiesGranted: string[]; warnings: string[]; blockers: string[]; fingerprint: string;
+}
+export interface AcademicReadinessIssue {
+  code: string; severity: string; academicSessionId: string | null; classId: string | null; className: string | null;
+  subjectId: string | null; subjectCode: string | null; employeeId: string | null; employeeName: string | null;
+  employeeCode: string | null; accountUsername: string | null; messageFr: string; messageEn: string; repairTarget: string;
+}
+export interface AcademicReadinessView {
+  academicSessionId: string; sessionCode: string; sessionLabel: string; issueCount: number;
+  missingHomeroomCount: number; missingResponsibleCount: number; ambiguousResponsibleCount: number;
+  duplicateNameCount: number; unlinkedTeacherCount: number; issues: AcademicReadinessIssue[];
+}
+export interface AcademicScopeSubject {
+  code: string; label: string; classId: string; className: string; level: string; source: string;
+  assignmentId: string | null; assignmentVersion: number; capabilities: Record<string, boolean>;
+}
+export interface AcademicMyScope {
+  academicSessionId: string; reportingPeriodId: string | null; periodCode: string | null; periodLabel: string | null;
+  subjects: AcademicScopeSubject[]; classOverviews: AcademicScopeSubject[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class AcademicApi {
   private http = inject(HttpClient);
   private base = `${environment.apiUrl}/academic`;
+  private accessBase = `${environment.apiUrl}/academic-access`;
 
   bulletin(studentId: string, sequence: number): Observable<BulletinView> {
     return this.http.get<BulletinView>(
@@ -393,5 +430,27 @@ export class AcademicApi {
   }
   importSecondaryCompetencyMarks(body: SecondaryCompetencyImportRequest): Observable<SecondaryCompetencyMarkView[]> {
     return this.http.post<SecondaryCompetencyMarkView[]>(`${this.base}/secondary-competencies/marks/import`, body);
+  }
+
+  academicAccessReadiness(sessionId?: string): Observable<AcademicReadinessView> {
+    return this.http.get<AcademicReadinessView>(`${this.accessBase}/readiness`, { params: sessionId ? { sessionId } : {} });
+  }
+  academicAccessDelegations(params: { sessionId?: string; classId?: string; employeeId?: string; status?: string } = {}): Observable<AcademicAccessDelegation[]> {
+    return this.http.get<AcademicAccessDelegation[]>(`${this.accessBase}/delegations`, { params: params as Record<string, string> });
+  }
+  previewAcademicDelegation(body: AcademicAccessDelegationRequest): Observable<AcademicAccessDelegationPreview> {
+    return this.http.post<AcademicAccessDelegationPreview>(`${this.accessBase}/delegations/preview`, body);
+  }
+  createAcademicDelegation(body: AcademicAccessDelegationRequest): Observable<AcademicAccessDelegation> {
+    return this.http.post<AcademicAccessDelegation>(`${this.accessBase}/delegations`, body);
+  }
+  revokeAcademicDelegation(id: string, reason: string, version?: number): Observable<AcademicAccessDelegation> {
+    return this.http.post<AcademicAccessDelegation>(`${this.accessBase}/delegations/${encodeURIComponent(id)}/revoke`, { reason, version });
+  }
+  academicMyScope(sessionId?: string, reportingPeriodId?: string): Observable<AcademicMyScope> {
+    const params: Record<string, string> = {};
+    if (sessionId) params['sessionId'] = sessionId;
+    if (reportingPeriodId) params['periodId'] = reportingPeriodId;
+    return this.http.get<AcademicMyScope>(`${this.base}/me/scope`, { params });
   }
 }

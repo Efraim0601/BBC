@@ -4,6 +4,7 @@ import com.bbc.sms.academic.Subject;
 import com.bbc.sms.academic.SubjectRepository;
 import com.bbc.sms.academic.SubjectClassCoef;
 import com.bbc.sms.academic.SubjectClassCoefRepository;
+import com.bbc.sms.foundation.audit.AuditService;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.tenant.ParcoursContext;
@@ -48,11 +49,12 @@ public class SetupService {
     private final EmployeeRepository employees;
     private final TeacherScopeService teacherScope;
     private final JdbcTemplate jdbc;
+    private final AuditService audit;
 
     public SetupService(SectionRepository sections, SchoolClassRepository classes,
                         SubjectRepository subjects, SubjectClassCoefRepository coefs,
                         StudentRepository students, EmployeeRepository employees,
-                        TeacherScopeService teacherScope, JdbcTemplate jdbc) {
+                        TeacherScopeService teacherScope, JdbcTemplate jdbc, AuditService audit) {
         this.sections = sections;
         this.classes = classes;
         this.subjects = subjects;
@@ -61,6 +63,7 @@ public class SetupService {
         this.employees = employees;
         this.teacherScope = teacherScope;
         this.jdbc = jdbc;
+        this.audit = audit;
     }
 
     // ---- Sections -----------------------------------------------------------
@@ -248,7 +251,11 @@ public class SetupService {
         String wanted = blankToNull(level);
         return employees.findBySchoolIdAndActiveTrueOrderByNameAsc(schoolId).stream()
                 .filter(e -> wanted == null || e.getLevel() == null || wanted.equals(e.getLevel()))
-                .map(e -> new TeacherOption(e.getId(), e.getName(), e.getCode(), e.getLevel()))
+                .map(e -> {
+                    TeacherIdentity identity = teacherIdentity(e.getId(), schoolId);
+                    return new TeacherOption(e.getId(), e.getName(), e.getCode(), e.getLevel(),
+                            identity.username(), identity.role(), identity.active());
+                })
                 .toList();
     }
 
@@ -293,11 +300,14 @@ public class SetupService {
         classes.findByIdAndSchoolId(classId, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Classe"));
         return jdbc.query(
-                "SELECT e.id, e.name, e.code, e.level FROM teacher_class tc "
+                "SELECT e.id, e.name, e.code, e.level, u.username, u.role_code, COALESCE(u.active,false) "
+              + "FROM teacher_class tc "
               + "JOIN employee e ON e.id = tc.employee_id "
+              + "LEFT JOIN LATERAL (SELECT username,role_code,active FROM app_user x WHERE x.school_id=e.school_id AND x.employee_id=e.id ORDER BY x.active DESC,x.created_at DESC LIMIT 1) u ON true "
               + "WHERE tc.class_id = ? AND e.school_id = ? ORDER BY e.name",
                 (rs, n) -> new TeacherOption(UUID.fromString(rs.getString("id")),
-                        rs.getString("name"), rs.getString("code"), rs.getString("level")),
+                        rs.getString("name"), rs.getString("code"), rs.getString("level"),
+                        rs.getString("username"), rs.getString("role_code"), rs.getBoolean("active")),
                 classId, schoolId);
     }
 
@@ -529,12 +539,14 @@ public class SetupService {
                 "SELECT c.id, c.subject_id, s.code, COALESCE(s.label->>'fr', s.label->>'en', s.code), "
               + "c.group_id, g.code, c.display_order, c.coefficient, c.max_score, c.mandatory, c.pass_threshold, "
               + "c.show_subject_rank, c.remark_required, t.id, t.employee_id, t.employee_name, t.employee_code, "
-              + "t.role, t.source, t.active, t.version, c.version, c.active_from, c.active_to "
+              + "t.role, t.source, t.active, t.version, t.account_username, t.account_role, t.account_active, c.version, c.active_from, c.active_to "
               + "FROM academic_curriculum_subject c JOIN subject s ON s.id=c.subject_id "
               + "LEFT JOIN academic_subject_group g ON g.id=c.group_id "
               + "LEFT JOIN LATERAL (SELECT ast.id, ast.employee_id, e.name AS employee_name, e.code AS employee_code, "
               + "ast.role, ast.source, ast.active, ast.version FROM academic_class_subject_teacher ast "
-              + "JOIN employee e ON e.id=ast.employee_id WHERE ast.school_id=? AND ast.academic_session_id=? "
+              + "JOIN employee e ON e.id=ast.employee_id "
+              + "LEFT JOIN LATERAL (SELECT username,role_code,active FROM app_user x WHERE x.school_id=ast.school_id AND x.employee_id=ast.employee_id ORDER BY x.active DESC,x.created_at DESC LIMIT 1) u ON true "
+              + "WHERE ast.school_id=? AND ast.academic_session_id=? "
               + "AND ast.class_id=? AND ast.subject_id=c.subject_id AND ast.active=true "
               + "AND e.active=true "
               + "AND ?='secondary' "
@@ -544,23 +556,26 @@ public class SetupService {
                     UUID teacherId = rs.getObject(14, UUID.class);
                     CurriculumTeacherView teacher = teacherId == null ? null : new CurriculumTeacherView(
                             rs.getObject(14, UUID.class), rs.getObject(15, UUID.class), rs.getString(16),
-                            rs.getString(17), rs.getString(18), rs.getString(19), rs.getBoolean(20), rs.getLong(21));
+                            rs.getString(17), rs.getString(18), rs.getString(19), rs.getBoolean(20), rs.getLong(21),
+                            rs.getString(22), rs.getString(23), rs.getBoolean(24));
                     return new CurriculumSubjectView(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class),
                              rs.getString(3), rs.getString(4), rs.getObject(5, UUID.class), rs.getString(6),
                              rs.getInt(7), rs.getInt(8), rs.getBigDecimal(9), rs.getBoolean(10), rs.getBigDecimal(11),
-                             rs.getBoolean(12), rs.getBoolean(13), teacher, rs.getLong(22),
-                             rs.getObject(23, java.time.LocalDate.class), rs.getObject(24, java.time.LocalDate.class));
+                             rs.getBoolean(12), rs.getBoolean(13), teacher, rs.getLong(25),
+                             rs.getObject(26, java.time.LocalDate.class), rs.getObject(27, java.time.LocalDate.class));
                  }, schoolId, academicSessionId, classId, cls.getLevel(), schoolId, academicSessionId, classId);
         CurriculumTeacherView homeroom = jdbc.query(
-                "SELECT a.id,a.employee_id,e.name,e.code,a.role,a.source,a.status='ACTIVE',a.version "
+                "SELECT a.id,a.employee_id,e.name,e.code,a.role,a.source,a.status='ACTIVE',a.version,u.username,u.role_code,COALESCE(u.active,false) "
               + "FROM class_teacher_assignment a JOIN employee e ON e.id=a.employee_id "
               + "JOIN academic_session s ON s.id=a.academic_session_id "
+              + "LEFT JOIN LATERAL (SELECT username,role_code,active FROM app_user x WHERE x.school_id=a.school_id AND x.employee_id=a.employee_id ORDER BY x.active DESC,x.created_at DESC LIMIT 1) u ON true "
               + "WHERE a.school_id=? AND a.academic_session_id=? AND a.class_id=? AND a.role='HOMEROOM' "
               + "AND a.status='ACTIVE' AND e.active=true AND a.effective_from<=s.end_date "
               + "AND (a.effective_to IS NULL OR a.effective_to>=s.start_date) "
               + "ORDER BY a.effective_from DESC,a.created_at DESC LIMIT 1",
                 rs -> rs.next() ? new CurriculumTeacherView(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class),
-                        rs.getString(3), rs.getString(4), rs.getString(5), rs.getString(6), rs.getBoolean(7), rs.getLong(8)) : null,
+                        rs.getString(3), rs.getString(4), rs.getString(5), rs.getString(6), rs.getBoolean(7), rs.getLong(8),
+                        rs.getString(9), rs.getString(10), rs.getBoolean(11)) : null,
                 schoolId, academicSessionId, classId);
         return new CurriculumView(academicSessionId, (String) session.get("code"), (String) session.get("label"),
                 classId, cls.getName(), groups, subjects, homeroom);
@@ -743,7 +758,10 @@ public class SetupService {
             jdbc.update("UPDATE academic_class_subject_teacher SET effective_from=?,effective_to=?,source=?,active=true,updated_at=now(),version=version+1 WHERE id=? AND school_id=?",
                     effectiveFrom, in.effectiveTo(), source, id, schoolId);
         }
-        return curriculumTeacher(id);
+        CurriculumTeacherView result = curriculumTeacher(id);
+        audit.record("ACADEMIC_TEACHING_ASSIGNMENT_CHANGED", "academic_class_subject_teacher", id.toString(),
+                null, result, source);
+        return result;
     }
 
     @Transactional
@@ -798,7 +816,10 @@ public class SetupService {
             jdbc.update("UPDATE class_teacher_assignment SET effective_from=?,effective_to=?,status='ACTIVE',source='ACADEMIC_SETUP',updated_at=now(),version=version+1 WHERE id=? AND school_id=?",
                     effectiveFrom, in.effectiveTo(), id, schoolId);
         }
-        return curriculumTeacherFromClassAssignment(id);
+        CurriculumTeacherView result = curriculumTeacherFromClassAssignment(id);
+        audit.record("ACADEMIC_HOMEROOM_ASSIGNMENT_CHANGED", "class_teacher_assignment", id.toString(),
+                null, result, "ACADEMIC_SETUP");
+        return result;
     }
 
     /**
@@ -907,18 +928,27 @@ public class SetupService {
     }
 
     private CurriculumTeacherView curriculumTeacher(UUID id) {
-        return jdbc.query("SELECT t.id,t.employee_id,e.name,e.code,t.role,t.source,t.active,t.version FROM academic_class_subject_teacher t JOIN employee e ON e.id=t.employee_id WHERE t.id=? AND t.school_id=?",
-                rs -> rs.next() ? new CurriculumTeacherView(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class), rs.getString(3), rs.getString(4), rs.getString(5), rs.getString(6), rs.getBoolean(7), rs.getLong(8)) : null,
+        return jdbc.query("SELECT t.id,t.employee_id,e.name,e.code,t.role,t.source,t.active,t.version,u.username,u.role_code,COALESCE(u.active,false) FROM academic_class_subject_teacher t JOIN employee e ON e.id=t.employee_id LEFT JOIN LATERAL (SELECT username,role_code,active FROM app_user x WHERE x.school_id=t.school_id AND x.employee_id=t.employee_id ORDER BY x.active DESC,x.created_at DESC LIMIT 1) u ON true WHERE t.id=? AND t.school_id=?",
+                rs -> rs.next() ? new CurriculumTeacherView(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class), rs.getString(3), rs.getString(4), rs.getString(5), rs.getString(6), rs.getBoolean(7), rs.getLong(8), rs.getString(9), rs.getString(10), rs.getBoolean(11)) : null,
                 id, TenantContext.get());
     }
 
+    private TeacherIdentity teacherIdentity(UUID employeeId, UUID schoolId) {
+        return jdbc.query("SELECT username,role_code,active FROM app_user WHERE school_id=? AND employee_id=? ORDER BY active DESC,created_at DESC LIMIT 1",
+                rs -> rs.next() ? new TeacherIdentity(rs.getString(1), rs.getString(2), rs.getBoolean(3))
+                        : new TeacherIdentity(null, null, false), schoolId, employeeId);
+    }
+
     private CurriculumTeacherView curriculumTeacherFromClassAssignment(UUID id) {
-        return jdbc.query("SELECT a.id,a.employee_id,e.name,e.code,a.role,a.source,a.status='ACTIVE',a.version "
-                        + "FROM class_teacher_assignment a JOIN employee e ON e.id=a.employee_id WHERE a.id=? AND a.school_id=?",
+        return jdbc.query("SELECT a.id,a.employee_id,e.name,e.code,a.role,a.source,a.status='ACTIVE',a.version,u.username,u.role_code,COALESCE(u.active,false) "
+                        + "FROM class_teacher_assignment a JOIN employee e ON e.id=a.employee_id LEFT JOIN LATERAL (SELECT username,role_code,active FROM app_user x WHERE x.school_id=a.school_id AND x.employee_id=a.employee_id ORDER BY x.active DESC,x.created_at DESC LIMIT 1) u ON true WHERE a.id=? AND a.school_id=?",
                 rs -> rs.next() ? new CurriculumTeacherView(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class),
-                        rs.getString(3), rs.getString(4), rs.getString(5), rs.getString(6), rs.getBoolean(7), rs.getLong(8)) : null,
+                        rs.getString(3), rs.getString(4), rs.getString(5), rs.getString(6), rs.getBoolean(7), rs.getLong(8),
+                        rs.getString(9), rs.getString(10), rs.getBoolean(11)) : null,
                 id, TenantContext.get());
     }
+
+    private record TeacherIdentity(String username, String role, boolean active) {}
 
     private int nextCurriculumOrder(UUID schoolId, UUID sessionId, UUID classId) {
         Integer value = jdbc.queryForObject("SELECT coalesce(max(display_order),0)+1 FROM academic_curriculum_subject WHERE school_id=? AND academic_session_id=? AND class_id=?",

@@ -96,6 +96,31 @@ public class TeachingAssignmentResolver {
                 "Inherited from the responsible teacher assigned in Class subjects.");
     }
 
+    /** Resolve the dated class titulaire without requiring a curriculum subject. */
+    public Resolution resolveHomeroom(UUID academicSessionId, UUID classId, LocalDate effectiveDate) {
+        UUID schoolId = TenantContext.get();
+        List<AssignmentRow> rows = jdbc.query("""
+            SELECT a.id,a.employee_id,e.name,e.code,a.version,a.source
+              FROM class_teacher_assignment a
+              JOIN employee e ON e.id=a.employee_id
+             WHERE a.school_id=? AND a.academic_session_id=? AND a.class_id=?
+               AND a.role='HOMEROOM' AND a.status='ACTIVE' AND e.active=true
+               AND a.effective_from<=? AND (a.effective_to IS NULL OR a.effective_to>=?)
+             ORDER BY a.effective_from DESC,a.created_at DESC
+            """, (rs, n) -> new AssignmentRow(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class),
+                    rs.getString(3), rs.getString(4), rs.getLong(5), rs.getString(6)),
+                schoolId, academicSessionId, classId, effectiveDate, effectiveDate);
+        if (rows.size() > 1) return Resolution.ambiguous("", "HOMEROOM_ASSIGNMENT_AMBIGUOUS",
+                "Plusieurs enseignants titulaires actifs sont affectés à cette classe.",
+                "Several active homeroom teachers are assigned to this class.");
+        if (rows.isEmpty()) return Resolution.missing("", "HOMEROOM_ASSIGNMENT_MISSING",
+                "Configurez l'enseignant titulaire avant d'ouvrir les résultats de cette classe.",
+                "Configure the homeroom teacher before opening this class's results.");
+        return Resolution.ok("", rows.getFirst(), "HOMEROOM",
+                "Résolu depuis l'affectation titulaire datée de la classe.",
+                "Resolved from the class's dated homeroom assignment.");
+    }
+
     public record Resolution(String subjectCode, UUID teacherId, String teacherName, String teacherCode,
                              UUID assignmentId, long assignmentVersion, String source, String status,
                              String code, String messageFr, String messageEn, boolean locked) {
