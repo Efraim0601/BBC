@@ -1,6 +1,7 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed, effect } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
 import {
   StaffApi, EmployeeUpsert, EmployeeView, AccountResult, StaffImportRow, StaffImportResult,
@@ -27,7 +28,7 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
-    FormsModule, DatePipe, IconComponent, CardComponent, KpiComponent, PageHeaderComponent,
+    FormsModule, DatePipe, RouterLink, IconComponent, CardComponent, KpiComponent, PageHeaderComponent,
     EmptyComponent, AvatarComponent, TabsComponent, ChipFilterComponent,
     DataTableComponent, CellTemplateDirective, PhotoCaptureComponent,
   ],
@@ -42,6 +43,10 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
               <bbc-icon name="download" [s]="16" /> {{ fr() ? 'Exporter' : 'Export' }}
             </button>
             @if (canWrite) {
+              <a routerLink="/finance/payroll"
+                class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-violet-50 border border-violet-200 text-violet-700 hover:bg-violet-100">
+                {{ fr() ? 'Traiter la paie dans Finance' : 'Process payroll in Finance' }}
+              </a>
               <button (click)="downloadStaffTemplate()"
                 class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
                 {{ fr() ? 'Modèle CSV' : 'CSV template' }}

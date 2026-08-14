@@ -30,7 +30,7 @@ public class GlobalExceptionHandler {
 
     public record ApiError(OffsetDateTime timestamp, int status, String error, String message,
                            String code, Map<String, String> fieldErrors,
-                           List<Map<String, Object>> conflicts, List<String> blockers,
+                           List<Map<String, Object>> conflicts, List<?> blockers,
                            String correlationId, Long currentVersion, Long staleVersion,
                            String messageKey, Map<String, Object> messageParams) {}
 
@@ -39,7 +39,7 @@ public class GlobalExceptionHandler {
         String correlationId = UUID.randomUUID().toString();
         return ResponseEntity.status(ex.getStatus()).header("X-Correlation-Id", correlationId)
                 .body(error(ex.getStatus(), ex.getMessage(), ex.getCode(), ex.getFieldErrors(), ex.getConflicts(),
-                        ex.getBlockers(), correlationId, ex.getCurrentVersion(), ex.getStaleVersion(),
+                        ex.getResponseBlockers(), correlationId, ex.getCurrentVersion(), ex.getStaleVersion(),
                         ex.getMessageKey(), ex.getMessageParams()));
     }
 
@@ -131,7 +131,7 @@ public class GlobalExceptionHandler {
 
     private ApiError error(HttpStatus status, String message, String code,
                            Map<String, String> fields, List<Map<String, Object>> conflicts,
-                           List<String> blockers, String correlationId,
+                           List<?> blockers, String correlationId,
                            Long currentVersion, Long staleVersion,
                            String messageKey, Map<String, Object> messageParams) {
         return new ApiError(OffsetDateTime.now(), status.value(), status.getReasonPhrase(), message, code,

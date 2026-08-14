@@ -56,6 +56,9 @@ public class Employee {
     @Column(name = "hired_on")
     private LocalDate hiredOn;
 
+    @Column(name = "exited_on")
+    private LocalDate exitedOn;
+
     @Column(name = "monthly_salary")
     private long monthlySalary;
 

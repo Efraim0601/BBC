@@ -1068,19 +1068,20 @@ export class FinanceComponent {
   /** Canaux ouverts à l'encaissement ; le filtre de l'historique, lui, montre tout. */
   protected activeChannels = computed(() => this.channels().filter((c) => c.enabled));
 
-  protected selectedChannel = computed(() =>
-    this.channels().find((c) => c.code === this.draft.method) ?? null);
+  protected selectedChannel(): PaymentChannelView | null {
+    return this.channels().find((c) => c.code === this.draft.method) ?? null;
+  }
 
   protected methodOptions = computed(() =>
     this.channels().map((c) => ({ value: c.code, label: this.fr() ? c.labelFr : c.labelEn })));
 
   /** Un canal peut exiger une référence : le bouton reste inactif tant qu'elle manque. */
-  protected canSubmitPayment = computed(() => {
+  protected canSubmitPayment(): boolean {
     if (!this.draft.studentId || !this.draft.amount) return false;
     const ch = this.selectedChannel();
     if (!ch) return false;
     return !ch.requiresReference || !!this.draft.reference?.trim();
-  });
+  }
 
   constructor() {
     this.reloadSummary();

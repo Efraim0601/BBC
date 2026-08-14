@@ -1,0 +1,51 @@
+:host { display: block; }
+
+.charges-shell .panel { border: 1px solid #e2e8f0; border-radius: 1rem; background: #fff; padding: 1.25rem; box-shadow: 0 1px 2px rgba(15, 34, 56, .05); }
+.charges-shell .section-heading { display: flex; flex-direction: column; gap: .75rem; }
+.charges-shell .section-heading h2 { color: #0f2238; font-size: 1.125rem; font-weight: 800; }
+.charges-shell .section-heading p { margin-top: .25rem; color: #64748b; font-size: .875rem; }
+.charges-shell .field-label { display: block; color: #334155; font-size: .75rem; font-weight: 800; }
+.charges-shell .field { display: block; width: 100%; min-height: 2.5rem; margin-top: .25rem; border: 1px solid #cbd5e1; border-radius: .5rem; background: #fff; color: #0f2238; padding: .5rem .75rem; font-size: .875rem; outline: none; }
+.charges-shell .field:focus { border-color: #4f75a0; box-shadow: 0 0 0 3px rgba(79, 117, 160, .16); }
+.charges-shell .field-error { border: 1px solid #fecaca; border-radius: .5rem; background: #fff1f2; color: #be123c; padding: .5rem .75rem; font-size: .75rem; font-weight: 700; }
+.charges-shell .input-error { border-color: #fb7185; background: #fff1f2; }
+.charges-shell .btn-primary, .charges-shell .btn-secondary { display: inline-flex; min-height: 2.5rem; align-items: center; justify-content: center; border-radius: .5rem; padding: .5rem 1rem; font-size: .875rem; font-weight: 800; transition: background-color .15s, border-color .15s, color .15s; }
+.charges-shell .btn-primary { border: 1px solid #152f4b; background: #152f4b; color: #fff; }
+.charges-shell .btn-primary:hover { background: #0f2238; }
+.charges-shell .btn-secondary { border: 1px solid #cbd5e1; background: #fff; color: #334155; }
+.charges-shell .btn-secondary:hover { border-color: #4f75a0; color: #152f4b; }
+.charges-shell button:disabled { cursor: not-allowed; opacity: .5; }
+.charges-shell .tab-button { min-height: 2.5rem; flex-shrink: 0; border: 1px solid #e2e8f0; border-radius: .5rem; padding: .5rem .75rem; color: #475569; font-size: .875rem; font-weight: 700; }
+.charges-shell .tab-button:hover { border-color: #94a3b8; color: #152f4b; }
+.charges-shell .tab-active { border-color: #152f4b; background: #152f4b; color: #fff; }
+.charges-shell .status-pill { display: inline-flex; border-radius: 999px; padding: .25rem .625rem; font-size: .625rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+.charges-shell .state-error { display: flex; flex-direction: column; gap: .5rem; border: 1px solid #fecaca; border-radius: .75rem; background: #fff1f2; padding: .75rem 1rem; color: #9f1239; font-size: .875rem; }
+.charges-shell .state-success { border: 1px solid #a7f3d0; border-radius: .75rem; background: #ecfdf5; padding: .75rem 1rem; color: #047857; font-size: .875rem; font-weight: 700; }
+.charges-shell .empty-state { border: 1px dashed #cbd5e1; border-radius: 1rem; background: #f8fafc; padding: 2.5rem; text-align: center; color: #64748b; }
+.charges-shell .empty-state h2 { margin-top: .5rem; color: #0f2238; font-size: 1.125rem; font-weight: 800; }
+.charges-shell .empty-state p { max-width: 32rem; margin: .25rem auto 0; font-size: .875rem; }
+.charges-shell .empty-icon { display: flex; width: 3rem; height: 3rem; align-items: center; justify-content: center; margin: 0 auto; border-radius: 999px; background: #dce6f1; color: #152f4b; font-size: 1.5rem; font-weight: 700; }
+.charges-shell .metric { border: 1px solid #e2e8f0; border-radius: .75rem; background: #f8fafc; padding: .75rem; }
+.charges-shell .metric span { display: block; color: #64748b; font-size: .625rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.charges-shell .metric strong { display: block; margin-top: .25rem; color: #0f2238; font-size: 1.125rem; font-weight: 800; }
+.charges-shell .result-row { display: grid; gap: .25rem; border: 1px solid #e2e8f0; border-radius: .5rem; background: #f8fafc; padding: .75rem; }
+.charges-shell .student-option { display: flex; width: 100%; flex-direction: column; border: 1px solid #e2e8f0; border-radius: .75rem; background: #fff; padding: .75rem; text-align: left; }
+.charges-shell .student-option:hover, .charges-shell .charge-select-row:hover { border-color: #4f75a0; background: #f1f5fa; }
+.charges-shell .student-option span, .charges-shell .student-option small, .charges-shell .charge-select-row small { margin-top: .25rem; color: #64748b; font-size: .75rem; }
+.charges-shell .student-selected, .charges-shell .charge-selected { border-color: #4f75a0; background: #f1f5fa; box-shadow: 0 0 0 3px rgba(79, 117, 160, .12); }
+.charges-shell .ledger-row { display: grid; gap: .5rem; border: 1px solid #e2e8f0; border-radius: .5rem; padding: .75rem; font-size: .75rem; }
+.charges-shell .ledger-row span { display: block; color: #64748b; }
+.charges-shell .bucket-card { display: flex; min-height: 6rem; flex-direction: column; border: 1px solid #e2e8f0; border-radius: .75rem; background: #fff; padding: .75rem; text-align: left; }
+.charges-shell .bucket-card:hover { border-color: #4f75a0; background: #f1f5fa; }
+.charges-shell .bucket-card span { color: #64748b; font-size: .75rem; font-weight: 800; text-transform: uppercase; }
+.charges-shell .bucket-card strong { margin-top: .25rem; color: #0f2238; font-size: 1.125rem; font-weight: 800; }
+.charges-shell .bucket-card small { margin-top: .25rem; color: #64748b; font-size: .75rem; }
+.charges-shell .bucket-active { border-color: #4f75a0; background: #f1f5fa; box-shadow: 0 0 0 3px rgba(79, 117, 160, .12); }
+.charges-shell .charge-select-row { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: .75rem; border: 1px solid #e2e8f0; border-radius: .75rem; background: #fff; padding: .75rem; text-align: left; }
+.charges-shell .charge-select-row span { display: flex; min-width: 0; flex-direction: column; }
+
+@media (min-width: 640px) {
+  .charges-shell .section-heading, .charges-shell .state-error { flex-direction: row; align-items: flex-start; justify-content: space-between; }
+  .charges-shell .result-row { grid-template-columns: 180px minmax(0, 1fr) 80px; align-items: center; }
+  .charges-shell .ledger-row { grid-template-columns: minmax(0, 1fr) 120px 90px; align-items: center; }
+}

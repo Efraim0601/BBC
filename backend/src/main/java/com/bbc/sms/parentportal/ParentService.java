@@ -11,6 +11,9 @@ import com.bbc.sms.classkit.dto.ClassKitDtos.ClassResourceView;
 import com.bbc.sms.finance.FeeService;
 import com.bbc.sms.finance.dto.FeeDtos.PaymentChannelView;
 import com.bbc.sms.finance.dto.FeeDtos.StudentFeeStatementView;
+import com.bbc.sms.finance.documents.FinanceDocumentDtos.ParentInvoiceView;
+import com.bbc.sms.finance.documents.FinanceDocumentDtos.ParentReceiptView;
+import com.bbc.sms.finance.documents.FinanceDocumentService;
 import com.bbc.sms.guardian.GuardianAccessService;
 import com.bbc.sms.parentportal.dto.ParentDtos.*;
 import com.bbc.sms.platform.common.ApiException;
@@ -44,6 +47,7 @@ public class ParentService {
     private final FeeService fees;
     private final GuardianAccessService guardianAccess;
     private final BulletinSnapshotService bulletins;
+    private final FinanceDocumentService financeDocuments;
 
     public ParentService(JdbcTemplate jdbc,
                          StudentRepository students,
@@ -53,7 +57,8 @@ public class ParentService {
                          ClassKitService classKit,
                          FeeService fees,
                          GuardianAccessService guardianAccess,
-                         BulletinSnapshotService bulletins) {
+                         BulletinSnapshotService bulletins,
+                         FinanceDocumentService financeDocuments) {
         this.jdbc = jdbc;
         this.students = students;
         this.grades = grades;
@@ -63,6 +68,7 @@ public class ParentService {
         this.fees = fees;
         this.guardianAccess = guardianAccess;
         this.bulletins = bulletins;
+        this.financeDocuments = financeDocuments;
     }
 
     /** Student ids linked to the given parent account. */
@@ -188,6 +194,21 @@ public class ParentService {
     /** Moyens de paiement que l'école accepte et publie aux familles (avec leurs coordonnées). */
     public List<PaymentChannelView> paymentChannels(AppUserPrincipal p) {
         return fees.parentChannels(p.schoolId());
+    }
+
+    public List<ParentInvoiceView> financeInvoices(AppUserPrincipal p, UUID studentId) {
+        guardianAccess.assertAccess(p.schoolId(), p.userId(), studentId, "finance");
+        return financeDocuments.parentInvoices(studentId);
+    }
+
+    public List<ParentReceiptView> financeReceipts(AppUserPrincipal p, UUID studentId) {
+        guardianAccess.assertAccess(p.schoolId(), p.userId(), studentId, "finance");
+        return financeDocuments.parentReceipts(studentId);
+    }
+
+    public UUID financeDocumentId(AppUserPrincipal p, String type, UUID documentId, UUID studentId) {
+        guardianAccess.assertAccess(p.schoolId(), p.userId(), studentId, "finance");
+        return financeDocuments.parentDocumentId(type, documentId, studentId);
     }
 
     private static String labelOr(Map<String, String> label, String lang, String fallback) {

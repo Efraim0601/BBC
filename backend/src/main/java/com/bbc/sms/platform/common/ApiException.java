@@ -7,24 +7,28 @@ import java.util.Map;
 
 /** Business exception translated to the audited, structured API error envelope. */
 public class ApiException extends RuntimeException {
+    public record Blocker(String entityType, String entityId, String label, String action) {}
+
     private final HttpStatus status;
     private final String code;
     private final Map<String, String> fieldErrors;
     private final List<Map<String, Object>> conflicts;
-    private final List<String> blockers;
+    private final List<Blocker> blockers;
+    private final List<String> simpleBlockers;
     private final Long currentVersion;
     private final Long staleVersion;
     private final String messageKey;
     private final Map<String, Object> messageParams;
 
     public ApiException(HttpStatus status, String message) {
-        this(status, defaultCode(status), message, Map.of(), List.of(), List.of(), null, null, null, Map.of());
+        this(status, defaultCode(status), message, Map.of(), List.of(), List.of(), List.of(), null, null, null, Map.of());
     }
 
     public ApiException(HttpStatus status, String code, String message,
                         Map<String, String> fieldErrors,
                         List<Map<String, Object>> conflicts,
-                        List<String> blockers,
+                        List<Blocker> blockers,
+                        List<String> simpleBlockers,
                         Long currentVersion, Long staleVersion,
                         String messageKey, Map<String, Object> messageParams) {
         super(message);
@@ -33,24 +37,44 @@ public class ApiException extends RuntimeException {
         this.fieldErrors = fieldErrors == null ? Map.of() : Map.copyOf(fieldErrors);
         this.conflicts = conflicts == null ? List.of() : List.copyOf(conflicts);
         this.blockers = blockers == null ? List.of() : List.copyOf(blockers);
+        this.simpleBlockers = simpleBlockers == null ? List.of() : List.copyOf(simpleBlockers);
         this.currentVersion = currentVersion;
         this.staleVersion = staleVersion;
         this.messageKey = messageKey;
         this.messageParams = messageParams == null ? Map.of() : Map.copyOf(messageParams);
     }
 
+    /** Compatibility constructor for mainline callers that use string blockers. */
+    public ApiException(HttpStatus status, String code, String message,
+                        Map<String, String> fieldErrors,
+                        List<Map<String, Object>> conflicts,
+                        List<String> blockers,
+                        Long currentVersion, Long staleVersion,
+                        String messageKey, Map<String, Object> messageParams) {
+        this(status, code, message, fieldErrors, conflicts, List.of(), blockers,
+                currentVersion, staleVersion, messageKey, messageParams);
+    }
+
     public HttpStatus getStatus() { return status; }
     public String getCode() { return code; }
     public Map<String, String> getFieldErrors() { return fieldErrors; }
     public List<Map<String, Object>> getConflicts() { return conflicts; }
-    public List<String> getBlockers() { return blockers; }
+    public List<Blocker> getBlockers() { return blockers; }
+    public List<String> getSimpleBlockers() { return simpleBlockers; }
+    public List<?> getResponseBlockers() { return blockers.isEmpty() ? simpleBlockers : blockers; }
     public Long getCurrentVersion() { return currentVersion; }
     public Long getStaleVersion() { return staleVersion; }
     public String getMessageKey() { return messageKey; }
     public Map<String, Object> getMessageParams() { return messageParams; }
 
+    public static ApiException structured(HttpStatus status, String code, String message,
+                                          Map<String, String> fieldErrors, List<Blocker> blockers) {
+        return new ApiException(status, code, message, fieldErrors, List.of(), blockers, List.of(),
+                null, null, null, Map.of());
+    }
+
     public static ApiException notFound(String what) {
-        return coded(HttpStatus.NOT_FOUND, "RESOURCE_NOT_FOUND", what + " introuvable");
+        return coded(HttpStatus.NOT_FOUND, "NOT_FOUND", what + " introuvable");
     }
 
     public static ApiException badRequest(String message) {
@@ -64,7 +88,7 @@ public class ApiException extends RuntimeException {
     public static ApiException conflict(String code, String message,
                                         List<Map<String, Object>> conflicts) {
         return new ApiException(HttpStatus.CONFLICT, code, message, Map.of(), conflicts,
-                List.of(), null, null, null, Map.of());
+                List.of(), List.of(), null, null, null, Map.of());
     }
 
     public static ApiException forbidden(String message) {
@@ -72,35 +96,36 @@ public class ApiException extends RuntimeException {
     }
 
     public static ApiException coded(HttpStatus status, String code, String message) {
-        return new ApiException(status, code, message, Map.of(), List.of(), List.of(), null, null, null, Map.of());
+        return new ApiException(status, code, message, Map.of(), List.of(), List.of(), List.of(),
+                null, null, null, Map.of());
     }
 
     public static ApiException field(HttpStatus status, String code, String message,
                                      String field, String fieldMessage) {
-        return new ApiException(status, code, message, Map.of(field, fieldMessage), List.of(), List.of(),
+        return new ApiException(status, code, message, Map.of(field, fieldMessage), List.of(), List.of(), List.of(),
                 null, null, null, Map.of());
     }
 
     public static ApiException fields(HttpStatus status, String code, String message,
                                       Map<String, String> fieldErrors) {
-        return new ApiException(status, code, message, fieldErrors, List.of(), List.of(),
+        return new ApiException(status, code, message, fieldErrors, List.of(), List.of(), List.of(),
                 null, null, null, Map.of());
     }
 
     public static ApiException blockers(String code, String message, List<String> blockers) {
-        return new ApiException(HttpStatus.CONFLICT, code, message, Map.of(), List.of(), blockers,
+        return new ApiException(HttpStatus.CONFLICT, code, message, Map.of(), List.of(), List.of(), blockers,
                 null, null, null, Map.of());
     }
 
     public static ApiException staleVersion(String message, long currentVersion, long staleVersion) {
-        return new ApiException(HttpStatus.CONFLICT, "STALE_VERSION", message, Map.of(), List.of(), List.of(),
+        return new ApiException(HttpStatus.CONFLICT, "STALE_VERSION", message, Map.of(), List.of(), List.of(), List.of(),
                 currentVersion, staleVersion, "stale_version",
                 Map.of("currentVersion", currentVersion, "staleVersion", staleVersion));
     }
 
     public static ApiException staleVersion(String message, long currentVersion, long staleVersion, String field) {
         return new ApiException(HttpStatus.CONFLICT, "STALE_VERSION", message,
-                Map.of(field, message), List.of(), List.of(), currentVersion, staleVersion,
+                Map.of(field, message), List.of(), List.of(), List.of(), currentVersion, staleVersion,
                 "stale_version", Map.of("currentVersion", currentVersion, "staleVersion", staleVersion));
     }
 
