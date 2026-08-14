@@ -58,6 +58,7 @@ export const NAV_GROUPS: Group[] = [
     { id: 'alerts', route: '/alerts', iconBg: 'bg-amber-100 text-amber-700', color: 'from-amber-500 to-amber-700', svg: NAV_ICONS.alert, subFr: 'Élèves à risque · alertes auto', subEn: 'At-risk students · auto alerts' },
     { id: 'reports', route: '/reports', iconBg: 'bg-indigo-100 text-indigo-700', color: 'from-indigo-500 to-indigo-700', svg: NAV_ICONS.chart, subFr: 'Analytique école entière', subEn: 'School-wide analytics' },
     { id: 'settings', route: '/settings', iconBg: 'bg-slate-100 text-slate-700', color: 'from-slate-500 to-slate-700', svg: NAV_ICONS.settings, subFr: 'Configuration, rôles, lecteur', subEn: 'Config, roles, reader' },
+    { id: 'access-control', route: '/access-control', iconBg: 'bg-indigo-100 text-indigo-700', color: 'from-indigo-500 to-indigo-700', svg: NAV_ICONS.shield, subFr: 'Profils, exceptions, aperçus auditables', subEn: 'Profiles, exceptions, auditable previews' },
   ]},
   { key: 'accounting', labelFr: 'Comptabilité', labelEn: 'Accounting', mods: [
     { id: 'finance-accounting', route: '/finance/accounting', iconBg: 'bg-gold-50 text-gold-700', color: 'from-gold-400 to-gold-700', svg: NAV_ICONS.wallet, subFr: 'Comptes, journaux, rapprochement', subEn: 'Accounts, journals, reconciliation' },

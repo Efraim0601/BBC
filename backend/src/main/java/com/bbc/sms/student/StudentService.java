@@ -1,6 +1,8 @@
 package com.bbc.sms.student;
 
 import com.bbc.sms.platform.common.ApiException;
+import com.bbc.sms.platform.security.AuthorizationPolicyService;
+import com.bbc.sms.platform.security.PolicyResourceContext;
 import com.bbc.sms.foundation.enrollment.EnrollmentService;
 import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.tenant.ParcoursContext;
@@ -11,6 +13,7 @@ import com.bbc.sms.student.dto.StudentDtos.*;
 import com.bbc.sms.timetable.SchoolClass;
 import com.bbc.sms.timetable.SchoolClassRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
@@ -22,6 +25,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
+import java.time.LocalDate;
 
 @Service
 public class StudentService {
@@ -31,19 +35,25 @@ public class StudentService {
     private final SetupService setup;
     private final TeacherScopeService teacherScope;
     private final EnrollmentService enrollmentService;
+    private final AuthorizationPolicyService policy;
+    private final JdbcTemplate jdbc;
 
     public StudentService(StudentRepository repo, SchoolClassRepository classes, SetupService setup,
-                          TeacherScopeService teacherScope, EnrollmentService enrollmentService) {
+                          TeacherScopeService teacherScope, EnrollmentService enrollmentService,
+                          AuthorizationPolicyService policy, JdbcTemplate jdbc) {
         this.repo = repo;
         this.classes = classes;
         this.setup = setup;
         this.teacherScope = teacherScope;
         this.enrollmentService = enrollmentService;
+        this.policy = policy;
+        this.jdbc = jdbc;
     }
 
     @Transactional(readOnly = true)
-    public List<StudentView> list(String className) {
+    public List<? extends DirectoryView> list(String className) {
         UUID schoolId = TenantContext.get();
+        if (teacherScope.restricted()) return teacherList(className, schoolId);
         List<Student> rows = (className == null || className.isBlank())
                 ? repo.findBySchoolIdAndActiveTrueOrderByLastNameAsc(schoolId)
                 : repo.findBySchoolIdAndClassNameAndActiveTrueOrderByLastNameAsc(schoolId, className);
@@ -53,6 +63,7 @@ public class StudentService {
         return rows.stream()
                 .filter(s -> allowed == null || (s.getClassId() != null && allowed.contains(s.getClassId())))
                 .filter(s -> inScope(scope, s.getLevel(), s.getSubsystem()))
+                .filter(s -> policy.decide("STUDENT_DIRECTORY_VIEW", policyContext(s, null, null)).allowed())
                 .map(this::toView).toList();
     }
 
@@ -63,7 +74,7 @@ public class StudentService {
      * session bulletin/PV.
      */
     @Transactional(readOnly = true)
-    public List<StudentView> roster(UUID sessionId, UUID classId) {
+    public List<? extends DirectoryView> roster(UUID sessionId, UUID classId) {
         List<com.bbc.sms.foundation.enrollment.EnrollmentDtos.EnrollmentView> active =
                 enrollmentService.roster(sessionId, classId);
         if (active.isEmpty()) return List.of();
@@ -74,11 +85,17 @@ public class StudentService {
             students.put(student.getId(), student);
         }
         Scope scope = ParcoursContext.get();
+        boolean teacher = teacherScope.restricted();
+        LocalDate rosterDate = sessionStartDate(sessionId);
         return active.stream()
                 .filter(e -> inScope(scope, e.level(), e.subsystem()))
                 .map(e -> {
                     Student student = students.get(e.studentId());
-                    return student == null ? null : toView(student, e.classId(), e.className(), e.subsystem(), e.level());
+                    if (student == null || !policy.decide("STUDENT_DIRECTORY_VIEW",
+                            policyContext(student, sessionId, rosterDate, e.classId())).allowed()) return null;
+                    return teacher
+                            ? toTeacherView(student, e.classId(), e.className(), e.subsystem(), e.level())
+                            : toView(student, e.classId(), e.className(), e.subsystem(), e.level());
                 })
                 .filter(java.util.Objects::nonNull)
                 .toList();
@@ -97,13 +114,24 @@ public class StudentService {
     }
 
     @Transactional(readOnly = true)
-    public StudentView get(UUID id) {
-        teacherScope.assertStudent(id);
-        return toView(find(id));
+    public Object get(UUID id) {
+        Student student = requireAction(id, "STUDENT_PROFILE_VIEW");
+        if (teacherScope.restricted()) {
+            EnrollmentProjection enrollment = activeEnrollment(student.getId(), currentSessionId(TenantContext.get()),
+                    effectiveDate(currentSessionId(TenantContext.get())));
+            if (enrollment == null) {
+                throw ApiException.coded(org.springframework.http.HttpStatus.FORBIDDEN,
+                        "ENROLLMENT_SCOPE_MISMATCH", "Aucune inscription active ne correspond à votre périmètre.");
+            }
+            return toTeacherView(student, enrollment.classId(), enrollment.className(),
+                    enrollment.subsystem(), enrollment.level());
+        }
+        return toView(student);
     }
 
     @Transactional
     public StudentView create(StudentUpsert in) {
+        policy.require("STUDENT_PROFILE_CREATE", PolicyResourceContext.empty().forSchool(TenantContext.get()));
         UUID schoolId = TenantContext.get();
         Student s = new Student();
         s.setSchoolId(schoolId);
@@ -117,8 +145,7 @@ public class StudentService {
 
     @Transactional
     public StudentView update(UUID id, StudentUpsert in) {
-        teacherScope.assertStudent(id);
-        Student s = find(id);
+        Student s = requireAction(id, "STUDENT_PROFILE_EDIT");
         apply(s, in);
         s = repo.saveAndFlush(s);
         enrollmentService.syncCurrent(s);
@@ -127,8 +154,7 @@ public class StudentService {
 
     @Transactional
     public void delete(UUID id) {
-        teacherScope.assertStudent(id);
-        Student s = find(id);
+        Student s = requireAction(id, "STUDENT_PROFILE_DEACTIVATE");
         s.setActive(false);   // soft delete — keeps financial/academic history intact
         repo.save(s);
     }
@@ -141,6 +167,7 @@ public class StudentService {
      */
     @Transactional
     public StudentImportResult importForClass(StudentImportRequest in) {
+        policy.require("STUDENT_IMPORT", PolicyResourceContext.empty().forSchool(TenantContext.get()));
         UUID schoolId = TenantContext.get();
         SchoolClass cls = resolveImportClass(in, schoolId);
         teacherScope.assertClass(cls.getId());
@@ -352,5 +379,135 @@ public class StudentService {
                 s.getMotherName(), s.getMotherPhone(), s.getMotherEmail(),
                 s.getGuardianName(), s.getGuardianPhone(), s.getGuardianEmail(), s.getGuardianRelation(),
                 s.getPhotoHue());
+    }
+
+    private StudentTeacherView toTeacherView(Student s, UUID classId, String className,
+                                             String subsystem, String level) {
+        String name = s.getLastName().toUpperCase() + " " + s.getFirstName();
+        return new StudentTeacherView(s.getId(), s.getMatricule(), s.getNiu(), s.getFirstName(),
+                s.getLastName(), name, s.getSex(), s.getDob(), s.isRepeats(), classId,
+                className, subsystem, level, s.getPhotoHue());
+    }
+
+    /** Query-backed teacher directory: enrollment and class metadata are authoritative. */
+    private List<StudentTeacherView> teacherList(String className, UUID schoolId) {
+        UUID sessionId = currentSessionId(schoolId);
+        if (sessionId == null) return List.of();
+        LocalDate date = effectiveDate(sessionId);
+        Set<UUID> allowedClasses = teacherScope.allowedClassIds(sessionId, date);
+        if (allowedClasses.isEmpty()) return List.of();
+        ParcoursContext.Scope scope = ParcoursContext.get();
+        StringBuilder sql = new StringBuilder("""
+                SELECT DISTINCT e.student_id,e.school_class_id,c.name,c.subsystem,c.level
+                  FROM student_enrollment e
+                  JOIN student st ON st.id=e.student_id AND st.school_id=e.school_id AND st.active=true
+                  JOIN school_class c ON c.id=e.school_class_id AND c.school_id=e.school_id
+                 WHERE e.school_id=? AND e.academic_session_id=? AND e.status='ACTIVE'
+                   AND e.enrolled_on<=? AND (e.exited_on IS NULL OR e.exited_on>=?)
+                """);
+        List<Object> args = new ArrayList<>(List.of(schoolId, sessionId, date, date));
+        appendUuidIn(sql, args, "e.school_class_id", allowedClasses);
+        if (className != null && !className.isBlank()) { sql.append(" AND c.name=?"); args.add(className.trim()); }
+        if (scope != null) {
+            sql.append(" AND lower(c.level)=lower(?) AND lower(c.subsystem)=lower(?)");
+            args.add(scope.level()); args.add(scope.subsystem());
+        }
+        sql.append(" ORDER BY lower(c.name), lower(st.last_name), lower(st.first_name)");
+        List<EnrollmentProjection> projections = jdbc.query(sql.toString(), (rs, n) -> new EnrollmentProjection(
+                rs.getObject("student_id", UUID.class), rs.getObject("school_class_id", UUID.class),
+                rs.getString("name"), rs.getString("subsystem"), rs.getString("level")), args.toArray());
+        Map<UUID, Student> students = new HashMap<>();
+        for (Student student : repo.findBySchoolIdAndIdInAndActiveTrue(schoolId,
+                projections.stream().map(EnrollmentProjection::studentId).toList())) students.put(student.getId(), student);
+        return projections.stream()
+                .filter(p -> students.containsKey(p.studentId()))
+                .filter(p -> policy.decide("STUDENT_DIRECTORY_VIEW",
+                        policyContext(students.get(p.studentId()), sessionId, date, p.classId())).allowed())
+                .map(p -> toTeacherView(students.get(p.studentId()), p.classId(), p.className(),
+                        p.subsystem(), p.level()))
+                .toList();
+    }
+
+    private static void appendUuidIn(StringBuilder sql, List<Object> args, String column, Set<UUID> ids) {
+        sql.append(" AND ").append(column).append(" IN (")
+                .append("?,".repeat(Math.max(0, ids.size() - 1))).append("?)");
+        args.addAll(ids);
+    }
+
+    private EnrollmentProjection activeEnrollment(UUID studentId, UUID sessionId, LocalDate date) {
+        if (sessionId == null) return null;
+        List<EnrollmentProjection> rows = jdbc.query("""
+                SELECT e.student_id,e.school_class_id,c.name,c.subsystem,c.level
+                  FROM student_enrollment e
+                  LEFT JOIN school_class c ON c.id=e.school_class_id AND c.school_id=e.school_id
+                 WHERE e.school_id=? AND e.student_id=? AND e.academic_session_id=? AND e.status='ACTIVE'
+                   AND e.enrolled_on<=? AND (e.exited_on IS NULL OR e.exited_on>=?)
+                 ORDER BY e.enrolled_on DESC,e.created_at DESC LIMIT 1
+                """, (rs, n) -> new EnrollmentProjection(rs.getObject("student_id", UUID.class),
+                rs.getObject("school_class_id", UUID.class), rs.getString("name"),
+                rs.getString("subsystem"), rs.getString("level")), TenantContext.get(), studentId,
+                sessionId, date, date);
+        return rows.isEmpty() ? null : rows.getFirst();
+    }
+
+    private LocalDate effectiveDate(UUID sessionId) {
+        if (sessionId == null) return LocalDate.now();
+        List<List<LocalDate>> bounds = jdbc.query("SELECT start_date,end_date FROM academic_session WHERE id=? AND school_id=?",
+                (rs, n) -> List.of(rs.getObject("start_date", LocalDate.class), rs.getObject("end_date", LocalDate.class)),
+                sessionId, TenantContext.get());
+        if (bounds.isEmpty()) return LocalDate.now();
+        LocalDate now = LocalDate.now();
+        List<LocalDate> range = bounds.getFirst();
+        return now.isBefore(range.getFirst()) ? range.getFirst()
+                : now.isAfter(range.getLast()) ? range.getLast() : now;
+    }
+
+    private record EnrollmentProjection(UUID studentId, UUID classId, String className,
+                                        String subsystem, String level) {}
+
+    /** Exact action + server-resolved student/class/session scope for controllers. */
+    public Student requireAction(UUID id, String actionCode) {
+        Student student = find(id);
+        policy.require(actionCode, policyContext(student, null, null));
+        return student;
+    }
+
+    private PolicyResourceContext policyContext(Student student, UUID sessionId, LocalDate effectiveDate) {
+        // The legacy student.class_id projection is never an authorization
+        // source; resolve the active enrollment below instead.
+        return policyContext(student, sessionId, effectiveDate, null);
+    }
+
+    private PolicyResourceContext policyContext(Student student, UUID sessionId,
+                                                LocalDate effectiveDate, UUID classId) {
+        UUID schoolId = TenantContext.get();
+        UUID resolvedSession = sessionId != null ? sessionId : currentSessionId(schoolId);
+        LocalDate date = effectiveDate != null ? effectiveDate : LocalDate.now();
+        UUID resolvedClass = classId != null ? classId : activeEnrollmentClass(student.getId(), resolvedSession, date);
+        return new PolicyResourceContext(schoolId, resolvedSession, date, ParcoursContext.get(), resolvedClass,
+                null, student.getId(), null, null, null, null, student.getLevel());
+    }
+
+    private UUID currentSessionId(UUID schoolId) {
+        return jdbc.query("SELECT id FROM academic_session WHERE school_id=? AND is_current=true ORDER BY start_date DESC LIMIT 1",
+                rs -> rs.next() ? rs.getObject(1, UUID.class) : null, schoolId);
+    }
+
+    private UUID activeEnrollmentClass(UUID studentId, UUID sessionId, LocalDate date) {
+        if (sessionId == null) return null;
+        return jdbc.query("""
+                SELECT school_class_id FROM student_enrollment
+                 WHERE school_id=? AND student_id=? AND academic_session_id=? AND status='ACTIVE'
+                   AND enrolled_on<=? AND (exited_on IS NULL OR exited_on>=?)
+                 ORDER BY enrolled_on DESC, created_at DESC LIMIT 1
+                """, rs -> rs.next() ? rs.getObject(1, UUID.class) : null,
+                TenantContext.get(), studentId, sessionId, date, date);
+    }
+
+    private LocalDate sessionStartDate(UUID sessionId) {
+        if (sessionId == null) return LocalDate.now();
+        return jdbc.query("SELECT start_date FROM academic_session WHERE id=? AND school_id=?",
+                rs -> rs.next() ? rs.getObject(1, LocalDate.class) : LocalDate.now(),
+                sessionId, TenantContext.get());
     }
 }

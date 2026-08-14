@@ -5,6 +5,8 @@ import com.bbc.sms.identity.School;
 import com.bbc.sms.identity.SchoolRepository;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AppUserPrincipal;
+import com.bbc.sms.platform.security.AuthorizationPolicyService;
+import com.bbc.sms.platform.security.PolicyResourceContext;
 import com.bbc.sms.platform.tenant.TenantContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -29,16 +31,20 @@ public class DocumentDesignService {
     private final JdbcTemplate jdbc;
     private final SchoolRepository schools;
     private final AuditService audit;
+    private final AuthorizationPolicyService policy;
 
-    public DocumentDesignService(JdbcTemplate jdbc, SchoolRepository schools, AuditService audit) {
+    public DocumentDesignService(JdbcTemplate jdbc, SchoolRepository schools, AuditService audit,
+                                 AuthorizationPolicyService policy) {
         this.jdbc = jdbc;
         this.schools = schools;
         this.audit = audit;
+        this.policy = policy;
     }
 
     @Transactional(readOnly = true)
     public DocumentDesignView current() {
         UUID schoolId = TenantContext.get();
+        requireDesignAccess(schoolId);
         List<TemplateVersionView> templates = jdbc.query("""
                 SELECT id,type,locale,name,template_version,template_family,product,subsystem,
                        status,reference_family,checksum,published_at
@@ -70,6 +76,7 @@ public class DocumentDesignService {
     @Transactional
     public TemplateVersionView publishTemplate(UUID templateId, String reason) {
         UUID schoolId = TenantContext.get();
+        requireDesignAccess(schoolId);
         TemplateSeed source = jdbc.query("""
                 SELECT id,type,locale,name,body_template,template_family,product,subsystem,
                        reference_family,config_json::text
@@ -105,6 +112,7 @@ public class DocumentDesignService {
     @Transactional
     public BrandingVersionView publishBranding(PublishRequest request) {
         UUID schoolId = TenantContext.get();
+        requireDesignAccess(schoolId);
         School school = schools.findById(schoolId).orElseThrow(() -> ApiException.notFound("Établissement"));
         String locale = normalizeLocale(request.locale());
         BrandingSeed previous = jdbc.query("""
@@ -179,6 +187,12 @@ public class DocumentDesignService {
                 rs.getString("template_family"), rs.getString("product"), rs.getString("subsystem"),
                 rs.getString("status"), rs.getString("reference_family"), rs.getString("checksum"),
                 instant(rs, "published_at")) : null, id, TenantContext.get());
+    }
+
+    private void requireDesignAccess(UUID schoolId) {
+        policy.require("DOCUMENT_DESIGN_PUBLISH", new PolicyResourceContext(
+                schoolId, null, java.time.LocalDate.now(), null, null, null,
+                null, null, null, null, null, null));
     }
 
     private BrandingVersionView findBranding(UUID id) {

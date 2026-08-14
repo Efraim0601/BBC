@@ -1,6 +1,8 @@
 package com.bbc.sms.settings;
 
 import com.bbc.sms.platform.common.ApiException;
+import com.bbc.sms.platform.security.AuthorizationPolicyService;
+import com.bbc.sms.platform.security.PolicyResourceContext;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.settings.dto.SettingsDtos.*;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -30,11 +32,20 @@ public class PermissionAdminService {
     private static final Set<String> LEVELS = Set.of("none", "read", "write");
 
     private final JdbcTemplate jdbc;
+    private final AuthorizationPolicyService policy;
 
-    public PermissionAdminService(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+    public PermissionAdminService(JdbcTemplate jdbc, AuthorizationPolicyService policy) {
+        this.jdbc = jdbc;
+        this.policy = policy;
+    }
 
     @Transactional(readOnly = true)
     public PermissionMatrix getMatrix() {
+        require("PERMISSION_VIEW");
+        return loadMatrix();
+    }
+
+    private PermissionMatrix loadMatrix() {
         UUID schoolId = TenantContext.get();
 
         List<RoleView> roles = jdbc.query(
@@ -59,6 +70,7 @@ public class PermissionAdminService {
 
     @Transactional
     public PermissionMatrix update(UpdateRequest req) {
+        require("PERMISSION_MANAGE");
         UUID schoolId = TenantContext.get();
         for (PermissionUpdate u : req.updates()) {
             if (!LEVELS.contains(u.level())) {
@@ -82,11 +94,12 @@ public class PermissionAdminService {
                     DO UPDATE SET level = EXCLUDED.level
                     """, schoolId, u.roleCode(), u.module(), u.level());
         }
-        return getMatrix();
+        return loadMatrix();
     }
 
     @Transactional
     public RoleView createRole(RoleUpsert in) {
+        require("ROLE_MANAGE");
         String code = slug(in.code() != null && !in.code().isBlank() ? in.code() : in.labelFr());
         if (code.isBlank()) throw ApiException.badRequest("Code de rôle obligatoire");
         if (code.length() > 32) throw ApiException.badRequest("Code trop long (max 32)");
@@ -105,6 +118,7 @@ public class PermissionAdminService {
     /** Labels only — role codes stay immutable (including built-in roles). */
     @Transactional
     public RoleView updateRole(String code, RoleUpsert in) {
+        require("ROLE_MANAGE");
         Map<String, Object> row = roleRow(code);
         boolean builtin = Boolean.TRUE.equals(row.get("builtin"));
         String fr = in.labelFr().trim();
@@ -116,6 +130,7 @@ public class PermissionAdminService {
 
     @Transactional(readOnly = true)
     public List<RoleView> listRoles() {
+        require("ROLE_VIEW");
         return jdbc.query(
                 "SELECT code, label_fr, label_en, builtin FROM role ORDER BY builtin DESC, code",
                 (rs, i) -> new RoleView(rs.getString("code"), rs.getString("label_fr"),
@@ -124,6 +139,7 @@ public class PermissionAdminService {
 
     @Transactional
     public void deleteRole(String code) {
+        require("ROLE_MANAGE");
         Map<String, Object> row = roleRow(code);
         if (Boolean.TRUE.equals(row.get("builtin"))) {
             throw ApiException.badRequest("Les rôles intégrés ne peuvent pas être supprimés");
@@ -148,6 +164,10 @@ public class PermissionAdminService {
     private void assertRoleExists(String code) {
         Integer n = jdbc.queryForObject("SELECT count(*) FROM role WHERE code = ?", Integer.class, code);
         if (n == null || n == 0) throw ApiException.badRequest("Rôle inconnu : " + code);
+    }
+
+    private void require(String action) {
+        policy.require(action, PolicyResourceContext.empty().forSchool(TenantContext.get()));
     }
 
     /** Stable short code from a label: "Surveillant général" → "surveillant-general". */

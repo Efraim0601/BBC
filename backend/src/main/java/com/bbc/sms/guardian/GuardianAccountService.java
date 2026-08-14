@@ -3,6 +3,8 @@ package com.bbc.sms.guardian;
 import com.bbc.sms.foundation.audit.AuditService;
 import com.bbc.sms.identity.*;
 import com.bbc.sms.platform.common.ApiException;
+import com.bbc.sms.platform.security.AuthorizationPolicyService;
+import com.bbc.sms.platform.security.PolicyResourceContext;
 import com.bbc.sms.platform.mail.MailService;
 import com.bbc.sms.platform.tenant.TenantContext;
 import org.springframework.http.HttpStatus;
@@ -21,10 +23,12 @@ import static com.bbc.sms.guardian.GuardianDtos.*;
 public class GuardianAccountService {
     private final JdbcTemplate jdbc; private final AppUserRepository users; private final SchoolRepository schools;
     private final PasswordEncoder encoder; private final MailService mail; private final AuditService audit;
-    public GuardianAccountService(JdbcTemplate jdbc,AppUserRepository users,SchoolRepository schools,PasswordEncoder encoder,MailService mail,AuditService audit){this.jdbc=jdbc;this.users=users;this.schools=schools;this.encoder=encoder;this.mail=mail;this.audit=audit;}
+    private final AuthorizationPolicyService policy;
+    public GuardianAccountService(JdbcTemplate jdbc,AppUserRepository users,SchoolRepository schools,PasswordEncoder encoder,MailService mail,AuditService audit,AuthorizationPolicyService policy){this.jdbc=jdbc;this.users=users;this.schools=schools;this.encoder=encoder;this.mail=mail;this.audit=audit;this.policy=policy;}
 
     @Transactional
     public InviteResult issueInvite(UUID guardianId){
+        requireDirectoryManagement();
         var g=guardian(guardianId); if(g.email()==null)throw ApiException.badRequest("Ce parent n’a pas d’adresse e-mail");
         Integer recent=jdbc.queryForObject("SELECT count(*) FROM guardian_account_token WHERE guardian_id=? AND token_type='INVITE' AND created_at>now()-interval '60 seconds'",Integer.class,guardianId);
         if(recent!=null&&recent>0)throw new ApiException(HttpStatus.TOO_MANY_REQUESTS,"Une invitation vient déjà d’être envoyée. Réessayez dans une minute.");
@@ -65,9 +69,13 @@ public class GuardianAccountService {
     }
 
     @Transactional public void deactivateIfOrphan(UUID guardianId){Integer n=jdbc.queryForObject("SELECT count(*) FROM student_guardian WHERE guardian_id=? AND effective_to IS NULL",Integer.class,guardianId);if(n!=null&&n==0){GuardianRow g=guardian(guardianId);jdbc.update("UPDATE guardian SET status='INACTIVE' WHERE id=?",guardianId);if(g.userId()!=null)users.findById(g.userId()).ifPresent(u->{u.setActive(false);users.save(u);});}}
-    @Transactional public void reactivate(UUID guardianId,String reason){GuardianRow g=guardian(guardianId);jdbc.update("UPDATE guardian SET status='ACTIVE' WHERE id=?",guardianId);if(g.userId()!=null)users.findById(g.userId()).ifPresent(u->{u.setActive(true);u.setFailedAttempts(0);u.setLockedUntil(null);users.save(u);});audit.record("GUARDIAN_REACTIVATED","Guardian",guardianId.toString(),null,Map.of("active",true),reason);}
-    @Transactional public void deactivate(UUID guardianId,String reason){Integer n=jdbc.queryForObject("SELECT count(*) FROM student_guardian WHERE guardian_id=? AND effective_to IS NULL",Integer.class,guardianId);if(n!=null&&n>0)throw ApiException.conflict("Terminez d’abord les relations actives de ce parent");deactivateIfOrphan(guardianId);audit.record("GUARDIAN_DEACTIVATED","Guardian",guardianId.toString(),null,Map.of("active",false),reason);}
+    @Transactional public void reactivate(UUID guardianId,String reason){requireDirectoryManagement();GuardianRow g=guardian(guardianId);jdbc.update("UPDATE guardian SET status='ACTIVE' WHERE id=?",guardianId);if(g.userId()!=null)users.findById(g.userId()).ifPresent(u->{u.setActive(true);u.setFailedAttempts(0);u.setLockedUntil(null);users.save(u);});audit.record("GUARDIAN_REACTIVATED","Guardian",guardianId.toString(),null,Map.of("active",true),reason);}
+    @Transactional public void deactivate(UUID guardianId,String reason){requireDirectoryManagement();Integer n=jdbc.queryForObject("SELECT count(*) FROM student_guardian WHERE guardian_id=? AND effective_to IS NULL",Integer.class,guardianId);if(n!=null&&n>0)throw ApiException.conflict("Terminez d’abord les relations actives de ce parent");deactivateIfOrphan(guardianId);audit.record("GUARDIAN_DEACTIVATED","Guardian",guardianId.toString(),null,Map.of("active",false),reason);}
 
+    private void requireDirectoryManagement(){
+        policy.require("GUARDIAN_DIRECTORY_MANAGE", new PolicyResourceContext(TenantContext.get(), null,
+                java.time.LocalDate.now(), null, null, null, null, null, null, null, null, null));
+    }
     private Token token(UUID gid,String type,int hours){return tokenForSchool(TenantContext.get(),gid,type,hours);}
     private Token tokenForSchool(UUID school,UUID gid,String type,int hours){String raw=Base64.getUrlEncoder().withoutPadding().encodeToString(random(32));OffsetDateTime exp=OffsetDateTime.now().plusHours(hours);jdbc.update("UPDATE guardian_account_token SET used_at=now() WHERE guardian_id=? AND token_type=? AND used_at IS NULL",gid,type);jdbc.update("INSERT INTO guardian_account_token(id,school_id,guardian_id,token_type,token_hash,expires_at) VALUES (?,?,?,?,?,?)",UUID.randomUUID(),school,gid,type,hash(raw),exp);return new Token(raw,exp);}
     private TokenRow consume(String raw,String type){List<TokenRow> r=jdbc.query("SELECT guardian_id,school_id FROM guardian_account_token WHERE token_hash=? AND token_type=? AND used_at IS NULL AND expires_at>now()",(rs,i)->new TokenRow((UUID)rs.getObject(1),(UUID)rs.getObject(2)),hash(raw),type);if(r.isEmpty())throw ApiException.badRequest("Lien invalide, expiré ou déjà utilisé");jdbc.update("UPDATE guardian_account_token SET used_at=now() WHERE token_hash=?",hash(raw));return r.getFirst();}

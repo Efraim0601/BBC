@@ -18,6 +18,9 @@ import com.bbc.sms.guardian.GuardianAccessService;
 import com.bbc.sms.parentportal.dto.ParentDtos.*;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AppUserPrincipal;
+import com.bbc.sms.platform.security.AuthorizationPolicyService;
+import com.bbc.sms.platform.security.PolicyResourceContext;
+import com.bbc.sms.platform.tenant.ParcoursContext;
 import com.bbc.sms.student.Student;
 import com.bbc.sms.student.StudentRepository;
 import org.springframework.http.HttpStatus;
@@ -29,6 +32,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import java.time.LocalDate;
 
 /**
  * Parent portal read/write logic. Owns JPA only for {@code parent_suggestion};
@@ -46,6 +50,7 @@ public class ParentService {
     private final ClassKitService classKit;
     private final FeeService fees;
     private final GuardianAccessService guardianAccess;
+    private final AuthorizationPolicyService policy;
     private final BulletinSnapshotService bulletins;
     private final FinanceDocumentService financeDocuments;
 
@@ -57,6 +62,7 @@ public class ParentService {
                          ClassKitService classKit,
                          FeeService fees,
                          GuardianAccessService guardianAccess,
+                         AuthorizationPolicyService policy,
                          BulletinSnapshotService bulletins,
                          FinanceDocumentService financeDocuments) {
         this.jdbc = jdbc;
@@ -67,6 +73,7 @@ public class ParentService {
         this.classKit = classKit;
         this.fees = fees;
         this.guardianAccess = guardianAccess;
+        this.policy = policy;
         this.bulletins = bulletins;
         this.financeDocuments = financeDocuments;
     }
@@ -86,19 +93,25 @@ public class ParentService {
         List<ChildView> out = new ArrayList<>();
         for (UUID studentId : childIds(schoolId, p.userId())) {
             Student s = students.findByIdAndSchoolId(studentId, schoolId).orElse(null);
-            if (s == null) continue; // cross-tenant / inactive safety
+            if (s == null || !s.isActive()
+                    || !policy.decide("PARENT_CHILD_SUMMARY_VIEW", childContext(p, studentId)).allowed()) continue;
 
             String name = s.getLastName().toUpperCase() + " " + s.getFirstName();
 
             // Même calcul que l'onglet « Frais & paiements » (grille de la classe moins les
             // versements reçus) : deux écrans du même portail ne peuvent pas annoncer
             // deux soldes différents au parent.
-            StudentFeeStatementView st = fees.statement(schoolId, studentId);
-
-            int attendanceRate = attendanceRate(schoolId, studentId);
+            boolean financeVisible = policy.decide("PARENT_FINANCE_VIEW",
+                    childContext(p, studentId)).allowed();
+            StudentFeeStatementView st = financeVisible
+                    ? fees.statementForParent(schoolId, studentId) : null;
+            boolean attendanceVisible = policy.decide("PARENT_ATTENDANCE_VIEW",
+                    childContext(p, studentId)).allowed();
+            int attendanceRate = attendanceVisible ? attendanceRate(schoolId, studentId) : 0;
 
             out.add(new ChildView(studentId, s.getMatricule(), name, s.getClassName(),
-                    st.balance(), st.status(), attendanceRate));
+                    st == null ? 0 : st.balance(), st == null ? null : st.status(),
+                    attendanceRate, financeVisible, attendanceVisible));
         }
         return out;
     }
@@ -114,7 +127,7 @@ public class ParentService {
     }
 
     public List<GradeView> grades(AppUserPrincipal p, UUID studentId) {
-        assertOwnership(p.schoolId(), p.userId(), studentId);
+        requireParentAction(p, "PARENT_ACADEMIC_VIEW", studentId);
         Map<String, Subject> byCode = subjects.findBySchoolIdOrderByCode(p.schoolId()).stream()
                 .collect(Collectors.toMap(Subject::getCode, s -> s, (a, b) -> a));
         List<GradeView> out = new ArrayList<>();
@@ -134,17 +147,17 @@ public class ParentService {
     }
 
     public BulletinSnapshotView publishedBulletin(AppUserPrincipal p, UUID studentId, UUID reportingPeriodId) {
-        assertOwnership(p.schoolId(), p.userId(), studentId);
+        requireParentAction(p, "PARENT_ACADEMIC_VIEW", studentId);
         return bulletins.published(studentId, reportingPeriodId);
     }
 
     public BulletinSnapshotView latestPublishedBulletin(AppUserPrincipal p, UUID studentId) {
-        assertOwnership(p.schoolId(), p.userId(), studentId);
+        requireParentAction(p, "PARENT_ACADEMIC_VIEW", studentId);
         return bulletins.publishedLatest(studentId);
     }
 
     public List<ParentJourneyEventView> journey(AppUserPrincipal p, UUID studentId) {
-        assertOwnership(p.schoolId(), p.userId(), studentId);
+        requireParentAction(p, "PARENT_ACADEMIC_VIEW", studentId);
         List<ParentJourneyEventView> result = new ArrayList<>();
         result.addAll(jdbc.query("""
                 SELECT e.id,e.event_type,s.label,e.payload->>'class' AS class_name,
@@ -172,7 +185,7 @@ public class ParentService {
 
     /** Published supplies/books list for the class of one of the parent's children. */
     public ClassResourceView resources(AppUserPrincipal p, UUID studentId, String kind) {
-        assertOwnership(p.schoolId(), p.userId(), studentId);
+        requireParentAction(p, "PARENT_ACADEMIC_VIEW", studentId);
         Student s = students.findByIdAndSchoolId(studentId, p.schoolId())
                 .orElseThrow(() -> ApiException.notFound("Élève"));
         if (s.getClassId() == null) {
@@ -187,28 +200,34 @@ public class ParentService {
      * suivre un paiement progressif sans passer par le secrétariat.
      */
     public StudentFeeStatementView feeStatement(AppUserPrincipal p, UUID studentId) {
-        guardianAccess.assertAccess(p.schoolId(), p.userId(), studentId, "finance");
-        return fees.statement(p.schoolId(), studentId);
+        requireParentAction(p, "PARENT_FINANCE_VIEW", studentId);
+        return fees.statementForParent(p.schoolId(), studentId);
     }
 
     /** Moyens de paiement que l'école accepte et publie aux familles (avec leurs coordonnées). */
     public List<PaymentChannelView> paymentChannels(AppUserPrincipal p) {
+        requireAnyChild(p, "PARENT_FINANCE_VIEW");
         return fees.parentChannels(p.schoolId());
     }
 
     public List<ParentInvoiceView> financeInvoices(AppUserPrincipal p, UUID studentId) {
-        guardianAccess.assertAccess(p.schoolId(), p.userId(), studentId, "finance");
+        requireParentAction(p, "PARENT_FINANCE_VIEW", studentId);
         return financeDocuments.parentInvoices(studentId);
     }
 
     public List<ParentReceiptView> financeReceipts(AppUserPrincipal p, UUID studentId) {
-        guardianAccess.assertAccess(p.schoolId(), p.userId(), studentId, "finance");
+        requireParentAction(p, "PARENT_FINANCE_VIEW", studentId);
         return financeDocuments.parentReceipts(studentId);
     }
 
     public UUID financeDocumentId(AppUserPrincipal p, String type, UUID documentId, UUID studentId) {
-        guardianAccess.assertAccess(p.schoolId(), p.userId(), studentId, "finance");
-        return financeDocuments.parentDocumentId(type, documentId, studentId);
+        String normalizedType = type == null ? "" : type.trim().toUpperCase(java.util.Locale.ROOT);
+        if (!normalizedType.equals("INVOICE") && !normalizedType.equals("RECEIPT")) {
+            throw ApiException.badRequest("Type de document financier invalide");
+        }
+        requireParentAction(p, "PARENT_FINANCE_VIEW", studentId);
+        requireParentAction(p, "PARENT_DOCUMENT_DOWNLOAD", studentId);
+        return financeDocuments.parentDocumentId(normalizedType, documentId, studentId);
     }
 
     private static String labelOr(Map<String, String> label, String lang, String fallback) {
@@ -218,6 +237,7 @@ public class ParentService {
     }
 
     public SuggestionView createSuggestion(AppUserPrincipal p, SuggestionRequest req) {
+        requireAnyChild(p, "PARENT_SUGGESTION_SUBMIT");
         ParentSuggestion ps = new ParentSuggestion();
         ps.setSchoolId(p.schoolId());
         ps.setParentUserId(p.userId());
@@ -229,16 +249,35 @@ public class ParentService {
     }
 
     public List<SuggestionView> mySuggestions(AppUserPrincipal p) {
+        requireAnyChild(p, "PARENT_CHILD_SUMMARY_VIEW");
         return suggestions.findBySchoolIdAndParentUserIdOrderByCreatedAtDesc(p.schoolId(), p.userId())
                 .stream().map(this::toView).toList();
     }
 
     public List<SuggestionView> allSuggestions(UUID schoolId) {
+        policy.require("DASHBOARD_VIEW", new PolicyResourceContext(schoolId, null, LocalDate.now(),
+                null, null, null, null, null, null, null, null, null));
         return suggestions.findBySchoolIdOrderByCreatedAtDesc(schoolId)
                 .stream().map(this::toView).toList();
     }
 
     private SuggestionView toView(ParentSuggestion ps) {
         return new SuggestionView(ps.getId(), ps.getCategory(), ps.getMessage(), ps.getStatus(), ps.getCreatedAt());
+    }
+
+    private void requireParentAction(AppUserPrincipal p, String action, UUID studentId) {
+        policy.require(action, childContext(p, studentId));
+    }
+
+    private void requireAnyChild(AppUserPrincipal p, String action) {
+        List<UUID> children = childIds(p.schoolId(), p.userId());
+        if (children.stream().anyMatch(child ->
+                policy.decide(action, childContext(p, child)).allowed())) return;
+        throw ApiException.forbidden("Aucun enfant lié et actif n'autorise cette action.");
+    }
+
+    private PolicyResourceContext childContext(AppUserPrincipal p, UUID studentId) {
+        return new PolicyResourceContext(p.schoolId(), null, LocalDate.now(), ParcoursContext.get(),
+                null, null, studentId, null, null, null, null, null);
     }
 }

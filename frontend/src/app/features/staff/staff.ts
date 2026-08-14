@@ -262,6 +262,12 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                         </button>
                       }
                     </div>
+                    @if (e.accountUserId && auth.canAction('PERMISSION_VIEW')) {
+                      <a [routerLink]="['/access-control']" [queryParams]="{ userId: e.accountUserId }"
+                        class="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-700 hover:text-indigo-900">
+                        <bbc-icon name="shield" [s]="14" /> {{ fr() ? 'Accès & responsabilités' : 'Access & responsibilities' }}
+                      </a>
+                    }
                     @if (accountMsg(); as m) {
                       <div class="mt-2 text-xs rounded-lg px-3 py-2" [class]="m.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'">{{ m.text }}</div>
                     }
@@ -1054,7 +1060,7 @@ export class StaffComponent {
   private hrApi = inject(HrApi);
   private settingsApi = inject(SettingsApi);
   private setupApi = inject(SetupApi);
-  private auth = inject(AuthService);
+  protected auth = inject(AuthService);
 
   protected rows = signal<EmployeeView[]>([]);
   protected roleDefs = signal<RoleView[]>([]);

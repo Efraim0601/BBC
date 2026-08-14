@@ -6,6 +6,7 @@ import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.student.Student;
 import com.bbc.sms.student.StudentRepository;
+import com.bbc.sms.student.StudentService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -25,12 +26,14 @@ public class DisciplineService {
     private final DisciplineRepository repo;
     private final StudentRepository students;
     private final TeacherScopeService teacherScope;
+    private final StudentService studentAccess;
 
     public DisciplineService(DisciplineRepository repo, StudentRepository students,
-                             TeacherScopeService teacherScope) {
+                             TeacherScopeService teacherScope, StudentService studentAccess) {
         this.repo = repo;
         this.students = students;
         this.teacherScope = teacherScope;
+        this.studentAccess = studentAccess;
     }
 
     @Transactional(readOnly = true)
@@ -54,13 +57,16 @@ public class DisciplineService {
     /** Resolve a matricule or UUID to a student card for the incident form. */
     @Transactional(readOnly = true)
     public StudentLookup lookup(String ref) {
-        return toLookup(resolveStudent(ref));
+        Student student = resolveStudent(ref);
+        studentAccess.requireAction(student.getId(), "DISCIPLINE_VIEW");
+        return toLookup(student);
     }
 
     @Transactional
     public IncidentView create(IncidentUpsert in) {
         UUID schoolId = TenantContext.get();
         Student student = resolveStudent(in.studentRef());
+        studentAccess.requireAction(student.getId(), "DISCIPLINE_MANAGE");
         DisciplineIncident i = new DisciplineIncident();
         i.setSchoolId(schoolId);
         i.setStudentId(student.getId());
@@ -79,6 +85,7 @@ public class DisciplineService {
     @Transactional(readOnly = true)
     public NotifyResult notifyParent(NotifyRequest in) {
         Student student = resolveStudent(in.studentRef());
+        studentAccess.requireAction(student.getId(), "DISCIPLINE_MANAGE");
         String channel = in.channel() == null ? "" : in.channel().trim().toLowerCase();
         if (!channel.equals("sms") && !channel.equals("email")) {
             throw ApiException.badRequest("Canal invalide (sms ou email)");
@@ -109,6 +116,7 @@ public class DisciplineService {
     public void delete(UUID id) {
         DisciplineIncident i = repo.findByIdAndSchoolId(id, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Incident"));
+        studentAccess.requireAction(i.getStudentId(), "DISCIPLINE_MANAGE");
         repo.delete(i);
     }
 

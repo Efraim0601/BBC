@@ -2,6 +2,8 @@ package com.bbc.sms.coursebook;
 
 import com.bbc.sms.coursebook.dto.CoursebookDtos.*;
 import com.bbc.sms.platform.common.ApiException;
+import com.bbc.sms.platform.security.AuthorizationPolicyService;
+import com.bbc.sms.platform.security.PolicyResourceContext;
 import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.security.AppUserPrincipal;
 import com.bbc.sms.platform.tenant.TenantContext;
@@ -23,17 +25,21 @@ public class CoursebookService {
     private final CoursebookRepository repo;
     private final TeacherScopeService teacherScope;
     private final JdbcTemplate jdbc;
+    private final AuthorizationPolicyService policy;
 
-    public CoursebookService(CoursebookRepository repo, TeacherScopeService teacherScope, JdbcTemplate jdbc) {
+    public CoursebookService(CoursebookRepository repo, TeacherScopeService teacherScope, JdbcTemplate jdbc,
+                             AuthorizationPolicyService policy) {
         this.repo = repo;
         this.teacherScope = teacherScope;
         this.jdbc = jdbc;
+        this.policy = policy;
     }
 
     @Transactional(readOnly = true)
     public List<EntryView> forClass(String className) {
         if (className == null || className.isBlank()) return List.of();
         teacherScope.assertClassName(className.trim());
+        requirePolicy("COURSEBOOK_VIEW", classId(className.trim()));
         UUID schoolId = TenantContext.get();
         Map<String, String> labels = subjectLabels(schoolId);
         return repo.findBySchoolIdAndClassNameOrderByEntryDateDesc(schoolId, className.trim())
@@ -43,6 +49,7 @@ public class CoursebookService {
     @Transactional
     public EntryView create(EntryUpsert in) {
         teacherScope.assertClassName(in.className());
+        requirePolicy("COURSEBOOK_MANAGE", classId(in.className().trim()));
         UUID schoolId = TenantContext.get();
         CoursebookEntry e = new CoursebookEntry();
         apply(e, in, schoolId);
@@ -57,6 +64,8 @@ public class CoursebookService {
                 .orElseThrow(() -> ApiException.notFound("Entrée du cahier de textes"));
         teacherScope.assertClassName(e.getClassName());
         teacherScope.assertClassName(in.className());
+        requirePolicy("COURSEBOOK_MANAGE", classId(e.getClassName()));
+        requirePolicy("COURSEBOOK_MANAGE", classId(in.className().trim()));
         apply(e, in, schoolId);
         return toView(repo.save(e), subjectLabels(schoolId));
     }
@@ -66,6 +75,7 @@ public class CoursebookService {
         CoursebookEntry e = repo.findByIdAndSchoolId(id, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Entrée du cahier de textes"));
         teacherScope.assertClassName(e.getClassName());
+        requirePolicy("COURSEBOOK_MANAGE", classId(e.getClassName()));
         repo.delete(e);
     }
 
@@ -98,5 +108,18 @@ public class CoursebookService {
         String label = labels.getOrDefault(e.getSubjectCode(), e.getSubjectCode());
         return new EntryView(e.getId(), e.getClassName(), e.getSubjectCode(), label,
                 e.getEntryDate(), e.getContent(), e.getHomework(), e.getDueDate());
+    }
+
+    private UUID classId(String className) {
+        UUID id = jdbc.query("SELECT id FROM school_class WHERE school_id=? AND name=?",
+                rs -> rs.next() ? rs.getObject(1, UUID.class) : null,
+                TenantContext.get(), className);
+        if (id == null) throw ApiException.notFound("Classe");
+        return id;
+    }
+
+    private void requirePolicy(String action, UUID classId) {
+        policy.require(action, new PolicyResourceContext(TenantContext.get(), null, java.time.LocalDate.now(),
+                null, classId, null, null, null, null, null, null, null));
     }
 }

@@ -3,6 +3,7 @@ package com.bbc.sms.finance.charges;
 import com.bbc.sms.finance.accounting.AccountingPeriod;
 import com.bbc.sms.finance.accounting.AccountingPeriodService;
 import com.bbc.sms.finance.accounting.LedgerPostingService;
+import com.bbc.sms.finance.FinancePolicyService;
 import com.bbc.sms.finance.fees.FeeType;
 import com.bbc.sms.finance.fees.FeeTypeRepository;
 import com.bbc.sms.finance.fees.FeeTypeRevision;
@@ -50,6 +51,7 @@ public class ChargeGenerationService {
     private final LedgerPostingService ledger;
     private final IdempotencyService idempotency;
     private final AuditService audit;
+    private final FinancePolicyService financePolicy;
 
     public ChargeGenerationService(ChargeGenerationPreviewService previewService,
                                    ChargeGenerationJobRepository jobs,
@@ -64,7 +66,8 @@ public class ChargeGenerationService {
                                    AccountingPeriodService periods,
                                    LedgerPostingService ledger,
                                    IdempotencyService idempotency,
-                                   AuditService audit) {
+                                   AuditService audit,
+                                   FinancePolicyService financePolicy) {
         this.previewService = previewService;
         this.jobs = jobs;
         this.results = results;
@@ -79,21 +82,25 @@ public class ChargeGenerationService {
         this.ledger = ledger;
         this.idempotency = idempotency;
         this.audit = audit;
+        this.financePolicy = financePolicy;
     }
 
     @Transactional(readOnly = true)
     public GenerationPreview preview(GenerationRequest request) {
+        financePolicy.requireSchool("CHARGE_PREVIEW");
         return previewService.preview(request);
     }
 
     @Transactional
     public GenerationJobView generate(GenerationRequest request, String idempotencyKey) {
+        financePolicy.requireSchool("CHARGE_GENERATE");
         return idempotency.execute("finance-v2/charges/generate", idempotencyKey, request,
                 GenerationJobView.class, () -> generateNow(request, idempotencyKey));
     }
 
     @Transactional
     public GenerationJobView retry(UUID jobId, String idempotencyKey) {
+        financePolicy.requireSchool("CHARGE_GENERATE");
         ChargeGenerationJob job = requireJob(jobId);
         GenerationRequest request = new GenerationRequest(job.getAcademicSessionId(), job.getSchoolClassId(),
                 job.getLevel(), job.getSubsystem(), job.getChargeDate(), job.getProrationPolicy(), job.getTransferPolicy());
@@ -101,15 +108,20 @@ public class ChargeGenerationService {
     }
 
     @Transactional(readOnly = true)
-    public GenerationJobView job(UUID id) { return view(requireJob(id)); }
+    public GenerationJobView job(UUID id) {
+        financePolicy.requireSchool("FINANCE_OVERVIEW_VIEW");
+        return view(requireJob(id));
+    }
 
     @Transactional(readOnly = true)
     public List<GenerationJobView> jobs() {
+        financePolicy.requireSchool("FINANCE_OVERVIEW_VIEW");
         return jobs.findBySchoolIdOrderByCreatedAtDesc(TenantContext.get()).stream().map(this::view).toList();
     }
 
     @Transactional(readOnly = true)
     public List<GenerationResultView> results(UUID jobId) {
+        financePolicy.requireSchool("FINANCE_OVERVIEW_VIEW");
         requireJob(jobId);
         return results.findBySchoolIdAndJobIdOrderByCreatedAtAsc(TenantContext.get(), jobId)
                 .stream().map(this::resultView).toList();
@@ -230,7 +242,7 @@ public class ChargeGenerationService {
                     installments.saveAndFlush(installment);
                 }
                 AccountingPeriod period = periods.requireOpenForDate(request.chargeDate(), request.academicSessionId());
-                var journal = ledger.createDraft(new JournalUpsert(request.chargeDate(),
+                var journal = ledger.createDraftInternal(new JournalUpsert(request.chargeDate(),
                         "Charge " + type.getCode() + " - " + enrollment.getId(), "XAF", period.getId(),
                         "STUDENT_CHARGE", charge.getId().toString(), "CHARGE:" + charge.getId(), List.of(
                         new JournalLineInput(revision.getReceivableAccountId(), row.adjustedAmountMinor(), 0,
@@ -239,7 +251,7 @@ public class ChargeGenerationService {
                         new JournalLineInput(revision.getRevenueAccountId(), 0, row.adjustedAmountMinor(),
                                 enrollment.getStudentId(), enrollment.getId(), null, enrollment.getSchoolClassId(), type.getCode(),
                                 "Produit " + revision.getNameFr())), null));
-                ledger.post(journal.id(), "CHARGE-JOURNAL:" + charge.getId());
+                ledger.postNowInternal(journal.id());
                 charge.setJournalEntryId(journal.id());
                 charge.setStatus("POSTED");
                 charge = charges.saveAndFlush(charge);

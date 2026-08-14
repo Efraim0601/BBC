@@ -197,7 +197,7 @@ export class ShellComponent {
   protected visibleGroups = computed(() => {
     const allowed = new Set(this.auth.user()?.modules ?? []);
     return NAV_GROUPS
-      .map((g) => ({ ...g, mods: g.mods.filter((m) => allowed.has(m.id)) }))
+      .map((g) => ({ ...g, mods: g.mods.filter((m) => allowed.has(m.id) || (m.id === 'access-control' && this.auth.canAction('PERMISSION_VIEW'))) }))
       .filter((g) => g.mods.length > 0);
   });
 

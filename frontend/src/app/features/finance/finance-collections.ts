@@ -67,7 +67,7 @@ type CollectionTab = 'collect' | 'payments' | 'cashier' | 'provider';
                       <div class="student-results">
                         @for (item of searchResults(); track item.enrollmentId) {
                           <button type="button" class="student-card" [class.selected]="selected()?.enrollmentId === item.enrollmentId" (click)="chooseStudent(item)">
-                            <span class="avatar">{{ initials(item.studentName) }}</span><span class="student-card-main"><strong>{{ item.studentName }}</strong><small>{{ item.matricule || 'â€”' }} Â· {{ item.className || (fr() ? 'Classe inconnue' : 'Class unavailable') }}</small><small>{{ fr() ? 'Responsable' : 'Guardian' }}: {{ item.guardianName || 'â€”' }} Â· {{ item.guardianPhone || item.guardianEmail || 'â€”' }}</small></span><span class="student-balance"><b>{{ money(item.outstandingMinor) }}</b><small>{{ fr() ? 'solde' : 'balance' }} Â· <em>{{ money(item.overdueMinor) }} {{ fr() ? 'en retard' : 'overdue' }}</em></small></span>
+                            <span class="avatar">{{ initials(item.studentName) }}</span><span class="student-card-main"><strong>{{ item.studentName }}</strong><small>{{ item.matricule || 'â€”' }} Â· {{ item.className || (fr() ? 'Classe inconnue' : 'Class unavailable') }}</small></span><span class="student-balance"><b>{{ money(item.outstandingMinor) }}</b><small>{{ fr() ? 'solde' : 'balance' }} Â· <em>{{ money(item.overdueMinor) }} {{ fr() ? 'en retard' : 'overdue' }}</em></small></span>
                           </button>
                         }
                       </div>

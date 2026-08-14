@@ -6,6 +6,7 @@ import com.bbc.sms.platform.security.AppUserPrincipal;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.student.Student;
 import com.bbc.sms.student.StudentRepository;
+import com.bbc.sms.student.StudentService;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -20,17 +21,21 @@ public class DocumentService {
     private final StudentDocumentRepository documents;
     private final OrientationDecisionRepository orientations;
     private final StudentRepository students;
+    private final StudentService studentAccess;
 
     public DocumentService(StudentDocumentRepository documents,
                            OrientationDecisionRepository orientations,
-                           StudentRepository students) {
+                           StudentRepository students,
+                           StudentService studentAccess) {
         this.documents = documents;
         this.orientations = orientations;
         this.students = students;
+        this.studentAccess = studentAccess;
     }
 
     @Transactional(readOnly = true)
     public StudentDossier forStudent(UUID studentId) {
+        studentAccess.requireAction(studentId, "STUDENT_DOCUMENT_VIEW");
         UUID schoolId = TenantContext.get();
         Student student = students.findByIdAndSchoolId(studentId, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Élève"));
@@ -50,6 +55,7 @@ public class DocumentService {
 
     @Transactional
     public DocumentView addDocument(UUID studentId, DocumentUpsert in) {
+        studentAccess.requireAction(studentId, "STUDENT_DOCUMENT_GENERATE");
         UUID schoolId = TenantContext.get();
         students.findByIdAndSchoolId(studentId, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Élève"));
@@ -69,11 +75,13 @@ public class DocumentService {
     public void deleteDocument(UUID id) {
         StudentDocument d = documents.findByIdAndSchoolId(id, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Document"));
+        studentAccess.requireAction(d.getStudentId(), "STUDENT_DOCUMENT_REVOKE");
         documents.delete(d);
     }
 
     @Transactional
     public OrientationView addOrientation(UUID studentId, OrientationUpsert in) {
+        studentAccess.requireAction(studentId, "STUDENT_DOCUMENT_GENERATE");
         UUID schoolId = TenantContext.get();
         students.findByIdAndSchoolId(studentId, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Élève"));
@@ -94,6 +102,7 @@ public class DocumentService {
     public void deleteOrientation(UUID id) {
         OrientationDecision o = orientations.findByIdAndSchoolId(id, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Décision d’orientation"));
+        studentAccess.requireAction(o.getStudentId(), "STUDENT_DOCUMENT_REVOKE");
         orientations.delete(o);
     }
 

@@ -9,7 +9,7 @@ export interface CollectionApiError {
 }
 export interface StudentSearchView {
   studentId: string; studentName: string; matricule: string | null; enrollmentId: string; academicSessionId: string;
-  className: string | null; guardianName: string | null; guardianPhone: string | null; guardianEmail: string | null;
+  className: string | null;
   enrolledOn: string; exitedOn: string | null;
   outstandingMinor: number; overdueMinor: number;
 }

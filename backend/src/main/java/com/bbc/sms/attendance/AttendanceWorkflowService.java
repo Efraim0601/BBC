@@ -5,7 +5,10 @@ import com.bbc.sms.foundation.session.AcademicSession;
 import com.bbc.sms.foundation.session.AcademicSessionRepository;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AppUserPrincipal;
+import com.bbc.sms.platform.security.AuthorizationPolicyService;
+import com.bbc.sms.platform.security.PolicyResourceContext;
 import com.bbc.sms.platform.security.TeacherScopeService;
+import com.bbc.sms.platform.tenant.ParcoursContext;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.timetable.SchoolClass;
 import com.bbc.sms.timetable.SchoolClassRepository;
@@ -22,6 +25,7 @@ import java.sql.Date;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 public class AttendanceWorkflowService {
@@ -32,19 +36,29 @@ public class AttendanceWorkflowService {
     private final TimetableSlotRepository slots;
     private final AcademicSessionRepository sessions;
     private final TeacherScopeService teacherScope;
+    private final AuthorizationPolicyService policy;
 
     public AttendanceWorkflowService(JdbcTemplate jdbc, SchoolClassRepository classes,
                                      TimetableSlotRepository slots, AcademicSessionRepository sessions,
-                                     TeacherScopeService teacherScope) {
+                                     TeacherScopeService teacherScope,
+                                     AuthorizationPolicyService policy) {
         this.jdbc = jdbc;
         this.classes = classes;
         this.slots = slots;
         this.sessions = sessions;
         this.teacherScope = teacherScope;
+        this.policy = policy;
     }
 
     @Transactional(readOnly = true)
     public List<PolicyView> policies() {
+        policy.require("ATTENDANCE_POLICY_VIEW",
+                new PolicyResourceContext(TenantContext.get(), null, LocalDate.now(), ParcoursContext.get(),
+                        null, null, null, null, null, null, null, null));
+        return policyRows();
+    }
+
+    private List<PolicyView> policyRows() {
         return jdbc.query("""
             SELECT id, level, model, late_after_minutes, chronic_absence_percent, require_absence_reason
               FROM attendance_policy WHERE school_id=? ORDER BY level
@@ -56,6 +70,9 @@ public class AttendanceWorkflowService {
 
     @Transactional
     public PolicyView updatePolicy(String level, PolicyRequest request) {
+        policy.require("ATTENDANCE_POLICY_MANAGE",
+                new PolicyResourceContext(TenantContext.get(), null, LocalDate.now(), ParcoursContext.get(),
+                        null, null, null, null, null, null, null, null));
         String normalizedLevel = normalizeLevel(level);
         String model = request.model() == null ? "" : request.model().toUpperCase(Locale.ROOT);
         if (!Set.of("DAILY", "PERIOD").contains(model)) throw ApiException.badRequest("Modèle d'appel invalide");
@@ -78,16 +95,20 @@ public class AttendanceWorkflowService {
             """, UUID.class, TenantContext.get(), normalizedLevel, model,
             Math.max(0, request.lateAfterMinutes()), threshold, request.requireAbsenceReason());
         audit(null, "POLICY_UPDATED", normalizedLevel, null);
-        return policies().stream().filter(p -> p.id().equals(id)).findFirst().orElseThrow();
+        return policyRows().stream().filter(p -> p.id().equals(id)).findFirst().orElseThrow();
     }
 
     @Transactional(readOnly = true)
     public List<AttendanceClass> attendanceClasses() {
         Set<UUID> allowed = teacherScope.allowedClassIds();
-        Map<String, String> policy = policies().stream().collect(
+        Map<String, String> policy = policyRows().stream().collect(
             java.util.stream.Collectors.toMap(PolicyView::level, PolicyView::model));
-        UUID currentSessionId = sessions.findBySchoolIdOrderByStartDateDesc(TenantContext.get()).stream()
-            .filter(AcademicSession::isCurrent).map(AcademicSession::getId).findFirst().orElse(null);
+        AcademicSession currentSession = sessions.findBySchoolIdOrderByStartDateDesc(TenantContext.get()).stream()
+            .filter(AcademicSession::isCurrent).findFirst().orElse(null);
+        UUID currentSessionId = currentSession == null ? null : currentSession.getId();
+        LocalDate scopeDate = currentSession == null ? LocalDate.now()
+                : LocalDate.now().isBefore(currentSession.getStartDate()) ? currentSession.getStartDate()
+                : LocalDate.now().isAfter(currentSession.getEndDate()) ? currentSession.getEndDate() : LocalDate.now();
         Map<UUID, Integer> enrollmentCounts = currentSessionId == null ? Map.of() : jdbc.query("""
             SELECT school_class_id, count(*) FROM student_enrollment
              WHERE school_id=? AND academic_session_id=? AND status='ACTIVE'
@@ -96,6 +117,7 @@ public class AttendanceWorkflowService {
                 counts.put(rs.getObject(1, UUID.class), rs.getInt(2)); return counts; }, TenantContext.get(), currentSessionId);
         return classes.findBySchoolIdOrderByName(TenantContext.get()).stream()
             .filter(c -> allowed == null || allowed.contains(c.getId()))
+            .filter(c -> attendanceClassAllowed(c, currentSessionId, scopeDate))
             .map(c -> new AttendanceClass(c.getId(), c.getName(), c.getLevel(), c.getSubsystem(),
                 policy.getOrDefault(normalizeLevel(c.getLevel()), defaultModel(c.getLevel())),
                 enrollmentCounts.getOrDefault(c.getId(), 0)))
@@ -108,7 +130,10 @@ public class AttendanceWorkflowService {
         teacherScope.assertClass(classId);
         AcademicSession academic = requireAcademicSession(date);
         String model = modelFor(schoolClass.getLevel());
-        List<SessionKey> keys = keysFor(schoolClass, date, model);
+        List<SessionKey> keys = keysFor(schoolClass, date, model).stream()
+                .filter(key -> policy.decide("ATTENDANCE_ROSTER_VIEW",
+                        attendanceContext(academic.getId(), schoolClass, date, key)).allowed())
+                .toList();
         for (SessionKey key : keys) ensureSession(academic, schoolClass, date, model, key, false);
         return summaries(classId, date);
     }
@@ -121,9 +146,14 @@ public class AttendanceWorkflowService {
         String model = modelFor(schoolClass.getLevel());
         List<SessionKey> keys = keysFor(schoolClass, date, model);
         SessionKey key;
-        if (model.equals("DAILY")) key = new SessionKey("DAILY", null);
+        if (model.equals("DAILY")) {
+            if (periodKey != null && !periodKey.isBlank() && !"DAILY".equalsIgnoreCase(periodKey.trim()))
+                throw ApiException.badRequest("Le primaire et la maternelle utilisent exclusivement la période DAILY");
+            key = new SessionKey("DAILY", null, null);
+        }
         else key = keys.stream().filter(k -> k.periodKey().equals(periodKey)).findFirst()
             .orElseThrow(() -> ApiException.badRequest("Sélectionnez une période publiée dans l'emploi du temps"));
+        policy.require("ATTENDANCE_ROSTER_VIEW", attendanceContext(academic.getId(), schoolClass, date, key));
         UUID sessionId = ensureSession(academic, schoolClass, date, model, key, true);
         return rosterById(sessionId);
     }
@@ -131,6 +161,7 @@ public class AttendanceWorkflowService {
     @Transactional(readOnly = true)
     public RosterView rosterById(UUID sessionId) {
         SessionSummary summary = summary(sessionId);
+        policy.require("ATTENDANCE_ROSTER_VIEW", attendanceContextFor(summary, sessionId));
         teacherScope.assertClass(summary.classId());
         List<RosterMark> marks = jdbc.query("""
             SELECT m.student_id, st.matricule,
@@ -156,6 +187,7 @@ public class AttendanceWorkflowService {
     @Transactional
     public RosterView save(BulkMarkRequest request) {
         SessionSummary current = summary(request.sessionId());
+        policy.require("ATTENDANCE_MARK", attendanceContextFor(current, request.sessionId()));
         teacherScope.assertClass(current.classId());
         if ("FINALIZED".equals(current.status()))
             throw ApiException.conflict("Cet appel est finalisé. Rouvrez-le avec un motif avant de le modifier.");
@@ -186,6 +218,7 @@ public class AttendanceWorkflowService {
     @Transactional
     public RosterView finalizeSession(UUID id, ActionRequest request) {
         SessionSummary current = summary(id);
+        policy.require("ATTENDANCE_FINALIZE", attendanceContextFor(current, id));
         teacherScope.assertClass(current.classId());
         Integer unmarked = jdbc.queryForObject("SELECT count(*) FROM attendance_mark WHERE attendance_session_id=? AND status='UNMARKED'", Integer.class, id);
         if (unmarked != null && unmarked > 0)
@@ -222,6 +255,7 @@ public class AttendanceWorkflowService {
         if (request.reason() == null || request.reason().isBlank())
             throw ApiException.badRequest("Le motif de réouverture est obligatoire");
         SessionSummary current = summary(id);
+        policy.require("ATTENDANCE_REOPEN", attendanceContextFor(current, id));
         teacherScope.assertClass(current.classId());
         int changed = jdbc.update("""
             UPDATE attendance_session SET status='REOPENED', reopened_at=now(), reopened_by=?, reopen_reason=?,
@@ -235,6 +269,9 @@ public class AttendanceWorkflowService {
 
     @Transactional
     public GenerationResult generate(LocalDate from, LocalDate to, boolean preview) {
+        policy.require("ATTENDANCE_POLICY_MANAGE",
+                new PolicyResourceContext(TenantContext.get(), null, from, ParcoursContext.get(),
+                        null, null, null, null, null, null, null, null));
         if (from == null || to == null || from.isAfter(to)) throw ApiException.badRequest("Période de génération invalide");
         if (from.plusYears(1).isBefore(to)) throw ApiException.badRequest("La génération est limitée à une année à la fois");
         int expected = 0, synchronizedCount = 0;
@@ -263,6 +300,8 @@ public class AttendanceWorkflowService {
         if (from == null || to == null || from.isAfter(to)) throw ApiException.badRequest("Période d'analyse invalide");
         if (classId != null) teacherScope.assertClass(classId);
         Set<UUID> allowed = teacherScope.allowedClassIds();
+        Set<UUID> permittedSessions = permittedAnalyticsSessions(from, to, classId, allowed);
+        if (permittedSessions.isEmpty()) return emptyAnalytics(from, to);
         StringBuilder sql = new StringBuilder("""
             SELECT st.id student_id, st.matricule, upper(st.last_name) || ' ' || st.first_name student_name,
                    c.name class_name, count(*) expected,
@@ -284,6 +323,8 @@ public class AttendanceWorkflowService {
             sql.append(" AND s.school_class_id IN (").append(String.join(",", Collections.nCopies(allowed.size(), "?"))).append(")");
             args.addAll(allowed);
         }
+        sql.append(" AND s.id IN (").append(String.join(",", Collections.nCopies(permittedSessions.size(), "?"))).append(")");
+        args.addAll(permittedSessions);
         sql.append(" GROUP BY st.id, st.matricule, st.last_name, st.first_name, c.name ORDER BY c.name, st.last_name, st.first_name");
         List<StudentAnalytics> students = jdbc.query(sql.toString(), (rs, n) -> {
             int expected = rs.getInt("expected"), present = rs.getInt("present"), late = rs.getInt("late");
@@ -303,6 +344,9 @@ public class AttendanceWorkflowService {
 
     @Transactional(readOnly = true)
     public List<DeviceReconciliation> reconciliation(LocalDate date) {
+        policy.require("ATTENDANCE_RECONCILE",
+                new PolicyResourceContext(TenantContext.get(), null, date == null ? LocalDate.now() : date,
+                        ParcoursContext.get(), null, null, null, null, null, null, null, null));
         LocalDate target = date == null ? LocalDate.now() : date;
         return jdbc.query("""
             SELECT r.id, r.student_id, st.matricule, upper(st.last_name)||' '||st.first_name student_name,
@@ -322,6 +366,9 @@ public class AttendanceWorkflowService {
     @Transactional
     public RosterView reconcile(ReconcileRequest request) {
         SessionSummary session = summary(request.sessionId());
+        policy.require("ATTENDANCE_RECONCILE",
+                new PolicyResourceContext(TenantContext.get(), null, session.date(), ParcoursContext.get(),
+                        null, null, null, null, null, null, null, null));
         teacherScope.assertClass(session.classId());
         Map<String, Object> device = jdbc.queryForMap("""
             SELECT id, student_id, status, late_minutes FROM attendance_record
@@ -343,6 +390,9 @@ public class AttendanceWorkflowService {
 
     @Transactional
     public AlertScanResult scanAlerts(LocalDate from, LocalDate to) {
+        policy.require("ATTENDANCE_POLICY_MANAGE",
+                new PolicyResourceContext(TenantContext.get(), null, from == null ? LocalDate.now() : from,
+                        ParcoursContext.get(), null, null, null, null, null, null, null, null));
         AnalyticsView view = analytics(from, to, null);
         BigDecimal fallback = policies().stream().map(PolicyView::chronicAbsencePercent)
             .min(BigDecimal::compareTo).orElse(new BigDecimal("20"));
@@ -367,6 +417,9 @@ public class AttendanceWorkflowService {
 
     @Transactional(readOnly = true)
     public List<NotificationView> notifications(String status) {
+        policy.require("ATTENDANCE_NOTIFICATION_VIEW",
+                new PolicyResourceContext(TenantContext.get(), null, LocalDate.now(), ParcoursContext.get(),
+                        null, null, null, null, null, null, null, null));
         String normalized = status == null || status.isBlank() ? null : status.toUpperCase(Locale.ROOT);
         return jdbc.query("""
             SELECT n.id, n.attendance_session_id, n.student_id,
@@ -476,7 +529,7 @@ public class AttendanceWorkflowService {
 
     private List<SessionKey> keysFor(SchoolClass schoolClass, LocalDate date, String model) {
         if (!isTeachingDay(date)) return List.of();
-        if (model.equals("DAILY")) return List.of(new SessionKey("DAILY", null));
+        if (model.equals("DAILY")) return List.of(new SessionKey("DAILY", null, null));
         int dayIdx = date.getDayOfWeek().getValue() - 1;
         AcademicSession academic = requireAcademicSession(date);
         Boolean published = jdbc.queryForObject("""
@@ -487,7 +540,7 @@ public class AttendanceWorkflowService {
         return slots.findBySchoolIdAndAcademicSessionIdAndClassId(TenantContext.get(), academic.getId(), schoolClass.getId()).stream()
             .filter(s -> s.getDayIdx() == dayIdx && s.getSubjectCode() != null && !s.getSubjectCode().isBlank())
             .sorted(Comparator.comparingInt(TimetableSlot::getSlotIdx))
-            .map(s -> new SessionKey("P" + (s.getSlotIdx() + 1), s.getSubjectCode()))
+            .map(s -> new SessionKey("P" + (s.getSlotIdx() + 1), s.getSubjectCode(), s.getId()))
             .toList();
     }
 
@@ -507,7 +560,10 @@ public class AttendanceWorkflowService {
 
     private List<SessionSummary> summaries(UUID classId, LocalDate date) {
         return jdbc.query(summarySql() + " WHERE s.school_id=? AND s.school_class_id=? AND s.session_date=? GROUP BY " + summaryGroup() + " ORDER BY s.period_key",
-            this::mapSummary, TenantContext.get(), classId, Date.valueOf(date));
+            this::mapSummary, TenantContext.get(), classId, Date.valueOf(date)).stream()
+            .filter(summary -> policy.decide("ATTENDANCE_ROSTER_VIEW",
+                    attendanceContextFor(summary, summary.id())).allowed())
+            .toList();
     }
 
     private SessionSummary summary(UUID id) {
@@ -594,5 +650,90 @@ public class AttendanceWorkflowService {
             aggregateId == null ? null : aggregateId.toString(), reason,
             details == null ? "{}" : "{\"detail\":\"" + details.replace("\"", "'") + "\"}");
     }
-    private record SessionKey(String periodKey, String subjectCode) {}
+
+    private PolicyResourceContext attendanceContext(UUID academicSessionId, SchoolClass schoolClass,
+                                                    LocalDate date, SessionKey key) {
+        return new PolicyResourceContext(TenantContext.get(), academicSessionId, date, ParcoursContext.get(),
+                schoolClass.getId(), key.subjectCode(), null, key.occurrenceId(), null, null,
+                key.periodKey(), schoolClass.getLevel());
+    }
+
+    private PolicyResourceContext attendanceContextFor(SessionSummary summary, UUID attendanceSessionId) {
+        UUID academicSessionId = jdbc.queryForObject(
+                "SELECT academic_session_id FROM attendance_session WHERE school_id=? AND id=?",
+                UUID.class, TenantContext.get(), attendanceSessionId);
+        SchoolClass schoolClass = requireClass(summary.classId());
+        UUID occurrenceId = "DAILY".equalsIgnoreCase(summary.model()) ? null
+                : resolvePublishedOccurrence(academicSessionId, schoolClass.getId(), summary.date(),
+                summary.periodKey(), summary.subjectCode());
+        return attendanceContext(academicSessionId, schoolClass, summary.date(),
+                new SessionKey(summary.periodKey(), summary.subjectCode(), occurrenceId));
+    }
+
+    private boolean attendanceClassAllowed(SchoolClass schoolClass, UUID academicSessionId, LocalDate date) {
+        if (academicSessionId == null) return false;
+        String model = modelFor(schoolClass.getLevel());
+        List<SessionKey> keys = keysFor(schoolClass, date, model);
+        return keys.stream().anyMatch(key -> policy.decide("ATTENDANCE_ROSTER_VIEW",
+                attendanceContext(academicSessionId, schoolClass, date, key)).allowed());
+    }
+
+    private Set<UUID> permittedAnalyticsSessions(LocalDate from, LocalDate to, UUID requestedClassId,
+                                                 Set<UUID> teacherClasses) {
+        Map<UUID, SchoolClass> classesById = classes.findBySchoolIdOrderByName(TenantContext.get()).stream()
+                .collect(Collectors.toMap(SchoolClass::getId, c -> c));
+        List<AnalyticsSession> candidates = jdbc.query("""
+                SELECT id, academic_session_id, school_class_id, session_date, model, period_key, subject_code
+                  FROM attendance_session
+                 WHERE school_id=? AND session_date BETWEEN ? AND ?
+                """, (rs, n) -> new AnalyticsSession(rs.getObject("id", UUID.class),
+                rs.getObject("academic_session_id", UUID.class), rs.getObject("school_class_id", UUID.class),
+                rs.getObject("session_date", LocalDate.class), rs.getString("model"),
+                rs.getString("period_key"), rs.getString("subject_code")), TenantContext.get(),
+                Date.valueOf(from), Date.valueOf(to));
+        Set<UUID> permitted = new LinkedHashSet<>();
+        for (AnalyticsSession candidate : candidates) {
+            if (requestedClassId != null && !requestedClassId.equals(candidate.classId())) continue;
+            if (teacherClasses != null && !teacherClasses.contains(candidate.classId())) continue;
+            SchoolClass schoolClass = classesById.get(candidate.classId());
+            if (schoolClass == null) continue;
+            UUID occurrenceId = "DAILY".equalsIgnoreCase(candidate.model()) ? null
+                    : resolvePublishedOccurrence(candidate.academicSessionId(), candidate.classId(), candidate.date(),
+                    candidate.periodKey(), candidate.subjectCode());
+            SessionKey key = new SessionKey(candidate.periodKey(), candidate.subjectCode(), occurrenceId);
+            PolicyResourceContext context = attendanceContext(candidate.academicSessionId(), schoolClass,
+                    candidate.date(), key);
+            if (policy.decide("ATTENDANCE_ANALYTICS_VIEW", context).allowed()) permitted.add(candidate.id());
+        }
+        return permitted;
+    }
+
+    /** Resolve the exact published slot used by a secondary attendance session. */
+    private UUID resolvePublishedOccurrence(UUID academicSessionId, UUID classId, LocalDate date,
+                                            String periodKey, String subjectCode) {
+        int dayIndex = date.getDayOfWeek().getValue() - 1;
+        List<UUID> ids = jdbc.query("""
+                SELECT s.id
+                  FROM timetable_slot s
+                  JOIN timetable_version v ON v.id=s.timetable_version_id
+                   AND v.school_id=s.school_id AND v.academic_session_id=s.academic_session_id
+                   AND v.status='PUBLISHED' AND v.effective_from<=?
+                   AND (v.effective_to IS NULL OR v.effective_to>=?)
+                  LEFT JOIN timetable_period p ON p.school_id=s.school_id
+                   AND p.slot_idx=s.slot_idx AND p.active
+                 WHERE s.school_id=? AND s.academic_session_id=? AND s.class_id=? AND s.day_idx=?
+                   AND upper(coalesce(s.subject_code,''))=upper(?)
+                   AND (upper(coalesce(p.label,''))=upper(?)
+                        OR upper('P'||(s.slot_idx+1)::text)=upper(?)
+                        OR s.slot_idx::text=?)
+                 ORDER BY s.id
+                 LIMIT 1
+                """, (rs, n) -> rs.getObject(1, UUID.class), date, date, TenantContext.get(),
+                academicSessionId, classId, dayIndex, subjectCode, periodKey, periodKey, periodKey);
+        return ids.stream().findFirst().orElse(null);
+    }
+
+    private record AnalyticsSession(UUID id, UUID academicSessionId, UUID classId, LocalDate date,
+                                    String model, String periodKey, String subjectCode) {}
+    private record SessionKey(String periodKey, String subjectCode, UUID occurrenceId) {}
 }

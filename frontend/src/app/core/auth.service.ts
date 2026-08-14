@@ -3,7 +3,7 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Router } from '@angular/router';
 import { Observable, finalize, shareReplay, throwError, tap } from 'rxjs';
 import { environment } from '../../environments/environment';
-import { Level, TokenResponse, UserView } from './models';
+import { ActionEffect, CapabilityView, Level, TokenResponse, UserView } from './models';
 import { ScopeService } from './scope.service';
 
 const ACCESS_KEY = 'bbc-access';
@@ -25,14 +25,22 @@ export class AuthService {
   // Signals — the single source of truth the whole UI reacts to.
   readonly user = signal<UserView | null>(this.restoreUser());
   readonly isLoggedIn = computed(() => this.user() !== null);
+  /** Server-authoritative action capabilities; null means they are not loaded. */
+  readonly capabilities = signal<CapabilityView | null>(null);
+  readonly capabilitiesLoading = signal(false);
+  readonly capabilitiesError = signal(false);
 
   /** Shared in-flight refresh so parallel 401s don't race and wipe the session. */
   private refreshInFlight$: Observable<TokenResponse> | null = null;
+  private capabilitiesInFlight$: Observable<CapabilityView> | null = null;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     // After a page reload, keep the session alive if tokens are still present.
-    queueMicrotask(() => this.ensureSessionKeepAlive());
+    queueMicrotask(() => {
+      this.ensureSessionKeepAlive();
+      if (this.user()) this.loadCapabilities().subscribe({ error: () => undefined });
+    });
   }
 
   private restoreUser(): UserView | null {
@@ -98,6 +106,8 @@ export class AuthService {
     localStorage.removeItem(EXPIRES_KEY);
     this.scope.clear();
     this.user.set(null);
+    this.capabilities.set(null);
+    this.capabilitiesError.set(false);
     this.router.navigate(['/login'], reason ? { queryParams: { reason } } : undefined);
   }
 
@@ -110,12 +120,49 @@ export class AuthService {
     return rank[u.permissions[permissionKey] ?? 'none'] >= rank[level];
   }
 
+  /** Fetch the staged policy result. Failure stays closed until an explicit retry. */
+  loadCapabilities(): Observable<CapabilityView> {
+    if (this.capabilitiesInFlight$) return this.capabilitiesInFlight$;
+    if (!this.user()) return throwError(() => new HttpErrorResponse({ status: 401, statusText: 'Not logged in' }));
+    this.capabilitiesLoading.set(true);
+    this.capabilitiesError.set(false);
+    this.capabilitiesInFlight$ = this.http.get<CapabilityView>(`${environment.apiUrl}/access/me/capabilities`).pipe(
+      tap((value) => this.capabilities.set(value)),
+      finalize(() => {
+        this.capabilitiesLoading.set(false);
+        this.capabilitiesInFlight$ = null;
+      }),
+      shareReplay({ bufferSize: 1, refCount: true }),
+    );
+    this.capabilitiesInFlight$.subscribe({ error: () => this.capabilitiesError.set(true) });
+    return this.capabilitiesInFlight$;
+  }
+
+  retryCapabilities(): void {
+    this.capabilities.set(null);
+    this.loadCapabilities().subscribe({ error: () => undefined });
+  }
+
+  /** Contextual actions intentionally remain visible as CONTEXT_REQUIRED. */
+  actionState(actionCode: string): ActionEffect {
+    if (!this.user()) return 'DENY';
+    if (!this.capabilities()) return this.capabilitiesLoading() ? 'LOADING' : 'DENY';
+    return (this.capabilities()!.actions.find((x) => x.actionCode === actionCode)?.effect ?? 'DENY') as ActionEffect;
+  }
+
+  /** Only an evaluated, context-free ALLOW may enable a global control. */
+  canAction(actionCode: string): boolean {
+    return this.actionState(actionCode) === 'ALLOW';
+  }
+
   private persist(res: TokenResponse): void {
     localStorage.setItem(ACCESS_KEY, res.accessToken);
     localStorage.setItem(REFRESH_KEY, res.refreshToken);
     localStorage.setItem(USER_KEY, JSON.stringify(res.user));
     localStorage.setItem(EXPIRES_KEY, String(Date.now() + res.expiresInMs));
     this.user.set(res.user);
+    this.capabilities.set(null);
+    this.loadCapabilities().subscribe({ error: () => undefined });
     this.scheduleProactiveRefresh();
   }
 

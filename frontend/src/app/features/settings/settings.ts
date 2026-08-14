@@ -1,6 +1,7 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
+import { RouterLink } from '@angular/router';
 import {
   SettingsApi, PermissionMatrix, RoleView, RoleUpsert, MailConfigUpdate,
   SchoolProfileView, SchoolProfileUpdate, HolidayView, CatalogItemView, CatalogItemUpsert,
@@ -20,12 +21,17 @@ type SettingsTab = 'academic' | 'sessions' | 'general' | 'perms' | 'roles' | 'ma
   selector: 'bbc-settings',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, IconComponent, CardComponent, PageHeaderComponent, EmptyComponent, TabsComponent, AcademicSetupComponent, FoundationSettingsComponent],
+  imports: [FormsModule, RouterLink, IconComponent, CardComponent, PageHeaderComponent, EmptyComponent, TabsComponent, AcademicSetupComponent, FoundationSettingsComponent],
   template: `
     <div class="fade-in max-w-6xl mx-auto">
       <bbc-page-header [title]="i18n.t('settings')"
         [subtitle]="fr() ? 'Configuration générale de l’établissement' : 'General school configuration'">
         <div right class="flex items-center gap-2">
+          @if (auth.canAction('PERMISSION_VIEW')) {
+            <a routerLink="/access-control" class="inline-flex items-center gap-1.5 h-9 px-3 text-xs font-semibold rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100">
+              <bbc-icon name="shield" [s]="14" /> {{ fr() ? 'Accès & responsabilités' : 'Access & responsibilities' }}
+            </a>
+          }
           @if (currentUser(); as u) {
             <span class="inline-flex items-center gap-1.5 h-9 px-3 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-mute">
               <bbc-icon name="shield" [s]="14" /> {{ u.role }}

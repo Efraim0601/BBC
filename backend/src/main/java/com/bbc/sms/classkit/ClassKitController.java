@@ -17,8 +17,8 @@ import java.util.UUID;
 @RequestMapping("/api/classkit/{kind}")
 public class ClassKitController {
 
-    private static final String READ = "@parcours.allows() and @perm.can('classkit','read')";
-    private static final String WRITE = "@parcours.allows() and @perm.can('classkit','write')";
+    private static final String READ = "@parcours.allows() and @perm.canAction('CLASSKIT_VIEW') and @perm.staffOnly()";
+    private static final String WRITE = "@parcours.allows() and @perm.canAction('CLASSKIT_MANAGE') and @perm.staffOnly()";
 
     private final ClassKitService service;
 

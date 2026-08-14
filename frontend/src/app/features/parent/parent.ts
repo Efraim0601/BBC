@@ -97,7 +97,11 @@ const fmtMoney = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} FCFA`;
               <div class="text-lg font-bold text-ink">{{ sel.name }}</div>
               <div class="text-sm text-mute">{{ sel.matricule }} · {{ sel.className }}</div>
             </div>
-            <bbc-status-pill [status]="pillStatus(sel.feeStatus)" [label]="feeStatusLabel(sel.feeStatus)" />
+            @if (sel.financeVisible) {
+              <bbc-status-pill [status]="pillStatus(sel.feeStatus ?? '')" [label]="feeStatusLabel(sel.feeStatus ?? '')" />
+            } @else {
+              <span class="text-xs text-white/70">{{ fr() ? 'Frais non partagés' : 'Fees not shared' }}</span>
+            }
           </div>
         </bbc-card>
 
@@ -108,14 +112,14 @@ const fmtMoney = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} FCFA`;
             <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
               <bbc-kpi tone="ok" icon="fingerprint"
                 [label]="fr() ? 'Taux de présence' : 'Attendance rate'"
-                [value]="sel.attendanceRate + ' %'" />
-              <bbc-kpi [tone]="sel.balance > 0 ? 'warn' : 'ok'" icon="wallet"
+                [value]="sel.attendanceVisible ? (sel.attendanceRate + ' %') : (fr() ? 'Non partagé' : 'Not shared')" />
+              <bbc-kpi [tone]="sel.financeVisible && sel.balance > 0 ? 'warn' : 'ok'" icon="wallet"
                 [label]="fr() ? 'Solde de frais' : 'Fee balance'"
-                [value]="money(sel.balance)"
-                [sub]="sel.balance > 0 ? (fr() ? 'à régler' : 'outstanding') : (fr() ? 'à jour' : 'up to date')" />
+                [value]="sel.financeVisible ? money(sel.balance) : (fr() ? 'Non partagé' : 'Not shared')"
+                [sub]="sel.financeVisible ? (sel.balance > 0 ? (fr() ? 'à régler' : 'outstanding') : (fr() ? 'à jour' : 'up to date')) : ''" />
               <bbc-kpi tone="neutral" icon="cash"
                 [label]="fr() ? 'Statut frais' : 'Fee status'"
-                [value]="sel.feeStatus" />
+                [value]="sel.financeVisible ? (sel.feeStatus ?? '') : (fr() ? 'Non partagé' : 'Not shared')" />
               <bbc-kpi tone="gold" icon="book"
                 [label]="fr() ? 'Notes' : 'Grades'"
                 [value]="publishedBulletin()?.lines?.length ?? 0"

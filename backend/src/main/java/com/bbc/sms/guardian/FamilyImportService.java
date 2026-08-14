@@ -1,6 +1,8 @@
 package com.bbc.sms.guardian;
 
 import com.bbc.sms.platform.common.ApiException;
+import com.bbc.sms.platform.security.AuthorizationPolicyService;
+import com.bbc.sms.platform.security.PolicyResourceContext;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.student.StudentRegistrationService;
 import com.bbc.sms.student.StudentRegistrationService.*;
@@ -16,10 +18,12 @@ import static com.bbc.sms.guardian.GuardianDtos.*;
 @Service
 public class FamilyImportService {
     private final JdbcTemplate jdbc; private final ObjectMapper json; private final StudentRegistrationService registrations;
-    public FamilyImportService(JdbcTemplate jdbc,ObjectMapper json,StudentRegistrationService registrations){this.jdbc=jdbc;this.json=json;this.registrations=registrations;}
+    private final AuthorizationPolicyService policy;
+    public FamilyImportService(JdbcTemplate jdbc,ObjectMapper json,StudentRegistrationService registrations,AuthorizationPolicyService policy){this.jdbc=jdbc;this.json=json;this.registrations=registrations;this.policy=policy;}
 
     @Transactional
     public FamilyImportView dryRun(FamilyImportRequest req){
+        requireImport();
         UUID job=UUID.randomUUID(),school=TenantContext.get(); Set<String> keys=new HashSet<>(); List<FamilyImportRowView> views=new ArrayList<>();int valid=0,rowNo=0;
         jdbc.update("INSERT INTO family_import_job(id,school_id,source_name,total_rows,status) VALUES (?,?,?,?,'DRAFT')",job,school,req.sourceName(),req.rows().size());
         for(FamilyImportRow row:req.rows()){
@@ -38,6 +42,7 @@ public class FamilyImportService {
 
     @Transactional
     public FamilyImportView commit(UUID jobId){
+        requireImport();
         UUID school=TenantContext.get();String status=jdbc.query("SELECT status FROM family_import_job WHERE id=? AND school_id=?",rs->rs.next()?rs.getString(1):null,jobId,school);
         if(status==null)throw ApiException.notFound("Import");if(!"VALIDATED".equals(status)&&!"COMPLETED_ERRORS".equals(status))throw ApiException.conflict("Cet import ne peut pas être relancé dans son état actuel");
         jdbc.update("UPDATE family_import_job SET status='RUNNING' WHERE id=?",jobId);
@@ -68,5 +73,9 @@ public class FamilyImportService {
         return new FamilyImportView(id,(String)head.get("status"),(Integer)head.get("total_rows"),(Integer)head.get("valid_rows"),(Integer)head.get("created_rows"),(Integer)head.get("linked_guardians"),(Integer)head.get("failed_rows"),rows);
     }
     private static String safe(String s){return s==null?"Erreur non précisée":s.substring(0,Math.min(1000,s.length()));}
+    private void requireImport(){
+        policy.require("STUDENT_IMPORT", new PolicyResourceContext(TenantContext.get(), null,
+                java.time.LocalDate.now(), null, null, null, null, null, null, null, null, null));
+    }
     private record RowPayload(UUID id,int rowNumber,String externalKey,String payload,String status){}
 }

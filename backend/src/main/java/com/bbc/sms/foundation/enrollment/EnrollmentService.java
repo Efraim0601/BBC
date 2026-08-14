@@ -5,8 +5,11 @@ import com.bbc.sms.foundation.session.AcademicSession;
 import com.bbc.sms.foundation.session.AcademicSessionRepository;
 import com.bbc.sms.foundation.session.AcademicSessionService;
 import com.bbc.sms.platform.common.ApiException;
+import com.bbc.sms.platform.security.AuthorizationPolicyService;
+import com.bbc.sms.platform.security.PolicyResourceContext;
 import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.tenant.TenantContext;
+import com.bbc.sms.platform.tenant.ParcoursContext;
 import com.bbc.sms.student.Student;
 import com.bbc.sms.student.StudentRepository;
 import com.bbc.sms.timetable.SchoolClass;
@@ -30,11 +33,12 @@ public class EnrollmentService {
     private final AcademicSessionService sessionService;
     private final TeacherScopeService teacherScope;
     private final AuditService audit;
+    private final AuthorizationPolicyService policy;
 
     public EnrollmentService(StudentEnrollmentRepository enrollments, StudentRepository students,
                              SchoolClassRepository classes, AcademicSessionRepository sessions,
                              AcademicSessionService sessionService, TeacherScopeService teacherScope,
-                             AuditService audit) {
+                             AuditService audit, AuthorizationPolicyService policy) {
         this.enrollments = enrollments;
         this.students = students;
         this.classes = classes;
@@ -42,12 +46,15 @@ public class EnrollmentService {
         this.sessionService = sessionService;
         this.teacherScope = teacherScope;
         this.audit = audit;
+        this.policy = policy;
     }
 
     @Transactional(readOnly = true)
     public List<EnrollmentView> history(UUID studentId) {
-        teacherScope.assertStudent(studentId);
         UUID schoolId = TenantContext.get();
+        AcademicSession current = sessionService.currentEntity();
+        policy.require("ENROLLMENT_VIEW", context(studentId, current.getId(), LocalDate.now(),
+                active(studentId, current.getId()).map(StudentEnrollment::getSchoolClassId).orElse(null)));
         students.findByIdAndSchoolId(studentId, schoolId).orElseThrow(() -> ApiException.notFound("Élève"));
         return enrollments.findBySchoolIdAndStudentIdOrderByEnrolledOnDescCreatedAtDesc(schoolId, studentId)
                 .stream().map(this::view).toList();
@@ -55,21 +62,31 @@ public class EnrollmentService {
 
     @Transactional(readOnly = true)
     public List<EnrollmentView> roster(UUID sessionId, UUID classId) {
-        teacherScope.assertClass(classId);
         AcademicSession session = findSession(sessionId);
         findClass(classId);
         return enrollments.findBySchoolIdAndAcademicSessionIdAndSchoolClassIdAndStatusOrderByClassNameSnapshotAsc(
-                session.getSchoolId(), sessionId, classId, "ACTIVE").stream().map(this::view).toList();
+                session.getSchoolId(), sessionId, classId, "ACTIVE").stream()
+                .filter(e -> policy.decide("ENROLLMENT_VIEW", context(e.getStudentId(), sessionId,
+                        effectiveDate(session), classId)).allowed())
+                .map(this::view).toList();
+    }
+
+    private LocalDate effectiveDate(AcademicSession session) {
+        LocalDate today = LocalDate.now();
+        if (today.isBefore(session.getStartDate())) return session.getStartDate();
+        if (today.isAfter(session.getEndDate())) return session.getEndDate();
+        return today;
     }
 
     @Transactional
     public EnrollmentView enroll(UUID studentId, EnrollmentRequest in) {
-        teacherScope.assertStudent(studentId);
         Student student = findStudent(studentId);
         AcademicSession session = findSession(in.academicSessionId());
         if ("ARCHIVED".equals(session.getStatus())) throw ApiException.conflict("Session archivée");
         SchoolClass cls = in.classId() == null ? null : findClass(in.classId());
         validateDate(session, in.enrolledOn());
+        policy.require("ENROLLMENT_CREATE", context(studentId, session.getId(), in.enrolledOn(),
+                cls == null ? null : cls.getId()));
         if (active(studentId, session.getId()).isPresent()) throw ApiException.conflict("L’élève est déjà inscrit dans cette session");
         StudentEnrollment e = createRecord(student, session, cls, in.enrolledOn(),
                 in.source() == null ? "MANUAL" : in.source(), in.reason(), null);
@@ -80,13 +97,22 @@ public class EnrollmentService {
 
     @Transactional
     public EnrollmentView transfer(UUID studentId, TransferRequest in) {
-        teacherScope.assertStudent(studentId);
         Student student = findStudent(studentId);
         AcademicSession session = in.academicSessionId() == null ? sessionService.currentEntity() : findSession(in.academicSessionId());
-        SchoolClass target = in.classId() == null ? null : findClass(in.classId());
         validateDate(session, in.effectiveDate());
+
+        // Resolve and authorize the existing source enrollment first.  A
+        // teacher must not turn an assigned target class into authority over
+        // an out-of-scope source student.
         StudentEnrollment old = active(studentId, session.getId())
                 .orElseThrow(() -> ApiException.conflict("Aucune inscription active dans cette session"));
+        policy.require("ENROLLMENT_TRANSFER", context(studentId, session.getId(), in.effectiveDate(),
+                old.getSchoolClassId()));
+
+        // The target is a separate data/structure invariant.  It is never
+        // substituted into the source authorization context above.
+        SchoolClass target = in.classId() == null ? null : findClass(in.classId());
+        validateTransferTarget(target);
         if (in.version() != null && in.version() != old.getVersion()) throw ApiException.conflict("Inscription modifiée par un autre utilisateur");
         if (java.util.Objects.equals(old.getSchoolClassId(), in.classId())) throw ApiException.conflict("La classe cible est déjà la classe active");
         if (in.effectiveDate().isBefore(old.getEnrolledOn())) {
@@ -108,7 +134,8 @@ public class EnrollmentService {
     public EnrollmentView withdraw(UUID enrollmentId, WithdrawRequest in) {
         StudentEnrollment e = enrollments.findByIdAndSchoolId(enrollmentId, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Inscription"));
-        teacherScope.assertStudent(e.getStudentId());
+        policy.require("ENROLLMENT_WITHDRAW", context(e.getStudentId(), e.getAcademicSessionId(),
+                in.effectiveDate(), e.getSchoolClassId()));
         if (!"ACTIVE".equals(e.getStatus())) throw ApiException.conflict("Cette inscription n’est plus active");
         if (in.version() != null && in.version() != e.getVersion()) throw ApiException.conflict("Inscription modifiée par un autre utilisateur");
         if (in.effectiveDate().isBefore(e.getEnrolledOn())) throw ApiException.badRequest("Date de sortie antérieure à l’inscription");
@@ -181,6 +208,25 @@ public class EnrollmentService {
         return enrollments.findFirstBySchoolIdAndStudentIdAndAcademicSessionIdAndStatus(
                 TenantContext.get(), studentId, sessionId, "ACTIVE");
     }
+    private PolicyResourceContext context(UUID studentId, UUID sessionId, LocalDate date, UUID classId) {
+        return new PolicyResourceContext(TenantContext.get(), sessionId, date, ParcoursContext.get(), classId,
+                null, studentId, null, null, null, null, null);
+    }
+    private void validateTransferTarget(SchoolClass target) {
+        if (target == null) return;
+        if (!TenantContext.get().equals(target.getSchoolId())
+                || isBlank(target.getSectionId()) || isBlank(target.getName())
+                || isBlank(target.getLevel()) || isBlank(target.getSubsystem())) {
+            throw ApiException.badRequest("La classe cible ne respecte pas la structure de l'école");
+        }
+        ParcoursContext.Scope scope = ParcoursContext.get();
+        if (scope != null && (!scope.level().equalsIgnoreCase(target.getLevel())
+                || !scope.subsystem().equalsIgnoreCase(target.getSubsystem()))) {
+            throw ApiException.coded(org.springframework.http.HttpStatus.FORBIDDEN,
+                    "PARCOURS_SCOPE_MISMATCH", "La classe cible est hors du parcours sélectionné.");
+        }
+    }
+    private static boolean isBlank(String value) { return value == null || value.isBlank(); }
     private Student findStudent(UUID id) { return students.findByIdAndSchoolId(id, TenantContext.get()).orElseThrow(() -> ApiException.notFound("Élève")); }
     private SchoolClass findClass(UUID id) { return classes.findByIdAndSchoolId(id, TenantContext.get()).orElseThrow(() -> ApiException.notFound("Classe")); }
     private AcademicSession findSession(UUID id) { return sessions.findByIdAndSchoolId(id, TenantContext.get()).orElseThrow(() -> ApiException.notFound("Session académique")); }

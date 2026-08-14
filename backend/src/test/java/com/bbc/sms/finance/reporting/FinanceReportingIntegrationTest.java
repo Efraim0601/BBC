@@ -7,6 +7,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -44,6 +45,7 @@ class FinanceReportingIntegrationTest {
     @Autowired JdbcTemplate jdbc;
     @Autowired FinanceReportingService reporting;
     @Autowired LedgerPostingService ledger;
+    @MockBean com.bbc.sms.finance.FinancePolicyService financePolicy;
 
     private UUID schoolId;
     private UUID sessionId;
@@ -242,11 +244,11 @@ class FinanceReportingIntegrationTest {
 
     @Test
     void trialBalanceAndZeroDataAreExplicitlyBalanced() {
-        var draft = ledger.createDraft(new JournalUpsert(LocalDate.of(2026, 1, 16), "Reporting journal", "XAF",
+        var draft = ledger.createDraftInternal(new JournalUpsert(LocalDate.of(2026, 1, 16), "Reporting journal", "XAF",
                 periodId, "TEST", "REPORTING-1", "REPORTING-1",
                 List.of(new JournalLineInput(debitAccountId, 15000, 0, null, null, null, null, null, "Cash"),
                         new JournalLineInput(creditAccountId, 0, 15000, null, null, null, null, null, "Revenue")), null));
-        ledger.post(draft.id(), "REPORTING-POST-1");
+        ledger.postNowInternal(draft.id());
 
         var accounting = reporting.accounting(filters(LocalDate.of(2026, 1, 1), LocalDate.of(2026, 1, 31),
                 LocalDate.of(2026, 1, 31), 100));

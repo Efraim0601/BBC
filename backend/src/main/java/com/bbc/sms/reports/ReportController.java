@@ -20,19 +20,19 @@ public class ReportController {
     }
 
     @GetMapping("/finance")
-    @PreAuthorize("@perm.can('reports','read')")
+    @PreAuthorize("@perm.canAction('FINANCE_REPORT_VIEW')")
     public FinanceReport finance() {
         return financeReporting.legacyFinance();
     }
 
     @GetMapping("/attendance/monthly")
-    @PreAuthorize("@perm.can('reports','read')")
+    @PreAuthorize("@perm.canAction('REPORTS_VIEW')")
     public List<AttendanceRow> attendanceMonthly(@RequestParam(required = false) String month) {
         return service.attendanceMonthly(month);
     }
 
     @GetMapping("/demographics")
-    @PreAuthorize("@perm.can('reports','read')")
+    @PreAuthorize("@perm.canAction('REPORTS_VIEW')")
     public Demographics demographics() {
         return service.demographics();
     }

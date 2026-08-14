@@ -2,11 +2,10 @@ package com.bbc.sms.journey;
 
 import com.bbc.sms.journey.dto.JourneyDtos.*;
 import com.bbc.sms.platform.common.ApiException;
-import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.security.AppUserPrincipal;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.student.Student;
-import com.bbc.sms.student.StudentRepository;
+import com.bbc.sms.student.StudentService;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -22,24 +21,20 @@ import java.util.UUID;
 public class JourneyService {
 
     private final JourneyRepository repo;
-    private final StudentRepository students;
-    private final TeacherScopeService teacherScope;
+    private final StudentService studentAccess;
     private final JdbcTemplate jdbc;
 
-    public JourneyService(JourneyRepository repo, StudentRepository students,
-                          TeacherScopeService teacherScope, JdbcTemplate jdbc) {
+    public JourneyService(JourneyRepository repo, StudentService studentAccess,
+                          JdbcTemplate jdbc) {
         this.repo = repo;
-        this.students = students;
-        this.teacherScope = teacherScope;
+        this.studentAccess = studentAccess;
         this.jdbc = jdbc;
     }
 
     @Transactional(readOnly = true)
     public StudentJourney forStudent(UUID studentId) {
-        teacherScope.assertStudent(studentId);
+        Student student = studentAccess.requireAction(studentId, "JOURNEY_VIEW");
         UUID schoolId = TenantContext.get();
-        Student student = students.findByIdAndSchoolId(studentId, schoolId)
-                .orElseThrow(() -> ApiException.notFound("Élève"));
 
         List<JourneyView> entries = repo
                 .findBySchoolIdAndStudentIdOrderByAcademicYearAsc(schoolId, studentId)
@@ -58,10 +53,8 @@ public class JourneyService {
 
     @Transactional
     public JourneyView upsert(JourneyUpsert in) {
-        teacherScope.assertStudent(in.studentId());
+        studentAccess.requireAction(in.studentId(), "JOURNEY_MANAGE");
         UUID schoolId = TenantContext.get();
-        students.findByIdAndSchoolId(in.studentId(), schoolId)
-                .orElseThrow(() -> ApiException.notFound("Élève"));
         validate(in);
 
         JourneyEntry e = repo
@@ -105,7 +98,7 @@ public class JourneyService {
         UUID schoolId = TenantContext.get();
         JourneyEntry e = repo.findByIdAndSchoolId(id, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Entrée de parcours"));
-        teacherScope.assertStudent(e.getStudentId());
+        studentAccess.requireAction(e.getStudentId(), "JOURNEY_MANAGE");
         if (e.getPromotionBatchId() != null) {
             throw ApiException.conflict("Une décision de promotion validée est immuable et ne peut pas être annulée manuellement");
         }

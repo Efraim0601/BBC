@@ -15,8 +15,8 @@ import static com.bbc.sms.academic.security.AcademicAccessDtos.*;
 @RestController
 @RequestMapping("/api/academic-access")
 public class AcademicAccessController {
-    private static final String ADMIN_READ = "@perm.can('settings','read') and @perm.staffOnly()";
-    private static final String ADMIN_WRITE = "@perm.can('settings','write') and @perm.staffOnly()";
+    private static final String ADMIN_READ = "@perm.canAction('ACADEMIC_ACCESS_AUDIT_VIEW') and @perm.staffOnly()";
+    private static final String ADMIN_WRITE = "@perm.canAction('ACADEMIC_ACCESS_DELEGATE') and @perm.staffOnly()";
 
     private final AcademicAccessDelegationService delegations;
 

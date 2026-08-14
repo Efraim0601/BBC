@@ -11,9 +11,9 @@ import java.util.UUID;
 
 /**
  * Parcours access gate used from controllers via SpEL: {@code @PreAuthorize("@parcours.allows()")}.
- * Enforces the {@code X-Parcours} scope against the user's allowed parcours
- * ({@code app_user_parcours}). An EMPTY allow-list means the user may access every parcours
- * (administrators); a non-empty list restricts them to exactly those (level, subsystem) pairs.
+ * Enforces the {@code X-Parcours} scope against the user's explicit or derived
+ * parcours mode.  The mode is authoritative: an empty result is never treated
+ * as unrestricted, which is essential for an unassigned teacher.
  */
 @Service("parcours")
 public class ParcoursAccessService {
@@ -22,48 +22,76 @@ public class ParcoursAccessService {
 
     public ParcoursAccessService(JdbcTemplate jdbc) { this.jdbc = jdbc; }
 
-    /**
-     * The parcours a user may access; empty list = unrestricted (all parcours).
-     *
-     * <p>Les restrictions explicites ({@code app_user_parcours}) priment. À défaut,
-     * un compte rattaché à un employé qui a une section est limité à cette section :
-     * l'enseignant est ainsi orienté dans son cycle dès la connexion, sans qu'un
-     * administrateur ait à remplir une table de plus. Les sous-systèmes proposés
-     * sont ceux de ses classes ; sans classe assignée, les deux restent ouverts.
-     */
+    /** Return effective parcours rows; an empty result means no scope, not all. */
     public List<Scope> allowed(UUID userId) {
-        List<Scope> explicit = jdbc.query(
-                "SELECT level, subsystem FROM app_user_parcours WHERE user_id = ?",
-                (rs, n) -> new Scope(rs.getString("level"), rs.getString("subsystem")),
-                userId);
-        if (!explicit.isEmpty()) return explicit;
-        return fromEmployeeSection(userId);
+        String mode = scopeMode(userId);
+        return switch (mode) {
+            case "GLOBAL" -> schoolParcours(userId);
+            case "EXPLICIT" -> jdbc.query(
+                    "SELECT level, subsystem FROM app_user_parcours WHERE user_id = ? ORDER BY level, subsystem",
+                    (rs, n) -> new Scope(rs.getString("level"), rs.getString("subsystem")), userId);
+            case "ASSIGNMENT_DERIVED" -> fromEmployeeAssignments(userId);
+            case "CHILD_DERIVED" -> fromLinkedChildren(userId);
+            default -> List.of();
+        };
     }
 
-    /**
-     * Section de l'employé lié au compte, déclinée en parcours (section × sous-systèmes).
-     * Réservé aux rôles enseignants : la direction, le censeur ou l'économe peuvent
-     * porter une section sans pour autant être cloisonnés à un parcours.
-     */
-    private List<Scope> fromEmployeeSection(UUID userId) {
-        String section = jdbc.query("""
-                SELECT e.level FROM app_user u JOIN employee e ON e.id = u.employee_id
-                 WHERE u.id = ? AND u.role_code IN ('teacher','form_teacher')
-                """, rs -> rs.next() ? rs.getString(1) : null, userId);
-        if (section == null || section.isBlank()) return List.of();
+    public String scopeMode(UUID userId) {
+        return jdbc.query("SELECT COALESCE(parcours_scope_mode,'NONE') FROM app_user WHERE id=?",
+                rs -> rs.next() ? rs.getString(1).toUpperCase() : "NONE", userId);
+    }
 
-        List<String> subsystems = jdbc.query("""
-                SELECT DISTINCT c.subsystem FROM school_class c
-                 WHERE c.level = ?
-                   AND (c.id IN (SELECT tc.class_id FROM teacher_class tc
-                                  JOIN app_user u ON u.employee_id = tc.employee_id
-                                 WHERE u.id = ?)
-                        OR c.name = (SELECT e.form_class FROM app_user u
-                                       JOIN employee e ON e.id = u.employee_id
-                                      WHERE u.id = ?))
-                """, (rs, n) -> rs.getString(1), section, userId, userId);
-        if (subsystems.isEmpty()) subsystems = List.of("FR", "EN");
-        return subsystems.stream().map(sub -> new Scope(section, sub)).toList();
+    public boolean isGlobal(UUID userId) { return "GLOBAL".equals(scopeMode(userId)); }
+
+    /** Explicit readiness signal used by /me and the Access & responsibilities drawer. */
+    public boolean isConfigured(UUID userId) {
+        String mode = scopeMode(userId);
+        return "GLOBAL".equals(mode) || !allowed(userId).isEmpty();
+    }
+
+    private List<Scope> schoolParcours(UUID userId) {
+        return jdbc.query("""
+                SELECT DISTINCT c.level, c.subsystem
+                  FROM school_class c
+                  JOIN app_user u ON u.school_id=c.school_id
+                 WHERE u.id=?
+                 ORDER BY c.level,c.subsystem
+                """, (rs, n) -> new Scope(rs.getString(1), rs.getString(2)), userId);
+    }
+
+    /** Derive only from active teaching/titulaire relationships; no FR+EN fallback. */
+    private List<Scope> fromEmployeeAssignments(UUID userId) {
+        return jdbc.query("""
+                SELECT DISTINCT c.level, c.subsystem
+                  FROM school_class c
+                  JOIN app_user u ON u.school_id=c.school_id
+                  JOIN employee e ON e.id=u.employee_id AND e.school_id=u.school_id AND e.active=true
+                 WHERE u.id=? AND (
+                       EXISTS (SELECT 1 FROM teacher_class tc
+                                WHERE tc.employee_id=e.id AND tc.class_id=c.id)
+                    OR EXISTS (SELECT 1 FROM academic_class_subject_teacher at
+                                WHERE at.school_id=c.school_id AND at.class_id=c.id
+                                  AND at.employee_id=e.id AND at.active=true)
+                    OR EXISTS (SELECT 1 FROM class_teacher_assignment ta
+                                WHERE ta.school_id=c.school_id AND ta.class_id=c.id
+                                  AND ta.employee_id=e.id AND ta.status='ACTIVE')
+                    OR (e.form_class IS NOT NULL AND e.form_class=c.name)
+                  )
+                 ORDER BY c.level,c.subsystem
+                """, (rs, n) -> new Scope(rs.getString(1), rs.getString(2)), userId);
+    }
+
+    private List<Scope> fromLinkedChildren(UUID userId) {
+        return jdbc.query("""
+                SELECT DISTINCT c.level, c.subsystem
+                  FROM guardian g
+                  JOIN student_guardian sg ON sg.guardian_id=g.id
+                  JOIN student s ON s.id=sg.student_id AND s.school_id=g.school_id
+                  JOIN school_class c ON c.id=s.class_id AND c.school_id=s.school_id
+                 WHERE g.app_user_id=? AND g.status='ACTIVE'
+                   AND sg.portal_access=true AND sg.effective_to IS NULL
+                 ORDER BY c.level,c.subsystem
+                """, (rs, n) -> new Scope(rs.getString(1), rs.getString(2)), userId);
     }
 
     /**
@@ -72,11 +100,15 @@ public class ParcoursAccessService {
      */
     public boolean allows() {
         Scope scope = ParcoursContext.get();
-        if (scope == null) return true;
         AppUserPrincipal p = currentPrincipal();
         if (p == null) return false;
-        List<Scope> allowed = allowed(p.userId());
-        return allowed.isEmpty() || allowed.contains(scope);
+        if (scope == null) return isGlobal(p.userId());
+        return isAllowed(p.userId(), scope);
+    }
+
+    public boolean isAllowed(UUID userId, Scope scope) {
+        if (scope == null) return isGlobal(userId);
+        return allowed(userId).contains(scope);
     }
 
     private AppUserPrincipal currentPrincipal() {

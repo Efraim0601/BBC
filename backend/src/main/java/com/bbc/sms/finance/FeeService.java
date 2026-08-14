@@ -2,11 +2,14 @@ package com.bbc.sms.finance;
 
 import com.bbc.sms.finance.dto.FeeDtos.*;
 import com.bbc.sms.platform.common.ApiException;
+import com.bbc.sms.platform.security.AuthorizationPolicyService;
+import com.bbc.sms.platform.security.PolicyResourceContext;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.student.Student;
 import com.bbc.sms.student.StudentRepository;
 import com.bbc.sms.timetable.SchoolClass;
 import com.bbc.sms.timetable.SchoolClassRepository;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -41,22 +44,31 @@ public class FeeService {
     private final PaymentRepository payments;
     private final PaymentChannelRepository channels;
     private final SchoolClassRepository classes;
+    private final AuthorizationPolicyService policy;
+    private final JdbcTemplate jdbc;
+
+    private record FinanceStudent(UUID id, String matricule, String firstName,
+                                  String lastName, String className) {}
 
     public FeeService(FeeConfigRepository feeConfigs, StudentFeeRepository studentFees,
                       StudentRepository students, PaymentRepository payments,
-                      PaymentChannelRepository channels, SchoolClassRepository classes) {
+                      PaymentChannelRepository channels, SchoolClassRepository classes,
+                      AuthorizationPolicyService policy, JdbcTemplate jdbc) {
         this.feeConfigs = feeConfigs;
         this.studentFees = studentFees;
         this.students = students;
         this.payments = payments;
         this.channels = channels;
         this.classes = classes;
+        this.policy = policy;
+        this.jdbc = jdbc;
     }
 
     // ------------------------------------------------------------------- grilles
 
     @Transactional(readOnly = true)
     public List<FeeConfigView> listConfig() {
+        requireSchool("FINANCE_OVERVIEW_VIEW");
         UUID schoolId = TenantContext.get();
         Map<UUID, String> classNames = classNames(schoolId);
         return feeConfigs.findBySchoolId(schoolId).stream()
@@ -68,6 +80,7 @@ public class FeeService {
 
     @Transactional
     public FeeConfigView upsertConfig(FeeConfigUpdate in) {
+        requireSchool("FEE_CONFIGURE");
         UUID schoolId = TenantContext.get();
         List<TrancheView> tranches = in.tranches() == null ? List.of() : in.tranches();
 
@@ -102,6 +115,7 @@ public class FeeService {
 
     @Transactional
     public void deleteConfig(UUID id) {
+        requireSchool("FEE_CONFIGURE");
         UUID schoolId = TenantContext.get();
         FeeConfig cfg = feeConfigs.findById(id)
                 .filter(c -> c.getSchoolId().equals(schoolId))
@@ -146,21 +160,23 @@ public class FeeService {
 
     @Transactional(readOnly = true)
     public List<SituationView> situation() {
+        requireSchool("FINANCE_OVERVIEW_VIEW");
         return buildSituation(false);
     }
 
     @Transactional(readOnly = true)
     public List<SituationView> debtors() {
+        requireSchool("FINANCE_OVERVIEW_VIEW");
         return buildSituation(true);
     }
 
     private List<SituationView> buildSituation(boolean onlyDebtors) {
         UUID schoolId = TenantContext.get();
+        List<StudentFee> feeRows = studentFees.findBySchoolId(schoolId);
+        Map<UUID, FinanceStudent> studentsById = financeStudents(schoolId,
+                feeRows.stream().map(StudentFee::getStudentId).collect(Collectors.toSet()));
 
-        Map<UUID, Student> studentsById = students.findBySchoolIdAndActiveTrueOrderByLastNameAsc(schoolId).stream()
-                .collect(Collectors.toMap(Student::getId, Function.identity()));
-
-        return studentFees.findBySchoolId(schoolId).stream()
+        return feeRows.stream()
                 .filter(sf -> !onlyDebtors || sf.getBalance() > 0)
                 .map(sf -> toSituation(sf, studentsById.get(sf.getStudentId())))
                 .sorted(Comparator.comparingLong(SituationView::balance).reversed())
@@ -174,6 +190,18 @@ public class FeeService {
      */
     @Transactional(readOnly = true)
     public StudentFeeStatementView statement(UUID schoolId, UUID studentId) {
+        policy.require("PAYMENT_VIEW", new PolicyResourceContext(schoolId, null, LocalDate.now(),
+                null, null, null, studentId, null, null, null, null, null));
+        return statementInternal(schoolId, studentId);
+    }
+
+    /** Parent portal entry point; ParentService has already enforced child + feature scope. */
+    @Transactional(readOnly = true)
+    public StudentFeeStatementView statementForParent(UUID schoolId, UUID studentId) {
+        return statementInternal(schoolId, studentId);
+    }
+
+    private StudentFeeStatementView statementInternal(UUID schoolId, UUID studentId) {
         Student s = students.findByIdAndSchoolId(studentId, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Élève"));
 
@@ -240,6 +268,7 @@ public class FeeService {
 
     @Transactional(readOnly = true)
     public List<PaymentChannelView> listChannels() {
+        requireSchool("FINANCE_OVERVIEW_VIEW");
         return channels.findBySchoolIdOrderBySortOrderAscLabelFrAsc(TenantContext.get()).stream()
                 .map(this::toView).toList();
     }
@@ -254,6 +283,7 @@ public class FeeService {
 
     @Transactional
     public PaymentChannelView updateChannel(String code, PaymentChannelUpdate in) {
+        requireSchool("FEE_CONFIGURE");
         UUID schoolId = TenantContext.get();
         PaymentChannel c = channels.findBySchoolIdAndCode(schoolId, code)
                 .orElseThrow(() -> ApiException.notFound("Moyen de paiement " + code));
@@ -320,9 +350,9 @@ public class FeeService {
         return out;
     }
 
-    private SituationView toSituation(StudentFee sf, Student student) {
-        String name = student == null ? null : (student.getFirstName() + " " + student.getLastName());
-        String className = student == null ? null : student.getClassName();
+    private SituationView toSituation(StudentFee sf, FinanceStudent student) {
+        String name = student == null ? null : (student.firstName() + " " + student.lastName());
+        String className = student == null ? null : student.className();
         int progressPct = sf.getTotal() > 0
                 ? (int) Math.round(sf.getPaid() * 100.0 / sf.getTotal())
                 : 100;
@@ -340,6 +370,40 @@ public class FeeService {
         return new PaymentChannelView(c.getId(), c.getCode(), c.getLabelFr(), c.getLabelEn(),
                 c.getAccountRef(), c.getAccountName(), c.getInstructionsFr(), c.getInstructionsEn(),
                 c.isRequiresReference(), c.isEnabled(), c.isVisibleToParents(), c.getSortOrder());
+    }
+
+    private Map<UUID, FinanceStudent> financeStudents(UUID schoolId, java.util.Set<UUID> ids) {
+        if (ids.isEmpty()) return Map.of();
+        String placeholders = String.join(",", java.util.Collections.nCopies(ids.size(), "?"));
+        List<Object> args = new ArrayList<>();
+        args.add(schoolId);
+        args.add(schoolId);
+        args.addAll(ids);
+        return jdbc.query("""
+                SELECT s.id,s.matricule,s.first_name,s.last_name,
+                       COALESCE(c.name,s.class_name)
+                  FROM student s
+                  LEFT JOIN LATERAL (
+                       SELECT e.school_class_id
+                         FROM student_enrollment e
+                         JOIN academic_session a ON a.id=e.academic_session_id
+                                               AND a.school_id=e.school_id
+                        WHERE e.school_id=? AND e.student_id=s.id AND e.status='ACTIVE'
+                          AND a.is_current=true AND e.enrolled_on<=CURRENT_DATE
+                          AND (e.exited_on IS NULL OR e.exited_on>=CURRENT_DATE)
+                        ORDER BY e.enrolled_on DESC,e.created_at DESC LIMIT 1
+                  ) current_enrollment ON true
+                  LEFT JOIN school_class c ON c.id=current_enrollment.school_class_id
+                                           AND c.school_id=s.school_id
+                 WHERE s.school_id=? AND s.active=true AND s.id IN (%s)
+                """.formatted(placeholders), (rs, n) -> new FinanceStudent(
+                        rs.getObject(1, UUID.class), rs.getString(2), rs.getString(3),
+                        rs.getString(4), rs.getString(5)), args.toArray())
+                .stream().collect(Collectors.toMap(FinanceStudent::id, x -> x));
+    }
+
+    private void requireSchool(String action) {
+        policy.require(action, PolicyResourceContext.empty().forSchool(TenantContext.get()));
     }
 
     /** JSONB → tranches typées. Tolère l'ancien format (un simple tableau de montants). */

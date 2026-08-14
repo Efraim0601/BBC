@@ -16,17 +16,17 @@ public class DocumentDesignController {
     public DocumentDesignController(DocumentDesignService service) { this.service = service; }
 
     @GetMapping
-    @PreAuthorize("@perm.can('settings','read') or @perm.can('documents','read')")
+    @PreAuthorize("@perm.canAction('DOCUMENT_DESIGN_PUBLISH') and @perm.staffOnly()")
     public DocumentDesignView current() { return service.current(); }
 
     @PostMapping("/templates/{id}/publish")
-    @PreAuthorize("@perm.can('settings','write') or @perm.canAction('DOCUMENT_DESIGN_PUBLISH')")
+    @PreAuthorize("@perm.canAction('DOCUMENT_DESIGN_PUBLISH') and @perm.staffOnly()")
     public TemplateVersionView publishTemplate(@PathVariable UUID id, @Valid @RequestBody PublishRequest in) {
         return service.publishTemplate(id, in.reason());
     }
 
     @PostMapping("/branding/publish")
-    @PreAuthorize("@perm.can('settings','write') or @perm.canAction('DOCUMENT_DESIGN_PUBLISH')")
+    @PreAuthorize("@perm.canAction('DOCUMENT_DESIGN_PUBLISH') and @perm.staffOnly()")
     public BrandingVersionView publishBranding(@Valid @RequestBody PublishRequest in) {
         return service.publishBranding(in);
     }

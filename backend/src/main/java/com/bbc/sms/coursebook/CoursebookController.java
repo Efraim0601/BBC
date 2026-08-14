@@ -18,27 +18,27 @@ public class CoursebookController {
     public CoursebookController(CoursebookService service) { this.service = service; }
 
     @GetMapping
-    @PreAuthorize("@perm.can('coursebook','read')")
+    @PreAuthorize("@perm.canAction('COURSEBOOK_VIEW')")
     public List<EntryView> forClass(@RequestParam(required = false) String className) {
         return service.forClass(className);
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("@perm.can('coursebook','write')")
+    @PreAuthorize("@perm.canAction('COURSEBOOK_MANAGE')")
     public EntryView create(@Valid @RequestBody EntryUpsert in) {
         return service.create(in);
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("@perm.can('coursebook','write')")
+    @PreAuthorize("@perm.canAction('COURSEBOOK_MANAGE')")
     public EntryView update(@PathVariable UUID id, @Valid @RequestBody EntryUpsert in) {
         return service.update(id, in);
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize("@perm.can('coursebook','write')")
+    @PreAuthorize("@perm.canAction('COURSEBOOK_MANAGE')")
     public void delete(@PathVariable UUID id) {
         service.delete(id);
     }

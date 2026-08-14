@@ -2,6 +2,7 @@ package com.bbc.sms.finance.charges;
 
 import com.bbc.sms.foundation.enrollment.StudentEnrollment;
 import com.bbc.sms.foundation.enrollment.StudentEnrollmentRepository;
+import com.bbc.sms.finance.FinancePolicyService;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.student.Student;
@@ -29,21 +30,25 @@ public class ChargeQueryService {
     private final ChargeAdjustmentRepository adjustments;
     private final StudentEnrollmentRepository enrollments;
     private final StudentRepository students;
+    private final FinancePolicyService financePolicy;
 
     public ChargeQueryService(StudentChargeRepository charges,
                               ChargeInstallmentRepository installments,
                               ChargeAdjustmentRepository adjustments,
                               StudentEnrollmentRepository enrollments,
-                              StudentRepository students) {
+                              StudentRepository students,
+                              FinancePolicyService financePolicy) {
         this.charges = charges;
         this.installments = installments;
         this.adjustments = adjustments;
         this.enrollments = enrollments;
         this.students = students;
+        this.financePolicy = financePolicy;
     }
 
     @Transactional(readOnly = true)
     public List<ChargeView> list(ChargeListFilters filters) {
+        financePolicy.requireSchool("CHARGE_PREVIEW");
         UUID schoolId = TenantContext.get();
         List<StudentCharge> source = filters != null && filters.studentId() != null
                 ? charges.findBySchoolIdAndStudentIdOrderByChargeDateAscCreatedAtAsc(schoolId, filters.studentId())
@@ -70,12 +75,14 @@ public class ChargeQueryService {
 
     @Transactional(readOnly = true)
     public ChargeView detail(UUID id) {
+        financePolicy.requireSchool("CHARGE_PREVIEW");
         return view(charges.findByIdAndSchoolId(id, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Charge")));
     }
 
     @Transactional(readOnly = true)
     public List<StudentContextOption> studentOptions(String query, UUID sessionId) {
+        financePolicy.requireSchool("CHARGE_PREVIEW");
         UUID schoolId = TenantContext.get();
         String needle = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
         return enrollments.findBySchoolIdAndAcademicSessionIdAndStatusOrderByClassNameSnapshotAsc(schoolId, sessionId, "ACTIVE")
@@ -89,6 +96,7 @@ public class ChargeQueryService {
 
     @Transactional(readOnly = true)
     public StudentAccountView account(UUID enrollmentId) {
+        financePolicy.requireEnrollment("CHARGE_PREVIEW", enrollmentId, LocalDate.now());
         UUID schoolId = TenantContext.get();
         StudentEnrollment enrollment = enrollments.findByIdAndSchoolId(enrollmentId, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Inscription"));
@@ -129,6 +137,7 @@ public class ChargeQueryService {
 
     @Transactional(readOnly = true)
     public AgeingView ageing(LocalDate asOfDate, UUID academicSessionId, UUID schoolClassId) {
+        financePolicy.requireSchool("FINANCE_REPORT_VIEW");
         UUID schoolId = TenantContext.get();
         LocalDate date = asOfDate == null ? LocalDate.now() : asOfDate;
         List<StudentCharge> source = academicSessionId == null

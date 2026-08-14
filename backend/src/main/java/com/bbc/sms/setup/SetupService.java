@@ -6,6 +6,8 @@ import com.bbc.sms.academic.SubjectClassCoef;
 import com.bbc.sms.academic.SubjectClassCoefRepository;
 import com.bbc.sms.foundation.audit.AuditService;
 import com.bbc.sms.platform.common.ApiException;
+import com.bbc.sms.platform.security.AuthorizationPolicyService;
+import com.bbc.sms.platform.security.PolicyResourceContext;
 import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.tenant.ParcoursContext;
 import com.bbc.sms.platform.tenant.ParcoursContext.Scope;
@@ -50,11 +52,13 @@ public class SetupService {
     private final TeacherScopeService teacherScope;
     private final JdbcTemplate jdbc;
     private final AuditService audit;
+    private final AuthorizationPolicyService policy;
 
     public SetupService(SectionRepository sections, SchoolClassRepository classes,
                         SubjectRepository subjects, SubjectClassCoefRepository coefs,
                         StudentRepository students, EmployeeRepository employees,
-                        TeacherScopeService teacherScope, JdbcTemplate jdbc, AuditService audit) {
+                        TeacherScopeService teacherScope, JdbcTemplate jdbc, AuditService audit,
+                        AuthorizationPolicyService policy) {
         this.sections = sections;
         this.classes = classes;
         this.subjects = subjects;
@@ -64,12 +68,14 @@ public class SetupService {
         this.teacherScope = teacherScope;
         this.jdbc = jdbc;
         this.audit = audit;
+        this.policy = policy;
     }
 
     // ---- Sections -----------------------------------------------------------
 
     @Transactional(readOnly = true)
     public List<SectionView> listSections() {
+        requireSchool("ACADEMIC_STRUCTURE_VIEW");
         UUID schoolId = TenantContext.get();
         Scope scope = ParcoursContext.get();
         return sections.findBySchoolIdOrderByLabel(schoolId).stream()
@@ -79,6 +85,7 @@ public class SetupService {
 
     @Transactional
     public SectionView createSection(SectionUpsert in) {
+        requireSchool("CLASS_MANAGE");
         UUID schoolId = TenantContext.get();
         Section s = new Section();
         s.setId(uniqueSectionId(schoolId, in.subsystem(), in.level()));
@@ -91,6 +98,7 @@ public class SetupService {
 
     @Transactional
     public SectionView updateSection(String id, SectionUpsert in) {
+        requireSchool("CLASS_MANAGE");
         UUID schoolId = TenantContext.get();
         Section s = sections.findByIdAndSchoolId(id, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Section"));
@@ -102,6 +110,7 @@ public class SetupService {
 
     @Transactional
     public void deleteSection(String id) {
+        requireSchool("CLASS_MANAGE");
         UUID schoolId = TenantContext.get();
         Section s = sections.findByIdAndSchoolId(id, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Section"));
@@ -115,6 +124,7 @@ public class SetupService {
 
     @Transactional(readOnly = true)
     public List<ClassView> listClasses() {
+        requireSchool("ACADEMIC_STRUCTURE_VIEW");
         UUID schoolId = TenantContext.get();
         Map<String, Section> byId = sections.findBySchoolIdOrderByLabel(schoolId).stream()
                 .collect(java.util.stream.Collectors.toMap(Section::getId, x -> x));
@@ -130,6 +140,7 @@ public class SetupService {
 
     @Transactional
     public ClassView createClass(ClassUpsert in) {
+        requireSchool("CLASS_MANAGE");
         UUID schoolId = TenantContext.get();
         Section section = sections.findByIdAndSchoolId(in.sectionId(), schoolId)
                 .orElseThrow(() -> ApiException.notFound("Section"));
@@ -208,6 +219,7 @@ public class SetupService {
 
     @Transactional
     public ClassView updateClass(UUID id, ClassUpsert in) {
+        requireSchool("CLASS_MANAGE");
         UUID schoolId = TenantContext.get();
         SchoolClass c = classes.findByIdAndSchoolId(id, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Classe"));
@@ -226,6 +238,7 @@ public class SetupService {
 
     @Transactional
     public void deleteClass(UUID id) {
+        requireSchool("CLASS_MANAGE");
         UUID schoolId = TenantContext.get();
         SchoolClass c = classes.findByIdAndSchoolId(id, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Classe"));
@@ -247,6 +260,7 @@ public class SetupService {
      */
     @Transactional(readOnly = true)
     public List<TeacherOption> assignableTeachers(String level) {
+        requireSchool("ACADEMIC_STRUCTURE_VIEW");
         UUID schoolId = TenantContext.get();
         String wanted = blankToNull(level);
         return employees.findBySchoolIdAndActiveTrueOrderByNameAsc(schoolId).stream()
@@ -296,6 +310,11 @@ public class SetupService {
     /** Teachers currently linked to a class. */
     @Transactional(readOnly = true)
     public List<TeacherOption> classTeachers(UUID classId) {
+        requireClass("TEACHING_CLASS_ASSIGNMENT_MANAGE", classId);
+        return rawClassTeachers(classId);
+    }
+
+    private List<TeacherOption> rawClassTeachers(UUID classId) {
         UUID schoolId = TenantContext.get();
         classes.findByIdAndSchoolId(classId, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Classe"));
@@ -314,6 +333,7 @@ public class SetupService {
     /** Replace the full set of teachers linked to a class (0..N). */
     @Transactional
     public List<TeacherOption> setClassTeachers(UUID classId, List<UUID> employeeIds) {
+        requireClass("TEACHING_CLASS_ASSIGNMENT_MANAGE", classId);
         UUID schoolId = TenantContext.get();
         SchoolClass cls = classes.findByIdAndSchoolId(classId, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Classe"));
@@ -328,19 +348,21 @@ public class SetupService {
                 jdbc.update("INSERT INTO teacher_class (employee_id, class_id) VALUES (?, ?)", empId, classId);
             }
         }
-        return classTeachers(classId);
+        return rawClassTeachers(classId);
     }
 
     // ---- Subjects -----------------------------------------------------------
 
     @Transactional(readOnly = true)
     public List<SubjectView> listSubjects() {
+        requireSchool("ACADEMIC_STRUCTURE_VIEW");
         UUID schoolId = TenantContext.get();
         return subjects.findBySchoolIdOrderByCode(schoolId).stream().map(this::toView).toList();
     }
 
     @Transactional
     public SubjectView createSubject(SubjectUpsert in) {
+        requireSchool("SUBJECT_MANAGE");
         UUID schoolId = TenantContext.get();
         String code = in.code().trim().toUpperCase();
         String subsystem = normSubsystem(in.subsystem());
@@ -362,6 +384,7 @@ public class SetupService {
 
     @Transactional
     public SubjectView updateSubject(UUID id, SubjectUpsert in) {
+        requireSchool("SUBJECT_MANAGE");
         UUID schoolId = TenantContext.get();
         Subject s = subjects.findByIdAndSchoolId(id, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Matière"));
@@ -380,6 +403,7 @@ public class SetupService {
 
     @Transactional
     public void deleteSubject(UUID id) {
+        requireSchool("SUBJECT_MANAGE");
         UUID schoolId = TenantContext.get();
         Subject s = subjects.findByIdAndSchoolId(id, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Matière"));
@@ -390,6 +414,7 @@ public class SetupService {
 
     @Transactional(readOnly = true)
     public List<ClassCoefView> listCoefficients() {
+        requireSchool("ACADEMIC_STRUCTURE_VIEW");
         UUID schoolId = TenantContext.get();
         Map<UUID, SchoolClass> classById = classes.findBySchoolIdOrderByName(schoolId).stream()
                 .collect(java.util.stream.Collectors.toMap(SchoolClass::getId, c -> c));
@@ -409,6 +434,7 @@ public class SetupService {
 
     @Transactional
     public ClassCoefView upsertCoefficient(ClassCoefUpsert in) {
+        requireClass("CURRICULUM_CLASS_MANAGE", in.classId());
         UUID schoolId = TenantContext.get();
         SchoolClass schoolClass = classes.findByIdAndSchoolId(in.classId(), schoolId)
                 .orElseThrow(() -> ApiException.notFound("Classe"));
@@ -434,6 +460,7 @@ public class SetupService {
 
     @Transactional
     public void deleteCoefficient(UUID classId, UUID subjectId) {
+        requireClass("CURRICULUM_CLASS_MANAGE", classId);
         UUID schoolId = TenantContext.get();
         SubjectClassCoef coefficient = coefs.findBySchoolIdAndSubjectIdAndClassId(schoolId, subjectId, classId)
                 .orElseThrow(() -> ApiException.notFound("Affectation matière-classe"));
@@ -472,6 +499,7 @@ public class SetupService {
      */
     @Transactional
     public CoefImportResult importCoefficients(CoefImportRequest in) {
+        requireSchool("CURRICULUM_CATALOG_MANAGE");
         UUID schoolId = TenantContext.get();
         List<SchoolClass> allClasses = classes.findBySchoolIdOrderByName(schoolId);
         List<CoefImportError> errors = new ArrayList<>();
@@ -520,6 +548,7 @@ public class SetupService {
 
     @Transactional(readOnly = true)
     public CurriculumView curriculum(UUID academicSessionId, UUID classId) {
+        requireClass("ACADEMIC_STRUCTURE_VIEW", classId);
         UUID schoolId = TenantContext.get();
         Map<String, Object> session = jdbc.query("SELECT code, label FROM academic_session WHERE id=? AND school_id=?",
                 rs -> rs.next() ? Map.of("code", rs.getString(1), "label", rs.getString(2)) : null,
@@ -583,6 +612,7 @@ public class SetupService {
 
     @Transactional
     public SubjectGroupView upsertCurriculumGroup(UUID id, SubjectGroupUpsert in) {
+        requireSchool("CURRICULUM_CATALOG_MANAGE");
         UUID schoolId = TenantContext.get();
         assertSession(in.academicSessionId());
         String code = in.code().trim().toUpperCase();
@@ -618,6 +648,7 @@ public class SetupService {
 
     @Transactional
     public void deleteCurriculumGroup(UUID id) {
+        requireSchool("CURRICULUM_CATALOG_MANAGE");
         UUID schoolId = TenantContext.get();
         int updated = jdbc.update("DELETE FROM academic_subject_group WHERE id=? AND school_id=?", id, schoolId);
         if (updated != 1) throw ApiException.notFound("Groupe de matières");
@@ -625,6 +656,7 @@ public class SetupService {
 
     @Transactional
     public CurriculumSubjectView upsertCurriculumSubject(CurriculumSubjectUpsert in) {
+        requireClassSubject("CURRICULUM_MANAGE", in.academicSessionId(), in.classId(), in.subjectId());
         UUID schoolId = TenantContext.get();
         assertSession(in.academicSessionId());
         SchoolClass cls = classes.findByIdAndSchoolId(in.classId(), schoolId).orElseThrow(() -> ApiException.notFound("Classe"));
@@ -690,6 +722,7 @@ public class SetupService {
 
     @Transactional
     public void deleteCurriculumSubject(UUID academicSessionId, UUID classId, UUID subjectId) {
+        requireClassSubject("CURRICULUM_MANAGE", academicSessionId, classId, subjectId);
         UUID schoolId = TenantContext.get();
         assertSession(academicSessionId);
         int updated = jdbc.update("DELETE FROM academic_curriculum_subject WHERE school_id=? AND academic_session_id=? AND class_id=? AND subject_id=?",
@@ -702,6 +735,7 @@ public class SetupService {
 
     @Transactional
     public CurriculumTeacherView upsertCurriculumTeacher(CurriculumTeacherUpsert in) {
+        requireClassSubject("TEACHING_ASSIGNMENT_MANAGE", in.academicSessionId(), in.classId(), in.subjectId());
         UUID schoolId = TenantContext.get();
         assertSession(in.academicSessionId());
         SchoolClass cls = classes.findByIdAndSchoolId(in.classId(), schoolId).orElseThrow(() -> ApiException.notFound("Classe"));
@@ -766,6 +800,7 @@ public class SetupService {
 
     @Transactional
     public CurriculumTeacherView upsertHomeroom(HomeroomAssignmentUpsert in) {
+        requireClass("TEACHING_CLASS_ASSIGNMENT_MANAGE", in.classId());
         UUID schoolId = TenantContext.get();
         assertSession(in.academicSessionId());
         SchoolClass cls = classes.findByIdAndSchoolId(in.classId(), schoolId)
@@ -829,6 +864,8 @@ public class SetupService {
      */
     @Transactional(readOnly = true)
     public AssignmentImpactView assignmentImpactPreview(AssignmentImpactRequest in) {
+        if (in.subjectId() == null) requireClass("TEACHING_CLASS_ASSIGNMENT_MANAGE", in.classId());
+        else requireClassSubject("TEACHING_ASSIGNMENT_MANAGE", in.academicSessionId(), in.classId(), in.subjectId());
         UUID schoolId = TenantContext.get();
         assertSession(in.academicSessionId());
         SchoolClass cls = classes.findByIdAndSchoolId(in.classId(), schoolId)
@@ -910,6 +947,24 @@ public class SetupService {
 
     @Transactional
     public void deleteCurriculumTeacher(UUID id) {
+        Map<String, Object> subjectAssignment = jdbc.query(
+                "SELECT academic_session_id,class_id,subject_id FROM academic_class_subject_teacher WHERE id=? AND school_id=?",
+                rs -> rs.next() ? Map.of("session", rs.getObject(1, UUID.class),
+                        "class", rs.getObject(2, UUID.class), "subject", rs.getObject(3, UUID.class)) : null,
+                id, TenantContext.get());
+        if (subjectAssignment != null) {
+            requireClassSubject("TEACHING_ASSIGNMENT_MANAGE",
+                    (UUID) subjectAssignment.get("session"), (UUID) subjectAssignment.get("class"),
+                    (UUID) subjectAssignment.get("subject"));
+        } else {
+            Map<String, Object> homeroom = jdbc.query(
+                    "SELECT academic_session_id,class_id FROM class_teacher_assignment WHERE id=? AND school_id=?",
+                    rs -> rs.next() ? Map.of("session", rs.getObject(1, UUID.class),
+                            "class", rs.getObject(2, UUID.class)) : null,
+                    id, TenantContext.get());
+            if (homeroom == null) throw ApiException.notFound("Affectation de l'enseignant");
+            requireClass("TEACHING_CLASS_ASSIGNMENT_MANAGE", (UUID) homeroom.get("class"));
+        }
         int updated = jdbc.update("UPDATE academic_class_subject_teacher SET active=false,updated_at=now(),version=version+1 WHERE id=? AND school_id=?", id, TenantContext.get());
         if (updated == 0) updated = jdbc.update("UPDATE class_teacher_assignment SET status='INACTIVE',updated_at=now(),version=version+1 WHERE id=? AND school_id=?", id, TenantContext.get());
         if (updated != 1) throw ApiException.notFound("Affectation de l'enseignant");
@@ -1051,6 +1106,40 @@ public class SetupService {
 
     private static String blankToNull(String s) {
         return (s == null || s.isBlank()) ? null : s.trim();
+    }
+
+    private void requireSchool(String action) {
+        policy.require(action, PolicyResourceContext.empty().forSchool(TenantContext.get()));
+    }
+
+    private void requireClass(String action, UUID classId) {
+        if (classId == null) throw ApiException.badRequest("La classe est obligatoire");
+        SchoolClass cls = classes.findByIdAndSchoolId(classId, TenantContext.get())
+                .orElseThrow(() -> ApiException.notFound("Classe"));
+        PolicyResourceContext context = new PolicyResourceContext(
+                TenantContext.get(), null, LocalDate.now(),
+                new Scope(cls.getLevel(), cls.getSubsystem()), classId, null,
+                null, null, null, null, null, cls.getLevel());
+        policy.require(action, context);
+    }
+
+    private void requireClassSubject(String action, UUID sessionId, UUID classId, UUID subjectId) {
+        if (sessionId == null || classId == null || subjectId == null) {
+            throw ApiException.badRequest("La session, la classe et la matière sont obligatoires");
+        }
+        SchoolClass cls = classes.findByIdAndSchoolId(classId, TenantContext.get())
+                .orElseThrow(() -> ApiException.notFound("Classe"));
+        Subject subject = subjects.findByIdAndSchoolId(subjectId, TenantContext.get())
+                .orElseThrow(() -> ApiException.notFound("Matière"));
+        LocalDate date = jdbc.query("SELECT start_date FROM academic_session WHERE id=? AND school_id=?",
+                rs -> rs.next() ? rs.getObject(1, LocalDate.class) : null,
+                sessionId, TenantContext.get());
+        if (date == null) throw ApiException.notFound("Session académique");
+        PolicyResourceContext context = new PolicyResourceContext(
+                TenantContext.get(), sessionId, date,
+                new Scope(cls.getLevel(), cls.getSubsystem()), classId, subject.getCode(),
+                null, null, null, null, null, cls.getLevel());
+        policy.require(action, context);
     }
 
     // ---- mapping ------------------------------------------------------------

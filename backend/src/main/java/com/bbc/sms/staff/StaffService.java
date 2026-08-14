@@ -6,6 +6,8 @@ import com.bbc.sms.identity.AppUser;
 import com.bbc.sms.identity.AppUserRepository;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.mail.MailService;
+import com.bbc.sms.platform.security.AuthorizationPolicyService;
+import com.bbc.sms.platform.security.PolicyResourceContext;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.setup.SetupService;
 import com.bbc.sms.staff.dto.StaffDtos.*;
@@ -50,10 +52,12 @@ public class StaffService {
     private final SchoolClassRepository classes;
     private final SetupService setup;
     private final JdbcTemplate jdbc;
+    private final AuthorizationPolicyService policy;
 
     public StaffService(EmployeeRepository repo, DepartmentRepository departments, MailService mail,
                         StaffAccountService accounts, AppUserRepository users,
-                        SchoolClassRepository classes, SetupService setup, JdbcTemplate jdbc) {
+                        SchoolClassRepository classes, SetupService setup, JdbcTemplate jdbc,
+                        AuthorizationPolicyService policy) {
         this.repo = repo;
         this.departments = departments;
         this.mail = mail;
@@ -62,6 +66,7 @@ public class StaffService {
         this.classes = classes;
         this.setup = setup;
         this.jdbc = jdbc;
+        this.policy = policy;
     }
 
     // ---- Classes d'un enseignant ------------------------------------------
@@ -70,6 +75,7 @@ public class StaffService {
 
     @Transactional(readOnly = true)
     public List<TeacherClassView> classesOf(UUID employeeId) {
+        requireSchool("HR_VIEW");
         UUID schoolId = TenantContext.get();
         find(employeeId);
         return jdbc.query("""
@@ -94,6 +100,7 @@ public class StaffService {
      */
     @Transactional
     public List<TeacherClassView> setClasses(UUID employeeId, List<UUID> classIds) {
+        requireSchool("TEACHING_CLASS_ASSIGNMENT_MANAGE");
         UUID schoolId = TenantContext.get();
         Employee e = find(employeeId);
         List<UUID> wanted = classIds == null ? List.of() : classIds.stream().distinct().toList();
@@ -115,21 +122,24 @@ public class StaffService {
 
     @Transactional(readOnly = true)
     public List<EmployeeView> list() {
+        requireSchool("HR_VIEW");
         UUID schoolId = TenantContext.get();
         Map<UUID, String> deptNames = new HashMap<>();
         for (Department d : departments.findBySchoolIdOrderByName(schoolId)) deptNames.put(d.getId(), d.getName());
-        Map<UUID, String> logins = loginUsernames(schoolId);
+        Map<UUID, AppUser> loginAccounts = loginAccounts(schoolId);
         return repo.findBySchoolIdAndActiveTrueOrderByNameAsc(schoolId).stream()
-                .map(e -> toView(e, deptNames.get(e.getDepartmentId()), logins.get(e.getId()))).toList();
+                .map(e -> toView(e, deptNames.get(e.getDepartmentId()), loginAccounts.get(e.getId()))).toList();
     }
 
     @Transactional(readOnly = true)
     public EmployeeView get(UUID id) {
+        requireSchool("HR_VIEW");
         return toView(find(id));
     }
 
     @Transactional
     public EmployeeView create(EmployeeUpsert in) {
+        requireSchool("HR_MANAGE");
         UUID schoolId = TenantContext.get();
         Employee e = new Employee();
         e.setSchoolId(schoolId);
@@ -154,6 +164,7 @@ public class StaffService {
     @Transactional
     public Employee createInactiveDraft(UUID schoolId, String name, String sex, String type,
                                         String email, String phone, String formClass) {
+        requireSchool("HR_MANAGE");
         Employee e = new Employee();
         e.setSchoolId(schoolId);
         e.setCode(nextCode(schoolId));
@@ -174,6 +185,7 @@ public class StaffService {
     /** Activate a draft employee and apply HR fields (salary, roles, department). */
     @Transactional
     public EmployeeView finalizeDraft(UUID employeeId, EmployeeUpsert in, boolean createLogin) {
+        requireSchool("HR_MANAGE");
         Employee e = find(employeeId);
         apply(e, in);
         e.setInitials(initials(in.name() != null && !in.name().isBlank() ? in.name() : e.getName()));
@@ -194,6 +206,7 @@ public class StaffService {
      */
     @Transactional
     public StaffImportResult importStaff(StaffImportRequest in) {
+        requireSchool("HR_MANAGE");
         UUID schoolId = TenantContext.get();
         boolean wantLogin = Boolean.TRUE.equals(in.createLogin());
         Set<String> validRoles = new HashSet<>(jdbc.queryForList("SELECT code FROM role", String.class));
@@ -287,6 +300,7 @@ public class StaffService {
 
     @Transactional
     public EmployeeView update(UUID id, EmployeeUpsert in) {
+        requireSchool("HR_MANAGE");
         Employee e = find(id);
         apply(e, in);
         e.setInitials(initials(in.name()));
@@ -295,6 +309,7 @@ public class StaffService {
 
     @Transactional
     public void delete(UUID id) {
+        requireSchool("HR_MANAGE");
         Employee e = find(id);
         e.setActive(false);   // soft delete — keeps payroll/academic history intact
         repo.save(e);
@@ -303,6 +318,7 @@ public class StaffService {
     /** (Re)issue the employee's login credentials and e-mail them; admin action. */
     @Transactional
     public AccountResult resetCredentials(UUID id) {
+        requireSchool("HR_MANAGE");
         return accounts.provisionOrReset(find(id));
     }
 
@@ -311,11 +327,11 @@ public class StaffService {
                 .orElseThrow(() -> ApiException.notFound("Employé"));
     }
 
-    /** employeeId -> username for every staff-linked account in this school. */
-    private Map<UUID, String> loginUsernames(UUID schoolId) {
-        Map<UUID, String> map = new HashMap<>();
+    /** employeeId -> account for every staff-linked account in this school. */
+    private Map<UUID, AppUser> loginAccounts(UUID schoolId) {
+        Map<UUID, AppUser> map = new HashMap<>();
         for (AppUser u : users.findBySchoolIdAndEmployeeIdNotNull(schoolId)) {
-            map.put(u.getEmployeeId(), u.getUsername());
+            map.put(u.getEmployeeId(), u);
         }
         return map;
     }
@@ -440,11 +456,11 @@ public class StaffService {
         String deptName = e.getDepartmentId() == null ? null
                 : departments.findByIdAndSchoolId(e.getDepartmentId(), e.getSchoolId())
                         .map(Department::getName).orElse(null);
-        String username = users.findByEmployeeId(e.getId()).map(AppUser::getUsername).orElse(null);
-        return toView(e, deptName, username);
+        AppUser account = users.findByEmployeeId(e.getId()).orElse(null);
+        return toView(e, deptName, account);
     }
 
-    private EmployeeView toView(Employee e, String deptName, String username) {
+    private EmployeeView toView(Employee e, String deptName, AppUser account) {
         // Copy the lazy @ElementCollection into a plain set while the session is
         // still open, otherwise JSON serialization fails with LazyInitializationException.
         Set<String> roles = e.getRoles() == null ? Set.of() : new HashSet<>(e.getRoles());
@@ -452,6 +468,11 @@ public class StaffService {
                 e.getSex(), e.getType(), e.getEmail(), e.getPhone(), e.getFormClass(),
                 e.getLevel(), e.getDepartmentId(), deptName,
                 e.getMonthlySalary(), e.getHourlyRate(), roles, e.isActive(),
-                username != null, username);
+                account != null, account == null ? null : account.getId(), account == null ? null : account.getUsername());
+    }
+
+    private void requireSchool(String action) {
+        policy.require(action, new PolicyResourceContext(TenantContext.get(), null, java.time.LocalDate.now(),
+                null, null, null, null, null, null, null, null, null));
     }
 }

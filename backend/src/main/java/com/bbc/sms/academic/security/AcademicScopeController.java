@@ -24,7 +24,7 @@ public class AcademicScopeController {
     }
 
     @GetMapping("/scope")
-    @PreAuthorize("@perm.can('academic','read') and @perm.staffOnly()")
+    @PreAuthorize("@perm.canAction('ACADEMIC_ROSTER_VIEW') and @perm.staffOnly()")
     public MyScopeView scope(@RequestParam(required = false) UUID sessionId,
                              @RequestParam(required = false) UUID periodId) {
         UUID resolvedSession = sessionId == null ? policy.currentSessionId() : sessionId;

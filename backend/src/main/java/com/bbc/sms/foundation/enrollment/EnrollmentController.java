@@ -23,14 +23,14 @@ public class EnrollmentController {
     public List<EnrollmentView> roster(@RequestParam UUID sessionId, @RequestParam UUID classId) { return service.roster(sessionId, classId); }
 
     @PostMapping("/students/{studentId}") @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("@perm.canAction('ENROLLMENT_MANAGE') and @perm.staffOnly()")
+    @PreAuthorize("@perm.canAction('ENROLLMENT_CREATE') and @perm.staffOnly()")
     public EnrollmentView enroll(@PathVariable UUID studentId, @Valid @RequestBody EnrollmentRequest in) { return service.enroll(studentId, in); }
 
     @PostMapping("/students/{studentId}/transfer")
-    @PreAuthorize("@perm.canAction('ENROLLMENT_MANAGE') and @perm.staffOnly()")
+    @PreAuthorize("@perm.canAction('ENROLLMENT_TRANSFER') and @perm.staffOnly()")
     public EnrollmentView transfer(@PathVariable UUID studentId, @Valid @RequestBody TransferRequest in) { return service.transfer(studentId, in); }
 
     @PostMapping("/{id}/withdraw")
-    @PreAuthorize("@perm.canAction('ENROLLMENT_MANAGE') and @perm.staffOnly()")
+    @PreAuthorize("@perm.canAction('ENROLLMENT_WITHDRAW') and @perm.staffOnly()")
     public EnrollmentView withdraw(@PathVariable UUID id, @Valid @RequestBody WithdrawRequest in) { return service.withdraw(id, in); }
 }

@@ -19,7 +19,9 @@ public final class ParentDtos {
             String className,
             long balance,
             String feeStatus,
-            int attendanceRate
+            int attendanceRate,
+            boolean financeVisible,
+            boolean attendanceVisible
     ) {}
 
     /**

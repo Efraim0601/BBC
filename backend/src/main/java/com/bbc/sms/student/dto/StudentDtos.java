@@ -9,6 +9,12 @@ import java.util.UUID;
 
 public class StudentDtos {
 
+    /** Common safe projection contract for list/roster callers. */
+    public interface DirectoryView {
+        UUID id();
+        String className();
+    }
+
     public record StudentView(
             UUID id,
             String matricule,
@@ -36,7 +42,24 @@ public class StudentDtos {
             String guardianPhone,
             String guardianEmail,
             String guardianRelation,
-            int photoHue) {}
+            int photoHue) implements DirectoryView {}
+
+    /** Educationally necessary teacher projection; never includes guardian contacts or credentials. */
+    public record StudentTeacherView(
+            UUID id,
+            String matricule,
+            String niu,
+            String firstName,
+            String lastName,
+            String name,
+            String sex,
+            LocalDate dob,
+            boolean repeats,
+            UUID classId,
+            String className,
+            String subsystem,
+            String level,
+            int photoHue) implements DirectoryView {}
 
     public record StudentUpsert(
             @NotBlank String firstName,

@@ -123,9 +123,9 @@ export class StudentEnrollmentPanelComponent implements OnChanges {
   protected generating = signal(false);
   protected active = signal<EnrollmentView | null>(null);
   protected transferDraft = { classId: null as string | null, effectiveDate: this.today(), reason: '' };
-  protected canManage = () => this.permissions()['ENROLLMENT_MANAGE'] ?? this.auth.can('students', 'write');
-  protected canGenerate = () => this.permissions()['DOCUMENT_GENERATE'] ?? this.auth.can('documents', 'write');
-  protected canRevoke = () => this.permissions()['DOCUMENT_REVOKE'] ?? this.auth.can('documents', 'write');
+  protected canManage = () => this.permissions()['ENROLLMENT_MANAGE'] === true;
+  protected canGenerate = () => this.permissions()['DOCUMENT_GENERATE'] === true;
+  protected canRevoke = () => this.permissions()['DOCUMENT_REVOKE'] === true;
 
   ngOnChanges(): void { if (this.student?.id) this.reload(); }
 

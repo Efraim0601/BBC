@@ -173,7 +173,7 @@ export class AppsHomeComponent {
   protected visibleGroups = computed(() => {
     const allowed = new Set(this.auth.user()?.modules ?? []);
     return NAV_GROUPS
-      .map((g) => ({ ...g, mods: g.mods.filter((m) => allowed.has(m.id)) }))
+      .map((g) => ({ ...g, mods: g.mods.filter((m) => allowed.has(m.id) || (m.id === 'access-control' && this.auth.canAction('PERMISSION_VIEW'))) }))
       .filter((g) => g.mods.length > 0);
   });
 
@@ -182,7 +182,7 @@ export class AppsHomeComponent {
     const allowed = new Set(this.auth.user()?.modules ?? []);
     let ids: string[] = [];
     try { ids = JSON.parse(localStorage.getItem(RECENT_MODS_KEY) || '[]'); } catch { /* ignore */ }
-    return ids.map((id) => MOD_BY_ID[id]).filter((m): m is Mod => !!m && allowed.has(m.id));
+    return ids.map((id) => MOD_BY_ID[id]).filter((m): m is Mod => !!m && (allowed.has(m.id) || (m.id === 'access-control' && this.auth.canAction('PERMISSION_VIEW'))));
   });
 
   constructor() {

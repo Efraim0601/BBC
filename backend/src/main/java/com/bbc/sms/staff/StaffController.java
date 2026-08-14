@@ -30,14 +30,14 @@ public class StaffController {
     // ---- Classes d'un enseignant --------------------------------------------
 
     @GetMapping("/{id}/classes")
-    @PreAuthorize("@perm.can('hr','read')")
+    @PreAuthorize("@perm.canAction('HR_VIEW')")
     public List<TeacherClassView> classes(@PathVariable UUID id) {
         return service.classesOf(id);
     }
 
     /** Remplace la totalité des classes de l'enseignant ; une liste vide le détache de toutes. */
     @PutMapping("/{id}/classes")
-    @PreAuthorize("@perm.can('hr','write')")
+    @PreAuthorize("@perm.canAction('TEACHING_CLASS_ASSIGNMENT_MANAGE')")
     public List<TeacherClassView> setClasses(@PathVariable UUID id, @RequestBody SetTeacherClasses in) {
         return service.setClasses(id, in.classIds());
     }
@@ -45,7 +45,7 @@ public class StaffController {
     // ---- Photo de profil ----------------------------------------------------
 
     @GetMapping("/{id}/photo")
-    @PreAuthorize("@perm.can('hr','read')")
+    @PreAuthorize("@perm.canAction('HR_VIEW')")
     public ResponseEntity<byte[]> photo(@PathVariable UUID id) {
         service.get(id);   // vérifie l'appartenance à l'établissement
         ProfilePhoto p = photos.find(PhotoService.EMPLOYEE, id);
@@ -58,7 +58,7 @@ public class StaffController {
     }
 
     @PutMapping("/{id}/photo")
-    @PreAuthorize("@perm.can('hr','write')")
+    @PreAuthorize("@perm.canAction('HR_MANAGE')")
     public void savePhoto(@PathVariable UUID id, @RequestBody PhotoUpload in) {
         service.get(id);
         photos.save(PhotoService.EMPLOYEE, id, in.dataUrl());
@@ -66,46 +66,46 @@ public class StaffController {
 
     @DeleteMapping("/{id}/photo")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize("@perm.can('hr','write')")
+    @PreAuthorize("@perm.canAction('HR_MANAGE')")
     public void deletePhoto(@PathVariable UUID id) {
         service.get(id);
         photos.delete(PhotoService.EMPLOYEE, id);
     }
 
     @GetMapping
-    @PreAuthorize("@perm.can('hr','read')")
+    @PreAuthorize("@perm.canAction('HR_VIEW')")
     public List<EmployeeView> list() {
         return service.list();
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("@perm.can('hr','read')")
+    @PreAuthorize("@perm.canAction('HR_VIEW')")
     public EmployeeView get(@PathVariable UUID id) {
         return service.get(id);
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("@perm.can('hr','write')")
+    @PreAuthorize("@perm.canAction('HR_MANAGE')")
     public EmployeeView create(@Valid @RequestBody EmployeeUpsert in) {
         return service.create(in);
     }
 
     @PostMapping("/import")
-    @PreAuthorize("@perm.can('hr','write')")
+    @PreAuthorize("@perm.canAction('HR_MANAGE')")
     public StaffImportResult importStaff(@Valid @RequestBody StaffImportRequest in) {
         return service.importStaff(in);
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("@perm.can('hr','write')")
+    @PreAuthorize("@perm.canAction('HR_MANAGE')")
     public EmployeeView update(@PathVariable UUID id, @Valid @RequestBody EmployeeUpsert in) {
         return service.update(id, in);
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize("@perm.can('hr','write')")
+    @PreAuthorize("@perm.canAction('HR_MANAGE')")
     public void delete(@PathVariable UUID id) {
         service.delete(id);
     }
@@ -116,7 +116,7 @@ public class StaffController {
      * admin "reset credentials" action.
      */
     @PostMapping("/{id}/reset-credentials")
-    @PreAuthorize("@perm.can('hr','write')")
+    @PreAuthorize("@perm.canAction('HR_MANAGE')")
     public AccountResult resetCredentials(@PathVariable UUID id) {
         return service.resetCredentials(id);
     }

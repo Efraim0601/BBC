@@ -9,8 +9,10 @@ export interface ChildView {
   name: string;
   className: string;
   balance: number;
-  feeStatus: 'paid' | 'partial' | 'unpaid';
+  feeStatus: 'paid' | 'partial' | 'unpaid' | null;
   attendanceRate: number;
+  financeVisible: boolean;
+  attendanceVisible: boolean;
 }
 
 export interface GradeView {

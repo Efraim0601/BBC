@@ -4,6 +4,8 @@ import com.bbc.sms.foundation.audit.AuditService;
 import com.bbc.sms.identity.AppUser;
 import com.bbc.sms.identity.AppUserRepository;
 import com.bbc.sms.platform.common.ApiException;
+import com.bbc.sms.platform.security.AuthorizationPolicyService;
+import com.bbc.sms.platform.security.PolicyResourceContext;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.student.Student;
 import com.bbc.sms.student.StudentRepository;
@@ -25,15 +27,20 @@ public class GuardianService {
     private final PasswordEncoder encoder;
     private final AuditService audit;
     private final GuardianAccountService accounts;
+    private final AuthorizationPolicyService policy;
 
     public GuardianService(JdbcTemplate jdbc, StudentRepository students, AppUserRepository users,
-                           PasswordEncoder encoder, AuditService audit, GuardianAccountService accounts) {
+                           PasswordEncoder encoder, AuditService audit, GuardianAccountService accounts,
+                           AuthorizationPolicyService policy) {
         this.jdbc=jdbc; this.students=students; this.users=users; this.encoder=encoder;
-        this.audit=audit; this.accounts=accounts;
+        this.audit=audit; this.accounts=accounts; this.policy=policy;
     }
 
     @Transactional(readOnly=true)
     public List<GuardianSearchView> search(String query) {
+        policy.require("GUARDIAN_DIRECTORY_SEARCH", new PolicyResourceContext(
+                TenantContext.get(), null, LocalDate.now(), null, null, null,
+                null, null, null, null, null, null));
         String q=query==null?"":query.trim();
         if(q.length()<3) throw ApiException.badRequest("Saisissez au moins 3 caractères");
         UUID school=TenantContext.get(); String email=normalEmail(q), phone=normalPhone(q);
@@ -52,6 +59,7 @@ public class GuardianService {
 
     @Transactional(readOnly=true)
     public List<GuardianRelationshipView> list(UUID studentId) {
+        requireStudentAction(studentId, "GUARDIAN_VIEW");
         requireStudent(studentId);
         return jdbc.query("""
             SELECT sg.*,g.display_name,g.email,g.phone,g.status,
@@ -63,6 +71,7 @@ public class GuardianService {
 
     @Transactional
     public GuardianRelationshipView add(UUID studentId, GuardianInput in) {
+        requireStudentAction(studentId, "GUARDIAN_LINK_MANAGE");
         Student student=requireStudent(studentId); UUID school=TenantContext.get(); UUID guardianId=in.guardianId();
         if(guardianId==null){
             String ne=normalEmail(in.email());
@@ -79,6 +88,7 @@ public class GuardianService {
 
     @Transactional
     public GuardianRelationshipView update(UUID relationshipId, RelationshipUpsert in) {
+        requireRelationshipAction(relationshipId, "GUARDIAN_LINK_MANAGE");
         GuardianRelationshipView before=findRelationship(relationshipId);
         if(in.version()!=null && before.version()!=in.version()) throw ApiException.conflict("Relation modifiée par un autre utilisateur");
         int n=jdbc.update("""
@@ -97,6 +107,7 @@ public class GuardianService {
 
     @Transactional
     public void end(UUID relationshipId,String reason){
+        requireRelationshipAction(relationshipId, "GUARDIAN_LINK_MANAGE");
         GuardianRelationshipView before=findRelationship(relationshipId);
         jdbc.update("UPDATE student_guardian SET effective_to=?,portal_access=false,version=version+1 WHERE id=? AND school_id=?",LocalDate.now(),relationshipId,TenantContext.get());
         syncCompatibility(before.guardianId());
@@ -106,6 +117,9 @@ public class GuardianService {
 
     @Transactional
     public GuardianSearchView merge(UUID sourceId,MergeRequest in){
+        policy.require("GUARDIAN_DIRECTORY_MANAGE", new PolicyResourceContext(
+                TenantContext.get(), null, LocalDate.now(), null, null, null,
+                null, null, null, null, null, null));
         if(sourceId.equals(in.targetGuardianId())) throw ApiException.badRequest("Le parent source et cible doivent être différents");
         requireGuardian(sourceId); requireGuardian(in.targetGuardianId());
         jdbc.update("""
@@ -169,6 +183,16 @@ public class GuardianService {
         if(rows.isEmpty()) throw ApiException.notFound("Relation familiale"); return rows.getFirst();
     }
     private GuardianRelationshipView map(java.sql.ResultSet rs)throws java.sql.SQLException{return new GuardianRelationshipView((UUID)rs.getObject("id"),(UUID)rs.getObject("guardian_id"),rs.getString("display_name"),rs.getString("email"),rs.getString("phone"),rs.getString("relationship_type"),rs.getBoolean("legal_guardian"),rs.getBoolean("lives_with"),(Integer)rs.getObject("emergency_priority"),rs.getBoolean("pickup_authorized"),rs.getBoolean("finance_responsible"),rs.getBoolean("receives_academic"),rs.getBoolean("receives_attendance"),rs.getBoolean("receives_finance"),rs.getBoolean("receives_discipline"),rs.getBoolean("receives_health"),rs.getBoolean("portal_access"),rs.getObject("effective_from",LocalDate.class),rs.getObject("effective_to",LocalDate.class),rs.getString("status"),rs.getString("invitation_status"),rs.getLong("version"));}
+    private void requireStudentAction(UUID studentId, String action) {
+        policy.require(action, new PolicyResourceContext(TenantContext.get(), null, LocalDate.now(),
+                null, null, null, studentId, null, null, null, null, null));
+    }
+    private void requireRelationshipAction(UUID relationshipId, String action) {
+        UUID studentId = jdbc.query("SELECT student_id FROM student_guardian WHERE id=? AND school_id=?",
+                rs -> rs.next() ? rs.getObject(1, UUID.class) : null, relationshipId, TenantContext.get());
+        if (studentId == null) throw ApiException.notFound("Relation familiale");
+        requireStudentAction(studentId, action);
+    }
     private Student requireStudent(UUID id){return students.findByIdAndSchoolId(id,TenantContext.get()).orElseThrow(()->ApiException.notFound("Élève"));}
     private void requireGuardian(UUID id){Integer n=jdbc.queryForObject("SELECT count(*) FROM guardian WHERE id=? AND school_id=? AND status<>'MERGED'",Integer.class,id,TenantContext.get());if(n==null||n==0)throw ApiException.notFound("Parent");}
     private GuardianSearchView searchById(UUID id){return jdbc.queryForObject("SELECT g.id,g.display_name,g.email,g.phone,g.status,(SELECT count(*) FROM student_guardian sg WHERE sg.guardian_id=g.id AND sg.effective_to IS NULL) children FROM guardian g WHERE id=? AND school_id=?",(rs,i)->new GuardianSearchView((UUID)rs.getObject("id"),rs.getString("display_name"),maskEmail(rs.getString("email")),maskPhone(rs.getString("phone")),rs.getInt("children"),rs.getString("status"),true),id,TenantContext.get());}

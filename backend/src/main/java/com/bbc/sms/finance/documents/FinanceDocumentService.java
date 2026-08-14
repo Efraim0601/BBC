@@ -3,6 +3,7 @@ package com.bbc.sms.finance.documents;
 import com.bbc.sms.documents.OfficialDocumentDtos.GeneratedDocumentView;
 import com.bbc.sms.documents.OfficialDocumentService;
 import com.bbc.sms.finance.accounting.DocumentSequenceService;
+import com.bbc.sms.finance.FinancePolicyService;
 import com.bbc.sms.finance.charges.ChargeInstallment;
 import com.bbc.sms.finance.charges.ChargeInstallmentRepository;
 import com.bbc.sms.finance.charges.StudentCharge;
@@ -68,6 +69,7 @@ public class FinanceDocumentService {
     private final IdempotencyService idempotency;
     private final AuditService audit;
     private final JdbcTemplate jdbc;
+    private final FinancePolicyService financePolicy;
 
     public FinanceDocumentService(FinanceInvoiceRepository invoices,
                                   FinanceInvoiceLineRepository invoiceLines,
@@ -87,7 +89,8 @@ public class FinanceDocumentService {
                                   FinancePdfRenderer pdf,
                                   IdempotencyService idempotency,
                                   AuditService audit,
-                                  JdbcTemplate jdbc) {
+                                  JdbcTemplate jdbc,
+                                  FinancePolicyService financePolicy) {
         this.invoices = invoices;
         this.invoiceLines = invoiceLines;
         this.batchJobs = batchJobs;
@@ -107,16 +110,19 @@ public class FinanceDocumentService {
         this.idempotency = idempotency;
         this.audit = audit;
         this.jdbc = jdbc;
+        this.financePolicy = financePolicy;
     }
 
     @Transactional(readOnly = true)
     public InvoicePreview previewInvoice(InvoiceRequest request) {
+        financePolicy.requireEnrollment("FINANCE_DOCUMENT_VIEW", request.enrollmentId(), request.issueDate());
         InvoiceContext context = invoiceContext(request);
         return context.preview();
     }
 
     @Transactional
     public InvoiceView issueInvoice(InvoiceRequest request, String idempotencyKey) {
+        financePolicy.requireEnrollment("FINANCE_DOCUMENT_GENERATE", request.enrollmentId(), request.issueDate());
         requireKey(idempotencyKey);
         return idempotency.execute("finance-v2/documents/invoices/issue", idempotencyKey.trim(), request,
                 InvoiceView.class, () -> issueInvoiceNow(request, idempotencyKey.trim()));
@@ -238,6 +244,7 @@ public class FinanceDocumentService {
 
     @Transactional(readOnly = true)
     public BatchPreviewView previewBatch(BatchInvoiceRequest request) {
+        financePolicy.requireSchool("FINANCE_DOCUMENT_VIEW");
         UUID schoolId = TenantContext.get();
         List<StudentEnrollment> candidates = batchEnrollments(request);
         List<BatchRowView> rows = new ArrayList<>();
@@ -262,6 +269,7 @@ public class FinanceDocumentService {
 
     @Transactional
     public BatchJobView issueBatch(BatchInvoiceRequest request, String idempotencyKey) {
+        financePolicy.requireSchool("FINANCE_DOCUMENT_BATCH");
         requireKey(idempotencyKey);
         return idempotency.execute("finance-v2/documents/invoices/batch", idempotencyKey.trim(), request,
                 BatchJobView.class, () -> issueBatchNow(request, idempotencyKey.trim()));
@@ -305,6 +313,7 @@ public class FinanceDocumentService {
 
     @Transactional
     public BatchJobView retryFailed(UUID jobId, String idempotencyKey) {
+        financePolicy.requireSchool("FINANCE_DOCUMENT_BATCH");
         requireKey(idempotencyKey);
         return idempotency.execute("finance-v2/documents/invoices/batch-retry", idempotencyKey.trim(), jobId,
                 BatchJobView.class, () -> retryFailedNow(jobId));
@@ -328,16 +337,19 @@ public class FinanceDocumentService {
 
     @Transactional(readOnly = true)
     public List<BatchResultView> batchResults(UUID jobId) {
+        financePolicy.requireSchool("FINANCE_DOCUMENT_VIEW");
         return batchResults.findBySchoolIdAndJobIdOrderByCreatedAtAsc(TenantContext.get(), jobId).stream().map(this::batchResultView).toList();
     }
 
     @Transactional(readOnly = true)
     public BatchJobView batchJob(UUID jobId) {
+        financePolicy.requireSchool("FINANCE_DOCUMENT_VIEW");
         return batchJobView(batchJobs.findByIdAndSchoolId(jobId, TenantContext.get()).orElseThrow(() -> ApiException.notFound("Lot de factures")));
     }
 
     @Transactional(readOnly = true)
     public List<FinanceDocumentView> list(DocumentListFilters filters) {
+        financePolicy.requireSchool("FINANCE_DOCUMENT_VIEW");
         UUID schoolId = TenantContext.get();
         List<FinanceDocumentView> result = new ArrayList<>();
         if (filters == null || filters.type() == null || filters.type().isBlank() || "INVOICE".equalsIgnoreCase(filters.type())) {
@@ -353,11 +365,15 @@ public class FinanceDocumentService {
     public DocumentDetailView detail(String type, UUID id) {
         if ("INVOICE".equalsIgnoreCase(type)) {
             FinanceInvoice invoice = invoices.findByIdAndSchoolId(id, TenantContext.get()).orElseThrow(() -> ApiException.notFound("Facture"));
+            financePolicy.requireInvoice("FINANCE_DOCUMENT_VIEW", id, invoice.getIssueDate());
             GeneratedDocumentView document = invoice.getGeneratedDocumentId() == null ? null : officialDocuments.byId(invoice.getGeneratedDocumentId());
             return new DocumentDetailView("INVOICE", invoiceView(invoice), null, document, audit.forAggregate("FinanceInvoice", id.toString(), 100));
         }
         if ("RECEIPT".equalsIgnoreCase(type)) {
             FinanceReceipt receipt = receipts.findByIdAndSchoolId(id, TenantContext.get()).orElseThrow(() -> ApiException.notFound("Reçu"));
+            FinancePayment payment = payments.findByIdAndSchoolId(receipt.getFinancePaymentId(), TenantContext.get())
+                    .orElseThrow(() -> ApiException.notFound("Encaissement du reçu"));
+            financePolicy.requirePayment("FINANCE_DOCUMENT_VIEW", payment.getId(), payment.getPaymentDate());
             GeneratedDocumentView document = receipt.getGeneratedDocumentId() == null ? null : officialDocuments.byId(receipt.getGeneratedDocumentId());
             return new DocumentDetailView("RECEIPT", null, receiptView(receipt), document, audit.forAggregate("FinanceReceipt", id.toString(), 100));
         }
@@ -367,6 +383,7 @@ public class FinanceDocumentService {
     @Transactional
     public InvoiceView voidInvoice(UUID id, VoidRequest request) {
         FinanceInvoice invoice = invoices.findByIdAndSchoolId(id, TenantContext.get()).orElseThrow(() -> ApiException.notFound("Facture"));
+        financePolicy.requireInvoice("FINANCE_DOCUMENT_VOID", id, invoice.getIssueDate());
         requireVersion(request.version(), invoice.getVersion(), "facture");
         if ("VOIDED".equals(invoice.getStatus())) return invoiceView(invoice);
         if ("SUPERSEDED".equals(invoice.getStatus())) throw ApiException.conflict("Une facture remplacée ne peut plus être annulée.");
@@ -387,8 +404,10 @@ public class FinanceDocumentService {
     @Transactional
     public InvoiceView supersedeNow(UUID id, SupersedeRequest request) {
         FinanceInvoice old = invoices.findByIdAndSchoolId(id, TenantContext.get()).orElseThrow(() -> ApiException.notFound("Facture"));
+        financePolicy.requireInvoice("FINANCE_DOCUMENT_SUPERSEDE", id, old.getIssueDate());
         requireVersion(request.version(), old.getVersion(), "facture");
         if ("VOIDED".equals(old.getStatus()) || "SUPERSEDED".equals(old.getStatus())) throw ApiException.conflict("Cette facture ne peut plus être remplacée.");
+        financePolicy.requireEnrollment("FINANCE_DOCUMENT_GENERATE", request.replacement().enrollmentId(), request.replacement().issueDate());
         InvoiceView replacement = issueInvoiceNow(request.replacement(), "SUPERSEDE:" + id + ":" + request.replacement().issueDate());
         old.setStatus("SUPERSEDED"); old.setSupersededByInvoiceId(replacement.id()); old.setSupersededAt(Instant.now()); old.setSupersededBy(currentUserId());
         old = invoices.saveAndFlush(old);
@@ -458,8 +477,10 @@ public class FinanceDocumentService {
         UUID documentId;
         if ("INVOICE".equalsIgnoreCase(type)) {
             documentId = invoices.findByIdAndSchoolId(id, TenantContext.get()).filter(i -> studentId.equals(i.getStudentId()) && "ISSUED".equals(i.getStatus())).map(FinanceInvoice::getGeneratedDocumentId).orElseThrow(() -> ApiException.notFound("Document parent"));
-        } else {
+        } else if ("RECEIPT".equalsIgnoreCase(type)) {
             documentId = receipts.findByIdAndSchoolId(id, TenantContext.get()).filter(r -> studentId.equals(r.getStudentId()) && "ISSUED".equals(r.getStatus())).map(FinanceReceipt::getGeneratedDocumentId).orElseThrow(() -> ApiException.notFound("Document parent"));
+        } else {
+            throw ApiException.badRequest("Type de document financier invalide");
         }
         if (!parentVisible(documentId)) throw ApiException.notFound("Document parent");
         return documentId;

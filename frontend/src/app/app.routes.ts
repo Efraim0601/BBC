@@ -1,5 +1,5 @@
 import { Routes } from '@angular/router';
-import { authGuard, permissionGuard, scopeGuard } from './core/guards';
+import { actionGuard, authGuard, permissionGuard, scopeGuard } from './core/guards';
 
 export const routes: Routes = [
   {
@@ -158,6 +158,11 @@ export const routes: Routes = [
         path: 'settings',
         canActivate: [permissionGuard('settings')],
         loadComponent: () => import('./features/settings/settings').then((m) => m.SettingsComponent),
+      },
+      {
+        path: 'access-control',
+        canActivate: [actionGuard('PERMISSION_VIEW')],
+        loadComponent: () => import('./features/settings/access-control-workspace').then((m) => m.AccessControlWorkspaceComponent),
       },
       {
         path: 'academic',

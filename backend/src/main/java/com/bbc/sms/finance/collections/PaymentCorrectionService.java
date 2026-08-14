@@ -2,6 +2,7 @@ package com.bbc.sms.finance.collections;
 
 import com.bbc.sms.finance.PaymentChannel;
 import com.bbc.sms.finance.PaymentChannelRepository;
+import com.bbc.sms.finance.FinancePolicyService;
 import com.bbc.sms.finance.accounting.AccountingPeriod;
 import com.bbc.sms.finance.accounting.AccountingPeriodService;
 import com.bbc.sms.finance.accounting.ChartOfAccount;
@@ -52,6 +53,7 @@ public class PaymentCorrectionService {
     private final IdempotencyService idempotency;
     private final AuditService audit;
     private final FinanceDocumentService financeDocuments;
+    private final FinancePolicyService financePolicy;
 
     public PaymentCorrectionService(FinancePaymentRepository payments,
                                     PaymentAllocationRepository allocations,
@@ -69,7 +71,8 @@ public class PaymentCorrectionService {
                                     DocumentSequenceService sequences,
                                     IdempotencyService idempotency,
                                     AuditService audit,
-                                    FinanceDocumentService financeDocuments) {
+                                    FinanceDocumentService financeDocuments,
+                                    FinancePolicyService financePolicy) {
         this.payments = payments;
         this.allocations = allocations;
         this.credits = credits;
@@ -87,11 +90,13 @@ public class PaymentCorrectionService {
         this.idempotency = idempotency;
         this.audit = audit;
         this.financeDocuments = financeDocuments;
+        this.financePolicy = financePolicy;
     }
 
     @Transactional(readOnly = true)
     public ReversalPreview reversalPreview(UUID paymentId) {
         FinancePayment payment = requirePayment(paymentId);
+        financePolicy.requirePayment("PAYMENT_REVERSE", paymentId, payment.getPaymentDate());
         List<PaymentAllocation> active = allocations.findBySchoolIdAndPaymentIdOrderByCreatedAtAsc(TenantContext.get(), paymentId)
                 .stream().filter(a -> "ACTIVE".equals(a.getStatus())).toList();
         long allocated = active.stream().mapToLong(PaymentAllocation::getAllocatedMinor).sum();
@@ -124,6 +129,11 @@ public class PaymentCorrectionService {
         UUID schoolId = TenantContext.get();
         FinancePayment payment = payments.findForUpdateByIdAndSchoolId(paymentId, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Encaissement"));
+        financePolicy.requirePayment("PAYMENT_REVERSE", paymentId, payment.getPaymentDate());
+        UUID actor = currentUserId();
+        if (payment.getCreatedBy() != null && payment.getCreatedBy().equals(actor)) {
+            throw ApiException.forbidden("La personne qui a enregistré l'encaissement ne peut pas le renverser.");
+        }
         AccountVersion.require(request.version(), payment.getVersion(), "encaissement");
         ReversalPreview preview = reversalPreview(paymentId);
         if (!preview.allowed()) throw blocked("PAYMENT_REVERSAL_BLOCKED", "Cet encaissement ne peut pas être renversé.", preview.blockers());
@@ -132,8 +142,8 @@ public class PaymentCorrectionService {
                 .orElseThrow(() -> ApiException.notFound("Journal de l'encaissement"));
         LocalDate date = LocalDate.now();
         AccountingPeriod period = periods.requireOpenForDate(date, payment.getAcademicSessionId());
-        JournalView reversalJournal = ledger.reverse(original.getId(),
-                new ReverseRequest(date, request.reason().trim(), original.getVersion()), "PAYMENT_REVERSAL:" + paymentId);
+        JournalView reversalJournal = ledger.reverseNowInternal(original.getId(),
+                new ReverseRequest(date, request.reason().trim(), original.getVersion()));
         List<UUID> affectedInstallments = new ArrayList<>();
         for (PaymentAllocation allocation : allocations.findBySchoolIdAndPaymentIdOrderByCreatedAtAsc(schoolId, paymentId)) {
             if (!"ACTIVE".equals(allocation.getStatus())) continue;
@@ -180,6 +190,7 @@ public class PaymentCorrectionService {
     @Transactional
     public RefundView requestRefund(UUID paymentId, RefundCreateRequest request) {
         FinancePayment payment = requirePayment(paymentId);
+        financePolicy.requirePayment("REFUND_REQUEST", paymentId, payment.getPaymentDate());
         if (!"POSTED".equals(payment.getStatus()) && !"PARTIALLY_REFUNDED".equals(payment.getStatus())) {
             throw ApiException.conflict("Seul un encaissement posté peut faire l'objet d'un remboursement.");
         }
@@ -215,6 +226,7 @@ public class PaymentCorrectionService {
     public RefundView decideRefund(UUID refundId, RefundDecisionRequest request) {
         RefundRequest refund = refundRequests.findForUpdateByIdAndSchoolId(refundId, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Demande de remboursement"));
+        financePolicy.requirePayment("REFUND_APPROVE", refund.getPaymentId(), LocalDate.now());
         AccountVersion.require(request.version(), refund.getVersion(), "demande de remboursement");
         if (!"REQUESTED".equals(refund.getStatus())) return view(refund);
         UUID actor = currentUserId();
@@ -245,12 +257,12 @@ public class PaymentCorrectionService {
         if (debit == null || !isPostable(debit, date, "ASSET")) throw ApiException.conflict("Le compte du canal de remboursement n'est pas postable.");
         refund.setRefundNo(sequences.allocate("REFUND", String.valueOf(date.getYear()), "RFN/" + date.getYear() + "/", 6));
         refund = refundRequests.saveAndFlush(refund);
-        var journal = ledger.createDraft(new com.bbc.sms.finance.accounting.AccountingDtos.JournalUpsert(date,
+        var journal = ledger.createDraftInternal(new com.bbc.sms.finance.accounting.AccountingDtos.JournalUpsert(date,
                 "Remboursement " + refund.getRefundNo(), payment.getCurrency(), period.getId(), "REFUND",
                 refund.getId().toString(), "REFUND:" + refund.getId(), List.of(
                 new JournalLineInput(credit.getId(), refund.getAmountMinor(), 0, payment.getStudentId(), payment.getStudentEnrollmentId(), null, null, null, "Crédit élève"),
                 new JournalLineInput(debit.getId(), 0, refund.getAmountMinor(), payment.getStudentId(), payment.getStudentEnrollmentId(), null, null, null, "Sortie remboursement")), null));
-        var posted = ledger.postNow(journal.id());
+        var posted = ledger.postNowInternal(journal.id());
         RefundTransaction transaction = new RefundTransaction();
         transaction.setSchoolId(TenantContext.get());
         transaction.setRefundRequestId(refund.getId());
@@ -278,6 +290,8 @@ public class PaymentCorrectionService {
 
     @Transactional(readOnly = true)
     public List<RefundView> refunds(UUID paymentId) {
+        FinancePayment payment = requirePayment(paymentId);
+        financePolicy.requirePayment("PAYMENT_VIEW", paymentId, payment.getPaymentDate());
         return refundRequests.findBySchoolIdAndPaymentIdOrderByRequestedAtDesc(TenantContext.get(), paymentId).stream().map(this::view).toList();
     }
 

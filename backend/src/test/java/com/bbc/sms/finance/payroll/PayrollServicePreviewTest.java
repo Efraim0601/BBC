@@ -9,6 +9,7 @@ import com.bbc.sms.finance.accounting.LedgerPostingService;
 import com.bbc.sms.foundation.audit.AuditService;
 import com.bbc.sms.foundation.idempotency.IdempotencyService;
 import com.bbc.sms.platform.tenant.TenantContext;
+import com.bbc.sms.platform.security.AuthorizationPolicyService;
 import com.bbc.sms.staff.Employee;
 import com.bbc.sms.staff.EmployeeRepository;
 import org.junit.jupiter.api.AfterEach;
@@ -53,6 +54,7 @@ class PayrollServicePreviewTest {
     @Mock OfficialDocumentService officialDocuments;
     @Mock PayrollPdfRenderer pdf;
     @Mock JdbcTemplate jdbc;
+    @Mock AuthorizationPolicyService policy;
 
     private PayrollService service;
     private PayrollPeriod period;
@@ -62,7 +64,7 @@ class PayrollServicePreviewTest {
         TenantContext.set(SCHOOL_ID);
         service = new PayrollService(components, periods, runs, employeePayrolls, payrollLines, payments, payslipJobs,
                 payslipJobResults, payslips, employees, accounts, channels, accountingPeriods, ledger, sequences,
-                idempotency, audit, officialDocuments, pdf, jdbc);
+                idempotency, audit, officialDocuments, pdf, jdbc, policy);
         period = new PayrollPeriod();
         period.setId(PERIOD_ID);
         period.setSchoolId(SCHOOL_ID);

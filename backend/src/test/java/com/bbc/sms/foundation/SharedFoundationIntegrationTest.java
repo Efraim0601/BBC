@@ -21,6 +21,7 @@ import com.bbc.sms.journey.dto.JourneyPromotionDtos.PromotionPreviewRequest;
 import com.bbc.sms.journey.dto.JourneyPromotionDtos.PromotionRuleUpsert;
 import com.bbc.sms.journey.dto.JourneyPromotionDtos.PromotionActivationRequest;
 import com.bbc.sms.platform.common.ApiException;
+import com.bbc.sms.platform.security.AppUserPrincipal;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.student.StudentService;
 import com.bbc.sms.timetable.TimetableVersionService;
@@ -29,6 +30,8 @@ import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -55,6 +58,7 @@ class SharedFoundationIntegrationTest {
 
     private static final Path DOCUMENTS = Path.of("target", "foundation-test-documents").toAbsolutePath();
     private static UUID schoolId;
+    private UUID actorUserId;
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry r) {
@@ -78,10 +82,38 @@ class SharedFoundationIntegrationTest {
     void tenant() {
         schoolId = UUID.randomUUID();
         jdbc.update("INSERT INTO school(id,code,name) VALUES (?,?,?)", schoolId, "T" + schoolId.toString().substring(0, 6), "Test school");
+        actorUserId = UUID.randomUUID();
+        jdbc.update("INSERT INTO role(code,label_fr,label_en,builtin) VALUES ('principal','Principal','Principal',true) ON CONFLICT (code) DO NOTHING");
+        jdbc.update("""
+            INSERT INTO app_user(id,school_id,username,password_hash,display_name,initials,role_code,active)
+            VALUES (?,?,'foundation-test','test','Foundation test','FT','principal',true)
+            """, actorUserId, schoolId);
+        jdbc.update("""
+            INSERT INTO app_user_role(school_id,user_id,role_code,is_primary,reason)
+            VALUES (?,?,'principal',true,'Foundation integration fixture')
+            ON CONFLICT DO NOTHING
+            """, schoolId, actorUserId);
+        for (String action : new String[]{
+                "ACADEMIC_ROSTER_VIEW", "STUDENT_DIRECTORY_VIEW", "ENROLLMENT_VIEW", "ATTENDANCE_POLICY_MANAGE", "ATTENDANCE_ROSTER_VIEW",
+                "ATTENDANCE_MARK", "ATTENDANCE_FINALIZE", "ATTENDANCE_REOPEN",
+                "ATTENDANCE_ANALYTICS_VIEW", "TIMETABLE_PUBLISH"}) {
+            jdbc.update("""
+                INSERT INTO permission_role_action(school_id,role_code,action_code,effect,scope_mode,is_permanent,reason)
+                VALUES (?,? ,?,'ALLOW','SCHOOL_ALL',true,'Foundation integration fixture')
+                ON CONFLICT DO NOTHING
+                """, schoolId, "principal", action);
+        }
         TenantContext.set(schoolId);
+        AppUserPrincipal principal = new AppUserPrincipal(actorUserId, schoolId,
+                "foundation-test", "principal", "Foundation test", "FT");
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
     }
 
-    @AfterEach void clearTenant() { TenantContext.clear(); }
+    @AfterEach void clearTenant() {
+        SecurityContextHolder.clearContext();
+        TenantContext.clear();
+    }
 
     @Test
     void flywayCreatesEveryFoundationTableAndSessionTermsCannotOverlap() {

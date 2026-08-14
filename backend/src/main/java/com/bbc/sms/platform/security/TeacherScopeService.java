@@ -32,7 +32,16 @@ public class TeacherScopeService {
     /** A missing employee link is still restricted; it must never become broad access. */
     public boolean restricted() {
         AppUserPrincipal p = principal();
-        return p != null && RESTRICTED_ROLES.contains(normalize(p.roleCode()));
+        if (p == null) return false;
+        LocalDate today = LocalDate.now();
+        List<String> roles = jdbc.query("""
+                SELECT DISTINCT lower(role_code) FROM app_user_role
+                 WHERE school_id=? AND user_id=?
+                   AND (effective_from IS NULL OR effective_from<=?)
+                   AND (effective_to IS NULL OR effective_to>=?)
+                UNION SELECT lower(?)
+                """, (rs, n) -> rs.getString(1), TenantContext.get(), p.userId(), today, today, p.roleCode());
+        return roles.stream().map(TeacherScopeService::normalize).anyMatch(RESTRICTED_ROLES::contains);
     }
 
     public String section() {

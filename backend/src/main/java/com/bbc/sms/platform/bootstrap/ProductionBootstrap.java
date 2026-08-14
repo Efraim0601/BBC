@@ -96,9 +96,11 @@ public class ProductionBootstrap implements ApplicationRunner {
         insertRole("teacher", "Enseignant", "Teacher");
         insertRole("parent", "Parent", "Parent");
 
-        // Permission matrix. Admin (principal) gets full write everywhere; the
-        // other roles get a sensible default the admin can refine in Settings.
-        for (String m : MODULES) grant(schoolId, "principal", m, "write");
+        // Permission matrix. Principal starts with oversight/read access; the
+        // policy workspace, rather than a module fallback, controls mutations.
+        grants(schoolId, "principal", "read", "dashboard", "presence", "students", "hr", "academic",
+            "finance", "timetable", "events", "discipline", "reports", "settings", "journey",
+            "alerts", "messages", "coursebook", "health", "documents", "classkit");
         grants(schoolId, "prefect", "write", "presence", "timetable", "events", "discipline", "journey", "alerts", "messages", "documents");
         grants(schoolId, "prefect", "read", "dashboard", "students", "academic", "reports", "coursebook", "health", "classkit");
         grants(schoolId, "econome", "write", "finance");
@@ -115,15 +117,73 @@ public class ProductionBootstrap implements ApplicationRunner {
         seedPaymentChannels(schoolId);
         seedFinanceAccounting(schoolId, sessionId, startYear);
 
-        jdbc.update("INSERT INTO app_user (school_id, username, password_hash, display_name, initials, role_code) "
-                  + "VALUES (?,?,?,?,?, 'principal')",
-            schoolId, adminUsername, encoder.encode(adminPassword), adminName, initialsOf(adminName));
+        UUID adminUserId = jdbc.queryForObject("""
+            INSERT INTO app_user
+                (school_id, username, password_hash, display_name, initials, role_code,
+                 parcours_scope_mode)
+            VALUES (?,?,?,?,?,'principal','GLOBAL')
+            RETURNING id
+            """, UUID.class, schoolId, adminUsername, encoder.encode(adminPassword),
+            adminName, initialsOf(adminName));
+        seedPermissionPolicyV2(schoolId, adminUserId);
 
         log.info("=================================================================");
         log.info(" Amorcage production OK — etablissement « {} » + admin « {} ».",
             schoolName, adminUsername);
         log.info(" Connectez-vous puis configurez tout depuis le module Parametres.");
         log.info("=================================================================");
+    }
+
+    /**
+     * V118 runs before a fresh school exists, so its school-scoped backfill
+     * cannot initialize this tenant.  Bootstrap the same least-privilege
+     * policy explicitly and keep the initial administrator exception visible.
+     */
+    private void seedPermissionPolicyV2(UUID schoolId, UUID adminUserId) {
+        jdbc.update("""
+            INSERT INTO app_user_role(school_id,user_id,role_code,is_primary,assigned_by,reason)
+            VALUES (?,?, 'principal',true,?, 'Fresh-school policy bootstrap')
+            ON CONFLICT DO NOTHING
+            """, schoolId, adminUserId, adminUserId);
+        jdbc.update("""
+            INSERT INTO school_permission_version(school_id,version)
+            VALUES (?,1) ON CONFLICT (school_id) DO NOTHING
+            """, schoolId);
+        jdbc.update("""
+            INSERT INTO permission_policy_rollout
+                (school_id,mode,compatibility_profile_code,enforcement_enabled,reviewed_by,reviewed_at)
+            VALUES (?, 'SAFE_DEFAULT', NULL, true, ?, now())
+            ON CONFLICT (school_id) DO UPDATE SET mode='SAFE_DEFAULT',
+                compatibility_profile_code=NULL,enforcement_enabled=true,
+                reviewed_by=EXCLUDED.reviewed_by,reviewed_at=EXCLUDED.reviewed_at,
+                updated_at=now()
+            """, schoolId, adminUserId);
+
+        String[][] roleTemplates = {
+            {"teacher", "primary_teacher"}, {"teacher", "secondary_teacher"},
+            {"form_teacher", "form_teacher"}, {"principal", "principal_oversight"},
+            {"econome", "finance_collector"}, {"accountant", "accountant"},
+            {"parent", "parent_portal"}
+        };
+        for (String[] mapping : roleTemplates) {
+            jdbc.update("""
+                INSERT INTO permission_role_action
+                    (school_id,role_code,action_code,effect,scope_mode,scope_payload,
+                     effective_from,effective_to,is_permanent,reason)
+                SELECT ?,?,action_code,effect,scope_mode,scope_payload,
+                       effective_from,effective_to,is_permanent,reason
+                  FROM permission_role_template_rule
+                 WHERE template_code=?
+                ON CONFLICT DO NOTHING
+                """, schoolId, mapping[0], mapping[1]);
+        }
+        jdbc.update("""
+            INSERT INTO permission_user_action
+                (school_id,user_id,action_code,effect,scope_mode,is_permanent,reason)
+            VALUES (?,?,'PERMISSION_MANAGE','ALLOW','SCHOOL_ALL',true,
+                    'Initial emergency policy administrator; review and replace during access-control setup')
+            ON CONFLICT DO NOTHING
+            """, schoolId, adminUserId);
     }
 
     private void seedFoundation(UUID schoolId, UUID sessionId) {

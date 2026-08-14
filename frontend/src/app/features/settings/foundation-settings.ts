@@ -200,7 +200,7 @@ export class FoundationSettingsComponent {
   protected message = signal<{ ok: boolean; text: string } | null>(null);
   protected generation = signal<GenerationResult | null>(null);
   protected actionPermissions = signal<Record<string, boolean>>({});
-  protected canManage = computed(() => this.actionPermissions()['SESSION_MANAGE'] ?? this.auth.can('settings', 'write'));
+  protected canManage = computed(() => this.actionPermissions()['SESSION_MANAGE'] === true);
   protected sessionDraft: AcademicSessionUpsert = this.blankSession();
   protected termDraft: AcademicTermUpsert = { code: '', label: '', sequenceNo: 1, startDate: '', endDate: '' };
   protected editingTermId = signal<string | null>(null);

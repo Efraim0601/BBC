@@ -3,6 +3,7 @@ import { CanActivateFn, Router } from '@angular/router';
 import { AuthService } from './auth.service';
 import { ScopeService } from './scope.service';
 import { Level } from './models';
+import { catchError, map, of } from 'rxjs';
 
 export const authGuard: CanActivateFn = () => {
   const auth = inject(AuthService);
@@ -32,5 +33,22 @@ export const permissionGuard = (module: string, level: Level = 'read'): CanActiv
     const router = inject(Router);
     if (!auth.isLoggedIn()) return router.createUrlTree(['/login']);
     return auth.can(module, level) ? true : router.createUrlTree(['/apps']);
+  };
+};
+
+/** Action-aware guard; waits for server capabilities instead of falling back to module write. */
+export const actionGuard = (actionCode: string): CanActivateFn => {
+  return () => {
+    const auth = inject(AuthService);
+    const router = inject(Router);
+    if (!auth.isLoggedIn()) return router.createUrlTree(['/login']);
+    const redirect = router.createUrlTree(['/apps']);
+    if (!auth.capabilities() || auth.actionState(actionCode) === 'LOADING') {
+      return auth.loadCapabilities().pipe(
+        map(() => auth.canAction(actionCode) ? true : redirect),
+        catchError(() => of(redirect)),
+      );
+    }
+    return auth.canAction(actionCode) ? true : redirect;
   };
 };

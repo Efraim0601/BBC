@@ -1,6 +1,8 @@
 package com.bbc.sms.reports;
 
 import com.bbc.sms.platform.common.ApiException;
+import com.bbc.sms.platform.security.AuthorizationPolicyService;
+import com.bbc.sms.platform.security.PolicyResourceContext;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.reports.dto.ReportDtos.*;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -27,8 +29,12 @@ public class ReportService {
     private static final String UNKNOWN = "—";
 
     private final JdbcTemplate jdbc;
+    private final AuthorizationPolicyService policy;
 
-    public ReportService(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+    public ReportService(JdbcTemplate jdbc, AuthorizationPolicyService policy) {
+        this.jdbc = jdbc;
+        this.policy = policy;
+    }
 
     @Transactional(readOnly = true)
     public FinanceReport finance() {
@@ -55,6 +61,7 @@ public class ReportService {
 
     @Transactional(readOnly = true)
     public List<AttendanceRow> attendanceMonthly(String month) {
+        requireSchool("REPORTS_VIEW");
         UUID schoolId = TenantContext.get();
 
         YearMonth ym;
@@ -111,6 +118,7 @@ public class ReportService {
 
     @Transactional(readOnly = true)
     public Demographics demographics() {
+        requireSchool("REPORTS_VIEW");
         UUID schoolId = TenantContext.get();
 
         Map<String, Long> byLevel = new LinkedHashMap<>();
@@ -134,6 +142,11 @@ public class ReportService {
     private static void bump(Map<String, Long> map, String key) {
         String k = (key == null || key.isBlank()) ? UNKNOWN : key;
         map.merge(k, 1L, Long::sum);
+    }
+
+    private void requireSchool(String action) {
+        policy.require(action, new PolicyResourceContext(TenantContext.get(), null, LocalDate.now(),
+                null, null, null, null, null, null, null, null, null));
     }
 
     /** Mutable per-student accumulator used while scanning attendance rows. */

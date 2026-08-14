@@ -23,27 +23,27 @@ public class AttendanceController {
     }
 
     @GetMapping("/board")
-    @PreAuthorize("@perm.can('presence','read')")
+    @PreAuthorize("@perm.canAction('ATTENDANCE_ROSTER_VIEW')")
     public DailyBoard board(@RequestParam(required = false)
                             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
         return service.board(date != null ? date : LocalDate.now());
     }
 
     @PostMapping("/mark")
-    @PreAuthorize("@perm.canAction('ATTENDANCE_MARK')")
+    @PreAuthorize("@policy.canAction('ATTENDANCE_RECONCILE')")
     public AttendanceView mark(@Valid @RequestBody MarkRequest req) {
         return service.mark(req);
     }
 
     /** Reader health. Also read by Settings → Général, hence the settings fallback. */
     @GetMapping("/devices")
-    @PreAuthorize("@perm.can('presence','read') or @perm.can('settings','read')")
+    @PreAuthorize("@policy.canAction('ATTENDANCE_DEVICE_VIEW')")
     public List<DeviceView> devices() {
         return service.devices();
     }
 
     @GetMapping("/policies")
-    @PreAuthorize("@perm.can('presence','read')")
+    @PreAuthorize("@policy.canAction('ATTENDANCE_POLICY_VIEW')")
     public List<PolicyView> policies() { return workflow.policies(); }
 
     @PutMapping("/policies/{level}")
@@ -121,7 +121,7 @@ public class AttendanceController {
     }
 
     @PostMapping("/alerts/scan")
-    @PreAuthorize("@perm.canAction('ATTENDANCE_POLICY_MANAGE') and @perm.can('alerts','write')")
+    @PreAuthorize("@perm.canAction('ATTENDANCE_POLICY_MANAGE')")
     public AlertScanResult scanAlerts(
         @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
         @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
@@ -129,7 +129,7 @@ public class AttendanceController {
     }
 
     @GetMapping("/notifications")
-    @PreAuthorize("@perm.canAction('ATTENDANCE_ANALYTICS_VIEW')")
+    @PreAuthorize("@policy.canAction('ATTENDANCE_NOTIFICATION_VIEW')")
     public List<NotificationView> notifications(@RequestParam(required = false) String status) {
         return workflow.notifications(status);
     }

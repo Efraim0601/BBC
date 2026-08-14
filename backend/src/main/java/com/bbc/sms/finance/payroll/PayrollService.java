@@ -19,6 +19,8 @@ import com.bbc.sms.foundation.audit.AuditService;
 import com.bbc.sms.foundation.idempotency.IdempotencyService;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AppUserPrincipal;
+import com.bbc.sms.platform.security.AuthorizationPolicyService;
+import com.bbc.sms.platform.security.PolicyResourceContext;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.staff.Employee;
 import com.bbc.sms.staff.EmployeeRepository;
@@ -80,6 +82,7 @@ public class PayrollService {
     private final OfficialDocumentService officialDocuments;
     private final PayrollPdfRenderer pdf;
     private final JdbcTemplate jdbc;
+    private final AuthorizationPolicyService policy;
 
     public PayrollService(PayrollComponentTypeRepository components,
                           PayrollPeriodRepository periods,
@@ -100,7 +103,8 @@ public class PayrollService {
                           AuditService audit,
                           OfficialDocumentService officialDocuments,
                           PayrollPdfRenderer pdf,
-                          JdbcTemplate jdbc) {
+                          JdbcTemplate jdbc,
+                          AuthorizationPolicyService policy) {
         this.components = components;
         this.periods = periods;
         this.runs = runs;
@@ -121,6 +125,7 @@ public class PayrollService {
         this.officialDocuments = officialDocuments;
         this.pdf = pdf;
         this.jdbc = jdbc;
+        this.policy = policy;
     }
 
     @Transactional(readOnly = true)
@@ -475,9 +480,9 @@ public class PayrollService {
                     null, "Dette salariale " + row.getEmployeeCode()));
         }
         AccountingPeriod accounting = accountingPeriods.requireOpenForDate(runDate(run));
-        var draft = ledger.createDraft(new JournalUpsert(runDate(run), "Provision de paie " + run.getRunNumber(), CURRENCY,
+        var draft = ledger.createDraftInternal(new JournalUpsert(runDate(run), "Provision de paie " + run.getRunNumber(), CURRENCY,
                 accounting.getId(), "PAYROLL_ACCRUAL", run.getId().toString(), "PAYROLL_ACCRUAL:" + run.getId(), journalLines, null));
-        var posted = ledger.postNow(draft.id());
+        var posted = ledger.postNowInternal(draft.id());
         run.setAccrualJournalId(posted.id());
         run.setStatus("APPROVED");
         run.setSnapshotLocked(true);
@@ -545,12 +550,12 @@ public class PayrollService {
 
     private void reversePostedPayrollJournal(UUID journalId, PayrollRun run, String reason, String key) {
         if (journalId == null) return;
-        JournalView journal = ledger.detail(journalId);
+        JournalView journal = ledger.detailInternal(journalId);
         if (!Set.of("POSTED", "REVERSED").contains(journal.status())) {
             throw blocked("PAYROLL_JOURNAL_NOT_POSTED", "Le journal de paie n'est pas posté et ne peut pas être renversé.",
                     List.of(new ApiException.Blocker("JOURNAL", journal.id().toString(), journal.number(), "OPEN_PAYROLL_JOURNAL")));
         }
-        ledger.reverse(journal.id(), new ReverseRequest(runDate(run), reason, journal.version()), key);
+        ledger.reverseNowInternal(journal.id(), new ReverseRequest(runDate(run), reason, journal.version()));
     }
 
     @Transactional
@@ -604,10 +609,10 @@ public class PayrollService {
         }
         UUID journalId = null;
         if (!toPay.isEmpty()) {
-            var draft = ledger.createDraft(new JournalUpsert(paymentDate, "Paiement paie " + run.getRunNumber(), CURRENCY,
+            var draft = ledger.createDraftInternal(new JournalUpsert(paymentDate, "Paiement paie " + run.getRunNumber(), CURRENCY,
                     accounting.getId(), "PAYROLL_PAYMENT", run.getId().toString(), "PAYROLL_PAYMENT:" + run.getId() + ":" + key,
                     journalLines, null));
-            journalId = ledger.postNow(draft.id()).id();
+            journalId = ledger.postNowInternal(draft.id()).id();
             for (EmployeePayroll row : toPay) {
                 String ref = referenceFor(request, row);
                 PayrollPayment payment = new PayrollPayment();
@@ -654,6 +659,7 @@ public class PayrollService {
 
     @Transactional(readOnly = true)
     public List<PayslipView> selfPayslips() {
+        requireSelfPayslipAccess();
         UUID employeeId = currentEmployeeId();
         if (employeeId == null) return List.of();
         Set<UUID> rowIds = new HashSet<>(employeePayrolls.findBySchoolIdAndEmployeeIdOrderByCreatedAtDesc(TenantContext.get(), employeeId)
@@ -666,14 +672,20 @@ public class PayrollService {
     @Transactional(readOnly = true)
     public PayslipView payslip(UUID id, boolean selfOnly) {
         Payslip slip = requirePayslip(id);
-        if (selfOnly) requireSelfOwnership(slip);
+        if (selfOnly) {
+            requireSelfPayslipAccess();
+            requireSelfOwnership(slip);
+        }
         return payslipView(slip);
     }
 
     @Transactional(readOnly = true)
     public UUID payslipDocument(UUID id, boolean selfOnly) {
         Payslip slip = requirePayslip(id);
-        if (selfOnly) requireSelfOwnership(slip);
+        if (selfOnly) {
+            requireSelfPayslipAccess();
+            requireSelfOwnership(slip);
+        }
         if (!"ISSUED".equals(slip.getStatus()) || slip.getGeneratedDocumentId() == null) {
             throw ApiException.conflict("Ce bulletin n'est pas encore disponible en PDF.");
         }
@@ -1258,6 +1270,12 @@ public class PayrollService {
         String value = blank(specific);
         if (value == null) value = blank(request.reference());
         return value == null ? null : value + "/" + row.getEmployeeCode();
+    }
+
+    private void requireSelfPayslipAccess() {
+        policy.require("PAYSLIP_VIEW_SELF", new PolicyResourceContext(
+                TenantContext.get(), null, LocalDate.now(), null,
+                null, null, null, null, null, null, null, null));
     }
 
     private void requireSelfOwnership(Payslip slip) {

@@ -1,6 +1,8 @@
 package com.bbc.sms.settings;
 
 import com.bbc.sms.platform.common.ApiException;
+import com.bbc.sms.platform.security.AuthorizationPolicyService;
+import com.bbc.sms.platform.security.PolicyResourceContext;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.settings.dto.SettingsDtos.CatalogItemUpsert;
 import com.bbc.sms.settings.dto.SettingsDtos.CatalogItemView;
@@ -17,11 +19,16 @@ import java.util.UUID;
 public class DisciplineCatalogService {
 
     private final JdbcTemplate jdbc;
+    private final AuthorizationPolicyService policy;
 
-    public DisciplineCatalogService(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+    public DisciplineCatalogService(JdbcTemplate jdbc, AuthorizationPolicyService policy) {
+        this.jdbc = jdbc;
+        this.policy = policy;
+    }
 
     @Transactional(readOnly = true)
     public List<CatalogItemView> list(String kind) {
+        require("DISCIPLINE_CATALOG_VIEW");
         UUID schoolId = TenantContext.get();
         if (kind == null || kind.isBlank()) {
             return jdbc.query(
@@ -37,6 +44,7 @@ public class DisciplineCatalogService {
 
     @Transactional
     public CatalogItemView create(CatalogItemUpsert in) {
+        require("DISCIPLINE_CATALOG_MANAGE");
         UUID schoolId = TenantContext.get();
         String kind = in.kind();
         String fr = in.labelFr().trim();
@@ -57,6 +65,7 @@ public class DisciplineCatalogService {
 
     @Transactional
     public CatalogItemView update(UUID id, CatalogItemUpsert in) {
+        require("DISCIPLINE_CATALOG_MANAGE");
         UUID schoolId = TenantContext.get();
         find(id, schoolId);
         String fr = in.labelFr().trim();
@@ -73,6 +82,7 @@ public class DisciplineCatalogService {
 
     @Transactional
     public void delete(UUID id) {
+        require("DISCIPLINE_CATALOG_MANAGE");
         int n = jdbc.update("DELETE FROM discipline_catalog WHERE id = ? AND school_id = ?",
                 id, TenantContext.get());
         if (n == 0) throw ApiException.notFound("Entrée catalogue");
@@ -85,6 +95,10 @@ public class DisciplineCatalogService {
                 this::map, id, schoolId);
         if (rows.isEmpty()) throw ApiException.notFound("Entrée catalogue");
         return rows.get(0);
+    }
+
+    private void require(String action) {
+        policy.require(action, PolicyResourceContext.empty().forSchool(TenantContext.get()));
     }
 
     private int nextSort(UUID schoolId, String kind) {

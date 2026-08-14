@@ -2,6 +2,7 @@ package com.bbc.sms.finance.collections;
 
 import com.bbc.sms.finance.PaymentChannel;
 import com.bbc.sms.finance.PaymentChannelRepository;
+import com.bbc.sms.finance.FinancePolicyService;
 import com.bbc.sms.foundation.audit.AuditService;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AppUserPrincipal;
@@ -28,21 +29,25 @@ public class ProviderReconciliationService {
     private final FinancePaymentRepository payments;
     private final PaymentChannelRepository channels;
     private final AuditService audit;
+    private final FinancePolicyService financePolicy;
 
     public ProviderReconciliationService(ProviderCallbackRepository callbacks,
                                          ProviderTransactionRepository transactions,
                                          FinancePaymentRepository payments,
                                          PaymentChannelRepository channels,
-                                         AuditService audit) {
+                                         AuditService audit,
+                                         FinancePolicyService financePolicy) {
         this.callbacks = callbacks;
         this.transactions = transactions;
         this.payments = payments;
         this.channels = channels;
         this.audit = audit;
+        this.financePolicy = financePolicy;
     }
 
     @Transactional
     public ProviderTransactionView ingest(ProviderCallbackRequest request) {
+        financePolicy.requireSchool("PROVIDER_CALLBACK_REVIEW");
         UUID schoolId = TenantContext.get();
         String provider = request.providerCode().trim().toUpperCase();
         String event = request.eventId().trim();
@@ -96,6 +101,7 @@ public class ProviderReconciliationService {
 
     @Transactional
     public ProviderTransactionView confirm(UUID id, ProviderConfirmRequest request) {
+        financePolicy.requireSchool("PROVIDER_CALLBACK_REVIEW");
         ProviderTransaction tx = transactions.findById(id).filter(t -> TenantContext.get().equals(t.getSchoolId()))
                 .orElseThrow(() -> ApiException.notFound("Transaction fournisseur"));
         if (tx.getVersion() != request.version()) throw ApiException.conflict("La transaction fournisseur a changé. Actualisez.");
