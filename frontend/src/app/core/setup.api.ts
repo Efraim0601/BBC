@@ -16,6 +16,7 @@ export interface TeacherOption {
   id: string; name: string; code: string;
   /** Section (cycle) de l'enseignant : maternelle | primary | secondary, null si non définie. */
   section: string | null;
+  accountUsername?: string | null; accountRole?: string | null; accountActive?: boolean;
 }
 
 export interface SubjectView { id: string; code: string; subsystem: string | null; label: Record<string, string>; coef: number; }
@@ -30,7 +31,7 @@ export interface CoefImportResult { applied: number; subjectsCreated: number; sk
 
 export interface SubjectGroupView { id: string; code: string; label: Record<string, string>; displayOrder: number; showSubtotal: boolean; showRank: boolean; averagePolicy: string; version: number; }
 export interface SubjectGroupUpsert { academicSessionId: string; code: string; label: Record<string, string>; displayOrder: number; showSubtotal?: boolean; showRank?: boolean; averagePolicy?: string; version?: number; }
-export interface CurriculumTeacherView { id: string; employeeId: string; employeeName: string; employeeCode: string; role: string; source: string; active: boolean; version: number; }
+export interface CurriculumTeacherView { id: string; employeeId: string; employeeName: string; employeeCode: string; role: string; source: string; active: boolean; version: number; accountUsername?: string | null; accountRole?: string | null; accountActive?: boolean; }
 export interface CurriculumSubjectView {
   id: string; subjectId: string; subjectCode: string; subjectLabel: string; classId?: string; className?: string; defaultCoef?: number; groupId: string | null; groupCode: string | null;
   displayOrder: number; coefficient: number; maxScore: number; mandatory: boolean; passThreshold: number;

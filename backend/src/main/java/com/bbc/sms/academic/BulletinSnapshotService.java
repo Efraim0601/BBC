@@ -2,6 +2,7 @@ package com.bbc.sms.academic;
 
 import com.bbc.sms.academic.calculation.AcademicCalculationEngine;
 import com.bbc.sms.academic.dto.AcademicDtos.*;
+import com.bbc.sms.academic.security.AcademicAccessPolicyService;
 import com.bbc.sms.foundation.enrollment.StudentEnrollment;
 import com.bbc.sms.foundation.enrollment.StudentEnrollmentRepository;
 import com.bbc.sms.foundation.audit.AuditService;
@@ -9,7 +10,6 @@ import com.bbc.sms.foundation.session.AcademicReportingPeriod;
 import com.bbc.sms.foundation.session.AcademicReportingPeriodRepository;
 import com.bbc.sms.foundation.session.AcademicWindowPolicyService;
 import com.bbc.sms.platform.common.ApiException;
-import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.student.Student;
 import com.bbc.sms.student.StudentRepository;
@@ -47,7 +47,7 @@ public class BulletinSnapshotService {
     private final SubjectClassCoefRepository subjectClassCoefs;
     private final SchoolClassRepository classes;
     private final AcademicWindowPolicyService windows;
-    private final TeacherScopeService teacherScope;
+    private final AcademicAccessPolicyService accessPolicy;
     private final TeachingAssignmentResolver assignments;
     private final ObjectMapper mapper;
     private final JdbcTemplate jdbc;
@@ -58,17 +58,20 @@ public class BulletinSnapshotService {
                                    AcademicGradePacketRepository packets, BulletinVersionRepository versions, StudentEnrollmentRepository enrollments,
                                    StudentRepository students, SubjectRepository subjects,
                                    SubjectClassCoefRepository subjectClassCoefs, SchoolClassRepository classes,
-                                   AcademicWindowPolicyService windows, TeacherScopeService teacherScope, TeachingAssignmentResolver assignments, ObjectMapper mapper,
+                                   AcademicWindowPolicyService windows, AcademicAccessPolicyService accessPolicy, TeachingAssignmentResolver assignments, ObjectMapper mapper,
                                    JdbcTemplate jdbc, AuditService audit) {
         this.periods = periods; this.assessments = assessments; this.grades = grades; this.comments = comments; this.packets = packets;
         this.versions = versions; this.enrollments = enrollments; this.students = students; this.subjects = subjects;
         this.subjectClassCoefs = subjectClassCoefs; this.classes = classes;
-        this.windows = windows; this.teacherScope = teacherScope; this.assignments = assignments; this.mapper = mapper; this.jdbc = jdbc; this.audit = audit;
+        this.windows = windows; this.accessPolicy = accessPolicy; this.assignments = assignments; this.mapper = mapper; this.jdbc = jdbc; this.audit = audit;
     }
 
     private StudentEnrollment enrollment(UUID studentId, AcademicReportingPeriod period) {
         return enrollments.findFirstBySchoolIdAndStudentIdAndAcademicSessionIdAndStatus(
-                TenantContext.get(), studentId, period.getAcademicSessionId(), "ACTIVE").orElse(null);
+                TenantContext.get(), studentId, period.getAcademicSessionId(), "ACTIVE")
+                .filter(e -> !e.getEnrolledOn().isAfter(period.getStartDate())
+                        && (e.getExitedOn() == null || !e.getExitedOn().isBefore(period.getStartDate())))
+                .orElse(null);
     }
 
     private BulletinVersion latestOfficial(UUID studentId, UUID periodId) {
@@ -133,8 +136,9 @@ public class BulletinSnapshotService {
 
     @Transactional
     public BulletinSnapshotView calculate(UUID studentId, UUID periodId) {
-        teacherScope.assertStudent(studentId);
         AcademicReportingPeriod period = period(periodId);
+        accessPolicy.requireStudent(AcademicAccessPolicyService.Capability.REPORT_CARD_VALIDATE,
+                studentId, period.getAcademicSessionId(), period.getStartDate(), null);
         Student student = students.findByIdAndSchoolId(studentId, TenantContext.get()).orElseThrow(() -> ApiException.notFound("Élève"));
         StudentEnrollment enrollment = enrollment(studentId, period);
         if (enrollment == null) throw ApiException.conflict("Cet élève n'est pas inscrit dans la session académique sélectionnée. Vérifiez son inscription dans Élèves > Inscription.");
@@ -187,9 +191,10 @@ public class BulletinSnapshotService {
             throw ApiException.staleVersion("Le brouillon a été modifié entre-temps. Rechargez-le avant de l'actualiser.",
                     previous.getVersion(), supplied);
         }
-        teacherScope.assertStudent(previous.getStudentId());
         windows.assertOpen(previous.getReportingPeriodId(), AcademicWindowPolicyService.Action.VALIDATION);
         AcademicReportingPeriod period = period(previous.getReportingPeriodId());
+        accessPolicy.requireStudent(AcademicAccessPolicyService.Capability.REPORT_CARD_VALIDATE,
+                previous.getStudentId(), period.getAcademicSessionId(), period.getStartDate(), null);
         Student student = students.findByIdAndSchoolId(previous.getStudentId(), TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Élève"));
         StudentEnrollment enrollment = enrollment(previous.getStudentId(), period);
@@ -255,6 +260,8 @@ public class BulletinSnapshotService {
             throw ApiException.conflict("Le bulletin a été modifié entre-temps. Rechargez-le avant de corriger.");
         windows.assertOpen(previous.getReportingPeriodId(), AcademicWindowPolicyService.Action.CORRECTION);
         AcademicReportingPeriod period = period(previous.getReportingPeriodId());
+        accessPolicy.requireStudent(AcademicAccessPolicyService.Capability.REPORT_CARD_VALIDATE,
+                previous.getStudentId(), period.getAcademicSessionId(), period.getStartDate(), null);
         Student student = students.findByIdAndSchoolId(previous.getStudentId(), TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Élève"));
         StudentEnrollment enrollment = enrollments.findFirstBySchoolIdAndStudentIdAndAcademicSessionIdAndStatus(
@@ -292,8 +299,9 @@ public class BulletinSnapshotService {
 
     @Transactional(readOnly = true)
     public BulletinSnapshotView latest(UUID studentId, UUID periodId) {
-        teacherScope.assertStudent(studentId);
         AcademicReportingPeriod period = period(periodId);
+        accessPolicy.requireStudent(AcademicAccessPolicyService.Capability.CLASS_REPORT_CARD_VIEW,
+                studentId, period.getAcademicSessionId(), period.getStartDate(), null);
         Student student = students.findByIdAndSchoolId(studentId, TenantContext.get()).orElseThrow(() -> ApiException.notFound("Élève"));
         BulletinVersion version = versions.findFirstBySchoolIdAndStudentIdAndReportingPeriodIdOrderByCreatedAtDesc(TenantContext.get(), studentId, periodId)
                 .orElseThrow(() -> ApiException.notFound("Aucun calcul de bulletin"));
@@ -303,8 +311,9 @@ public class BulletinSnapshotService {
     /** Pure calculation used by read-only class PV and preview screens. */
     @Transactional(readOnly = true)
     public BulletinSnapshotView preview(UUID studentId, UUID periodId) {
-        teacherScope.assertStudent(studentId);
         AcademicReportingPeriod period = period(periodId);
+        accessPolicy.requireStudent(AcademicAccessPolicyService.Capability.CLASS_REPORT_CARD_VIEW,
+                studentId, period.getAcademicSessionId(), period.getStartDate(), null);
         Student student = students.findByIdAndSchoolId(studentId, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Ã‰lÃ¨ve"));
         StudentEnrollment enrollment = enrollment(studentId, period);
@@ -329,8 +338,9 @@ public class BulletinSnapshotService {
     public BulletinSnapshotView byId(UUID id) {
         BulletinVersion version = versions.findByIdAndSchoolId(id, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Version de bulletin"));
-        teacherScope.assertStudent(version.getStudentId());
         AcademicReportingPeriod period = period(version.getReportingPeriodId());
+        accessPolicy.requireStudent(AcademicAccessPolicyService.Capability.CLASS_REPORT_CARD_VIEW,
+                version.getStudentId(), period.getAcademicSessionId(), period.getStartDate(), null);
         Student student = students.findByIdAndSchoolId(version.getStudentId(), TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Élève"));
         return viewFromSnapshot(version, period, student);
@@ -342,6 +352,8 @@ public class BulletinSnapshotService {
         if (!"DRAFT".equals(version.getState()) && !"RETURNED".equals(version.getState())) throw ApiException.conflict("Cette version n'est plus un brouillon validable");
         windows.assertOpen(version.getReportingPeriodId(), AcademicWindowPolicyService.Action.VALIDATION);
         AcademicReportingPeriod period = period(version.getReportingPeriodId());
+        accessPolicy.requireStudent(AcademicAccessPolicyService.Capability.REPORT_CARD_VALIDATE,
+                version.getStudentId(), period.getAcademicSessionId(), period.getStartDate(), null);
         Student student = students.findByIdAndSchoolId(version.getStudentId(), TenantContext.get()).orElseThrow();
         StudentEnrollment enrollment = enrollment(version.getStudentId(), period);
         if (enrollment == null) throw ApiException.conflict("Aucune inscription active pour la validation.");
@@ -377,6 +389,8 @@ public class BulletinSnapshotService {
         }
         windows.assertOpen(version.getReportingPeriodId(), AcademicWindowPolicyService.Action.PUBLICATION);
         AcademicReportingPeriod period = period(version.getReportingPeriodId());
+        accessPolicy.requireStudent(AcademicAccessPolicyService.Capability.REPORT_CARD_PUBLISH,
+                version.getStudentId(), period.getAcademicSessionId(), period.getStartDate(), null);
         Student student = students.findByIdAndSchoolId(version.getStudentId(), TenantContext.get()).orElseThrow();
         StudentEnrollment enrollment = enrollment(version.getStudentId(), period);
         if (enrollment == null) throw ApiException.conflict("Aucune inscription active pour la publication.");
@@ -431,12 +445,15 @@ public class BulletinSnapshotService {
     /** Build the class PV from session-aware reporting-period calculations. */
     @Transactional
     public SessionPvView classPv(UUID classId, UUID periodId) {
-        teacherScope.assertClass(classId);
         AcademicReportingPeriod period = period(periodId);
+        accessPolicy.require(AcademicAccessPolicyService.Capability.CLASS_RESULTS_VIEW,
+                period.getAcademicSessionId(), classId, null, null, period.getStartDate());
         SchoolClass schoolClass = classes.findByIdAndSchoolId(classId, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Classe"));
         List<StudentEnrollment> roster = enrollments.findBySchoolIdAndAcademicSessionIdAndSchoolClassIdAndStatusOrderByClassNameSnapshotAsc(
                 TenantContext.get(), period.getAcademicSessionId(), classId, "ACTIVE");
+        roster = roster.stream().filter(e -> !e.getEnrolledOn().isAfter(period.getStartDate())
+                && (e.getExitedOn() == null || !e.getExitedOn().isBefore(period.getStartDate()))).toList();
         Map<UUID, String> names = jdbc.query("""
                 SELECT e.student_id, s.last_name || ' ' || s.first_name
                   FROM student_enrollment e JOIN student s ON s.id=e.student_id

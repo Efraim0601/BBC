@@ -1,12 +1,15 @@
 package com.bbc.sms.academic;
 
 import com.bbc.sms.platform.tenant.TenantContext;
+import com.bbc.sms.platform.security.AppUserPrincipal;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -50,6 +53,7 @@ class ComputedReportingResultsIntegrationTest {
     private UUID classId;
     private UUID studentId;
     private UUID subjectId;
+    private UUID testUserId;
     private final Map<String, UUID> periods = new LinkedHashMap<>();
     private final Map<String, UUID> terms = new LinkedHashMap<>();
 
@@ -118,16 +122,37 @@ class ComputedReportingResultsIntegrationTest {
                 VALUES (?,?,?,?,'4eme Computed','secondary','FR','ACTIVE','2026-09-01','TEST')
                 """, schoolId, studentId, sessionId, classId);
 
+        testUserId = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO role(code,label_fr,label_en,builtin)
+                VALUES ('principal','Principal','Principal',true)
+                ON CONFLICT (code) DO NOTHING
+                """);
+        jdbc.update("""
+                INSERT INTO permission_action_grant(school_id,role_code,action_code,allowed)
+                VALUES (?, 'principal', 'ACADEMIC_REPORT_CARD_VIEW', true)
+                ON CONFLICT (school_id,role_code,action_code) DO UPDATE SET allowed=true
+                """, schoolId);
+        jdbc.update("""
+                INSERT INTO app_user(id,school_id,username,password_hash,display_name,initials,role_code,active)
+                VALUES (?,?,'computed-test','test','Computed test','CT','principal',true)
+                """, testUserId, schoolId);
+
         Map<String, BigDecimal> marks = Map.of(
                 "S1", new BigDecimal("12"), "S2", new BigDecimal("14"),
                 "S3", new BigDecimal("10"), "S4", new BigDecimal("16"),
                 "S5", new BigDecimal("8"), "S6", new BigDecimal("12"));
         marks.forEach(this::insertSequenceInput);
         TenantContext.set(schoolId);
+        AppUserPrincipal principal = new AppUserPrincipal(testUserId, schoolId,
+                "computed-test", "principal", "Computed test", "CT");
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
     }
 
     @AfterEach
     void clearTenant() {
+        SecurityContextHolder.clearContext();
         TenantContext.clear();
     }
 

@@ -106,10 +106,11 @@ public class ProductionBootstrap implements ApplicationRunner {
         grants(schoolId, "form_teacher", "write", "academic", "discipline", "coursebook", "messages", "classkit");
         grants(schoolId, "form_teacher", "read", "dashboard", "presence", "students", "timetable", "events", "journey", "alerts", "health", "documents");
         grants(schoolId, "teacher", "write", "academic", "coursebook");
-        grants(schoolId, "teacher", "read", "dashboard", "presence", "timetable", "events", "messages");
+        grants(schoolId, "teacher", "read", "dashboard", "presence", "students", "timetable", "events", "messages");
         grant(schoolId, "parent", "parent", "read");
 
         seedFoundation(schoolId, sessionId);
+        seedAttendanceDefaults(schoolId);
 
         seedPaymentChannels(schoolId);
         seedFinanceAccounting(schoolId, sessionId, startYear);
@@ -158,6 +159,59 @@ public class ProductionBootstrap implements ApplicationRunner {
             (?,'GENERIC','en','Official document','{{content}}')
             ON CONFLICT DO NOTHING
             """, schoolId, schoolId, schoolId, schoolId);
+    }
+
+    /**
+     * Attendance migrations run before the first school exists, so their
+     * school-scoped seed rows cannot create defaults for a brand-new tenant.
+     * Keep the same safe defaults in the first-run bootstrap as well.
+     */
+    private void seedAttendanceDefaults(UUID schoolId) {
+        jdbc.update("""
+            INSERT INTO attendance_policy
+                (school_id, level, model, late_after_minutes,
+                 chronic_absence_percent, require_absence_reason)
+            VALUES
+                (?, 'maternelle', 'DAILY', 0, 20.00, false),
+                (?, 'primary',    'DAILY', 0, 20.00, false),
+                (?, 'secondary',  'PERIOD', 0, 20.00, false)
+            ON CONFLICT (school_id, level) DO NOTHING
+            """, schoolId, schoolId, schoolId);
+
+        String[] allAttendanceActions = {
+            "ATTENDANCE_ROSTER_VIEW", "ATTENDANCE_MARK", "ATTENDANCE_FINALIZE",
+            "ATTENDANCE_REOPEN", "ATTENDANCE_ANALYTICS_VIEW",
+            "ATTENDANCE_POLICY_MANAGE", "ATTENDANCE_RECONCILE"
+        };
+        String[] scopedTeacherActions = {
+            "ATTENDANCE_ROSTER_VIEW", "ATTENDANCE_MARK", "ATTENDANCE_FINALIZE",
+            "ATTENDANCE_ANALYTICS_VIEW"
+        };
+        for (String action : allAttendanceActions) {
+            for (String role : new String[]{"principal", "prefect"}) {
+                grantAction(schoolId, role, action, true);
+            }
+        }
+        for (String action : scopedTeacherActions) {
+            for (String role : new String[]{"teacher", "form_teacher"}) {
+                grantAction(schoolId, role, action, true);
+            }
+        }
+
+        // Teachers need to read the active session so their academic and
+        // attendance screens can validate dates; this does not grant session
+        // administration or any class/subject data by itself.
+        grantAction(schoolId, "teacher", "SESSION_VIEW", true);
+        grantAction(schoolId, "form_teacher", "SESSION_VIEW", true);
+    }
+
+    private void grantAction(UUID schoolId, String role, String action, boolean allowed) {
+        jdbc.update("""
+            INSERT INTO permission_action_grant(school_id, role_code, action_code, allowed)
+            VALUES (?,?,?,?)
+            ON CONFLICT (school_id, role_code, action_code)
+            DO UPDATE SET allowed=EXCLUDED.allowed
+            """, schoolId, role, action, allowed);
     }
 
     /**

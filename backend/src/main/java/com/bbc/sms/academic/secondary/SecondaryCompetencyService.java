@@ -1,11 +1,11 @@
 package com.bbc.sms.academic.secondary;
 
 import com.bbc.sms.academic.AcademicPeriodRules;
+import com.bbc.sms.academic.security.AcademicAccessPolicyService;
 import com.bbc.sms.foundation.session.AcademicReportingPeriod;
 import com.bbc.sms.foundation.session.AcademicReportingPeriodRepository;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AppUserPrincipal;
-import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.timetable.TeachingAssignmentResolver;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -24,17 +24,21 @@ public class SecondaryCompetencyService {
     private final JdbcTemplate jdbc;
     private final AcademicReportingPeriodRepository periods;
     private final TeachingAssignmentResolver assignments;
-    private final TeacherScopeService teacherScope;
+    private final AcademicAccessPolicyService accessPolicy;
 
     public SecondaryCompetencyService(JdbcTemplate jdbc, AcademicReportingPeriodRepository periods,
-                                      TeachingAssignmentResolver assignments, TeacherScopeService teacherScope) {
-        this.jdbc = jdbc; this.periods = periods; this.assignments = assignments; this.teacherScope = teacherScope;
+                                      TeachingAssignmentResolver assignments, AcademicAccessPolicyService accessPolicy) {
+        this.jdbc = jdbc; this.periods = periods; this.assignments = assignments; this.accessPolicy = accessPolicy;
     }
 
     @Transactional(readOnly = true)
     public List<ModelView> list(UUID reportingPeriodId, UUID classId, UUID subjectId, String locale) {
-        periods.findByIdAndSchoolId(reportingPeriodId, TenantContext.get())
+        AcademicReportingPeriod period = periods.findByIdAndSchoolId(reportingPeriodId, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Période de compétence"));
+        Scope scope = scope(period.getAcademicSessionId(), reportingPeriodId, classId, subjectId);
+        assertCurriculum(scope);
+        accessPolicy.require(AcademicAccessPolicyService.Capability.ASSESSMENT_VIEW,
+                period.getAcademicSessionId(), classId, scope.subjectCode(), null, period.getStartDate());
         String normalized = contentLanguage(classId);
         return jdbc.query("""
                 SELECT id,academic_session_id,reporting_period_id,class_id,subject_id,locale,
@@ -66,6 +70,12 @@ public class SecondaryCompetencyService {
                         rs.getString("status"), rs.getString("source")) : null,
                 TenantContext.get(), id);
         if (found == null) throw ApiException.notFound("Compétence secondaire");
+        Scope scope = scope(found.academicSessionId(), found.reportingPeriodId(), found.classId(), found.subjectId());
+        if (!accessPolicy.can(AcademicAccessPolicyService.Capability.CLASS_RESULTS_VIEW,
+                found.academicSessionId(), found.classId(), null, null, scope.period().getStartDate())) {
+            accessPolicy.require(AcademicAccessPolicyService.Capability.ASSESSMENT_VIEW,
+                    found.academicSessionId(), found.classId(), scope.subjectCode(), null, scope.period().getStartDate());
+        }
         return found;
     }
 
@@ -131,8 +141,10 @@ public class SecondaryCompetencyService {
             throw ApiException.badRequest("Le modèle de compétence n'appartient pas à cette séquence.");
         }
         assertCurriculum(scope);
+        accessPolicy.require(AcademicAccessPolicyService.Capability.SUBJECT_GRADE_EDIT,
+                scope.period().getAcademicSessionId(), scope.classId(), scope.subjectCode(),
+                request.studentId(), scope.period().getStartDate());
         UUID teacherId = resolvedTeacher(scope);
-        teacherScope.assertStudent(request.studentId());
         UUID enrollmentId = resolveEnrollment(scope, request.studentId(), request.enrollmentId());
         CompetencyRow competency = jdbc.query("SELECT max_score FROM secondary_competency WHERE school_id=? AND id=? AND model_id=?",
                 rs -> rs.next() ? new CompetencyRow(rs.getBigDecimal(1)) : null, school, request.competencyId(), request.modelId());
@@ -192,6 +204,10 @@ public class SecondaryCompetencyService {
 
     @Transactional(readOnly = true)
     public List<MarkView> marks(UUID modelId, UUID reportingPeriodId, UUID studentId) {
+        ModelView model = get(modelId);
+        if (!model.reportingPeriodId().equals(reportingPeriodId)) {
+            throw ApiException.badRequest("Le modèle de compétence n'appartient pas à cette séquence.");
+        }
         // PostgreSQL cannot infer the type of a nullable JDBC placeholder in the optional
         // student filter.  Cast the first placeholder explicitly so the all-students view
         // (the normal Settings workflow) is a valid prepared statement as well.
@@ -256,19 +272,22 @@ public class SecondaryCompetencyService {
     }
 
     private void assertClassSubjectAccess(Scope scope) {
-        teacherScope.assertClass(scope.classId());
-        resolvedTeacher(scope);
+        accessPolicy.require(AcademicAccessPolicyService.Capability.ASSESSMENT_MANAGE,
+                scope.period().getAcademicSessionId(), scope.classId(), scope.subjectCode(), null,
+                scope.period().getStartDate());
     }
 
     private UUID resolvedTeacher(Scope scope) {
         TeachingAssignmentResolver.Resolution assignment = assignments.resolve(
                 scope.period().getAcademicSessionId(), scope.classId(), scope.subjectCode(), scope.period().getStartDate());
-        if (!assignment.available()) {
-            throw ApiException.coded(org.springframework.http.HttpStatus.CONFLICT, assignment.code(),
-                    assignment.messageFr());
-        }
-        assertCurrentTeacher(assignment.teacherId());
-        return assignment.teacherId();
+        AcademicAccessPolicyService.AccessDecision decision = accessPolicy.require(
+                AcademicAccessPolicyService.Capability.SUBJECT_GRADE_EDIT,
+                scope.period().getAcademicSessionId(), scope.classId(), scope.subjectCode(), null,
+                scope.period().getStartDate());
+        if (decision.employeeId() != null) return decision.employeeId();
+        if (assignment.available()) return assignment.teacherId();
+        throw ApiException.coded(org.springframework.http.HttpStatus.CONFLICT, assignment.code(),
+                assignment.messageFr());
     }
 
     private UUID resolveEnrollment(Scope scope, UUID studentId, UUID requestedEnrollmentId) {
@@ -276,13 +295,14 @@ public class SecondaryCompetencyService {
                 SELECT id FROM student_enrollment
                  WHERE school_id=? AND academic_session_id=? AND school_class_id=?
                    AND student_id=? AND status='ACTIVE'
+                   AND enrolled_on<=? AND (exited_on IS NULL OR exited_on>=?)
                    AND (CAST(? AS uuid) IS NULL OR id=?)
                  ORDER BY created_at DESC
                  LIMIT 1
                 """;
         UUID enrollmentId = jdbc.query(sql, rs -> rs.next() ? rs.getObject(1, UUID.class) : null,
                 TenantContext.get(), scope.period().getAcademicSessionId(), scope.classId(), studentId,
-                requestedEnrollmentId, requestedEnrollmentId);
+                scope.period().getStartDate(), scope.period().getStartDate(), requestedEnrollmentId, requestedEnrollmentId);
         if (enrollmentId == null) {
             throw ApiException.badRequest("L'inscription active de l'élève ne correspond pas à la classe et à la session.");
         }

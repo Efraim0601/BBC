@@ -1,5 +1,6 @@
 package com.bbc.sms.documents;
 
+import com.bbc.sms.academic.security.AcademicAccessPolicyService;
 import com.bbc.sms.foundation.audit.AuditService;
 import com.bbc.sms.foundation.idempotency.IdempotencyService;
 import com.bbc.sms.platform.common.ApiException;
@@ -31,13 +32,14 @@ public class OfficialDocumentService {
     private final DocumentStorage storage;
     private final IdempotencyService idempotency;
     private final AuditService audit;
+    private final AcademicAccessPolicyService academicAccess;
 
     public OfficialDocumentService(DocumentTemplateRepository templates,
                                    GeneratedDocumentRepository documents,
                                    DocumentStorage storage, IdempotencyService idempotency,
-                                   AuditService audit) {
+                                   AuditService audit, AcademicAccessPolicyService academicAccess) {
         this.templates = templates; this.documents = documents; this.storage = storage;
-        this.idempotency = idempotency; this.audit = audit;
+        this.idempotency = idempotency; this.audit = audit; this.academicAccess = academicAccess;
     }
 
     @Transactional(readOnly = true)
@@ -109,6 +111,7 @@ public class OfficialDocumentService {
         UUID schoolId = TenantContext.get();
         String locale = blank(in.locale(), "fr").toLowerCase(Locale.ROOT);
         String type = in.documentType().trim().toUpperCase(Locale.ROOT);
+        requireAcademicDocumentScope(in.aggregateType(), in.aggregateId());
         DocumentTemplate template = in.templateId() == null
                 ? templates.findFirstBySchoolIdAndTypeAndLocaleAndActiveTrueOrderByTemplateVersionDesc(schoolId, type, locale)
                     .orElseGet(() -> templates.findFirstBySchoolIdAndTypeAndLocaleAndActiveTrueOrderByTemplateVersionDesc(schoolId, "GENERIC", locale)
@@ -135,6 +138,7 @@ public class OfficialDocumentService {
 
     @Transactional(readOnly = true)
     public List<GeneratedDocumentView> list(String aggregateType, String aggregateId) {
+        requireAcademicDocumentScope(aggregateType, aggregateId);
         return documents.findBySchoolIdAndAggregateTypeAndAggregateIdOrderByGeneratedAtDesc(
                 TenantContext.get(), aggregateType, aggregateId).stream().map(this::view).toList();
     }
@@ -142,6 +146,7 @@ public class OfficialDocumentService {
     @Transactional
     public byte[] content(UUID id) {
         GeneratedDocument d = find(id);
+        requireAcademicDocumentScope(d.getAggregateType(), d.getAggregateId());
         if ("REVOKED".equals(d.getStatus())) throw ApiException.conflict("Ce document a été révoqué");
         byte[] bytes = storage.read(d.getStorageKey());
         if (!sha256(bytes).equals(d.getSha256())) throw new IllegalStateException("Intégrité du document compromise");
@@ -152,6 +157,7 @@ public class OfficialDocumentService {
     @Transactional
     public GeneratedDocumentView revoke(UUID id, RevokeRequest in) {
         GeneratedDocument d = find(id);
+        requireAcademicDocumentScope(d.getAggregateType(), d.getAggregateId());
         if ("REVOKED".equals(d.getStatus())) return view(d);
         d.setStatus("REVOKED"); d.setRevokedAt(Instant.now()); d.setRevokedBy(currentUserId()); d.setRevokeReason(in.reason().trim());
         d = documents.saveAndFlush(d);
@@ -162,8 +168,10 @@ public class OfficialDocumentService {
     @Transactional
     public GeneratedDocumentView supersede(UUID id, UUID replacementId, String reason) {
         GeneratedDocument d = find(id);
+        requireAcademicDocumentScope(d.getAggregateType(), d.getAggregateId());
         if ("SUPERSEDED".equals(d.getStatus())) return view(d);
         GeneratedDocument replacement = find(replacementId);
+        requireAcademicDocumentScope(replacement.getAggregateType(), replacement.getAggregateId());
         if (!d.getDocumentType().equals(replacement.getDocumentType())) {
             throw ApiException.badRequest("Le document de remplacement doit être du même type.");
         }
@@ -175,7 +183,23 @@ public class OfficialDocumentService {
     }
 
     @Transactional(readOnly = true)
-    public GeneratedDocumentView byId(UUID id) { return view(find(id)); }
+    public GeneratedDocumentView byId(UUID id) {
+        GeneratedDocument document = find(id);
+        requireAcademicDocumentScope(document.getAggregateType(), document.getAggregateId());
+        return view(document);
+    }
+
+    private void requireAcademicDocumentScope(String aggregateType, String aggregateId) {
+        if (!"BulletinVersion".equalsIgnoreCase(aggregateType)) return;
+        UUID snapshotId;
+        try { snapshotId = UUID.fromString(aggregateId); }
+        catch (IllegalArgumentException ex) { throw ApiException.forbidden("Ce document académique n'est pas accessible."); }
+        var authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication != null && authentication.getPrincipal() instanceof AppUserPrincipal principal
+                && "parent".equalsIgnoreCase(principal.roleCode())) return;
+        academicAccess.requireSnapshot(snapshotId,
+                AcademicAccessPolicyService.Capability.CLASS_REPORT_CARD_VIEW);
+    }
 
     /** Public verification deliberately returns no tenant, subject, or storage details. */
     @Transactional(readOnly = true)

@@ -1,6 +1,7 @@
 package com.bbc.sms.academic;
 
 import com.bbc.sms.academic.dto.AcademicDtos.*;
+import com.bbc.sms.academic.security.AcademicAccessPolicyService;
 import com.bbc.sms.foundation.enrollment.StudentEnrollment;
 import com.bbc.sms.foundation.enrollment.StudentEnrollmentRepository;
 import com.bbc.sms.foundation.session.AcademicReportingPeriod;
@@ -8,7 +9,6 @@ import com.bbc.sms.foundation.session.AcademicReportingPeriodRepository;
 import com.bbc.sms.foundation.session.AcademicWindowPolicyService;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AppUserPrincipal;
-import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.student.StudentRepository;
 import com.bbc.sms.timetable.SchoolClass;
@@ -37,7 +37,7 @@ public class GradeEntryService {
     private final SubjectRepository subjects;
     private final SchoolClassRepository classes;
     private final AcademicWindowPolicyService windows;
-    private final TeacherScopeService teacherScope;
+    private final AcademicAccessPolicyService accessPolicy;
     private final TeachingAssignmentResolver assignments;
     private final JdbcTemplate jdbc;
 
@@ -51,13 +51,13 @@ public class GradeEntryService {
                              SubjectRepository subjects,
                              SchoolClassRepository classes,
                              AcademicWindowPolicyService windows,
-                             TeacherScopeService teacherScope,
+                             AcademicAccessPolicyService accessPolicy,
                              TeachingAssignmentResolver assignments,
                              JdbcTemplate jdbc) {
         this.periods = periods; this.assessments = assessments; this.grades = grades;
         this.comments = comments; this.packets = packets; this.enrollments = enrollments;
         this.students = students; this.subjects = subjects; this.classes = classes;
-        this.windows = windows; this.teacherScope = teacherScope; this.assignments = assignments; this.jdbc = jdbc;
+        this.windows = windows; this.accessPolicy = accessPolicy; this.assignments = assignments; this.jdbc = jdbc;
     }
 
     @Transactional(readOnly = true)
@@ -65,9 +65,10 @@ public class GradeEntryService {
         AcademicReportingPeriod period = period(periodId);
         AcademicPeriodRules.assertRawGradePeriod(period);
         SchoolClass schoolClass = schoolClass(classId);
-        teacherScope.assertClass(classId);
         List<GradeEntrySubjectView> available = availableSubjects(period.getAcademicSessionId(), classId, schoolClass.getName(), period.getStartDate());
         if (available.isEmpty()) {
+            accessPolicy.require(AcademicAccessPolicyService.Capability.SUBJECT_GRADE_VIEW,
+                    period.getAcademicSessionId(), classId, requestedSubject, null, period.getStartDate());
             throw ApiException.conflict("Aucune matière n'est affectée à cette classe. Configurez Paramètres → Matières par classe avant la saisie.");
         }
         String subjectCode = requestedSubject == null || requestedSubject.isBlank()
@@ -115,10 +116,16 @@ public class GradeEntryService {
                 "class-subjects", "BLOCKER"));
         boolean restricted = restrictedTeacher();
         boolean editableStatus = packet == null || Set.of("DRAFT", "RETURNED").contains(packet.getStatus());
-        boolean canEdit = editableStatus && (!restricted || subjectReady(subject));
+        boolean editScope = accessPolicy.can(AcademicAccessPolicyService.Capability.SUBJECT_GRADE_EDIT,
+                period.getAcademicSessionId(), classId, subjectCode, null, period.getStartDate())
+                && (!restricted || subjectReady(subject) || delegatedAccess(period, classId, subjectCode,
+                AcademicAccessPolicyService.Capability.SUBJECT_GRADE_EDIT));
+        boolean canEdit = editableStatus && editScope;
         boolean submissionWindowOpen = false;
         AcademicWindowPolicyService.WindowView submissionWindow = null;
-        if (subjectReady(subject)) {
+        boolean submitScope = subjectReady(subject) || delegatedAccess(period, classId, subjectCode,
+                AcademicAccessPolicyService.Capability.SUBJECT_GRADE_SUBMIT);
+        if (submitScope) {
             submissionWindow = windows.effective(period.getId(), AcademicWindowPolicyService.Action.TEACHER_SUBMISSION);
             submissionWindowOpen = submissionWindow.open();
             if (!submissionWindowOpen) {
@@ -129,8 +136,11 @@ public class GradeEntryService {
                         "The teacher-submission window is not open.", "academic-sessions", "BLOCKER"));
             }
         }
-        boolean canSubmit = canEdit && submissionWindowOpen && submissionBlockers.isEmpty();
-        boolean canReview = Set.of("admin", "principal", "dean_of_studies", "censor").contains(currentRole());
+        boolean canSubmit = canEdit && accessPolicy.can(AcademicAccessPolicyService.Capability.SUBJECT_GRADE_SUBMIT,
+                period.getAcademicSessionId(), classId, subjectCode, null, period.getStartDate())
+                && submissionWindowOpen && submissionBlockers.isEmpty();
+        boolean canReview = accessPolicy.can(AcademicAccessPolicyService.Capability.GRADE_PACKET_REVIEW,
+                period.getAcademicSessionId(), classId, subjectCode, null, period.getStartDate());
         int completed = (int) rows.stream().filter(r -> rowComplete(definition, r, subject.remarkRequired())).count();
         return new GradeEntryView(period.getAcademicSessionId(), periodId, classId, schoolClass.getName(),
                 subject.code(), subject.label(), subject.coefficient(), subject.teacherId(), subject.teacherName(),
@@ -138,7 +148,9 @@ public class GradeEntryService {
                 definition, rows, rows.size(), completed, blockers, available, completionBlockers,
                 submissionBlockers, List.of(), readiness,
                 new GradeEntryCapabilitiesView(canEdit, canSubmit, canReview, restricted,
-                        restricted && !subjectReady(subject) ? "Repair the responsible teacher assignment before editing or submitting." : null));
+                        restricted && !subjectReady(subject) && !delegatedAccess(period, classId, subjectCode,
+                                AcademicAccessPolicyService.Capability.SUBJECT_GRADE_EDIT)
+                                ? "Repair the responsible teacher assignment or create a dated delegation before editing or submitting." : null));
     }
 
     @Transactional
@@ -146,12 +158,13 @@ public class GradeEntryService {
         AcademicReportingPeriod period = period(in.reportingPeriodId());
         AcademicPeriodRules.assertRawGradePeriod(period);
         SchoolClass schoolClass = schoolClass(in.classId());
-        teacherScope.assertClass(in.classId());
         String subjectCode = in.subjectCode().trim().toUpperCase(Locale.ROOT);
         GradeEntrySubjectView subject = availableSubjects(period.getAcademicSessionId(), in.classId(), schoolClass.getName(), period.getStartDate()).stream()
                 .filter(x -> x.code().equalsIgnoreCase(subjectCode)).findFirst()
                 .orElseThrow(() -> ApiException.badRequest("La matière n'est pas affectée à cette classe"));
         assertSubjectAccess(in.classId(), schoolClass.getName(), period.getAcademicSessionId(), period.getStartDate(), subjectCode);
+        accessPolicy.require(AcademicAccessPolicyService.Capability.SUBJECT_GRADE_EDIT,
+                period.getAcademicSessionId(), in.classId(), subjectCode, null, period.getStartDate());
         invalidateValidatedBulletins(period.getId(), period.getAcademicSessionId(), in.classId());
         AcademicGradePacket packet = packet(period, in.classId(), subjectCode, subject);
         String previousPacketStatus = packet.getStatus();
@@ -234,7 +247,6 @@ public class GradeEntryService {
         AcademicReportingPeriod period = period(in.reportingPeriodId());
         AcademicPeriodRules.assertRawGradePeriod(period);
         SchoolClass schoolClass = schoolClass(in.classId());
-        teacherScope.assertClass(in.classId());
         String subjectCode = in.subjectCode().trim().toUpperCase(Locale.ROOT);
         GradeEntrySubjectView subject = availableSubjects(period.getAcademicSessionId(), in.classId(), schoolClass.getName(), period.getStartDate()).stream().filter(x -> x.code().equalsIgnoreCase(subjectCode)).findFirst().orElseThrow(() -> ApiException.badRequest("La matière n'est pas affectée à cette classe"));
         assertSubjectAccess(in.classId(), schoolClass.getName(), period.getAcademicSessionId(), period.getStartDate(), subjectCode);
@@ -242,6 +254,8 @@ public class GradeEntryService {
         String previousPacketStatus = packet.getStatus();
         if (in.packetVersion() != null && packet.getId() != null && in.packetVersion() != packet.getVersion()) throw ApiException.conflict("La feuille de saisie a été modifiée entre-temps. Rechargez-la.");
         if ("SUBMIT".equalsIgnoreCase(in.action())) {
+            accessPolicy.require(AcademicAccessPolicyService.Capability.SUBJECT_GRADE_SUBMIT,
+                    period.getAcademicSessionId(), in.classId(), subjectCode, null, period.getStartDate());
             if (!Set.of("DRAFT", "RETURNED").contains(previousPacketStatus)) {
                 throw ApiException.conflict("Cette feuille doit être en brouillon ou retournée avant une nouvelle soumission.");
             }
@@ -253,7 +267,8 @@ public class GradeEntryService {
             packet.setStatus("SUBMITTED"); packet.setSubmittedBy(currentUserId()); packet.setSubmittedAt(Instant.now());
             updateWorkflow(period.getId(), in.classId(), subjectCode, "SUBMITTED");
         } else {
-            requireReviewer();
+            accessPolicy.require(AcademicAccessPolicyService.Capability.GRADE_PACKET_REVIEW,
+                    period.getAcademicSessionId(), in.classId(), subjectCode, null, period.getStartDate());
             windows.assertOpen(period.getId(), AcademicWindowPolicyService.Action.REVIEW);
             String action = in.action().trim().toUpperCase(Locale.ROOT);
             if (!Set.of("ACCEPT", "RETURN").contains(action)) throw ApiException.badRequest("Action de revue invalide : utilisez ACCEPT ou RETURN");
@@ -284,7 +299,7 @@ public class GradeEntryService {
 
     private List<GradeEntrySubjectView> availableSubjects(UUID sessionId, UUID classId, String className,
                                                            java.time.LocalDate effectiveDate) {
-        return jdbc.query("""
+        List<GradeEntrySubjectView> all = jdbc.query("""
                 SELECT s.code, COALESCE(s.label->>'fr', s.label->>'en', s.code), cur.coefficient, cur.remark_required
                   FROM academic_curriculum_subject cur
                   JOIN subject s ON s.id=cur.subject_id
@@ -299,10 +314,16 @@ public class GradeEntryService {
                             resolved.teacherName(), resolved.status(), resolved.code(),
                             resolved.messageFr(), rs.getBoolean(4), assignmentReadiness(resolved));
                 }, TenantContext.get(), sessionId, classId, effectiveDate, effectiveDate);
+        return all.stream().filter(subject -> accessPolicy.can(
+                AcademicAccessPolicyService.Capability.SUBJECT_GRADE_VIEW,
+                sessionId, classId, subject.code(), null, effectiveDate)).toList();
     }
 
     private void assertSubjectAccess(UUID classId, String className, UUID sessionId,
                                      java.time.LocalDate effectiveDate, String subjectCode) {
+        accessPolicy.require(AcademicAccessPolicyService.Capability.SUBJECT_GRADE_VIEW,
+                sessionId, classId, subjectCode, null, effectiveDate);
+        /*
         if (!restrictedTeacher()) return;
         UUID employeeId = currentEmployeeId();
         if (employeeId == null) throw ApiException.forbidden("Votre compte enseignant n'est pas relié à un employé actif.");
@@ -314,8 +335,10 @@ public class GradeEntryService {
         if (!employeeId.equals(resolved.teacherId())) {
             throw ApiException.forbidden("Vous n’êtes pas affecté à cette matière dans cette classe.");
         }
-    }
+        }
 
+        */
+    }
     private boolean subjectReady(GradeEntrySubjectView subject) {
         return "RESOLVED".equals(subject.status()) && subject.teacherId() != null;
     }
@@ -340,8 +363,10 @@ public class GradeEntryService {
         return jdbc.query("""
                 SELECT s.id, s.matricule, trim(s.last_name || ' ' || s.first_name)
                   FROM student_enrollment se JOIN student s ON s.id=se.student_id
+                  JOIN academic_session session ON session.id=se.academic_session_id AND session.school_id=se.school_id
                  WHERE se.school_id=? AND se.academic_session_id=? AND se.school_class_id=?
                    AND se.status='ACTIVE' AND s.active=true
+                   AND se.enrolled_on<=session.end_date AND (se.exited_on IS NULL OR se.exited_on>=session.start_date)
                  ORDER BY s.last_name, s.first_name, s.matricule
                 """, (rs, n) -> new RosterStudent(rs.getObject(1, UUID.class), rs.getString(2), rs.getString(3)),
                 TenantContext.get(), sessionId, classId);
@@ -368,10 +393,18 @@ public class GradeEntryService {
             }
             return;
         }
-        packet.setTeacherId(subject.teacherId());
+        UUID owner = subject.teacherId() == null ? accessPolicy.currentEmployeeId() : subject.teacherId();
+        packet.setTeacherId(owner);
         packet.setResponsibleAssignmentId(subject.assignmentReadiness() == null ? null : subject.assignmentReadiness().assignmentId());
         packet.setResponsibleAssignmentVersion(subject.assignmentReadiness() == null ? null : subject.assignmentReadiness().assignmentVersion());
-        if (packet.getId() != null && subjectReady(subject)) syncMutableDraftOwnership(packet, subject.teacherId());
+        if (packet.getId() != null && owner != null) syncMutableDraftOwnership(packet, owner);
+    }
+
+    private boolean delegatedAccess(AcademicReportingPeriod period, UUID classId, String subjectCode,
+                                    AcademicAccessPolicyService.Capability capability) {
+        AcademicAccessPolicyService.AccessDecision decision = accessPolicy.resolve(capability,
+                period.getAcademicSessionId(), classId, subjectCode, null, period.getStartDate());
+        return decision.allowed() && decision.delegated();
     }
 
     private void syncMutableDraftOwnership(AcademicGradePacket packet, UUID teacherId) {
