@@ -697,11 +697,11 @@ const appreciation = (avg: number, fr: boolean): string => {
                               <div class="text-[10px] uppercase tracking-wider text-mute font-semibold">
                                 {{ fr() ? 'Appréciation générale' : 'General appreciation' }}
                               </div>
-                              @if (canWrite && b.state !== 'PREVIEW' && !b.validated && !b.financiallyBlocked) {
+                              @if (canValidateReportCards() && b.state !== 'PREVIEW' && !b.validated && !b.financiallyBlocked) {
                                 <bbc-icon name="edit" [s]="12" />
                               }
                             </div>
-                            @if (canWrite && b.state !== 'PREVIEW' && !b.validated && !b.financiallyBlocked) {
+                            @if (canValidateReportCards() && b.state !== 'PREVIEW' && !b.validated && !b.financiallyBlocked) {
                               <textarea [ngModel]="appreciationDraft()" (ngModelChange)="appreciationDraft.set($event)"
                                 rows="3" [placeholder]="fr() ? 'Saisissez l’appréciation générale…' : 'Enter overall appreciation…'"
                                 class="w-full p-2 text-sm rounded border border-slate-200 italic resize-none focus:outline-none focus:border-brand-400 print:hidden"></textarea>
@@ -722,54 +722,58 @@ const appreciation = (avg: number, fr: boolean): string => {
                           </div>
                         </div>
 
-                        <div class="mt-5 flex items-center gap-2 pt-4 border-t border-slate-100 print:hidden">
-                          @if (b.financiallyBlocked) {
-                            <div class="flex-1 flex items-center gap-2 text-xs text-rose-700">
-                              <bbc-icon name="alertTri" [s]="16" />
-                              {{ fr() ? 'Bulletin bloqué — frais impayés' : 'Blocked — outstanding fees' }}
-                            </div>
-                          } @else {
-                            <div class="flex-1"></div>
-                          }
-                          @if (canWrite && (b.workflowMeta?.capabilities?.canCreateDraft ?? (b.state === 'PREVIEW')) && !b.financiallyBlocked) {
-                            <button (click)="createBulletinDraft(b)" [disabled]="bulletinBusy()"
-                              class="inline-flex items-center gap-2 h-10 px-4 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-semibold disabled:opacity-50">
-                              <bbc-icon name="doc" [s]="16" /> {{ bulletinBusy() ? '…' : (fr() ? 'Créer le brouillon' : 'Create draft') }}
-                            </button>
-                          }
-                          @if (canWrite && (b.workflowMeta?.capabilities?.canValidate ?? (!!b.id && b.state !== 'PREVIEW' && !b.validated)) && !b.financiallyBlocked) {
-                            <button (click)="validate(b)"
-                              class="inline-flex items-center gap-2 h-10 px-4 bg-gold-500 hover:bg-gold-600 text-white rounded-lg text-sm font-semibold">
-                              <bbc-icon name="check" [s]="16" [sw]="2.5" /> {{ fr() ? 'Valider le bulletin' : 'Validate report card' }}
-                            </button>
-                          }
-                          @if (canWrite && (b.workflowMeta?.capabilities?.canRefreshDraft ?? false)) {
-                            <button (click)="requestRefresh(b)"
-                              class="inline-flex items-center gap-2 h-10 px-4 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-semibold">
-                              <bbc-icon name="edit" [s]="16" /> {{ fr() ? 'Actualiser le brouillon' : 'Refresh draft' }}
-                            </button>
-                          }
-                          @if (canWrite && (b.workflowMeta?.capabilities?.canPublish ?? (b.state === 'VALIDATED')) && !b.financiallyBlocked) {
-                            <button (click)="requestPublication(b)"
-                              class="inline-flex items-center gap-2 h-10 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-semibold">
-                              <bbc-icon name="eye" [s]="16" /> {{ fr() ? 'Publier aux parents' : 'Publish to parents' }}
-                            </button>
-                          }
-                          @if (canWrite && (b.state === 'VALIDATED' || b.state === 'PUBLISHED') && !b.financiallyBlocked) {
-                            <button (click)="generateOfficialDocument(b)" [disabled]="officialDocumentBusy()"
-                              class="inline-flex items-center gap-2 h-10 px-4 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-semibold disabled:opacity-50">
-                              <bbc-icon name="download" [s]="16" /> {{ officialDocumentBusy() ? '…' : (fr() ? 'Générer le PDF officiel' : 'Generate official PDF') }}
-                            </button>
-                          }
-                          <button (click)="print()" [disabled]="b.financiallyBlocked"
-                            class="inline-flex items-center gap-2 h-10 px-4 bg-white border border-slate-200 text-ink hover:bg-slate-50 rounded-lg text-sm font-semibold disabled:opacity-40">
-                            <bbc-icon name="printer" [s]="16" /> {{ fr() ? 'Imprimer' : 'Print' }}
-                          </button>
-                        </div>
                       </div>
                     </div>
                   </bbc-card>
                 }
+                <bbc-card className="mt-3 print:hidden">
+                  <div class="flex items-center justify-end gap-2 flex-wrap">
+                    @if (b.financiallyBlocked) {
+                      <div class="mr-auto flex items-center gap-2 text-xs text-rose-700">
+                        <bbc-icon name="alertTri" [s]="16" />
+                        {{ fr() ? 'Bulletin bloqué — frais impayés' : 'Blocked — outstanding fees' }}
+                      </div>
+                    } @else {
+                      <div class="mr-auto text-xs text-mute">
+                        {{ b.state === 'PREVIEW' ? (fr() ? 'Aperçu calculé — créez un brouillon pour démarrer la validation.' : 'Calculated preview — create a draft to begin validation.') : '' }}
+                      </div>
+                    }
+                    @if (canValidateReportCards() && (b.workflowMeta?.capabilities?.canCreateDraft ?? (b.state === 'PREVIEW')) && !b.financiallyBlocked) {
+                      <button (click)="createBulletinDraft(b)" [disabled]="bulletinBusy()"
+                        class="inline-flex items-center gap-2 h-10 px-4 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-semibold disabled:opacity-50">
+                        <bbc-icon name="doc" [s]="16" /> {{ bulletinBusy() ? '…' : (fr() ? 'Créer le brouillon' : 'Create draft') }}
+                      </button>
+                    }
+                    @if (canValidateReportCards() && (b.workflowMeta?.capabilities?.canValidate ?? (!!b.id && b.state !== 'PREVIEW' && !b.validated)) && !b.financiallyBlocked) {
+                      <button (click)="validate(b)"
+                        class="inline-flex items-center gap-2 h-10 px-4 bg-gold-500 hover:bg-gold-600 text-white rounded-lg text-sm font-semibold">
+                        <bbc-icon name="check" [s]="16" [sw]="2.5" /> {{ fr() ? 'Valider le bulletin' : 'Validate report card' }}
+                      </button>
+                    }
+                    @if (canValidateReportCards() && (b.workflowMeta?.capabilities?.canRefreshDraft ?? false)) {
+                      <button (click)="requestRefresh(b)"
+                        class="inline-flex items-center gap-2 h-10 px-4 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-semibold">
+                        <bbc-icon name="edit" [s]="16" /> {{ fr() ? 'Actualiser le brouillon' : 'Refresh draft' }}
+                      </button>
+                    }
+                    @if (canPublishReportCards() && (b.workflowMeta?.capabilities?.canPublish ?? (b.state === 'VALIDATED')) && !b.financiallyBlocked) {
+                      <button (click)="requestPublication(b)"
+                        class="inline-flex items-center gap-2 h-10 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-semibold">
+                        <bbc-icon name="eye" [s]="16" /> {{ fr() ? 'Publier aux parents' : 'Publish to parents' }}
+                      </button>
+                    }
+                    @if (canGenerateReportCards() && (b.state === 'VALIDATED' || b.state === 'PUBLISHED') && !b.financiallyBlocked) {
+                      <button (click)="generateOfficialDocument(b)" [disabled]="officialDocumentBusy()"
+                        class="inline-flex items-center gap-2 h-10 px-4 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-semibold disabled:opacity-50">
+                        <bbc-icon name="download" [s]="16" /> {{ officialDocumentBusy() ? '…' : (fr() ? 'Générer le PDF officiel' : 'Generate official PDF') }}
+                      </button>
+                    }
+                    <button (click)="print()" [disabled]="b.financiallyBlocked"
+                      class="inline-flex items-center gap-2 h-10 px-4 bg-white border border-slate-200 text-ink hover:bg-slate-50 rounded-lg text-sm font-semibold disabled:opacity-40">
+                      <bbc-icon name="printer" [s]="16" /> {{ fr() ? 'Imprimer' : 'Print' }}
+                    </button>
+                  </div>
+                </bbc-card>
               } @else {
                 <bbc-card>
                   <bbc-empty icon="doc"
@@ -980,9 +984,12 @@ export class AcademicComponent {
   private router = inject(Router);
 
   protected canWrite = this.auth.can('academic', 'write');
+  protected canValidateReportCards = computed(() => this.auth.canModuleOrAction('academic', 'ACADEMIC_REPORT_CARD_VALIDATE', 'write'));
+  protected canPublishReportCards = computed(() => this.auth.canModuleOrAction('academic', 'ACADEMIC_REPORT_CARD_PUBLISH', 'write'));
+  protected canGenerateReportCards = computed(() => this.auth.canModuleOrAction('academic', 'DOCUMENT_GENERATE', 'write'));
 
   protected isApc = computed(() => {
-    const lvl = this.scope.scope()?.level;
+    const lvl = (this.bulletin()?.educationalLevel ?? this.scope.scope()?.level ?? '').toLowerCase();
     return lvl === 'maternelle' || lvl === 'primary';
   });
 
@@ -1766,6 +1773,8 @@ export class AcademicComponent {
       studentId: snapshot.studentId,
       studentName: snapshot.studentName,
       className: snapshot.className ?? '',
+      educationalLevel: snapshot.educationalLevel,
+      subsystem: snapshot.subsystem,
       sequence: this.periodSequence(period!),
       reportingPeriodType: snapshot.reportingPeriodType ?? period?.periodType,
       product: snapshot.product,

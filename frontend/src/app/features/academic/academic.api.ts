@@ -22,6 +22,8 @@ export interface BulletinView {
   studentId: string;
   studentName: string;
   className: string;
+  educationalLevel?: string | null;
+  subsystem?: string | null;
   sequence: number;
   reportingPeriodType?: string;
   product?: string;
