@@ -56,31 +56,35 @@ public class AcademicController {
     }
 
     @PostMapping("/assessments")
-    @PreAuthorize("@perm.canAction('ACADEMIC_ASSESSMENT_MANAGE') and @perm.staffOnly()")
+    @PreAuthorize("@perm.staffOnly()")
     public AssessmentView createAssessment(@Valid @RequestBody AssessmentUpsert in) { return sessionService.createAssessment(in); }
 
     @PutMapping("/assessments/{id}")
-    @PreAuthorize("@perm.canAction('ACADEMIC_ASSESSMENT_MANAGE') and @perm.staffOnly()")
+    @PreAuthorize("@perm.staffOnly()")
     public AssessmentView updateAssessment(@PathVariable UUID id, @Valid @RequestBody AssessmentUpsert in) {
         return sessionService.updateAssessment(id, in);
     }
 
     @DeleteMapping("/assessments/{id}")
-    @PreAuthorize("@perm.canAction('ACADEMIC_ASSESSMENT_MANAGE') and @perm.staffOnly()")
+    @PreAuthorize("@perm.staffOnly()")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteAssessment(@PathVariable UUID id, @RequestParam(required = false) Long version) {
         sessionService.deleteAssessment(id, version);
     }
 
     @PostMapping("/assessment-defaults/preview")
-    @PreAuthorize("@perm.canAction('ACADEMIC_ASSESSMENT_VIEW') and @perm.staffOnly()")
+    // The request body supplies the class/session scope; AssessmentDefaultsService
+    // performs the V2 resource-aware decision. A context-free @policy.canAction
+    // cannot evaluate the CLASS_SUBJECT action and would reject SCHOOL_ALL
+    // bootstrap authority before the service sees the payload.
+    @PreAuthorize("@perm.staffOnly()")
     public AssessmentDefaultsPreview previewAssessmentDefaults(
             @Valid @RequestBody AssessmentDefaultsPreviewRequest request) {
         return assessmentDefaults.preview(request);
     }
 
     @PostMapping("/assessment-defaults/apply")
-    @PreAuthorize("@perm.canAction('ACADEMIC_ASSESSMENT_MANAGE') and @perm.staffOnly()")
+    @PreAuthorize("@perm.staffOnly()")
     public AssessmentDefaultsApplyResponse applyAssessmentDefaults(
             @Valid @RequestBody AssessmentDefaultsPreviewRequest request,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
@@ -146,11 +150,14 @@ public class AcademicController {
     }
 
     @PostMapping("/bulletin-snapshots/{id}/document")
-    @PreAuthorize("@perm.canAction('DOCUMENT_GENERATE')")
+    // The snapshot service resolves the student/class/session context before
+    // evaluating the V2 STUDENT-scoped DOCUMENT_GENERATE action.
+    @PreAuthorize("@perm.staffOnly()")
     public GeneratedDocumentView generateOfficialReportCard(@PathVariable UUID id,
                                                              @RequestParam(defaultValue = "fr") String locale,
                                                              @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
         BulletinSnapshotView snapshot = snapshotService.byId(id);
+        snapshotService.requireDocumentGeneration(snapshot);
         if (!"VALIDATED".equals(snapshot.state()) && !"PUBLISHED".equals(snapshot.state())) {
             throw com.bbc.sms.platform.common.ApiException.badRequest("Le bulletin doit être validé avant la génération du document officiel");
         }
@@ -241,25 +248,30 @@ public class AcademicController {
     }
 
     @PostMapping("/grade-entry/workflow")
-    @PreAuthorize("@perm.canAction('GRADE_SUBMIT') and @perm.staffOnly()")
+    // This endpoint carries both teacher SUBMIT and management ACCEPT/RETURN
+    // transitions. The service remains the resource-aware final authority for
+    // the selected branch; the controller must admit either stable action.
+    @PreAuthorize("@perm.staffOnly() and (@perm.canAction('GRADE_SUBMIT') or @perm.canAction('ACADEMIC_GRADE_PACKET_REVIEW'))")
     public GradeEntryView gradeEntryWorkflow(@Valid @RequestBody GradeEntryReviewRequest request) {
         return gradeEntryService.submit(request);
     }
 
     @GetMapping("/report-card-inputs")
-    @PreAuthorize("@perm.canAction('ACADEMIC_COUNCIL_INPUT_VIEW') and @perm.staffOnly()")
+    // The request body/class scope is the resource-aware authority boundary;
+    // the service performs the V2 council-input decision after resolving it.
+    @PreAuthorize("@perm.staffOnly()")
     public ReportCardInputsView reportCardInputs(@RequestParam UUID reportingPeriodId, @RequestParam UUID classId) {
         return reportCardInputService.list(reportingPeriodId, classId);
     }
 
     @PutMapping("/report-card-inputs")
-    @PreAuthorize("@perm.canAction('ACADEMIC_COUNCIL_INPUT_EDIT') and @perm.staffOnly()")
+    @PreAuthorize("@perm.staffOnly()")
     public ReportCardInputsView saveReportCardInputs(@Valid @RequestBody ReportCardInputUpsert request) {
         return reportCardInputService.save(request);
     }
 
     @PostMapping("/report-card-inputs/{studentId}/submit")
-    @PreAuthorize("@perm.canAction('GRADE_SUBMIT') and @perm.staffOnly()")
+    @PreAuthorize("@perm.staffOnly()")
     public ReportCardInputsView submitReportCardInputs(@PathVariable UUID studentId,
                                                         @RequestParam UUID reportingPeriodId,
                                                         @RequestParam UUID classId) {
@@ -267,7 +279,7 @@ public class AcademicController {
     }
 
     @PostMapping("/report-card-inputs/{studentId}/review")
-    @PreAuthorize("@perm.canAction('ACADEMIC_GRADE_PACKET_REVIEW') and @perm.staffOnly()")
+    @PreAuthorize("@perm.staffOnly()")
     public ReportCardInputsView reviewReportCardInputs(@PathVariable UUID studentId,
                                                         @Valid @RequestBody ReportCardInputReview request) {
         return reportCardInputService.review(request.reportingPeriodId(), request.classId(), studentId, request);

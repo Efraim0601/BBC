@@ -244,7 +244,8 @@ export class FinancePlansComponent {
 
   constructor() { this.reload(); }
 
-  protected canWrite(): boolean { return this.auth.can('finance', 'write'); }
+  /** Plan mutations require the server-authoritative plan-draft action. */
+  protected canWrite(): boolean { return this.auth.canAction('FEE_PLAN_DRAFT'); }
   protected selectSession(id: string): void { this.sessionId.set(id); const session = this.context().sessions.find((item) => item.id === id); if (session && !this.level()) this.level.set('primary'); this.reload(id); }
   protected reload(sessionId = this.sessionId()): void {
     this.loading.set(true); this.error.set(null);

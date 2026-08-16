@@ -198,8 +198,107 @@ public class FeeService {
     /** Parent portal entry point; ParentService has already enforced child + feature scope. */
     @Transactional(readOnly = true)
     public StudentFeeStatementView statementForParent(UUID schoolId, UUID studentId) {
+        if (hasV2Charges(schoolId, studentId)) return v2StatementForParent(schoolId, studentId);
         return statementInternal(schoolId, studentId);
     }
+
+    /**
+     * Finance V2 is the authoritative parent balance once a student has a V2 charge.
+     * Keep the legacy fallback for older students that have not yet been migrated.
+     * Refunds are netted from the visible payment line while the charge's paid and
+     * outstanding snapshots remain the source of truth for the headline totals.
+     */
+    private StudentFeeStatementView v2StatementForParent(UUID schoolId, UUID studentId) {
+        Student s = students.findByIdAndSchoolId(studentId, schoolId)
+                .orElseThrow(() -> ApiException.notFound("Élève"));
+        V2Totals totals = jdbc.queryForObject("""
+                SELECT COALESCE(SUM(adjusted_amount_minor),0),
+                       COALESCE(SUM(paid_minor),0),
+                       COALESCE(SUM(waived_minor),0),
+                       COALESCE(SUM(outstanding_minor),0),
+                       COALESCE(LOWER(MIN(scope_type)),'level')
+                  FROM student_charge
+                 WHERE school_id=? AND student_id=?
+                   AND status NOT IN ('VOID','CANCELLED')
+                """, (rs, n) -> new V2Totals(rs.getLong(1), rs.getLong(2), rs.getLong(3),
+                        rs.getLong(4), rs.getString(5)), schoolId, studentId);
+
+        List<V2Installment> installments = jdbc.query("""
+                SELECT i.installment_no,i.label_fr,i.due_date,i.amount_minor,
+                       i.paid_minor,i.waived_minor,i.outstanding_minor
+                  FROM charge_installment i
+                  JOIN student_charge c ON c.school_id=i.school_id AND c.id=i.charge_id
+                 WHERE i.school_id=? AND c.student_id=?
+                   AND c.status NOT IN ('VOID','CANCELLED')
+                 ORDER BY c.charge_date,c.created_at,i.installment_no
+                """, (rs, n) -> new V2Installment(rs.getInt(1), rs.getString(2),
+                        rs.getObject(3, LocalDate.class), rs.getLong(4), rs.getLong(5),
+                        rs.getLong(6), rs.getLong(7)), schoolId, studentId);
+
+        List<TrancheStatusView> tranches = new ArrayList<>(installments.size());
+        for (int index = 0; index < installments.size(); index++) {
+            V2Installment installment = installments.get(index);
+            long covered = installment.paidMinor() + installment.waivedMinor();
+            String status = installment.outstandingMinor() <= 0 ? "paid"
+                    : covered > 0 ? "partial" : "pending";
+            boolean overdue = installment.outstandingMinor() > 0
+                    && installment.dueDate() != null
+                    && installment.dueDate().isBefore(LocalDate.now());
+            tranches.add(new TrancheStatusView(index + 1,
+                    installment.labelFr() == null || installment.labelFr().isBlank()
+                            ? "T" + (index + 1) : installment.labelFr(),
+                    installment.amountMinor(), installment.dueDate(), installment.paidMinor(),
+                    installment.outstandingMinor(), status, overdue));
+        }
+
+        List<PaymentLineView> payments = jdbc.query("""
+                SELECT p.receipt_no,p.payment_date,
+                       p.amount_minor-COALESCE(SUM(rt.amount_minor),0),
+                       p.channel_code_snapshot,p.reference,
+                       COALESCE(pc.label_fr,p.channel_code_snapshot),
+                       COALESCE(pc.label_en,p.channel_code_snapshot)
+                  FROM finance_payment p
+                  LEFT JOIN refund_transaction rt
+                    ON rt.school_id=p.school_id AND rt.payment_id=p.id
+                  LEFT JOIN payment_channel pc
+                    ON pc.school_id=p.school_id AND pc.code=p.channel_code_snapshot
+                 WHERE p.school_id=? AND p.student_id=?
+                   AND p.status NOT IN ('REVERSED','VOID')
+                 GROUP BY p.id,p.receipt_no,p.payment_date,p.amount_minor,
+                          p.channel_code_snapshot,p.reference,pc.label_fr,pc.label_en
+                HAVING p.amount_minor-COALESCE(SUM(rt.amount_minor),0)>0
+                 ORDER BY p.payment_date DESC,p.receipt_no DESC
+                """, (rs, n) -> new PaymentLineView(rs.getString(1),
+                        rs.getObject(2, LocalDate.class), rs.getLong(3), rs.getString(4),
+                        rs.getString(6), rs.getString(7), rs.getString(5), null), schoolId, studentId);
+
+        long balance = Math.max(0, totals.outstandingMinor());
+        int progress = totals.adjustedAmountMinor() > 0
+                ? (int) Math.min(100, Math.round(totals.paidMinor() * 100.0 / totals.adjustedAmountMinor()))
+                : (totals.paidMinor() > 0 ? 100 : 0);
+        String status = totals.adjustedAmountMinor() > 0 && balance == 0 ? "paid"
+                : totals.paidMinor() > 0 ? "partial" : "unpaid";
+        return new StudentFeeStatementView(
+                s.getId(), s.getFirstName() + " " + s.getLastName(), s.getMatricule(), s.getClassName(),
+                totals.gridSource(), totals.adjustedAmountMinor(), totals.paidMinor(), balance, progress,
+                status, tranches, payments);
+    }
+
+    private boolean hasV2Charges(UUID schoolId, UUID studentId) {
+        Integer count = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM student_charge
+                 WHERE school_id=? AND student_id=?
+                   AND status NOT IN ('VOID','CANCELLED')
+                """, Integer.class, schoolId, studentId);
+        return count != null && count > 0;
+    }
+
+    private record V2Totals(long adjustedAmountMinor, long paidMinor, long waivedMinor,
+                            long outstandingMinor, String gridSource) {}
+
+    private record V2Installment(int installmentNo, String labelFr, LocalDate dueDate,
+                                 long amountMinor, long paidMinor, long waivedMinor,
+                                 long outstandingMinor) {}
 
     private StudentFeeStatementView statementInternal(UUID schoolId, UUID studentId) {
         Student s = students.findByIdAndSchoolId(studentId, schoolId)
@@ -298,9 +397,27 @@ public class FeeService {
         if (in.enabled() != null) c.setEnabled(in.enabled());
         if (in.visibleToParents() != null) c.setVisibleToParents(in.visibleToParents());
         if (in.sortOrder() != null) c.setSortOrder(in.sortOrder());
+        if (in.debitAccountId() != null) {
+            ChartOfAccountRef debit = jdbc.query("""
+                    SELECT id, account_type, active, posting_allowed
+                      FROM chart_of_account
+                     WHERE school_id=? AND id=?
+                    """, rs -> {
+                if (!rs.next()) return null;
+                return new ChartOfAccountRef(rs.getObject("id", UUID.class), rs.getString("account_type"),
+                        rs.getBoolean("active"), rs.getBoolean("posting_allowed"));
+            }, schoolId, in.debitAccountId());
+            if (debit == null || !"ASSET".equals(debit.accountType())
+                    || !debit.active() || !debit.postingAllowed()) {
+                throw ApiException.badRequest("Le compte débité doit être un compte d'actif actif et postable.");
+            }
+            c.setDebitAccountId(debit.id());
+        }
 
         return toView(channels.save(c));
     }
+
+    private record ChartOfAccountRef(UUID id, String accountType, boolean active, boolean postingAllowed) {}
 
     /** Canal actif portant ce code, ou échec explicite : un encaissement doit être traçable. */
     @Transactional(readOnly = true)

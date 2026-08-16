@@ -19,14 +19,23 @@ import java.util.UUID;
 @RequestMapping("/api/setup")
 public class SetupController {
 
-    private static final String READ = "@parcours.allows() and @perm.canAction('ACADEMIC_STRUCTURE_VIEW') and @perm.staffOnly()";
-    private static final String CLASS_WRITE = "@parcours.allows() and @perm.canAction('CLASS_MANAGE') and @perm.staffOnly()";
-    private static final String CLASS_ASSIGNMENT_WRITE = "@parcours.allows() and @perm.canAction('TEACHING_CLASS_ASSIGNMENT_MANAGE') and @perm.staffOnly()";
-    private static final String SUBJECT_WRITE = "@parcours.allows() and @perm.canAction('SUBJECT_MANAGE') and @perm.staffOnly()";
-    private static final String CURRICULUM_WRITE = "@parcours.allows() and @perm.canAction('CURRICULUM_MANAGE') and @perm.staffOnly()";
-    private static final String CURRICULUM_CLASS_WRITE = "@parcours.allows() and @perm.canAction('CURRICULUM_CLASS_MANAGE') and @perm.staffOnly()";
-    private static final String CURRICULUM_CATALOG_WRITE = "@parcours.allows() and @perm.canAction('CURRICULUM_CATALOG_MANAGE') and @perm.staffOnly()";
-    private static final String ASSIGNMENT_WRITE = "@parcours.allows() and @perm.canAction('TEACHING_ASSIGNMENT_MANAGE') and @perm.staffOnly()";
+    /**
+     * Keep reads behind the staff envelope so the service can evaluate the V2
+     * user/role rules with the resource context (class, subject and session)
+     * where required.  A missing parcours is valid for an all-parcours read;
+     * writes still require an explicitly selected parcours in addition to the
+     * staff envelope.  Calling a legacy @perm.canAction gate here would reject
+     * a V2 user exception before the service check could run.
+     */
+    private static final String READ = "@perm.staffOnly()";
+    private static final String WRITE = "@parcours.allows() and @perm.staffOnly()";
+    private static final String CLASS_WRITE = WRITE;
+    private static final String CLASS_ASSIGNMENT_WRITE = WRITE;
+    private static final String SUBJECT_WRITE = WRITE;
+    private static final String CURRICULUM_WRITE = WRITE;
+    private static final String CURRICULUM_CLASS_WRITE = WRITE;
+    private static final String CURRICULUM_CATALOG_WRITE = WRITE;
+    private static final String ASSIGNMENT_WRITE = WRITE;
 
     private final SetupService service;
     private final CurriculumCopyService curriculumCopy;

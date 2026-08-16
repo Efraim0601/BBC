@@ -9,6 +9,8 @@ import com.bbc.sms.student.StudentRegistrationService.*;
 import com.bbc.sms.student.dto.StudentDtos.StudentUpsert;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.time.OffsetDateTime;
@@ -17,6 +19,7 @@ import static com.bbc.sms.guardian.GuardianDtos.*;
 
 @Service
 public class FamilyImportService {
+    private static final Logger log = LoggerFactory.getLogger(FamilyImportService.class);
     private final JdbcTemplate jdbc; private final ObjectMapper json; private final StudentRegistrationService registrations;
     private final AuthorizationPolicyService policy;
     public FamilyImportService(JdbcTemplate jdbc,ObjectMapper json,StudentRegistrationService registrations,AuthorizationPolicyService policy){this.jdbc=jdbc;this.json=json;this.registrations=registrations;this.policy=policy;}
@@ -33,7 +36,7 @@ public class FamilyImportService {
             else if(row.guardians()==null||row.guardians().isEmpty()){outcome="ERROR";message="Au moins un parent ou tuteur est obligatoire";}
             else if(row.guardians().stream().anyMatch(g->!"NO_PORTAL".equalsIgnoreCase(g.accessMode())&&(g.email()==null||g.email().isBlank()))){outcome="ERROR";message="E-mail obligatoire pour chaque parent qui doit accéder au portail";}
             if("VALID".equals(outcome))valid++;
-            try{jdbc.update("INSERT INTO family_import_row(id,school_id,job_id,row_number,external_key,payload,status,message) VALUES (?,?,?,?,?,?::jsonb,?,?)",UUID.randomUUID(),school,job,rowNo,row.externalKey(),json.writeValueAsString(row),outcome,message);}catch(Exception e){throw ApiException.badRequest("Ligne d’import illisible");}
+            try{jdbc.update("INSERT INTO family_import_row(id,school_id,job_id,row_number,external_key,payload,status,message) VALUES (?,?,?,?,?,?::jsonb,?,?)",UUID.randomUUID(),school,job,rowNo,row.externalKey(),json.writeValueAsString(row),outcome,message);}catch(Exception e){log.warn("Family import row {} could not be persisted: {}",rowNo,e.getMessage(),e);throw ApiException.badRequest("Ligne d’import illisible");}
             views.add(new FamilyImportRowView(rowNo,row.externalKey(),row.lastName()+" "+row.firstName(),outcome,message));
         }
         jdbc.update("UPDATE family_import_job SET status='VALIDATED',valid_rows=? WHERE id=?",valid,job);

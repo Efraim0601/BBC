@@ -16,25 +16,25 @@ public class AlertController {
     public AlertController(AlertService service) { this.service = service; }
 
     @GetMapping
-    @PreAuthorize("@perm.canAction('ALERTS_VIEW')")
+    @PreAuthorize("@policy.canAction('ALERTS_VIEW')")
     public List<AlertView> list() {
         return service.list();
     }
 
     @PostMapping("/scan")
-    @PreAuthorize("@perm.canAction('ALERTS_MANAGE')")
+    @PreAuthorize("@policy.canAction('ALERTS_MANAGE')")
     public ScanResult scan() {
         return service.scan();
     }
 
     @PostMapping("/{id}/ack")
-    @PreAuthorize("@perm.canAction('ALERTS_MANAGE')")
+    @PreAuthorize("@policy.canAction('ALERTS_MANAGE')")
     public void ack(@PathVariable UUID id) {
         service.ack(id);
     }
 
     @PostMapping("/{id}/resolve")
-    @PreAuthorize("@perm.canAction('ALERTS_MANAGE')")
+    @PreAuthorize("@policy.canAction('ALERTS_MANAGE')")
     public void resolve(@PathVariable UUID id) {
         service.resolve(id);
     }

@@ -58,7 +58,9 @@ interface TypeMeta { fr: string; en: string; icon: string; }
       <bbc-card
         [title]="fr() ? 'Alertes ouvertes' : 'Open alerts'"
         [subtitle]="filtered().length + (fr() ? ' alertes' : ' alerts')">
-        @if (filtered().length === 0) {
+        @if (alertsUnavailable()) {
+          <bbc-empty icon="shield" [label]="fr() ? 'Les alertes ne sont pas disponibles pour ce profil.' : 'Alerts are not available for this profile.'" />
+        } @else if (filtered().length === 0) {
           <bbc-empty icon="check" [label]="fr() ? 'Aucune alerte — tout va bien' : 'No alerts — all clear'" />
         } @else {
           <div class="space-y-2">
@@ -121,6 +123,7 @@ export class AlertsComponent {
   };
 
   protected alerts = signal<AlertView[]>([]);
+  protected alertsUnavailable = signal(false);
   protected typeFilter = signal<string | null>(null);
   protected scanning = signal(false);
 
@@ -138,7 +141,10 @@ export class AlertsComponent {
   }
 
   private reload(): void {
-    this.api.list().subscribe((r) => this.alerts.set(r));
+    this.api.list().subscribe({
+      next: (r) => { this.alertsUnavailable.set(false); this.alerts.set(r); },
+      error: () => this.alertsUnavailable.set(true),
+    });
   }
 
   protected rescan(): void {

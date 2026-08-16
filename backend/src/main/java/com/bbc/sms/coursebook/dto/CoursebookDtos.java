@@ -8,6 +8,9 @@ import java.util.UUID;
 
 public class CoursebookDtos {
 
+    /** Class reference filtered by the authenticated teacher/parcours scope. */
+    public record ClassRef(UUID id, String name, String sectionId, String subsystem, String level) {}
+
     /** One day's log line for a class: what was covered + the homework set. */
     public record EntryView(
             UUID id,

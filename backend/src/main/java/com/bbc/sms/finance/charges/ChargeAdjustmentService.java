@@ -110,7 +110,11 @@ public class ChargeAdjustmentService {
                 .orElseThrow(() -> ApiException.notFound("Demande d'ajustement"));
         if (request.version() != adjustment.getVersion()) conflict("demande d'ajustement");
         if (!"REQUESTED".equals(adjustment.getStatus())) throw ApiException.conflict("Cette demande a déjà été décidée et est immuable.");
-        financePolicy.requireCharge("FEE_WAIVE_APPROVE", adjustment.getChargeId(), LocalDate.now());
+        // Evaluate the approval against the adjustment's effective academic
+        // date.  Using the server's current date rejects valid future-session
+        // fixtures (and real scheduled waivers) before the policy decision is
+        // even evaluated.
+        financePolicy.requireCharge("FEE_WAIVE_APPROVE", adjustment.getChargeId(), adjustment.getEffectiveDate());
         if (adjustment.getRequestedBy() != null && adjustment.getRequestedBy().equals(currentUserId())) {
             throw ApiException.forbidden("La personne qui demande la remise ne peut pas l'approuver.");
         }

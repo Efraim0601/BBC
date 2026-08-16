@@ -18,34 +18,36 @@ public class DisciplineController {
     public DisciplineController(DisciplineService service) { this.service = service; }
 
     @GetMapping
-    @PreAuthorize("@perm.canAction('DISCIPLINE_VIEW')")
+    // The student/class-scoped V2 decision is made by DisciplineService after
+    // the roster or lookup resource is resolved.
+    @PreAuthorize("@perm.staffOnly()")
     public List<IncidentView> list() {
         return service.list();
     }
 
     /** Auto-fill student card from matricule or UUID while typing an incident. */
     @GetMapping("/lookup")
-    @PreAuthorize("@perm.canAction('DISCIPLINE_VIEW')")
+    @PreAuthorize("@perm.staffOnly()")
     public StudentLookup lookup(@RequestParam("q") String q) {
         return service.lookup(q);
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("@perm.canAction('DISCIPLINE_MANAGE')")
+    @PreAuthorize("@perm.staffOnly()")
     public IncidentView create(@Valid @RequestBody IncidentUpsert in) {
         return service.create(in);
     }
 
     @PostMapping("/notify")
-    @PreAuthorize("@perm.canAction('DISCIPLINE_MANAGE')")
+    @PreAuthorize("@perm.staffOnly()")
     public NotifyResult notify(@Valid @RequestBody NotifyRequest in) {
         return service.notifyParent(in);
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize("@perm.canAction('DISCIPLINE_MANAGE')")
+    @PreAuthorize("@perm.staffOnly()")
     public void delete(@PathVariable UUID id) {
         service.delete(id);
     }

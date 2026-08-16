@@ -6,7 +6,7 @@ import {
   StudentFeeStatementView, TrancheStatusView,
 } from './finance.api';
 import { StudentApi } from '../students/students.api';
-import { SetupApi, ClassView } from '../../core/setup.api';
+import { ClassView } from '../../core/setup.api';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
 import { FinanceSummary, PaymentView, Student } from '../../core/models';
@@ -924,7 +924,6 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
 export class FinanceComponent {
   protected i18n = inject(I18nService);
   private api = inject(FinanceApi);
-  private setupApi = inject(SetupApi);
   private studentApi = inject(StudentApi);
   private auth = inject(AuthService);
 
@@ -1086,7 +1085,19 @@ export class FinanceComponent {
   constructor() {
     this.reloadSummary();
     this.reloadPayments();
-    this.setupApi.listClasses().subscribe({ next: (c) => this.setupClasses.set(c), error: () => {} });
+    this.api.context().subscribe({
+      next: (context) => this.setupClasses.set(context.classes.map((c) => ({
+        id: c.id,
+        name: c.name,
+        sectionId: c.code,
+        sectionLabel: `${c.level} / ${c.subsystem}`,
+        subsystem: c.subsystem,
+        level: c.level,
+        studentCount: 0,
+        teacherCount: 0,
+      }))),
+      error: () => {},
+    });
     // Les canaux servent dès l'onglet Encaissements (filtre, libellés, saisie).
     this.reloadChannels();
   }

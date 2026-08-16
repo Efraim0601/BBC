@@ -7,6 +7,9 @@ import com.bbc.sms.academic.dto.AcademicDtos.BulletinSnapshotView;
 import com.bbc.sms.platform.tenant.TenantContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Async;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
@@ -39,7 +42,11 @@ public class ReportCardBatchJobWorker {
     }
 
     @Async("academicBatchExecutor")
-    public void start(UUID jobId, UUID schoolId) {
+    public void start(UUID jobId, UUID schoolId, Authentication authentication) {
+        SecurityContext previousContext = SecurityContextHolder.getContext();
+        SecurityContext workerContext = SecurityContextHolder.createEmptyContext();
+        workerContext.setAuthentication(authentication);
+        SecurityContextHolder.setContext(workerContext);
         TenantContext.set(schoolId);
         try {
             run(jobId, schoolId);
@@ -51,6 +58,8 @@ public class ReportCardBatchJobWorker {
                     """, clip(ex.getMessage()), schoolId, jobId);
         } finally {
             TenantContext.clear();
+            SecurityContextHolder.clearContext();
+            SecurityContextHolder.setContext(previousContext);
         }
     }
 

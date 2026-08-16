@@ -45,6 +45,28 @@ class AcademicAccessPolicyServiceTest {
     }
 
     @Test
+    void booleanCanTreatsCentralResourceDenialAsFalseForCollectionFilters() {
+        TenantContext.set(school);
+        UUID userId = UUID.randomUUID();
+        AppUserPrincipal principal = new AppUserPrincipal(userId, school, "teacher", "teacher", "Teacher", "T");
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
+
+        com.bbc.sms.platform.security.AuthorizationPolicyService central =
+                mock(com.bbc.sms.platform.security.AuthorizationPolicyService.class);
+        when(central.decide(eq("ACADEMIC_ROSTER_VIEW"), any(com.bbc.sms.platform.security.PolicyResourceContext.class)))
+                .thenReturn(com.bbc.sms.platform.security.PolicyDecision.deny(
+                        "ACADEMIC_ROSTER_VIEW", "POLICY_RULE_MISSING", "Refusé.", "Denied.", 3, null));
+
+        AcademicAccessPolicyService policy = new AcademicAccessPolicyService(
+                mock(JdbcTemplate.class), mock(PermissionService.class),
+                mock(com.bbc.sms.timetable.TeachingAssignmentResolver.class), central);
+
+        assertThat(policy.can(AcademicAccessPolicyService.Capability.ACADEMIC_ROSTER_VIEW,
+                null, null, null, null, LocalDate.of(2026, 9, 1))).isFalse();
+    }
+
+    @Test
     void deniesATeacherAccountWithoutAnActiveEmployeeLinkBeforeResourceLookup() {
         TenantContext.set(school);
         UUID userId = UUID.randomUUID();
@@ -76,6 +98,62 @@ class AcademicAccessPolicyServiceTest {
                         java.time.LocalDate.of(2026, 9, 1)))
                 .isInstanceOf(com.bbc.sms.platform.common.ApiException.class)
                 .extracting("code").isEqualTo("ACADEMIC_CLASS_ACCESS_DENIED");
+    }
+
+    @Test
+    void bootstrapAdminCanManageDelegationsThroughTheGlobalPermissionBoundary() {
+        TenantContext.set(school);
+        UUID userId = UUID.randomUUID();
+        AppUserPrincipal principal = new AppUserPrincipal(userId, school, "principal", "principal",
+                "Bootstrap admin", "BA");
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
+        com.bbc.sms.platform.security.AuthorizationPolicyService central =
+                mock(com.bbc.sms.platform.security.AuthorizationPolicyService.class);
+        when(central.canAction("PERMISSION_MANAGE")).thenReturn(true);
+
+        AcademicAccessPolicyService policy = new AcademicAccessPolicyService(mock(JdbcTemplate.class),
+                mock(PermissionService.class), mock(TeachingAssignmentResolver.class), central);
+
+        org.assertj.core.api.Assertions.assertThatCode(policy::requireDelegationManager)
+                .doesNotThrowAnyException();
+        verify(central).canAction("PERMISSION_MANAGE");
+    }
+
+    @Test
+    void ordinaryTeacherCannotManageDelegations() {
+        assertDelegationManagerDenied("teacher", true);
+    }
+
+    @Test
+    void ordinaryAccountantCannotManageDelegations() {
+        assertDelegationManagerDenied("accountant", false);
+    }
+
+    @Test
+    void ordinaryParentCannotManageDelegations() {
+        assertDelegationManagerDenied("parent", false);
+    }
+
+    private void assertDelegationManagerDenied(String role, boolean teacherRole) {
+        TenantContext.set(school);
+        UUID userId = UUID.randomUUID();
+        AppUserPrincipal principal = new AppUserPrincipal(userId, school, role, role,
+                "Ordinary user", "OU");
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
+        com.bbc.sms.platform.security.AuthorizationPolicyService central =
+                mock(com.bbc.sms.platform.security.AuthorizationPolicyService.class);
+        when(central.canAction("PERMISSION_MANAGE")).thenReturn(false);
+
+        AcademicAccessPolicyService policy = new AcademicAccessPolicyService(mock(JdbcTemplate.class),
+                mock(PermissionService.class), mock(TeachingAssignmentResolver.class), central);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(policy::requireDelegationManager)
+                .isInstanceOf(com.bbc.sms.platform.common.ApiException.class)
+                .extracting("code").isEqualTo("ACADEMIC_ACCESS_DELEGATE_DENIED");
+        if (teacherRole) verifyNoInteractions(central);
+        else verify(central).canAction("PERMISSION_MANAGE");
     }
 
     @Test

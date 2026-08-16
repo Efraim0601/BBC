@@ -374,6 +374,13 @@ public class AttendanceWorkflowService {
             SELECT id, student_id, status, late_minutes FROM attendance_record
              WHERE id=? AND school_id=? AND source='fingerprint'
             """, request.deviceRecordId(), TenantContext.get());
+        Integer alreadyReconciled = jdbc.queryForObject("""
+            SELECT count(*) FROM attendance_mark
+             WHERE school_id=? AND device_record_id=?
+            """, Integer.class, TenantContext.get(), request.deviceRecordId());
+        if (alreadyReconciled != null && alreadyReconciled > 0) {
+            throw ApiException.conflict("Ce pointage lecteur est déjà rapproché.");
+        }
         UUID studentId = (UUID) device.get("student_id");
         String status = String.valueOf(device.get("status")).toUpperCase(Locale.ROOT);
         int changed = jdbc.update("""
@@ -532,27 +539,49 @@ public class AttendanceWorkflowService {
         if (model.equals("DAILY")) return List.of(new SessionKey("DAILY", null, null));
         int dayIdx = date.getDayOfWeek().getValue() - 1;
         AcademicSession academic = requireAcademicSession(date);
-        Boolean published = jdbc.queryForObject("""
+        Boolean published = jdbc.query("""
             SELECT status='PUBLISHED' FROM timetable_class_config
              WHERE school_id=? AND academic_session_id=? AND class_id=?
-            """, Boolean.class, TenantContext.get(), academic.getId(), schoolClass.getId());
+            """, rs -> rs.next() && rs.getBoolean(1), TenantContext.get(), academic.getId(), schoolClass.getId());
         if (!Boolean.TRUE.equals(published)) return List.of();
-        return slots.findBySchoolIdAndAcademicSessionIdAndClassId(TenantContext.get(), academic.getId(), schoolClass.getId()).stream()
-            .filter(s -> s.getDayIdx() == dayIdx && s.getSubjectCode() != null && !s.getSubjectCode().isBlank())
-            .sorted(Comparator.comparingInt(TimetableSlot::getSlotIdx))
-            .map(s -> new SessionKey("P" + (s.getSlotIdx() + 1), s.getSubjectCode(), s.getId()))
-            .toList();
+        // A session is generated from the timetable version effective on the date,
+        // never from archived/reopened copies. Reading the slot table without the
+        // published-version join multiplies Secondary occurrences after each
+        // timetable revision and creates duplicate attendance rosters.
+        return jdbc.query("""
+            SELECT DISTINCT ON (ts.slot_idx) ts.id, ts.slot_idx, ts.subject_code
+              FROM timetable_slot ts
+              JOIN timetable_version tv ON tv.id=ts.timetable_version_id
+               AND tv.school_id=ts.school_id
+               AND tv.academic_session_id=ts.academic_session_id
+               AND tv.status='PUBLISHED'
+               AND tv.effective_from<=?
+               AND (tv.effective_to IS NULL OR tv.effective_to>=?)
+             WHERE ts.school_id=? AND ts.academic_session_id=? AND ts.class_id=?
+               AND ts.day_idx=? AND ts.subject_code IS NOT NULL
+               AND trim(ts.subject_code)<>''
+             ORDER BY ts.slot_idx, tv.version_no DESC, ts.id
+            """, (rs, n) -> new SessionKey("P" + (rs.getInt("slot_idx") + 1),
+                    rs.getString("subject_code"), rs.getObject("id", UUID.class)),
+            date, date, TenantContext.get(), academic.getId(), schoolClass.getId(), dayIdx);
     }
 
     private boolean isTeachingDay(LocalDate date) {
         Integer teaching = jdbc.query("""
-            SELECT CASE WHEN d.id IS NULL THEN NULL WHEN d.teaching_day THEN 1 ELSE 0 END
+            SELECT CASE
+                       WHEN EXISTS (
+                           SELECT 1 FROM school_holiday h
+                            WHERE h.school_id=s.school_id AND h.holiday_date=?
+                       ) THEN 0
+                       WHEN d.id IS NULL THEN NULL
+                       WHEN d.teaching_day THEN 1 ELSE 0
+                   END
               FROM academic_session s LEFT JOIN school_calendar_day d
                 ON d.academic_session_id=s.id AND d.day_of_week=?
              WHERE s.school_id=? AND ? BETWEEN s.start_date AND s.end_date
              ORDER BY s.is_current DESC LIMIT 1
             """, rs -> rs.next() ? (Integer) rs.getObject(1) : null,
-            date.getDayOfWeek().getValue(), TenantContext.get(), Date.valueOf(date));
+            Date.valueOf(date), date.getDayOfWeek().getValue(), TenantContext.get(), Date.valueOf(date));
         // A newly opened academic session may not have explicit weekday rows yet.
         // Preserve the school's standard Monday-Friday calendar until admins customize it.
         return teaching == null ? date.getDayOfWeek().getValue() <= 5 : teaching == 1;

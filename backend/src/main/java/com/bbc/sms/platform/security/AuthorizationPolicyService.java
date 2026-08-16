@@ -185,6 +185,7 @@ public class AuthorizationPolicyService {
                                  AppUserPrincipal principal, List<Rule> rules,
                                  List<String> roles, long version) {
         PolicyDecision winningAllow = null;
+        boolean domainRejectedAllow = false;
         for (Rule rule : rules) {
             if (!matches(rule, action, context, principal)) continue;
             if ("DENY".equals(rule.effect())) {
@@ -195,15 +196,24 @@ public class AuthorizationPolicyService {
             }
             if ("ALLOW".equals(rule.effect()) && winningAllow == null) {
                 if (!domainInvariant(action, context, principal, rule, roles)) {
-                    return deny(action.code(), domainDenialCode(action, roles),
-                            domainDenialFr(action, roles), domainDenialEn(action, roles), version,
-                            "Réparez l'affectation, la session, la classe ou la relation familiale.");
+                    // A generic resource scope can match more than one role
+                    // rule. A form teacher may have both a dated titular-class
+                    // rule and a secondary published-occurrence rule. An
+                    // incompatible allow must not hide a later compatible one.
+                    domainRejectedAllow = true;
+                    continue;
                 }
                 winningAllow = PolicyDecision.allow(action.code(), rule.source(),
                         rule.scopeMode(), version);
             }
         }
-        return winningAllow;
+        if (winningAllow != null) return winningAllow;
+        if (domainRejectedAllow) {
+            return deny(action.code(), domainDenialCode(action, roles),
+                    domainDenialFr(action, roles), domainDenialEn(action, roles), version,
+                    "Réparez l'affectation, la session, la classe ou la relation familiale.");
+        }
+        return null;
     }
 
     boolean matches(Rule rule, Action action, PolicyResourceContext context,

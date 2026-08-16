@@ -33,6 +33,8 @@ export class AuthService {
   /** Shared in-flight refresh so parallel 401s don't race and wipe the session. */
   private refreshInFlight$: Observable<TokenResponse> | null = null;
   private capabilitiesInFlight$: Observable<CapabilityView> | null = null;
+  /** Prevent a response started for a previous persona/session from winning a later login. */
+  private capabilitiesGeneration = 0;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
@@ -100,6 +102,8 @@ export class AuthService {
   /** @param reason optional cause (e.g. 'expired') surfaced on the login screen. */
   logout(reason?: string): void {
     this.clearRefreshTimer();
+    this.capabilitiesGeneration += 1;
+    this.capabilitiesInFlight$ = null;
     localStorage.removeItem(ACCESS_KEY);
     localStorage.removeItem(REFRESH_KEY);
     localStorage.removeItem(USER_KEY);
@@ -120,21 +124,42 @@ export class AuthService {
     return rank[u.permissions[permissionKey] ?? 'none'] >= rank[level];
   }
 
+  /**
+   * Resource-scoped modules can be present in the server action policy even
+   * when the legacy module matrix is intentionally empty.  CONTEXT_REQUIRED
+   * is sufficient to open the module; the API still performs the resource
+   * decision for every student/class/relationship request.
+   */
+  canModuleOrAction(module: string, actionCode: string, level: Level = 'read'): boolean {
+    if (this.can(module, level)) return true;
+    const state = this.actionState(actionCode);
+    return state === 'ALLOW' || state === 'CONTEXT_REQUIRED';
+  }
+
   /** Fetch the staged policy result. Failure stays closed until an explicit retry. */
   loadCapabilities(): Observable<CapabilityView> {
     if (this.capabilitiesInFlight$) return this.capabilitiesInFlight$;
     if (!this.user()) return throwError(() => new HttpErrorResponse({ status: 401, statusText: 'Not logged in' }));
+    const generation = this.capabilitiesGeneration;
     this.capabilitiesLoading.set(true);
     this.capabilitiesError.set(false);
     this.capabilitiesInFlight$ = this.http.get<CapabilityView>(`${environment.apiUrl}/access/me/capabilities`).pipe(
-      tap((value) => this.capabilities.set(value)),
+      tap((value) => {
+        if (generation === this.capabilitiesGeneration) this.capabilities.set(value);
+      }),
       finalize(() => {
-        this.capabilitiesLoading.set(false);
-        this.capabilitiesInFlight$ = null;
+        if (generation === this.capabilitiesGeneration) {
+          this.capabilitiesLoading.set(false);
+          this.capabilitiesInFlight$ = null;
+        }
       }),
       shareReplay({ bufferSize: 1, refCount: true }),
     );
-    this.capabilitiesInFlight$.subscribe({ error: () => this.capabilitiesError.set(true) });
+    this.capabilitiesInFlight$.subscribe({
+      error: () => {
+        if (generation === this.capabilitiesGeneration) this.capabilitiesError.set(true);
+      },
+    });
     return this.capabilitiesInFlight$;
   }
 
@@ -156,6 +181,8 @@ export class AuthService {
   }
 
   private persist(res: TokenResponse): void {
+    this.capabilitiesGeneration += 1;
+    this.capabilitiesInFlight$ = null;
     localStorage.setItem(ACCESS_KEY, res.accessToken);
     localStorage.setItem(REFRESH_KEY, res.refreshToken);
     localStorage.setItem(USER_KEY, JSON.stringify(res.user));

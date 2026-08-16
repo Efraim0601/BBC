@@ -140,7 +140,10 @@ public class PaymentCorrectionService {
         if (payment.getJournalEntryId() == null) throw ApiException.conflict("Le journal de l'encaissement est introuvable.");
         JournalEntry original = journals.findByIdAndSchoolId(payment.getJournalEntryId(), schoolId)
                 .orElseThrow(() -> ApiException.notFound("Journal de l'encaissement"));
-        LocalDate date = LocalDate.now();
+        // A correction belongs to the payment's academic/accounting context.
+        // Using the server's current date rejects valid future-session payment
+        // corrections before the open posting period can be resolved.
+        LocalDate date = payment.getPaymentDate();
         AccountingPeriod period = periods.requireOpenForDate(date, payment.getAcademicSessionId());
         JournalView reversalJournal = ledger.reverseNowInternal(original.getId(),
                 new ReverseRequest(date, request.reason().trim(), original.getVersion()));
@@ -226,7 +229,9 @@ public class PaymentCorrectionService {
     public RefundView decideRefund(UUID refundId, RefundDecisionRequest request) {
         RefundRequest refund = refundRequests.findForUpdateByIdAndSchoolId(refundId, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Demande de remboursement"));
-        financePolicy.requirePayment("REFUND_APPROVE", refund.getPaymentId(), LocalDate.now());
+        FinancePayment payment = payments.findForUpdateByIdAndSchoolId(refund.getPaymentId(), TenantContext.get())
+                .orElseThrow(() -> ApiException.notFound("Encaissement"));
+        financePolicy.requirePayment("REFUND_APPROVE", refund.getPaymentId(), payment.getPaymentDate());
         AccountVersion.require(request.version(), refund.getVersion(), "demande de remboursement");
         if (!"REQUESTED".equals(refund.getStatus())) return view(refund);
         UUID actor = currentUserId();
@@ -243,12 +248,10 @@ public class PaymentCorrectionService {
             audit.record("REFUND_REJECTED", "RefundRequest", refundId.toString(), null, result, request.decisionReason());
             return result;
         }
-        FinancePayment payment = payments.findForUpdateByIdAndSchoolId(refund.getPaymentId(), TenantContext.get())
-                .orElseThrow(() -> ApiException.notFound("Encaissement"));
         if (refund.getAmountMinor() > availableCreditForPayment(payment.getId())) {
             throw ApiException.conflict("Le crédit disponible a changé; le remboursement ne peut plus être approuvé.");
         }
-        LocalDate date = LocalDate.now();
+        LocalDate date = payment.getPaymentDate();
         AccountingPeriod period = periods.requireOpenForDate(date, payment.getAcademicSessionId());
         PaymentChannel channel = channels.findBySchoolIdAndCode(TenantContext.get(), refund.getChannelCode())
                 .orElseThrow(() -> ApiException.notFound("Canal de remboursement"));

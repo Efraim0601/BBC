@@ -105,6 +105,7 @@ public class AuthService {
                 .map(s -> new Parcours(s.level(), s.subsystem())).toList();
         return new UserView(user.getId(), user.getUsername(), user.getDisplayName(),
                 user.getInitials(), user.getRoleCode(), user.getSchoolId(),
-                school.getCode(), school.getName(), user.getLocale(), perms, modules, allowedParcours);
+                school.getCode(), school.getName(), user.getLocale(), perms, modules,
+                parcoursAccess.scopeMode(user.getId()), allowedParcours);
     }
 }

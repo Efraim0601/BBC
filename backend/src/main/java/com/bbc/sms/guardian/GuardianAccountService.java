@@ -45,7 +45,16 @@ public class GuardianAccountService {
         AppUser u=users.findById(g.userId()).orElseThrow(()->ApiException.notFound("Compte parent"));
         u.setPasswordHash(encoder.encode(req.password()));u.setMustChangePassword(false);u.setActive(true);u.setEmailVerifiedAt(OffsetDateTime.now());u.setFailedAttempts(0);u.setLockedUntil(null);u.setCredentialsVersion(u.getCredentialsVersion()+1);users.save(u);
         jdbc.update("UPDATE guardian SET status='ACTIVE',updated_at=now() WHERE id=?",g.id());
-        audit.record("GUARDIAN_INVITE_ACCEPTED","Guardian",g.id().toString(),null,Map.of("active",true),"Invitation acceptée");
+        // Invitation acceptance is public, so JwtAuthFilter has not bound
+        // TenantContext. Bind the token's school only for the audit write.
+        UUID previousTenant = TenantContext.isSet() ? TenantContext.get() : null;
+        TenantContext.set(g.schoolId());
+        try {
+            audit.record("GUARDIAN_INVITE_ACCEPTED","Guardian",g.id().toString(),null,Map.of("active",true),"Invitation acceptée");
+        } finally {
+            if (previousTenant == null) TenantContext.clear();
+            else TenantContext.set(previousTenant);
+        }
         return new PublicMessage("Compte parent activé. Vous pouvez maintenant vous connecter.");
     }
 

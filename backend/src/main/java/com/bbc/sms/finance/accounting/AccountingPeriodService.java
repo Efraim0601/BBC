@@ -16,6 +16,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import static com.bbc.sms.finance.accounting.AccountingDtos.*;
@@ -159,6 +160,24 @@ public class AccountingPeriodService {
                             "POSTING_PERIOD_CLOSED", "Aucune période comptable ouverte de la session sélectionnée ne couvre cette date.",
                             Map.of("entryDate", "Choisissez une date couverte par une période ouverte de la session."), List.of());
                 });
+    }
+
+    /**
+     * Non-throwing lookup for read-only previews.  Callers that turn a closed
+     * period into a user-facing blocker must not catch the throwing lookup
+     * inside their own transaction: Spring marks that transaction rollback-only
+     * before the caller can build the preview response.
+     */
+    @Transactional(readOnly = true)
+    public Optional<AccountingPeriod> findOpenForDate(LocalDate date, UUID academicSessionId) {
+        if (date == null) return Optional.empty();
+        UUID schoolId = TenantContext.get();
+        if (academicSessionId == null) {
+            return periods.findFirstBySchoolIdAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqualOrderByStartDateDesc(
+                    schoolId, "OPEN", date, date);
+        }
+        return periods.findFirstBySchoolIdAndAcademicSessionIdAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqualOrderByStartDateDesc(
+                schoolId, academicSessionId, "OPEN", date, date);
     }
 
     @Transactional(readOnly = true)

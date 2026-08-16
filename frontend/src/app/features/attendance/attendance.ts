@@ -37,7 +37,7 @@ type Tab = 'roll' | 'analytics' | 'devices' | 'settings';
         [subtitle]="fr() ? 'Appel quotidien ou par période, analyses et contrôle des pointages' : 'Daily or period roll call, analytics and device control'" />
 
       <div class="flex gap-2 mb-5 overflow-x-auto pb-1">
-        @for (item of tabs; track item.key) {
+        @for (item of tabs(); track item.key) {
           <button class="btn whitespace-nowrap" [class.primary]="tab() === item.key" (click)="selectTab(item.key)">
             {{ fr() ? item.fr : item.en }}
           </button>
@@ -225,12 +225,17 @@ export class AttendanceComponent {
   private foundation = inject(FoundationApi);
   protected i18n = inject(I18nService);
   protected fr = () => this.i18n.lang() === 'fr';
-  protected canConfigure = this.auth.can('settings', 'write');
+  // Device and policy controls are action-scoped. The bootstrap administrator
+  // has narrow user-level attendance overrides while the legacy settings
+  // module bit remains read-only; the module bit must not hide these controls.
+  protected canDevices = computed(() => this.auth.canAction('ATTENDANCE_DEVICE_VIEW'));
+  protected canSettings = computed(() => this.auth.canAction('ATTENDANCE_POLICY_MANAGE'));
   protected canReopen = ['principal','prefect'].includes(this.auth.user()?.role || '');
-  protected tabs: {key: Tab; fr: string; en: string}[] = ([
+  protected tabs = computed(() => ([
     {key:'roll',fr:'Liste d’appel',en:'Roll call'}, {key:'analytics',fr:'Analyses',en:'Analytics'},
     {key:'devices',fr:'Lecteurs & rapprochement',en:'Devices & reconciliation'}, {key:'settings',fr:'Configuration',en:'Settings'},
-  ] as {key: Tab; fr: string; en: string}[]).filter(x => !['devices','settings'].includes(x.key) || this.canConfigure);
+  ] as {key: Tab; fr: string; en: string}[]).filter(x =>
+    x.key === 'devices' ? this.canDevices() : x.key === 'settings' ? this.canSettings() : true));
   protected statuses: RollStatus[] = ['present','absent','late','excused'];
   protected tab = signal<Tab>('roll');
   protected today = new Date().toISOString().slice(0,10);
@@ -251,7 +256,17 @@ export class AttendanceComponent {
 
   constructor() {
     this.api.classes().subscribe({next:v=>this.classes.set(v),error:e=>this.fail(e)});
-    this.api.policies().subscribe({next:v=>this.policies.set(v),error:e=>this.fail(e)});
+    // Policy configuration is an admin-only read.  A teacher can still use
+    // the scoped roster workflow; do not turn the expected 403 for this
+    // optional data into a visible error on the permitted attendance page.
+    this.auth.loadCapabilities().subscribe({next:() => {
+      // Policy configuration is only rendered for a caller who can manage it.
+      // A view-only/teacher capability must not trigger the admin-only read
+      // and turn an otherwise usable roster page into a visible 403 notice.
+      if (this.auth.canAction('ATTENDANCE_POLICY_MANAGE')) {
+        this.api.policies().subscribe({next:v=>this.policies.set(v),error:e=>this.fail(e)});
+      }
+    }});
     this.foundation.currentSession().subscribe({next:s=>{ this.activeSession.set(s); if (!this.dateInRange(this.date(), s)) this.applySuggestedDate(s); },error:e=>this.fail(e)});
   }
   protected selectTab(tab: Tab): void { this.tab.set(tab); this.clearNotice(); if(tab==='analytics') this.loadAnalytics(); if(tab==='devices') this.loadDevices(); }

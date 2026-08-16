@@ -170,11 +170,12 @@ public class CollectionService {
                     item.installment().getOutstandingMinor(), amount, item.installment().getStatus()));
         }
         List<BlockerView> blockers = new ArrayList<>();
-        String periodCode = null;
-        try {
-            periodCode = periods.requireOpenForDate(request.paymentDate(), session.getId()).getCode();
-        } catch (ApiException ex) {
-            blockers.add(new BlockerView("POSTING_PERIOD_CLOSED", ex.getMessage(), "OPEN_ACCOUNTING_PERIOD"));
+        String periodCode = periods.findOpenForDate(request.paymentDate(), session.getId())
+                .map(AccountingPeriod::getCode).orElse(null);
+        if (periodCode == null) {
+            blockers.add(new BlockerView("POSTING_PERIOD_CLOSED",
+                    "Aucune période comptable ouverte de la session sélectionnée ne couvre cette date.",
+                    "OPEN_ACCOUNTING_PERIOD"));
         }
         if (request.paymentDate().isBefore(enrollment.getEnrolledOn())
                 || (enrollment.getExitedOn() != null && request.paymentDate().isAfter(enrollment.getExitedOn()))) {
@@ -560,12 +561,20 @@ public class CollectionService {
 
     private void refreshCashierExpected(CashierSession cashier) {
         UUID schoolId = TenantContext.get();
+        // Payment posting can run concurrently for one open drawer. Lock the
+        // row before recomputing its denormalized expected cash, then update it
+        // through JDBC so a stale managed @Version entity cannot leak a 500.
+        jdbc.queryForObject("SELECT id FROM cashier_session WHERE school_id=? AND id=? FOR UPDATE",
+                UUID.class, schoolId, cashier.getId());
         Long incoming = jdbc.queryForObject("SELECT coalesce(sum(amount_minor),0) FROM finance_payment WHERE school_id=? AND cashier_session_id=? AND status='POSTED' AND channel_code_snapshot='CASH'",
                 Long.class, schoolId, cashier.getId());
         Long outgoing = jdbc.queryForObject("SELECT coalesce(sum(rt.amount_minor),0) FROM refund_transaction rt JOIN finance_payment p ON p.school_id=rt.school_id AND p.id=rt.payment_id WHERE rt.school_id=? AND p.cashier_session_id=? AND rt.channel_code='CASH'",
                 Long.class, schoolId, cashier.getId());
-        cashier.setExpectedCashMinor(cashier.getOpeningCashMinor() + (incoming == null ? 0 : incoming) - (outgoing == null ? 0 : outgoing));
-        cashiers.saveAndFlush(cashier);
+        Long opening = jdbc.queryForObject("SELECT opening_cash_minor FROM cashier_session WHERE school_id=? AND id=?",
+                Long.class, schoolId, cashier.getId());
+        long expected = (opening == null ? 0 : opening) + (incoming == null ? 0 : incoming) - (outgoing == null ? 0 : outgoing);
+        jdbc.update("UPDATE cashier_session SET expected_cash_minor=?, version=version+1, updated_at=now() WHERE school_id=? AND id=?",
+                expected, schoolId, cashier.getId());
     }
 
     private static ApiException fieldError(String field, String message) {

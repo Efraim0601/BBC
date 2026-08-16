@@ -355,7 +355,11 @@ public class AccessControlService {
                     + String.valueOf(raw.effectiveFrom()) + "|" + String.valueOf(raw.effectiveTo()))) {
                 throw ApiException.badRequest("Règle dupliquée pour : " + actionCode);
             }
-            if ("INHERIT".equals(effect) && (raw.scopePayload() != null || !"NONE".equals(scope))) {
+            // Jackson represents an explicit JSON null as NullNode for JsonNode
+            // fields. Treat that as an absent payload so the browser's explicit
+            // { scopeMode: "NONE", scopePayload: null } representation remains
+            // equivalent to an omitted payload.
+            if ("INHERIT".equals(effect) && (hasScopePayload(raw.scopePayload()) || !"NONE".equals(scope))) {
                 throw ApiException.badRequest("Une règle héritée doit avoir le périmètre Aucun");
             }
             if ("ALLOW".equals(effect) || "DENY".equals(effect)) {
@@ -388,7 +392,8 @@ public class AccessControlService {
             if (raw.reason() == null || raw.reason().isBlank()) {
                 throw ApiException.badRequest("Chaque règle doit avoir une justification");
             }
-            normalized.add(new RuleInput(actionCode, effect, scope, raw.scopePayload(),
+            normalized.add(new RuleInput(actionCode, effect, scope,
+                    hasScopePayload(raw.scopePayload()) ? raw.scopePayload() : null,
                     raw.effectiveFrom(), raw.effectiveTo(), raw.permanent(), raw.reason().trim()));
         }
         List<Set<String>> conflicts = separationOfDutiesConflicts(normalized);
@@ -401,6 +406,10 @@ public class AccessControlService {
                     "Ces actions financières créent un conflit de séparation des tâches. Documentez une exception explicite.");
         }
         return normalized;
+    }
+
+    private static boolean hasScopePayload(JsonNode payload) {
+        return payload != null && !payload.isNull();
     }
 
     private PolicyPreview preview(String subjectType, String subjectCode,

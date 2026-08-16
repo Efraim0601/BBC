@@ -1094,7 +1094,10 @@ export class StaffComponent {
   protected selectedId = signal<string | null>(null);
   protected mode = signal<'list' | 'edit' | 'import'>('list');
   protected editId = signal<string | null>(null);
-  protected canWrite = this.auth.can('hr', 'write');
+  /** HR mutations use the V2 action model; the legacy module bit is read-only
+   * for the bootstrap administrator until the scoped HR setup exception is
+   * explicitly granted. */
+  protected get canWrite(): boolean { return this.auth.canAction('HR_MANAGE'); }
   protected draft: EmployeeUpsert = this.blank();
   protected draftRoles = signal<string[]>([]);
   /** Photo saisie au formulaire (data URL), envoyée après l'enregistrement. */

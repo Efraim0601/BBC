@@ -132,7 +132,7 @@ public class GradeEntryService {
                 String code = Set.of("SCHEDULED", "CLOSED").contains(submissionWindow.state())
                         ? "WINDOW_CLOSED" : "WINDOW_NOT_CONFIGURED";
                 submissionBlockers.add(new GradeEntryBlockerView(code, subject.code(), null,
-                        "La fenÃªtre de soumission des enseignants n'est pas ouverte.",
+                        "La fenêtre de soumission des enseignants n'est pas ouverte.",
                         "The teacher-submission window is not open.", "academic-sessions", "BLOCKER"));
             }
         }

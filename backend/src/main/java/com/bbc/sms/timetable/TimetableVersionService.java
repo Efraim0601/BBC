@@ -122,6 +122,7 @@ public class TimetableVersionService {
         policy.require("TIMETABLE_PUBLISH", schoolContext());
         UUID school = TenantContext.get();
         Map<String, Object> current = jdbc.queryForMap("SELECT * FROM timetable_version WHERE id=? AND school_id=? FOR UPDATE", id, school);
+        assertActionVersion(in.version(), ((Number) current.get("version")).longValue(), "publier");
         if (!"DRAFT".equals(current.get("status"))) throw ApiException.conflict("Seul un brouillon de planning peut être publié");
         UUID sessionId = (UUID) current.get("academic_session_id");
         LocalDate effectiveDate = localDate(current.get("effective_from"));
@@ -214,10 +215,20 @@ public class TimetableVersionService {
     public TimetableVersionView reopenAsNew(UUID id, TimetableVersionActionRequest in) {
         policy.require("TIMETABLE_REOPEN", schoolContext());
         TimetableVersionView old = versionView(id);
+        assertActionVersion(in.version(), old.version(), "rouvrir");
         TimetableVersionView created = create(new TimetableVersionUpsert(old.academicSessionId(), old.effectiveFrom(), old.effectiveTo(), old.timezone(), id, in.reason()));
         jdbc.update("UPDATE timetable_class_config SET status='DRAFT',version=version+1,updated_at=now() WHERE school_id=? AND academic_session_id=?",
                 TenantContext.get(), old.academicSessionId());
         return created;
+    }
+
+    private static void assertActionVersion(Long requested, long current, String action) {
+        long stale = requested == null ? -1L : requested;
+        if (requested == null || requested != current) {
+            throw ApiException.staleVersion(
+                    "La version du planning a changé depuis son chargement. Rechargez avant de " + action + ".",
+                    current, stale);
+        }
     }
 
     @Transactional(readOnly = true)

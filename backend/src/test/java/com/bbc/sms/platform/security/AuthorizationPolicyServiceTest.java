@@ -87,6 +87,37 @@ class AuthorizationPolicyServiceTest {
     }
 
     @Test
+    void domainIncompatibleAllowDoesNotHideLaterCompatibleScopedAllow() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        AcademicScopeResolver academic = mock(AcademicScopeResolver.class);
+        AttendanceScopeResolver attendance = mock(AttendanceScopeResolver.class);
+        AuthorizationPolicyService service = new AuthorizationPolicyService(jdbc, new ObjectMapper(),
+                academic, mock(ParcoursAccessService.class), mock(GuardianAccessService.class), attendance);
+        AppUserPrincipal principal = principal();
+        PolicyResourceContext context = new PolicyResourceContext(schoolId, UUID.randomUUID(),
+                LocalDate.of(2026, 9, 28), null, UUID.randomUUID(), "FRANCAIS", null,
+                UUID.randomUUID(), null, null, "P1", "secondary");
+        AuthorizationPolicyService.Action action = new AuthorizationPolicyService.Action(
+                "ATTENDANCE_ROSTER_VIEW", "presence", "OCCURRENCE", "read");
+        AuthorizationPolicyService.Rule titulaire = new AuthorizationPolicyService.Rule(
+                "ROLE:form_teacher", "ALLOW", "TITULAIRE_CLASSES", null, null, null);
+        AuthorizationPolicyService.Rule occurrence = new AuthorizationPolicyService.Rule(
+                "ROLE:form_teacher", "ALLOW", "TIMETABLE_OCCURRENCES_ASSIGNED", null, null, null);
+
+        when(academic.can("ACADEMIC_CLASS_RESULTS_VIEW", context)).thenReturn(true);
+        when(attendance.allowsTeacher(principal, context, "TITULAIRE_CLASSES")).thenReturn(false);
+        when(attendance.publishedOccurrenceAssigned(principal, context)).thenReturn(true);
+        when(attendance.allowsTeacher(principal, context, "TIMETABLE_OCCURRENCES_ASSIGNED")).thenReturn(true);
+
+        PolicyDecision decision = service.evaluateRules(action, context, principal,
+                List.of(titulaire, occurrence), List.of("form_teacher"), 8);
+
+        assertThat(decision).isNotNull();
+        assertThat(decision.allowed()).isTrue();
+        assertThat(decision.matchedScope()).isEqualTo("TIMETABLE_OCCURRENCES_ASSIGNED");
+    }
+
+    @Test
     void teacherCannotUseMasterExportOrArbitraryTeacherTimetableActions() {
         AuthorizationPolicyService service = service(mock(JdbcTemplate.class));
         AppUserPrincipal principal = principal();

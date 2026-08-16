@@ -18,27 +18,27 @@ public class CorrespondenceController {
     public CorrespondenceController(CorrespondenceService service) { this.service = service; }
 
     @GetMapping
-    @PreAuthorize("@perm.canAction('MESSAGES_VIEW')")
+    @PreAuthorize("@policy.canAction('MESSAGES_VIEW')")
     public List<NoticeView> list(@RequestParam(required = false) UUID studentId) {
         return studentId != null ? service.forStudent(studentId) : service.list();
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("@perm.canAction('MESSAGES_MANAGE')")
+    @PreAuthorize("@policy.canAction('MESSAGES_MANAGE')")
     public NoticeView create(@Valid @RequestBody NoticeUpsert in) {
         return service.create(in);
     }
 
     @PostMapping("/{id}/ack")
-    @PreAuthorize("@perm.canAction('MESSAGES_MANAGE')")
+    @PreAuthorize("@policy.canAction('MESSAGES_MANAGE')")
     public NoticeView acknowledge(@PathVariable UUID id, @Valid @RequestBody AckRequest in) {
         return service.acknowledge(id, in);
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize("@perm.canAction('MESSAGES_MANAGE')")
+    @PreAuthorize("@policy.canAction('MESSAGES_MANAGE')")
     public void delete(@PathVariable UUID id) {
         service.delete(id);
     }

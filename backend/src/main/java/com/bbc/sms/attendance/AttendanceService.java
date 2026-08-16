@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -30,6 +31,7 @@ public class AttendanceService {
      * enough not to flap, tight enough that an unplugged reader shows up within the hour.
      */
     private static final Duration ONLINE_WINDOW = Duration.ofMinutes(60);
+    private static final SecureRandom API_KEY_RANDOM = new SecureRandom();
 
     private final AttendanceRepository repo;
     private final DeviceRepository devices;
@@ -71,6 +73,39 @@ public class AttendanceService {
                             d.isActive(), online, seen, minutes);
                 })
                 .toList();
+    }
+
+    /**
+     * Registers a reader through the normal staff setup path.  Device scan
+     * authentication remains separate from user JWT authentication, and the
+     * generated key is returned once so the on-site agent can be configured.
+     */
+    @Transactional
+    public DeviceRegistrationView registerDevice(DeviceRegistrationRequest request) {
+        UUID schoolId = TenantContext.get();
+        policy.require("ATTENDANCE_DEVICE_MANAGE",
+                new PolicyResourceContext(schoolId, null, LocalDate.now(), ParcoursContext.get(),
+                        null, null, null, null, null, null, null, null));
+        Device device = new Device();
+        device.setSchoolId(schoolId);
+        device.setLabel(request.label().trim());
+        device.setLocation(clean(request.location()));
+        device.setModel(clean(request.model()));
+        device.setActive(true);
+        device.setApiKey(newApiKey());
+        Device saved = devices.save(device);
+        return new DeviceRegistrationView(saved.getId(), saved.getLabel(), saved.getLocation(),
+                saved.getModel(), saved.getApiKey());
+    }
+
+    private String newApiKey() {
+        byte[] bytes = new byte[32];
+        API_KEY_RANDOM.nextBytes(bytes);
+        return "bbc_" + Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    private String clean(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 
     @Transactional(readOnly = true)
@@ -195,13 +230,24 @@ public class AttendanceService {
         Device device = devices.findByIdAndApiKeyAndActiveTrue(deviceId, apiKey)
                 .orElseThrow(() -> new ApiException(org.springframework.http.HttpStatus.UNAUTHORIZED, "Périphérique non autorisé"));
         UUID schoolId = device.getSchoolId();
+        UUID previousTenant = TenantContext.isSet() ? TenantContext.get() : null;
+        TenantContext.set(schoolId);
+        try {
+            return deviceCheckinInTenant(device, schoolId, in);
+        } finally {
+            if (previousTenant == null) TenantContext.clear();
+            else TenantContext.set(previousTenant);
+        }
+    }
+
+    private AttendanceView deviceCheckinInTenant(Device device, UUID schoolId, DeviceCheckin in) {
 
         // Heartbeat: stamped even for a deduplicated replay — the reader did reach us,
         // which is exactly what the "online" indicator is asking about.
         device.setLastSeenAt(OffsetDateTime.now());
         devices.save(device);
 
-        if (in.dedupKey() != null && repo.existsByDedupKey(in.dedupKey())) {
+        if (in.dedupKey() != null && repo.existsBySchoolIdAndDedupKey(schoolId, in.dedupKey())) {
             // Idempotent replay after a reconnection — ignore silently.
             Student s = students.findBySchoolIdAndMatriculeAndActiveTrue(schoolId, in.matricule()).orElse(null);
             return s == null ? null

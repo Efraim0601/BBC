@@ -50,7 +50,7 @@ const fmtMoney = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} FCFA`;
         <!-- At-a-glance KPIs -->
         @if (showKpis()) {
           <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-            @if (auth.can('students', 'read')) {
+            @if (auth.canModuleOrAction('students', 'STUDENT_DIRECTORY_VIEW')) {
               <bbc-kpi tone="neutral" icon="users" [label]="i18n.t('students')" [value]="studentCount()" [sub]="subsystemSub()" />
             }
             @if (auth.can('finance', 'read')) {
@@ -161,7 +161,7 @@ export class AppsHomeComponent {
     new Date().toLocaleDateString(this.fr() ? 'fr-FR' : 'en-GB',
       { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }));
 
-  protected showKpis = () => this.auth.can('students', 'read') || this.auth.can('finance', 'read') || this.auth.can('presence', 'read');
+  protected showKpis = () => this.auth.canModuleOrAction('students', 'STUDENT_DIRECTORY_VIEW') || this.auth.can('finance', 'read') || this.auth.can('presence', 'read');
 
   protected subsystemSub = computed(() => `${this.frStudents()} FR · ${this.studentCount() - this.frStudents()} EN`);
 
@@ -173,7 +173,11 @@ export class AppsHomeComponent {
   protected visibleGroups = computed(() => {
     const allowed = new Set(this.auth.user()?.modules ?? []);
     return NAV_GROUPS
-      .map((g) => ({ ...g, mods: g.mods.filter((m) => allowed.has(m.id) || (m.id === 'access-control' && this.auth.canAction('PERMISSION_VIEW'))) }))
+      .map((g) => ({ ...g, mods: g.mods.filter((m) =>
+        allowed.has(m.id)
+        || (m.id === 'access-control' && this.auth.canAction('PERMISSION_VIEW'))
+        || (m.id === 'students' && this.auth.canModuleOrAction('students', 'STUDENT_DIRECTORY_VIEW'))
+      ) }))
       .filter((g) => g.mods.length > 0);
   });
 
@@ -186,7 +190,7 @@ export class AppsHomeComponent {
   });
 
   constructor() {
-    if (this.auth.can('students', 'read')) {
+    if (this.auth.canModuleOrAction('students', 'STUDENT_DIRECTORY_VIEW')) {
       this.studentApi.list().subscribe({
         next: (r) => {
           this.studentCount.set(r.length);

@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/cor
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { downloadCsv } from '../../core/csv';
-import { ClassView, SetupApi } from '../../core/setup.api';
+import { ClassView } from '../../core/setup.api';
 import { I18nService } from '../../core/i18n.service';
 import { CardComponent, IconComponent, PageHeaderComponent } from '../../core/ui';
 import { FamilyImportRow, FamilyImportView, StudentApi } from './students.api';
@@ -18,11 +18,11 @@ interface LegacyHeaderMap { externalKey?:number; lastName?:number; firstName?:nu
 @if(result();as r){<div class="mt-6 space-y-3"><div class="grid grid-cols-4 gap-3"><div class="stat"><b>{{r.totalRows}}</b><span>Total</span></div><div class="stat"><b>{{r.validRows}}</b><span>{{fr()?'Valides':'Valid'}}</span></div><div class="stat"><b>{{r.createdRows}}</b><span>{{fr()?'Créés':'Created'}}</span></div><div class="stat"><b>{{r.failedRows}}</b><span>{{fr()?'Erreurs':'Errors'}}</span></div></div><div class="border rounded-xl overflow-hidden">@for(row of r.rows;track row.externalKey){<div class="grid grid-cols-[4rem_1fr_7rem_2fr] gap-2 p-2 border-t text-xs"><span>#{{row.rowNumber}}</span><b>{{row.studentName}}</b><span>{{row.outcome}}</span><span>{{row.message}}</span></div>}</div><div class="flex justify-between gap-2"><button class="btn-secondary" type="button" (click)="downloadResults()">{{fr()?'Télécharger le rapport':'Download report'}}</button>@if(r.status==='VALIDATED'){<button class="btn-primary" [disabled]="working()" (click)="commit()">{{fr()?'Valider l’import':'Commit import'}}</button>}</div>@if(r.status==='VALIDATED'){<div class="p-3 rounded-xl bg-blue-50 text-blue-800 text-sm">{{fr()?'La prévisualisation n’a créé aucun élève. Seules les lignes valides seront exécutées.':'Preview created no students. Only valid rows will be executed.'}}</div>}@else{<div class="p-3 rounded-xl bg-emerald-50 text-emerald-800">{{fr()?'Import terminé. Une relance ne dupliquera pas les lignes déjà validées.':'Import completed. Retrying will not duplicate committed rows.'}}</div>}</div>}
 @if(error()){<div role="alert" class="mt-3 p-3 border border-rose-200 bg-rose-50 text-rose-700 rounded-xl">{{error()}}</div>}</bbc-card></div>`,styles:[`.stat{display:flex;flex-direction:column;padding:.75rem;background:#f8fafc;border-radius:.75rem}.stat b{font-size:1.25rem}.stat span{font-size:.7rem;color:#64748b}`]})
 export class FamilyImportComponent {
-  private api=inject(StudentApi); private setup=inject(SetupApi); private i18n=inject(I18nService);
+  private api=inject(StudentApi); private i18n=inject(I18nService);
   protected fr=()=>this.i18n.lang()==='fr'; protected classes=signal<ClassView[]>([]); protected result=signal<FamilyImportView|null>(null); protected working=signal(false); protected error=signal<string|null>(null); protected attempted=signal(false); protected fileName=signal('');
   protected classId=''; protected relationship='GUARDIAN'; protected accessMode='SEND_INVITE'; protected text='';
   private readonly legacyHeaders=['nom','prenom','sexe','date_naissance','lieu_naissance','niu','redouble','pere_nom','pere_telephone','pere_email','mere_nom','mere_telephone','mere_email','tuteur_nom','tuteur_lien','tuteur_telephone','tuteur_email'];
-  constructor(){this.setup.listClasses().subscribe(c=>this.classes.set(c));}
+  constructor(){this.api.listClassOptions().subscribe({next:c=>this.classes.set(c),error:()=>this.classes.set([])});}
 
   protected async onFile(event:Event):Promise<void>{const input=event.target as HTMLInputElement;const file=input.files?.[0];if(!file)return;this.error.set(null);this.result.set(null);try{const XLSX=await import('xlsx');const workbook=XLSX.read(await file.arrayBuffer(),{type:'array'});const sheet=workbook.Sheets[workbook.SheetNames[0]];if(!sheet)throw new Error('empty');this.text=XLSX.utils.sheet_to_csv(sheet,{FS:';',RS:'\n'});this.fileName.set(file.name);}catch{this.error.set(this.fr()?'Fichier illisible. Utilisez le modèle CSV ou Excel.':'Unreadable file. Use the CSV or Excel template.');}finally{input.value='';}}
   protected downloadTemplate():void{downloadCsv('modele-eleves.csv',this.legacyHeaders,[['DUPONT','Jean','M','2015-03-12','Douala','','non','DUPONT Paul','+237 6XX XX XX XX','paul.dupont@example.cm','NGO Marie','+237 6XX XX XX XX','marie.ngo@example.cm','','','','']]);}

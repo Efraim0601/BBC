@@ -96,10 +96,14 @@ public class ChargeQueryService {
 
     @Transactional(readOnly = true)
     public StudentAccountView account(UUID enrollmentId) {
-        financePolicy.requireEnrollment("CHARGE_PREVIEW", enrollmentId, LocalDate.now());
         UUID schoolId = TenantContext.get();
         StudentEnrollment enrollment = enrollments.findByIdAndSchoolId(enrollmentId, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Inscription"));
+        // An account is a persisted finance resource. Use its enrollment start
+        // as the policy date so a configured future-session account can be read
+        // before the wall clock reaches the session, while payment posting still
+        // validates the requested payment date separately.
+        financePolicy.requireEnrollment("CHARGE_PREVIEW", enrollmentId, enrollment.getEnrolledOn());
         List<StudentCharge> chargeList = charges.findBySchoolIdAndStudentEnrollmentIdOrderByChargeDateAscCreatedAtAsc(schoolId, enrollmentId);
         List<LedgerEntryView> ledger = new ArrayList<>();
         long running = 0;

@@ -18,6 +18,8 @@ export interface UserView {
   locale: string;
   permissions: Record<string, Level>;
   modules: string[];
+  /** Server-authoritative parcours scope mode. GLOBAL means the user may browse all parcours. */
+  parcoursScopeMode?: 'GLOBAL' | 'EXPLICIT' | 'ASSIGNMENT_DERIVED' | 'CHILD_DERIVED' | 'NONE' | string;
   allowedParcours: Parcours[]; // empty = all parcours (admin)
 }
 

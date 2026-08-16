@@ -120,8 +120,16 @@ public class AcademicAccessPolicyService {
     @Transactional(readOnly = true)
     public boolean can(Capability capability, UUID academicSessionId, UUID classId,
                        String rawSubjectCode, UUID studentId, LocalDate requestedDate) {
-        return resolve(capability, academicSessionId, classId, rawSubjectCode,
-                studentId, requestedDate).allowed();
+        // Collection filters use this boolean form to test many candidate
+        // resources.  A denied central V2 decision is expected for candidates
+        // outside the teacher's assignment and must not abort the whole list
+        // with a 403; direct resource callers continue to use require(...).
+        try {
+            return resolve(capability, academicSessionId, classId, rawSubjectCode,
+                    studentId, requestedDate).allowed();
+        } catch (ApiException denied) {
+            return false;
+        }
     }
 
     /** Domain-only check used by AuthorizationPolicyService without recursion. */
@@ -460,9 +468,18 @@ public class AcademicAccessPolicyService {
 
     public void requireDelegationManager() {
         Actor actor = actor();
-        if (actor == null || actor.teacherRole() || !permissions.canAction("ACADEMIC_ACCESS_DELEGATE")) {
+        if (actor == null || actor.teacherRole() || !centralPolicy.canAction("PERMISSION_MANAGE")) {
             throw ApiException.coded(HttpStatus.FORBIDDEN, "ACADEMIC_ACCESS_DELEGATE_DENIED",
                     "Vous n'êtes pas autorisé à gérer les délégations académiques.");
+        }
+    }
+
+    /** Read-only access to the delegation workspace is a settings permission. */
+    public void requireDelegationViewer() {
+        Actor actor = actor();
+        if (actor == null || actor.teacherRole() || !centralPolicy.canAction("PERMISSION_VIEW")) {
+            throw ApiException.coded(HttpStatus.FORBIDDEN, "ACADEMIC_ACCESS_AUDIT_DENIED",
+                    "Academic delegation viewing is not authorized.");
         }
     }
 

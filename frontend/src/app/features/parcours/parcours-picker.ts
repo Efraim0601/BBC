@@ -167,8 +167,13 @@ export class ParcoursPickerComponent {
     this.router.navigate(['/apps']);
   }
 
-  /** Admins (empty allow-list) may browse without a parcours filter. */
-  protected canSeeAll = computed(() => (this.auth.user()?.allowedParcours ?? []).length === 0);
+  /** Global-scope users may browse without a parcours filter. Keep the empty-list fallback for legacy API payloads. */
+  protected canSeeAll = computed(() => {
+    const user = this.auth.user();
+    if (!user) return false;
+    return user.parcoursScopeMode === 'GLOBAL'
+      || (user.parcoursScopeMode == null && (user.allowedParcours ?? []).length === 0);
+  });
 
   protected commitAll(): void {
     this.scope.setAll();

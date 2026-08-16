@@ -18,26 +18,28 @@ public class JourneyController {
     public JourneyController(JourneyService service) { this.service = service; }
 
     @GetMapping("/students/{studentId}")
-    @PreAuthorize("@perm.canAction('JOURNEY_VIEW') and @perm.staffOnly()")
+    // JourneyService resolves the student and evaluates the contextual V2
+    // JOURNEY_VIEW grant; a context-free legacy check rejects that valid path.
+    @PreAuthorize("@perm.staffOnly()")
     public StudentJourney forStudent(@PathVariable UUID studentId) {
         return service.forStudent(studentId);
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("@perm.canAction('JOURNEY_MANAGE') and @perm.staffOnly()")
+    @PreAuthorize("@perm.staffOnly()")
     public JourneyView upsert(@Valid @RequestBody JourneyUpsert in) {
         return service.upsert(in);
     }
 
     @PostMapping("/{id}/void")
-    @PreAuthorize("@perm.canAction('JOURNEY_MANAGE') and @perm.staffOnly()")
+    @PreAuthorize("@perm.staffOnly()")
     public JourneyView voidEntry(@PathVariable UUID id, @Valid @RequestBody JourneyCorrectionRequest request) {
         return service.voidEntry(id, request);
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("@perm.canAction('JOURNEY_MANAGE') and @perm.staffOnly()")
+    @PreAuthorize("@perm.staffOnly()")
     public void delete(@PathVariable UUID id) {
         throw ApiException.coded(HttpStatus.GONE, "JOURNEY_DELETE_REPLACED", "Les entrées de parcours sont append-only. Utilisez la correction/annulation auditée avec un motif.");
     }

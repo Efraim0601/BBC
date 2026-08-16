@@ -3,6 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { Student } from '../../core/models';
+import { ClassView } from '../../core/setup.api';
 
 export interface StudentUpsert {
   firstName: string;
@@ -120,6 +121,9 @@ export class StudentApi {
   list(className?: string): Observable<Student[]> {
     const q = className ? `?className=${encodeURIComponent(className)}` : '';
     return this.http.get<Student[]>(`${this.base}${q}`);
+  }
+  listClassOptions(): Observable<ClassView[]> {
+    return this.http.get<ClassView[]>(`${this.base}/class-options`);
   }
   listRoster(sessionId: string, classId: string): Observable<Student[]> {
     return this.http.get<Student[]>(`${this.base}/roster`, { params: { sessionId, classId } });

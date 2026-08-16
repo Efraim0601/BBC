@@ -70,6 +70,50 @@ public class ParentController {
         return service.journey(principal, studentId);
     }
 
+    @GetMapping("/children/{studentId}/attendance")
+    @PreAuthorize("@perm.isParent()")
+    public ParentAttendanceView attendance(@AuthenticationPrincipal AppUserPrincipal principal,
+                                           @PathVariable UUID studentId) {
+        return service.attendance(principal, studentId);
+    }
+
+    @GetMapping("/children/{studentId}/discipline")
+    @PreAuthorize("@perm.isParent()")
+    public List<ParentDisciplineView> discipline(@AuthenticationPrincipal AppUserPrincipal principal,
+                                                  @PathVariable UUID studentId) {
+        return service.discipline(principal, studentId);
+    }
+
+    @GetMapping("/children/{studentId}/health")
+    @PreAuthorize("@perm.isParent()")
+    public ParentHealthView health(@AuthenticationPrincipal AppUserPrincipal principal,
+                                   @PathVariable UUID studentId) {
+        return service.health(principal, studentId);
+    }
+
+    @GetMapping("/children/{studentId}/events")
+    @PreAuthorize("@perm.isParent()")
+    public List<ParentEventView> events(@AuthenticationPrincipal AppUserPrincipal principal,
+                                        @PathVariable UUID studentId) {
+        return service.events(principal, studentId);
+    }
+
+    @GetMapping("/children/{studentId}/messages")
+    @PreAuthorize("@perm.isParent()")
+    public List<ParentNoticeView> messages(@AuthenticationPrincipal AppUserPrincipal principal,
+                                           @PathVariable UUID studentId) {
+        return service.messages(principal, studentId);
+    }
+
+    @PostMapping("/children/{studentId}/messages/{messageId}/ack")
+    @PreAuthorize("@perm.isParent()")
+    public ParentNoticeView acknowledgeMessage(@AuthenticationPrincipal AppUserPrincipal principal,
+                                               @PathVariable UUID studentId,
+                                               @PathVariable UUID messageId,
+                                               @Valid @RequestBody ParentAckRequest request) {
+        return service.acknowledgeMessage(principal, studentId, messageId, request);
+    }
+
     @GetMapping("/children/{studentId}/resources/{kind}")
     @PreAuthorize("@perm.isParent()")
     public ClassResourceView resources(@AuthenticationPrincipal AppUserPrincipal principal,

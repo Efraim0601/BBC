@@ -16,17 +16,21 @@ public class DocumentDesignController {
     public DocumentDesignController(DocumentDesignService service) { this.service = service; }
 
     @GetMapping
-    @PreAuthorize("@perm.canAction('DOCUMENT_DESIGN_PUBLISH') and @perm.staffOnly()")
+    // DocumentDesignService performs the resource-aware V2 action check after
+    // resolving the tenant. Keeping only the staff envelope here allows the
+    // narrow bootstrap-user exception to reach that check without widening
+    // the ordinary role matrix.
+    @PreAuthorize("@perm.staffOnly()")
     public DocumentDesignView current() { return service.current(); }
 
     @PostMapping("/templates/{id}/publish")
-    @PreAuthorize("@perm.canAction('DOCUMENT_DESIGN_PUBLISH') and @perm.staffOnly()")
+    @PreAuthorize("@perm.staffOnly()")
     public TemplateVersionView publishTemplate(@PathVariable UUID id, @Valid @RequestBody PublishRequest in) {
         return service.publishTemplate(id, in.reason());
     }
 
     @PostMapping("/branding/publish")
-    @PreAuthorize("@perm.canAction('DOCUMENT_DESIGN_PUBLISH') and @perm.staffOnly()")
+    @PreAuthorize("@perm.staffOnly()")
     public BrandingVersionView publishBranding(@Valid @RequestBody PublishRequest in) {
         return service.publishBranding(in);
     }

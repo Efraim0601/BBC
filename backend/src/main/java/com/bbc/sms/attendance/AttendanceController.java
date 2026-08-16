@@ -23,14 +23,14 @@ public class AttendanceController {
     }
 
     @GetMapping("/board")
-    @PreAuthorize("@perm.canAction('ATTENDANCE_ROSTER_VIEW')")
+    @PreAuthorize("@perm.staffOnly()")
     public DailyBoard board(@RequestParam(required = false)
                             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
         return service.board(date != null ? date : LocalDate.now());
     }
 
     @PostMapping("/mark")
-    @PreAuthorize("@policy.canAction('ATTENDANCE_RECONCILE')")
+    @PreAuthorize("@perm.staffOnly()")
     public AttendanceView mark(@Valid @RequestBody MarkRequest req) {
         return service.mark(req);
     }
@@ -42,29 +42,35 @@ public class AttendanceController {
         return service.devices();
     }
 
+    @PostMapping("/devices")
+    @PreAuthorize("@perm.staffOnly()")
+    public DeviceRegistrationView registerDevice(@Valid @RequestBody DeviceRegistrationRequest request) {
+        return service.registerDevice(request);
+    }
+
     @GetMapping("/policies")
     @PreAuthorize("@policy.canAction('ATTENDANCE_POLICY_VIEW')")
     public List<PolicyView> policies() { return workflow.policies(); }
 
     @PutMapping("/policies/{level}")
-    @PreAuthorize("@perm.canAction('ATTENDANCE_POLICY_MANAGE')")
+    @PreAuthorize("@perm.staffOnly()")
     public PolicyView updatePolicy(@PathVariable String level, @Valid @RequestBody PolicyRequest request) {
         return workflow.updatePolicy(level, request);
     }
 
     @GetMapping("/classes")
-    @PreAuthorize("@perm.canAction('ATTENDANCE_ROSTER_VIEW')")
+    @PreAuthorize("@perm.staffOnly()")
     public List<AttendanceClass> classes() { return workflow.attendanceClasses(); }
 
     @GetMapping("/sessions")
-    @PreAuthorize("@perm.canAction('ATTENDANCE_ROSTER_VIEW')")
+    @PreAuthorize("@perm.staffOnly()")
     public List<SessionSummary> sessions(@RequestParam UUID classId,
                                          @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
         return workflow.sessionOptions(classId, date);
     }
 
     @GetMapping("/roster")
-    @PreAuthorize("@perm.canAction('ATTENDANCE_ROSTER_VIEW')")
+    @PreAuthorize("@perm.staffOnly()")
     public RosterView roster(@RequestParam UUID classId,
                              @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
                              @RequestParam(required = false) String periodKey) {
@@ -72,27 +78,27 @@ public class AttendanceController {
     }
 
     @GetMapping("/sessions/{id}")
-    @PreAuthorize("@perm.canAction('ATTENDANCE_ROSTER_VIEW')")
+    @PreAuthorize("@perm.staffOnly()")
     public RosterView session(@PathVariable UUID id) { return workflow.rosterById(id); }
 
     @PutMapping("/sessions/marks")
-    @PreAuthorize("@perm.canAction('ATTENDANCE_MARK')")
+    @PreAuthorize("@perm.staffOnly()")
     public RosterView saveMarks(@Valid @RequestBody BulkMarkRequest request) { return workflow.save(request); }
 
     @PostMapping("/sessions/{id}/finalize")
-    @PreAuthorize("@perm.canAction('ATTENDANCE_FINALIZE')")
+    @PreAuthorize("@perm.staffOnly()")
     public RosterView finalizeSession(@PathVariable UUID id, @RequestBody ActionRequest request) {
         return workflow.finalizeSession(id, request);
     }
 
     @PostMapping("/sessions/{id}/reopen")
-    @PreAuthorize("@perm.canAction('ATTENDANCE_REOPEN')")
+    @PreAuthorize("@perm.staffOnly()")
     public RosterView reopen(@PathVariable UUID id, @RequestBody ActionRequest request) {
         return workflow.reopen(id, request);
     }
 
     @PostMapping("/generate")
-    @PreAuthorize("@perm.canAction('ATTENDANCE_POLICY_MANAGE')")
+    @PreAuthorize("@perm.staffOnly()")
     public GenerationResult generate(@RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
                                      @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
                                      @RequestParam(defaultValue = "false") boolean preview) {
@@ -100,7 +106,7 @@ public class AttendanceController {
     }
 
     @GetMapping("/analytics")
-    @PreAuthorize("@perm.canAction('ATTENDANCE_ANALYTICS_VIEW')")
+    @PreAuthorize("@perm.staffOnly()")
     public AnalyticsView analytics(@RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
                                    @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
                                    @RequestParam(required = false) UUID classId) {
@@ -108,20 +114,20 @@ public class AttendanceController {
     }
 
     @GetMapping("/reconciliation")
-    @PreAuthorize("@perm.canAction('ATTENDANCE_RECONCILE')")
+    @PreAuthorize("@perm.staffOnly()")
     public List<DeviceReconciliation> reconciliation(
         @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
         return workflow.reconciliation(date);
     }
 
     @PostMapping("/reconciliation")
-    @PreAuthorize("@perm.canAction('ATTENDANCE_RECONCILE')")
+    @PreAuthorize("@perm.staffOnly()")
     public RosterView reconcile(@Valid @RequestBody ReconcileRequest request) {
         return workflow.reconcile(request);
     }
 
     @PostMapping("/alerts/scan")
-    @PreAuthorize("@perm.canAction('ATTENDANCE_POLICY_MANAGE')")
+    @PreAuthorize("@perm.staffOnly()")
     public AlertScanResult scanAlerts(
         @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
         @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {

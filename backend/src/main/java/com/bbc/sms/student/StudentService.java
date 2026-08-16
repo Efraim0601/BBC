@@ -4,11 +4,13 @@ import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AuthorizationPolicyService;
 import com.bbc.sms.platform.security.PolicyResourceContext;
 import com.bbc.sms.foundation.enrollment.EnrollmentService;
+import com.bbc.sms.foundation.enrollment.StudentEnrollment;
 import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.tenant.ParcoursContext;
 import com.bbc.sms.platform.tenant.ParcoursContext.Scope;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.setup.SetupService;
+import com.bbc.sms.setup.dto.SetupDtos.ClassView;
 import com.bbc.sms.student.dto.StudentDtos.*;
 import com.bbc.sms.timetable.SchoolClass;
 import com.bbc.sms.timetable.SchoolClassRepository;
@@ -67,6 +69,12 @@ public class StudentService {
                 .map(this::toView).toList();
     }
 
+    /** Class options for the registrar's existing student-profile workflow. */
+    @Transactional(readOnly = true)
+    public List<ClassView> classOptions() {
+        return setup.listClassesForStudentProfile();
+    }
+
     /**
      * Academic screens use the active enrollment in the requested session and
      * class as their roster. Student.className/classId is only a current legacy
@@ -75,11 +83,14 @@ public class StudentService {
      */
     @Transactional(readOnly = true)
     public List<? extends DirectoryView> roster(UUID sessionId, UUID classId) {
-        List<com.bbc.sms.foundation.enrollment.EnrollmentDtos.EnrollmentView> active =
-                enrollmentService.roster(sessionId, classId);
+        // Enrollment history/roster is protected by ENROLLMENT_VIEW.  This
+        // endpoint is the academic student-directory projection instead: it
+        // resolves active enrollment rows, then applies STUDENT_DIRECTORY_VIEW
+        // with the server-resolved class/session/student context below.
+        List<StudentEnrollment> active = enrollmentService.activeRosterRecordsForDirectory(sessionId, classId);
         if (active.isEmpty()) return List.of();
 
-        Collection<UUID> studentIds = active.stream().map(e -> e.studentId()).toList();
+        Collection<UUID> studentIds = active.stream().map(StudentEnrollment::getStudentId).toList();
         Map<UUID, Student> students = new HashMap<>();
         for (Student student : repo.findBySchoolIdAndIdInAndActiveTrue(TenantContext.get(), studentIds)) {
             students.put(student.getId(), student);
@@ -88,14 +99,16 @@ public class StudentService {
         boolean teacher = teacherScope.restricted();
         LocalDate rosterDate = sessionStartDate(sessionId);
         return active.stream()
-                .filter(e -> inScope(scope, e.level(), e.subsystem()))
+                .filter(e -> inScope(scope, e.getLevelSnapshot(), e.getSubsystemSnapshot()))
                 .map(e -> {
-                    Student student = students.get(e.studentId());
+                    Student student = students.get(e.getStudentId());
                     if (student == null || !policy.decide("STUDENT_DIRECTORY_VIEW",
-                            policyContext(student, sessionId, rosterDate, e.classId())).allowed()) return null;
+                            policyContext(student, sessionId, rosterDate, e.getSchoolClassId())).allowed()) return null;
                     return teacher
-                            ? toTeacherView(student, e.classId(), e.className(), e.subsystem(), e.level())
-                            : toView(student, e.classId(), e.className(), e.subsystem(), e.level());
+                            ? toTeacherView(student, e.getSchoolClassId(), e.getClassNameSnapshot(),
+                            e.getSubsystemSnapshot(), e.getLevelSnapshot())
+                            : toView(student, e.getSchoolClassId(), e.getClassNameSnapshot(),
+                            e.getSubsystemSnapshot(), e.getLevelSnapshot());
                 })
                 .filter(java.util.Objects::nonNull)
                 .toList();
@@ -398,12 +411,15 @@ public class StudentService {
         if (allowedClasses.isEmpty()) return List.of();
         ParcoursContext.Scope scope = ParcoursContext.get();
         StringBuilder sql = new StringBuilder("""
-                SELECT DISTINCT e.student_id,e.school_class_id,c.name,c.subsystem,c.level
-                  FROM student_enrollment e
-                  JOIN student st ON st.id=e.student_id AND st.school_id=e.school_id AND st.active=true
-                  JOIN school_class c ON c.id=e.school_class_id AND c.school_id=e.school_id
-                 WHERE e.school_id=? AND e.academic_session_id=? AND e.status='ACTIVE'
-                   AND e.enrolled_on<=? AND (e.exited_on IS NULL OR e.exited_on>=?)
+                SELECT q.student_id,q.school_class_id,q.name,q.subsystem,q.level
+                  FROM (
+                    SELECT DISTINCT e.student_id,e.school_class_id,c.name,c.subsystem,c.level,
+                           st.last_name,st.first_name
+                      FROM student_enrollment e
+                      JOIN student st ON st.id=e.student_id AND st.school_id=e.school_id AND st.active=true
+                      JOIN school_class c ON c.id=e.school_class_id AND c.school_id=e.school_id
+                     WHERE e.school_id=? AND e.academic_session_id=? AND e.status='ACTIVE'
+                       AND e.enrolled_on<=? AND (e.exited_on IS NULL OR e.exited_on>=?)
                 """);
         List<Object> args = new ArrayList<>(List.of(schoolId, sessionId, date, date));
         appendUuidIn(sql, args, "e.school_class_id", allowedClasses);
@@ -412,7 +428,7 @@ public class StudentService {
             sql.append(" AND lower(c.level)=lower(?) AND lower(c.subsystem)=lower(?)");
             args.add(scope.level()); args.add(scope.subsystem());
         }
-        sql.append(" ORDER BY lower(c.name), lower(st.last_name), lower(st.first_name)");
+        sql.append(" ) q ORDER BY lower(q.name), lower(q.last_name), lower(q.first_name)");
         List<EnrollmentProjection> projections = jdbc.query(sql.toString(), (rs, n) -> new EnrollmentProjection(
                 rs.getObject("student_id", UUID.class), rs.getObject("school_class_id", UUID.class),
                 rs.getString("name"), rs.getString("subsystem"), rs.getString("level")), args.toArray());
@@ -482,7 +498,10 @@ public class StudentService {
                                                 LocalDate effectiveDate, UUID classId) {
         UUID schoolId = TenantContext.get();
         UUID resolvedSession = sessionId != null ? sessionId : currentSessionId(schoolId);
-        LocalDate date = effectiveDate != null ? effectiveDate : LocalDate.now();
+        // A current session can begin after the wall-clock date during
+        // pre-session setup.  Use the same bounded session-start fallback as
+        // roster authorization instead of handing V2 an out-of-session date.
+        LocalDate date = effectiveDate != null ? effectiveDate : effectiveDate(resolvedSession);
         UUID resolvedClass = classId != null ? classId : activeEnrollmentClass(student.getId(), resolvedSession, date);
         return new PolicyResourceContext(schoolId, resolvedSession, date, ParcoursContext.get(), resolvedClass,
                 null, student.getId(), null, null, null, null, student.getLevel());

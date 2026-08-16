@@ -125,6 +125,22 @@ public class SetupService {
     @Transactional(readOnly = true)
     public List<ClassView> listClasses() {
         requireSchool("ACADEMIC_STRUCTURE_VIEW");
+        return classViews();
+    }
+
+    /**
+     * Class labels/IDs needed by the student-profile workflow.  This is a
+     * read-only projection and deliberately uses the existing school-scoped
+     * STUDENT_PROFILE_CREATE authority; it does not grant academic-structure
+     * administration or class mutation access.
+     */
+    @Transactional(readOnly = true)
+    public List<ClassView> listClassesForStudentProfile() {
+        requireSchool("STUDENT_PROFILE_CREATE");
+        return classViews();
+    }
+
+    private List<ClassView> classViews() {
         UUID schoolId = TenantContext.get();
         Map<String, Section> byId = sections.findBySchoolIdOrderByLabel(schoolId).stream()
                 .collect(java.util.stream.Collectors.toMap(Section::getId, x -> x));
@@ -572,7 +588,8 @@ public class SetupService {
               + "FROM academic_curriculum_subject c JOIN subject s ON s.id=c.subject_id "
               + "LEFT JOIN academic_subject_group g ON g.id=c.group_id "
               + "LEFT JOIN LATERAL (SELECT ast.id, ast.employee_id, e.name AS employee_name, e.code AS employee_code, "
-              + "ast.role, ast.source, ast.active, ast.version FROM academic_class_subject_teacher ast "
+              + "ast.role, ast.source, ast.active, ast.version, u.username AS account_username, "
+              + "u.role_code AS account_role, u.active AS account_active FROM academic_class_subject_teacher ast "
               + "JOIN employee e ON e.id=ast.employee_id "
               + "LEFT JOIN LATERAL (SELECT username,role_code,active FROM app_user x WHERE x.school_id=ast.school_id AND x.employee_id=ast.employee_id ORDER BY x.active DESC,x.created_at DESC LIMIT 1) u ON true "
               + "WHERE ast.school_id=? AND ast.academic_session_id=? "

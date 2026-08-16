@@ -20,37 +20,37 @@ public class HrController {
 
     // ---- Departments --------------------------------------------------------
     @GetMapping("/departments")
-    @PreAuthorize("@perm.canAction('HR_VIEW')")
+    @PreAuthorize("@policy.canAction('HR_VIEW')")
     public List<DepartmentView> departments() { return service.listDepartments(); }
 
     @PostMapping("/departments")
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("@perm.canAction('HR_MANAGE')")
+    @PreAuthorize("@policy.canAction('HR_MANAGE')")
     public DepartmentView createDepartment(@Valid @RequestBody DepartmentUpsert in) { return service.createDepartment(in); }
 
     @PutMapping("/departments/{id}")
-    @PreAuthorize("@perm.canAction('HR_MANAGE')")
+    @PreAuthorize("@policy.canAction('HR_MANAGE')")
     public DepartmentView updateDepartment(@PathVariable UUID id, @Valid @RequestBody DepartmentUpsert in) {
         return service.updateDepartment(id, in);
     }
 
     @DeleteMapping("/departments/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize("@perm.canAction('HR_MANAGE')")
+    @PreAuthorize("@policy.canAction('HR_MANAGE')")
     public void deleteDepartment(@PathVariable UUID id) { service.deleteDepartment(id); }
 
     // ---- Leave --------------------------------------------------------------
     @GetMapping("/leaves")
-    @PreAuthorize("@perm.canAction('HR_VIEW')")
+    @PreAuthorize("@policy.canAction('HR_VIEW')")
     public List<LeaveView> leaves() { return service.listLeaves(); }
 
     @PostMapping("/leaves")
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("@perm.canAction('HR_MANAGE')")
+    @PreAuthorize("@policy.canAction('HR_MANAGE')")
     public LeaveView createLeave(@Valid @RequestBody LeaveCreate in) { return service.createLeave(in); }
 
     @PutMapping("/leaves/{id}/decision")
-    @PreAuthorize("@perm.canAction('HR_MANAGE')")
+    @PreAuthorize("@policy.canAction('HR_MANAGE')")
     public LeaveView decideLeave(@PathVariable UUID id, @Valid @RequestBody LeaveDecision in) {
         return service.decideLeave(id, in);
     }

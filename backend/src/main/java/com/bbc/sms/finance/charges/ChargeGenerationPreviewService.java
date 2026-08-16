@@ -95,11 +95,10 @@ public class ChargeGenerationPreviewService {
         String policy = normalizePolicy(request.prorationPolicy());
         String transferPolicy = normalizeTransferPolicy(request.transferPolicy());
         List<BlockerView> blockers = new ArrayList<>();
-        try {
-            periods.requireOpenForDate(request.chargeDate(), request.academicSessionId());
-        } catch (ApiException ex) {
+        if (periods.findOpenForDate(request.chargeDate(), request.academicSessionId()).isEmpty()) {
             blockers.add(new BlockerView("ACCOUNTING_PERIOD", null, "POSTING_PERIOD_CLOSED",
-                    ex.getMessage(), "/finance/accounting/periods"));
+                    "Aucune période comptable ouverte de la session sélectionnée ne couvre cette date.",
+                    "/finance/accounting/periods"));
         }
 
         List<StudentEnrollment> candidates = findEnrollments(schoolId, request);

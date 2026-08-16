@@ -139,7 +139,11 @@ class ParentServicePolicyScopeTest {
         return new ParentService(jdbc, students,
                 mock(GradeRepository.class), mock(SubjectRepository.class), mock(SuggestionRepository.class),
                 mock(ClassKitService.class), fees, guardianAccess, policy,
-                mock(BulletinSnapshotService.class), documents);
+                mock(BulletinSnapshotService.class), documents,
+                mock(com.bbc.sms.discipline.DisciplineRepository.class),
+                mock(com.bbc.sms.health.InfirmaryVisitRepository.class),
+                mock(com.bbc.sms.events.EventRepository.class),
+                mock(com.bbc.sms.messaging.CorrespondenceRepository.class));
     }
 
     private ParentService service(GuardianAccessService guardianAccess,
@@ -149,7 +153,11 @@ class ParentServicePolicyScopeTest {
         return new ParentService(mock(JdbcTemplate.class), mock(StudentRepository.class),
                 mock(GradeRepository.class), mock(SubjectRepository.class), mock(SuggestionRepository.class),
                 mock(ClassKitService.class), fees, guardianAccess, policy,
-                mock(BulletinSnapshotService.class), documents);
+                mock(BulletinSnapshotService.class), documents,
+                mock(com.bbc.sms.discipline.DisciplineRepository.class),
+                mock(com.bbc.sms.health.InfirmaryVisitRepository.class),
+                mock(com.bbc.sms.events.EventRepository.class),
+                mock(com.bbc.sms.messaging.CorrespondenceRepository.class));
     }
 
     private AppUserPrincipal principal() {

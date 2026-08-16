@@ -515,7 +515,12 @@ public class TimetableService {
                 null, null, null, null, null, null, null, null);
     }
     private PolicyResourceContext classContext(UUID sessionId, UUID classId) {
-        return new PolicyResourceContext(TenantContext.get(), sessionId, LocalDate.now(), ParcoursContext.get(),
+        // Pre-session timetable setup is allowed against the active session
+        // before its first teaching day.  Passing the wall-clock date here
+        // makes the session invariant reject every class during setup.
+        LocalDate effectiveDate = sessions.findByIdAndSchoolId(sessionId, TenantContext.get())
+                .map(AcademicSession::getStartDate).orElse(LocalDate.now());
+        return new PolicyResourceContext(TenantContext.get(), sessionId, effectiveDate, ParcoursContext.get(),
                 classId, null, null, null, null, null, null, null);
     }
     private PolicyResourceContext selfContext(UUID employeeId) {

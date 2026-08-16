@@ -18,33 +18,33 @@ public class EventController {
     public EventController(EventService service) { this.service = service; }
 
     @GetMapping
-    @PreAuthorize("@perm.canAction('EVENTS_VIEW')")
+    @PreAuthorize("@policy.canAction('EVENTS_VIEW')")
     public List<EventView> list() {
         return service.list();
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("@perm.canAction('EVENTS_MANAGE')")
+    @PreAuthorize("@policy.canAction('EVENTS_MANAGE')")
     public EventView create(@Valid @RequestBody EventUpsert in) {
         return service.create(in);
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("@perm.canAction('EVENTS_MANAGE')")
+    @PreAuthorize("@policy.canAction('EVENTS_MANAGE')")
     public EventView update(@PathVariable UUID id, @Valid @RequestBody EventUpsert in) {
         return service.update(id, in);
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize("@perm.canAction('EVENTS_MANAGE')")
+    @PreAuthorize("@policy.canAction('EVENTS_MANAGE')")
     public void delete(@PathVariable UUID id) {
         service.delete(id);
     }
 
     @PostMapping("/{id}/notify")
-    @PreAuthorize("@perm.canAction('EVENTS_MANAGE')")
+    @PreAuthorize("@policy.canAction('EVENTS_MANAGE')")
     public NotifyResult notify(@PathVariable UUID id) {
         return service.notify(id);
     }

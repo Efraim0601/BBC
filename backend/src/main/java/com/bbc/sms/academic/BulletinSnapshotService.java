@@ -10,6 +10,9 @@ import com.bbc.sms.foundation.session.AcademicReportingPeriod;
 import com.bbc.sms.foundation.session.AcademicReportingPeriodRepository;
 import com.bbc.sms.foundation.session.AcademicWindowPolicyService;
 import com.bbc.sms.platform.common.ApiException;
+import com.bbc.sms.platform.security.AuthorizationPolicyService;
+import com.bbc.sms.platform.security.PolicyResourceContext;
+import com.bbc.sms.platform.tenant.ParcoursContext;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.student.Student;
 import com.bbc.sms.student.StudentRepository;
@@ -52,6 +55,7 @@ public class BulletinSnapshotService {
     private final ObjectMapper mapper;
     private final JdbcTemplate jdbc;
     private final AuditService audit;
+    private final AuthorizationPolicyService policy;
 
     public BulletinSnapshotService(AcademicReportingPeriodRepository periods, AcademicAssessmentRepository assessments,
                                    AcademicGradeRepository grades, SubjectResultCommentRepository comments,
@@ -59,11 +63,11 @@ public class BulletinSnapshotService {
                                    StudentRepository students, SubjectRepository subjects,
                                    SubjectClassCoefRepository subjectClassCoefs, SchoolClassRepository classes,
                                    AcademicWindowPolicyService windows, AcademicAccessPolicyService accessPolicy, TeachingAssignmentResolver assignments, ObjectMapper mapper,
-                                   JdbcTemplate jdbc, AuditService audit) {
+                                   JdbcTemplate jdbc, AuditService audit, AuthorizationPolicyService policy) {
         this.periods = periods; this.assessments = assessments; this.grades = grades; this.comments = comments; this.packets = packets;
         this.versions = versions; this.enrollments = enrollments; this.students = students; this.subjects = subjects;
         this.subjectClassCoefs = subjectClassCoefs; this.classes = classes;
-        this.windows = windows; this.accessPolicy = accessPolicy; this.assignments = assignments; this.mapper = mapper; this.jdbc = jdbc; this.audit = audit;
+        this.windows = windows; this.accessPolicy = accessPolicy; this.assignments = assignments; this.mapper = mapper; this.jdbc = jdbc; this.audit = audit; this.policy = policy;
     }
 
     private StudentEnrollment enrollment(UUID studentId, AcademicReportingPeriod period) {
@@ -315,7 +319,7 @@ public class BulletinSnapshotService {
         accessPolicy.requireStudent(AcademicAccessPolicyService.Capability.CLASS_REPORT_CARD_VIEW,
                 studentId, period.getAcademicSessionId(), period.getStartDate(), null);
         Student student = students.findByIdAndSchoolId(studentId, TenantContext.get())
-                .orElseThrow(() -> ApiException.notFound("Ã‰lÃ¨ve"));
+                .orElseThrow(() -> ApiException.notFound("Élève"));
         StudentEnrollment enrollment = enrollment(studentId, period);
         if (enrollment == null) throw ApiException.conflict("Cet élève n'est pas inscrit dans la session académique sélectionnée.");
         // A preview never creates a version. If an explicit draft/correction already
@@ -344,6 +348,28 @@ public class BulletinSnapshotService {
         Student student = students.findByIdAndSchoolId(version.getStudentId(), TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Élève"));
         return viewFromSnapshot(version, period, student);
+    }
+
+    /**
+     * Official report-card generation is a STUDENT-scoped V2 action. Resolve
+     * its resource context from the persisted snapshot/enrollment rather than
+     * relying on a legacy role-only controller check or a client header.
+     */
+    @Transactional(readOnly = true)
+    public void requireDocumentGeneration(BulletinSnapshotView snapshot) {
+        AcademicReportingPeriod period = period(snapshot.reportingPeriodId());
+        StudentEnrollment active = enrollment(snapshot.studentId(), period);
+        if (active == null || active.getSchoolClassId() == null) {
+            throw ApiException.forbidden("L'inscription active de l'élève est requise pour générer le document.");
+        }
+        String level = Optional.ofNullable(active.getLevelSnapshot()).filter(value -> !value.isBlank())
+                .orElse(snapshot.educationalLevel());
+        String subsystem = Optional.ofNullable(active.getSubsystemSnapshot()).filter(value -> !value.isBlank())
+                .orElse(snapshot.subsystem());
+        policy.require("DOCUMENT_GENERATE", new PolicyResourceContext(
+                TenantContext.get(), snapshot.academicSessionId(), period.getStartDate(),
+                new ParcoursContext.Scope(level.toLowerCase(Locale.ROOT), subsystem.toUpperCase(Locale.ROOT)),
+                active.getSchoolClassId(), null, snapshot.studentId(), null, snapshot.id(), null, null, level));
     }
 
     @Transactional

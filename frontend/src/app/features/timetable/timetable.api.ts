@@ -50,7 +50,7 @@ export class TimetableApi {
   teacherSchedule(id:string):Observable<TeacherSchedule>{return this.http.get<TeacherSchedule>(`${this.base}/teachers/${id}`);}
   versions(sessionId:string):Observable<TimetableVersionView[]>{return this.http.get<TimetableVersionView[]>(`${this.base}/versions`,{params:{academicSessionId:sessionId}});}
   publishVersion(id:string,reason:string,version?:number):Observable<TimetableVersionView>{return this.http.post<TimetableVersionView>(`${this.base}/versions/${id}/publish`,{reason,version});}
-  reopenVersion(id:string,reason:string):Observable<TimetableVersionView>{return this.http.post<TimetableVersionView>(`${this.base}/versions/${id}/reopen`,{reason});}
+  reopenVersion(id:string,reason:string,version?:number):Observable<TimetableVersionView>{return this.http.post<TimetableVersionView>(`${this.base}/versions/${id}/reopen`,{reason,version});}
   versionDiff(fromVersionId:string,toVersionId:string):Observable<TimetableVersionDiff>{return this.http.get<TimetableVersionDiff>(`${this.base}/versions/diff`,{params:{fromVersionId,toVersionId}});}
   drift(versionId:string):Observable<TimetableDriftView[]>{return this.http.get<TimetableDriftView[]>(`${this.base}/versions/${versionId}/drift`);}
   master(versionId:string,occurrenceDate?:string):Observable<TimetableProjectionSlotView[]>{return this.http.get<TimetableProjectionSlotView[]>(`${this.base}/versions/${versionId}/master`,{params:occurrenceDate?{occurrenceDate}:{}});}

@@ -100,8 +100,9 @@ public class StaffService {
      */
     @Transactional
     public List<TeacherClassView> setClasses(UUID employeeId, List<UUID> classIds) {
-        requireSchool("TEACHING_CLASS_ASSIGNMENT_MANAGE");
         UUID schoolId = TenantContext.get();
+        policy.require("HR_MANAGE", new PolicyResourceContext(schoolId, null, java.time.LocalDate.now(),
+                null, null, null, null, null, null, null, null, null));
         Employee e = find(employeeId);
         List<UUID> wanted = classIds == null ? List.of() : classIds.stream().distinct().toList();
 
@@ -109,6 +110,9 @@ public class StaffService {
         for (UUID classId : wanted) {
             SchoolClass c = classes.findByIdAndSchoolId(classId, schoolId)
                     .orElseThrow(() -> ApiException.badRequest("Classe inconnue"));
+            policy.require("TEACHING_CLASS_ASSIGNMENT_MANAGE",
+                    new PolicyResourceContext(schoolId, null, java.time.LocalDate.now(), null,
+                            classId, null, null, null, null, null, null, c.getLevel()));
             setup.bindTeacherSection(e.getId(), c.getLevel());
         }
         jdbc.update("DELETE FROM teacher_class tc USING school_class c "
@@ -117,6 +121,12 @@ public class StaffService {
         for (UUID classId : wanted) {
             jdbc.update("INSERT INTO teacher_class (employee_id, class_id) VALUES (?, ?)", employeeId, classId);
         }
+        // Class assignment is the authoritative source for a teacher's
+        // parcours envelope. Keep the linked login in assignment-derived mode
+        // so @parcours.allows() can expose exactly the assigned class scopes;
+        // an empty assignment remains restrictive because it derives no rows.
+        jdbc.update("UPDATE app_user SET parcours_scope_mode='ASSIGNMENT_DERIVED' "
+                  + "WHERE school_id=? AND employee_id=?", schoolId, employeeId);
         return classesOf(employeeId);
     }
 

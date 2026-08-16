@@ -8,6 +8,10 @@ import com.bbc.sms.academic.BulletinSnapshotService;
 import com.bbc.sms.academic.dto.AcademicDtos.BulletinSnapshotView;
 import com.bbc.sms.classkit.ClassKitService;
 import com.bbc.sms.classkit.dto.ClassKitDtos.ClassResourceView;
+import com.bbc.sms.discipline.DisciplineIncident;
+import com.bbc.sms.discipline.DisciplineRepository;
+import com.bbc.sms.events.EventRepository;
+import com.bbc.sms.events.SchoolEvent;
 import com.bbc.sms.finance.FeeService;
 import com.bbc.sms.finance.dto.FeeDtos.PaymentChannelView;
 import com.bbc.sms.finance.dto.FeeDtos.StudentFeeStatementView;
@@ -15,6 +19,10 @@ import com.bbc.sms.finance.documents.FinanceDocumentDtos.ParentInvoiceView;
 import com.bbc.sms.finance.documents.FinanceDocumentDtos.ParentReceiptView;
 import com.bbc.sms.finance.documents.FinanceDocumentService;
 import com.bbc.sms.guardian.GuardianAccessService;
+import com.bbc.sms.health.InfirmaryVisit;
+import com.bbc.sms.health.InfirmaryVisitRepository;
+import com.bbc.sms.messaging.Correspondence;
+import com.bbc.sms.messaging.CorrespondenceRepository;
 import com.bbc.sms.parentportal.dto.ParentDtos.*;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AppUserPrincipal;
@@ -53,6 +61,10 @@ public class ParentService {
     private final AuthorizationPolicyService policy;
     private final BulletinSnapshotService bulletins;
     private final FinanceDocumentService financeDocuments;
+    private final DisciplineRepository disciplineIncidents;
+    private final InfirmaryVisitRepository infirmaryVisits;
+    private final EventRepository events;
+    private final CorrespondenceRepository correspondence;
 
     public ParentService(JdbcTemplate jdbc,
                          StudentRepository students,
@@ -64,7 +76,11 @@ public class ParentService {
                          GuardianAccessService guardianAccess,
                          AuthorizationPolicyService policy,
                          BulletinSnapshotService bulletins,
-                         FinanceDocumentService financeDocuments) {
+                         FinanceDocumentService financeDocuments,
+                         DisciplineRepository disciplineIncidents,
+                         InfirmaryVisitRepository infirmaryVisits,
+                         EventRepository events,
+                         CorrespondenceRepository correspondence) {
         this.jdbc = jdbc;
         this.students = students;
         this.grades = grades;
@@ -76,6 +92,10 @@ public class ParentService {
         this.policy = policy;
         this.bulletins = bulletins;
         this.financeDocuments = financeDocuments;
+        this.disciplineIncidents = disciplineIncidents;
+        this.infirmaryVisits = infirmaryVisits;
+        this.events = events;
+        this.correspondence = correspondence;
     }
 
     /** Student ids linked to the given parent account. */
@@ -181,6 +201,83 @@ public class ParentService {
                         rs.getTimestamp(7) == null ? null : rs.getTimestamp(7).toInstant(), rs.getObject(8, UUID.class)), p.schoolId(), studentId));
         return result.stream().sorted(java.util.Comparator.comparing(ParentJourneyEventView::occurredAt,
                 java.util.Comparator.nullsLast(java.util.Comparator.reverseOrder()))).toList();
+    }
+
+    public ParentAttendanceView attendance(AppUserPrincipal p, UUID studentId) {
+        requireParentAction(p, "PARENT_ATTENDANCE_VIEW", studentId);
+        List<ParentAttendanceRecordView> records = jdbc.query("""
+                SELECT id,att_date,status,late_minutes
+                  FROM attendance_record
+                 WHERE school_id=? AND student_id=?
+                 ORDER BY att_date DESC,id DESC
+                """, (rs, n) -> new ParentAttendanceRecordView(rs.getObject("id", UUID.class),
+                rs.getObject("att_date", LocalDate.class), rs.getString("status"), rs.getInt("late_minutes")),
+                p.schoolId(), studentId);
+        int present = (int) records.stream().filter(r -> "present".equalsIgnoreCase(r.status())).count();
+        int late = (int) records.stream().filter(r -> "late".equalsIgnoreCase(r.status())).count();
+        int absent = (int) records.stream().filter(r -> "absent".equalsIgnoreCase(r.status())).count();
+        int excused = (int) records.stream().filter(r -> "excused".equalsIgnoreCase(r.status())).count();
+        int total = records.size();
+        int rate = total == 0 ? 0 : Math.round((present + late) * 100f / total);
+        return new ParentAttendanceView(studentId, total, present, late, absent, excused, rate, records);
+    }
+
+    public List<ParentDisciplineView> discipline(AppUserPrincipal p, UUID studentId) {
+        requireParentAction(p, "PARENT_DISCIPLINE_VIEW", studentId);
+        return disciplineIncidents.findBySchoolIdOrderByIncidentDateDesc(p.schoolId()).stream()
+                .filter(i -> studentId.equals(i.getStudentId()))
+                .map(i -> new ParentDisciplineView(i.getId(), i.getIncidentDate(), i.getType(),
+                        i.getDescription(), i.getSanction()))
+                .toList();
+    }
+
+    public ParentHealthView health(AppUserPrincipal p, UUID studentId) {
+        requireParentAction(p, "PARENT_HEALTH_VIEW", studentId);
+        List<ParentHealthVisitView> visits = infirmaryVisits
+                .findBySchoolIdAndStudentIdOrderByVisitDateDesc(p.schoolId(), studentId).stream()
+                .map(v -> new ParentHealthVisitView(v.getId(), v.getVisitDate(), v.getReason(), v.getTreatment()))
+                .toList();
+        return new ParentHealthView(studentId, visits);
+    }
+
+    public List<ParentEventView> events(AppUserPrincipal p, UUID studentId) {
+        requireParentAction(p, "PARENT_CHILD_SUMMARY_VIEW", studentId);
+        Student student = students.findByIdAndSchoolId(studentId, p.schoolId())
+                .orElseThrow(() -> ApiException.notFound("Élève"));
+        String className = student.getClassName();
+        return events.findBySchoolIdOrderByEventDateDesc(p.schoolId()).stream()
+                .filter(e -> "all".equalsIgnoreCase(e.getAudience())
+                        || (className != null && e.getTargetClasses() != null && e.getTargetClasses().stream()
+                        .anyMatch(target -> className.equalsIgnoreCase(target))))
+                .map(e -> new ParentEventView(e.getId(), e.getTitle(), e.getType(), e.getEventDate(), e.getDescription()))
+                .toList();
+    }
+
+    public List<ParentNoticeView> messages(AppUserPrincipal p, UUID studentId) {
+        requireParentAction(p, "PARENT_CHILD_SUMMARY_VIEW", studentId);
+        return correspondence.findBySchoolIdAndStudentIdOrderByCreatedAtDesc(p.schoolId(), studentId).stream()
+                .map(this::parentNotice)
+                .toList();
+    }
+
+    @org.springframework.transaction.annotation.Transactional
+    public ParentNoticeView acknowledgeMessage(AppUserPrincipal p, UUID studentId, UUID messageId,
+                                                ParentAckRequest request) {
+        requireParentAction(p, "PARENT_MESSAGES_ACK", studentId);
+        Correspondence notice = correspondence.findByIdAndSchoolId(messageId, p.schoolId())
+                .orElseThrow(() -> ApiException.notFound("Correspondance"));
+        if (!studentId.equals(notice.getStudentId())) throw ApiException.forbidden("Cette correspondance ne concerne pas cet enfant");
+        if (notice.getAcknowledgedAt() == null) {
+            notice.setAcknowledgedAt(java.time.Instant.now());
+            notice.setAcknowledgedBy(request.signedBy().trim());
+            correspondence.save(notice);
+        }
+        return parentNotice(notice);
+    }
+
+    private ParentNoticeView parentNotice(Correspondence n) {
+        return new ParentNoticeView(n.getId(), n.getCategory(), n.getSubject(), n.getBody(), n.isRequiresAck(),
+                n.getAcknowledgedAt() != null, n.getAcknowledgedAt(), n.getSenderName(), n.getCreatedAt());
     }
 
     /** Published supplies/books list for the class of one of the parent's children. */

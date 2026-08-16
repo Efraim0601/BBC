@@ -16,21 +16,24 @@ public class EnrollmentController {
     private final EnrollmentService service;
     public EnrollmentController(EnrollmentService service) { this.service = service; }
 
-    @GetMapping("/students/{studentId}") @PreAuthorize("@perm.canAction('ENROLLMENT_VIEW') and @perm.staffOnly()")
+    // EnrollmentService resolves the student/class resource and performs the
+    // V2 action check; this controller must not use a context-free gate for a
+    // STUDENT-scoped action.
+    @GetMapping("/students/{studentId}") @PreAuthorize("@perm.staffOnly()")
     public List<EnrollmentView> history(@PathVariable UUID studentId) { return service.history(studentId); }
 
-    @GetMapping("/roster") @PreAuthorize("@perm.canAction('ENROLLMENT_VIEW') and @perm.staffOnly()")
+    @GetMapping("/roster") @PreAuthorize("@perm.staffOnly()")
     public List<EnrollmentView> roster(@RequestParam UUID sessionId, @RequestParam UUID classId) { return service.roster(sessionId, classId); }
 
     @PostMapping("/students/{studentId}") @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("@perm.canAction('ENROLLMENT_CREATE') and @perm.staffOnly()")
+    @PreAuthorize("@perm.staffOnly()")
     public EnrollmentView enroll(@PathVariable UUID studentId, @Valid @RequestBody EnrollmentRequest in) { return service.enroll(studentId, in); }
 
     @PostMapping("/students/{studentId}/transfer")
-    @PreAuthorize("@perm.canAction('ENROLLMENT_TRANSFER') and @perm.staffOnly()")
+    @PreAuthorize("@perm.staffOnly()")
     public EnrollmentView transfer(@PathVariable UUID studentId, @Valid @RequestBody TransferRequest in) { return service.transfer(studentId, in); }
 
     @PostMapping("/{id}/withdraw")
-    @PreAuthorize("@perm.canAction('ENROLLMENT_WITHDRAW') and @perm.staffOnly()")
+    @PreAuthorize("@perm.staffOnly()")
     public EnrollmentView withdraw(@PathVariable UUID id, @Valid @RequestBody WithdrawRequest in) { return service.withdraw(id, in); }
 }

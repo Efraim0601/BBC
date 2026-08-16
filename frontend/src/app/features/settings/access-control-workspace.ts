@@ -304,8 +304,8 @@ export class AccessControlWorkspaceComponent {
     if (!template) return;
     this.templateStaged.set(true);
     this.hydrate(template.rules);
-    this.busy.set(true);
-    this.api.previewTemplate(this.selectedRole(), this.selectedTemplate()).subscribe({ next: (preview) => { this.preview.set(preview); this.busy.set(false); }, error: (err) => this.fail(err) });
+    this.busy.set(true); this.message.set(null);
+    this.api.previewTemplate(this.selectedRole(), this.selectedTemplate()).subscribe({ next: (preview) => { this.preview.set(preview); this.message.set(null); this.busy.set(false); }, error: (err) => this.fail(err) });
   }
   protected applyStagedTemplate(): void {
     const preview = this.preview();

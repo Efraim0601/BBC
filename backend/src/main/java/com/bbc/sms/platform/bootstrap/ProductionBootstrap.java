@@ -41,6 +41,26 @@ public class ProductionBootstrap implements ApplicationRunner {
         "alerts", "messages", "coursebook", "health", "documents", "classkit"
     };
 
+    /**
+     * First-school setup authority for the one freshly bootstrapped account.
+     * These are user exceptions rather than changes to the ordinary principal
+     * template, so existing and subsequently-created principals remain on the
+     * safe oversight profile.
+     */
+    private static final String[] BOOTSTRAP_SETUP_ACTIONS = {
+        "SESSION_VIEW", "SESSION_MANAGE", "CALENDAR_MANAGE", "SCHOOL_PROFILE_MANAGE",
+        "CLASS_MANAGE", "SUBJECT_MANAGE", "CURRICULUM_MANAGE",
+        "CURRICULUM_CLASS_MANAGE", "CURRICULUM_CATALOG_MANAGE",
+        "TEACHING_ASSIGNMENT_MANAGE", "TEACHING_CLASS_ASSIGNMENT_MANAGE",
+        "MAIL_CONFIG_MANAGE", "DISCIPLINE_CATALOG_MANAGE", "ROLE_MANAGE",
+        "ACADEMIC_ASSESSMENT_VIEW", "ACADEMIC_ASSESSMENT_MANAGE",
+        "ATTENDANCE_ROSTER_VIEW", "ATTENDANCE_MARK", "ATTENDANCE_FINALIZE",
+        "ATTENDANCE_REOPEN", "ATTENDANCE_ANALYTICS_VIEW", "ATTENDANCE_POLICY_MANAGE",
+        "ATTENDANCE_RECONCILE", "ATTENDANCE_POLICY_VIEW", "ATTENDANCE_DEVICE_VIEW",
+        "ATTENDANCE_DEVICE_MANAGE", "ATTENDANCE_NOTIFICATION_VIEW",
+        "STUDENT_PROFILE_CREATE", "STUDENT_IMPORT"
+    };
+
     private final JdbcTemplate jdbc;
     private final PasswordEncoder encoder;
 
@@ -112,6 +132,7 @@ public class ProductionBootstrap implements ApplicationRunner {
         grant(schoolId, "parent", "parent", "read");
 
         seedFoundation(schoolId, sessionId);
+        seedPrincipalAcademicWorkflowLegacyAuthorities(schoolId);
         seedAttendanceDefaults(schoolId);
 
         seedPaymentChannels(schoolId);
@@ -184,6 +205,15 @@ public class ProductionBootstrap implements ApplicationRunner {
                     'Initial emergency policy administrator; review and replace during access-control setup')
             ON CONFLICT DO NOTHING
             """, schoolId, adminUserId);
+        for (String action : BOOTSTRAP_SETUP_ACTIONS) {
+            jdbc.update("""
+                INSERT INTO permission_user_action
+                    (school_id,user_id,action_code,effect,scope_mode,is_permanent,reason)
+                VALUES (?, ?, ?, 'ALLOW', 'SCHOOL_ALL', true,
+                        'Fresh-school bootstrap setup authority; replace during access-control setup')
+                ON CONFLICT DO NOTHING
+                """, schoolId, adminUserId, action);
+        }
     }
 
     private void seedFoundation(UUID schoolId, UUID sessionId) {
@@ -222,6 +252,26 @@ public class ProductionBootstrap implements ApplicationRunner {
     }
 
     /**
+     * The Direction workflow still passes through three legacy compatibility
+     * gates while its resource scope is evaluated by Permission Policy V2.
+     * Fresh-school bootstrap must seed the same narrow read/review authority
+     * that V133 adds for an already-existing school.
+     */
+    private void seedPrincipalAcademicWorkflowLegacyAuthorities(UUID schoolId) {
+        for (String action : new String[]{
+                "ACADEMIC_GRADE_PACKET_REVIEW",
+                "ACADEMIC_REPORT_CARD_VALIDATE",
+                "ACADEMIC_REPORT_CARD_PUBLISH"}) {
+            jdbc.update("""
+                INSERT INTO permission_action_grant (school_id,role_code,action_code,allowed)
+                VALUES (?, 'principal', ?, true)
+                ON CONFLICT (school_id,role_code,action_code)
+                DO UPDATE SET allowed=EXCLUDED.allowed
+                """, schoolId, action);
+        }
+    }
+
+    /**
      * Attendance migrations run before the first school exists, so their
      * school-scoped seed rows cannot create defaults for a brand-new tenant.
      * Keep the same safe defaults in the first-run bootstrap as well.
@@ -232,9 +282,9 @@ public class ProductionBootstrap implements ApplicationRunner {
                 (school_id, level, model, late_after_minutes,
                  chronic_absence_percent, require_absence_reason)
             VALUES
-                (?, 'maternelle', 'DAILY', 0, 20.00, false),
-                (?, 'primary',    'DAILY', 0, 20.00, false),
-                (?, 'secondary',  'PERIOD', 0, 20.00, false)
+                (?, 'maternelle', 'DAILY', 15, 15.00, true),
+                (?, 'primary',    'DAILY', 15, 15.00, true),
+                (?, 'secondary',  'PERIOD', 10, 20.00, true)
             ON CONFLICT (school_id, level) DO NOTHING
             """, schoolId, schoolId, schoolId);
 

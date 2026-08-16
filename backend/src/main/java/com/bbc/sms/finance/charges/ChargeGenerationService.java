@@ -21,6 +21,8 @@ import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AppUserPrincipal;
 import com.bbc.sms.platform.tenant.TenantContext;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.ConnectionCallback;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -52,6 +54,7 @@ public class ChargeGenerationService {
     private final IdempotencyService idempotency;
     private final AuditService audit;
     private final FinancePolicyService financePolicy;
+    private final JdbcTemplate jdbc;
 
     public ChargeGenerationService(ChargeGenerationPreviewService previewService,
                                    ChargeGenerationJobRepository jobs,
@@ -67,7 +70,8 @@ public class ChargeGenerationService {
                                    LedgerPostingService ledger,
                                    IdempotencyService idempotency,
                                    AuditService audit,
-                                   FinancePolicyService financePolicy) {
+                                   FinancePolicyService financePolicy,
+                                   JdbcTemplate jdbc) {
         this.previewService = previewService;
         this.jobs = jobs;
         this.results = results;
@@ -83,6 +87,7 @@ public class ChargeGenerationService {
         this.idempotency = idempotency;
         this.audit = audit;
         this.financePolicy = financePolicy;
+        this.jdbc = jdbc;
     }
 
     @Transactional(readOnly = true)
@@ -130,6 +135,7 @@ public class ChargeGenerationService {
     private GenerationJobView generateNow(GenerationRequest request, String idempotencyKey) {
         UUID schoolId = TenantContext.get();
         GenerationPreview preview = previewService.preview(request);
+        lockGenerationKeys(schoolId, preview.rows());
         ChargeGenerationJob job = new ChargeGenerationJob();
         job.setSchoolId(schoolId);
         job.setAcademicSessionId(request.academicSessionId());
@@ -175,7 +181,7 @@ public class ChargeGenerationService {
                 blocked++;
                 continue;
             }
-            String key = "CHARGE:" + row.enrollmentId() + ":" + row.planId() + ":" + row.planLineId();
+            String key = generationKey(row);
             StudentCharge existing = charges.findBySchoolIdAndGenerationKey(schoolId, key).orElse(null);
             if (existing != null) {
                 results.save(result(job, row, "ALREADY_EXISTS", null, null, null, existing.getId(), null));
@@ -294,6 +300,32 @@ public class ChargeGenerationService {
         // this lookup in the write path prevents a stale preview from crossing tenants.
         return planLines.findByIdAndSchoolId(id, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Ligne de plan"));
+    }
+
+    /**
+     * Serialize overlapping charge-generation writes without widening the
+     * unique constraint or turning a duplicate into an aborted transaction.
+     * Sorting makes overlapping requests acquire keys in one deterministic
+     * order, avoiding a lock-order deadlock.
+     */
+    void lockGenerationKeys(UUID schoolId, List<PreviewRow> rows) {
+        rows.stream()
+                .filter(row -> "READY".equals(row.resultStatus()))
+                .map(ChargeGenerationService::generationKey)
+                .distinct()
+                .sorted()
+                .forEach(key -> jdbc.execute((ConnectionCallback<Void>) connection -> {
+                    try (var statement = connection.prepareStatement(
+                            "SELECT pg_advisory_xact_lock(hashtextextended(?, 0))")) {
+                        statement.setString(1, schoolId + "|" + key);
+                        statement.execute();
+                    }
+                    return null;
+                }));
+    }
+
+    static String generationKey(PreviewRow row) {
+        return "CHARGE:" + row.enrollmentId() + ":" + row.planId() + ":" + row.planLineId();
     }
 
     private ChargeGenerationResult result(ChargeGenerationJob job, PreviewRow row, String status,

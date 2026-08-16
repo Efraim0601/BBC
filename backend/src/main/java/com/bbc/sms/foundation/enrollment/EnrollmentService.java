@@ -53,7 +53,11 @@ public class EnrollmentService {
     public List<EnrollmentView> history(UUID studentId) {
         UUID schoolId = TenantContext.get();
         AcademicSession current = sessionService.currentEntity();
-        policy.require("ENROLLMENT_VIEW", context(studentId, current.getId(), LocalDate.now(),
+        // A current session can be opened before its start date.  Resolve the
+        // policy date the same way as roster reads so the history endpoint does
+        // not fail closed with ACADEMIC_EFFECTIVE_DATE_OUT_OF_SESSION during
+        // the pre-term setup window.
+        policy.require("ENROLLMENT_VIEW", context(studentId, current.getId(), effectiveDate(current),
                 active(studentId, current.getId()).map(StudentEnrollment::getSchoolClassId).orElse(null)));
         students.findByIdAndSchoolId(studentId, schoolId).orElseThrow(() -> ApiException.notFound("Élève"));
         return enrollments.findBySchoolIdAndStudentIdOrderByEnrolledOnDescCreatedAtDesc(schoolId, studentId)
@@ -69,6 +73,23 @@ public class EnrollmentService {
                 .filter(e -> policy.decide("ENROLLMENT_VIEW", context(e.getStudentId(), sessionId,
                         effectiveDate(session), classId)).allowed())
                 .map(this::view).toList();
+    }
+
+    /**
+     * Resolve the active enrollment records needed by the student-directory
+     * roster without granting the caller enrollment-history authority.
+     *
+     * The public enrollment roster above is an enrollment read and therefore
+     * requires ENROLLMENT_VIEW.  The academic/student roster is a separate
+     * projection: StudentService applies STUDENT_DIRECTORY_VIEW and its
+     * assignment/parcours scope to every student before returning anything.
+     */
+    @Transactional(readOnly = true)
+    public List<StudentEnrollment> activeRosterRecordsForDirectory(UUID sessionId, UUID classId) {
+        AcademicSession session = findSession(sessionId);
+        findClass(classId);
+        return enrollments.findBySchoolIdAndAcademicSessionIdAndSchoolClassIdAndStatusOrderByClassNameSnapshotAsc(
+                session.getSchoolId(), sessionId, classId, "ACTIVE");
     }
 
     private LocalDate effectiveDate(AcademicSession session) {

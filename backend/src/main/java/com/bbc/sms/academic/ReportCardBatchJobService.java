@@ -190,7 +190,12 @@ public class ReportCardBatchJobService {
     }
 
     private void startAfterCommit(UUID id, UUID schoolId) {
-        Runnable start = () -> worker.start(id, schoolId);
+        // The worker is asynchronous, so the servlet thread's authenticated
+        // principal would otherwise be lost before snapshot/document policy
+        // checks run. Capture the principal that authorized job creation;
+        // the worker installs it for the job and clears it afterward.
+        var authentication = SecurityContextHolder.getContext().getAuthentication();
+        Runnable start = () -> worker.start(id, schoolId, authentication);
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override public void afterCommit() { start.run(); }

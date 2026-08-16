@@ -162,7 +162,8 @@ export interface DocumentTemplateVersionView {
 export interface DocumentBrandingVersionView {
   id: string; locale: string; version: number; status: string; schoolName: string;
   schoolNameEn: string | null; motto: string | null; ministryText: string | null;
-  city: string | null; country: string | null; principalName: string | null;
+  address: string | null; city: string | null; country: string | null;
+  logoContentType: string | null; logoConfigured: boolean; principalName: string | null;
   principalTitle: string | null; classMasterTitle: string | null; councilTitle: string | null;
   contentHash: string; createdAt: string; publishedAt: string | null;
 }
@@ -259,7 +260,9 @@ export class FoundationApi {
   publishDocumentTemplate(id: string, reason: string): Observable<DocumentTemplateVersionView> {
     return this.http.post<DocumentTemplateVersionView>(`${this.settings}/document-design/templates/${id}/publish`, { reason });
   }
-  publishDocumentBranding(locale: string, reason: string): Observable<DocumentBrandingVersionView> {
-    return this.http.post<DocumentBrandingVersionView>(`${this.settings}/document-design/branding/publish`, { locale, reason });
+  publishDocumentBranding(locale: string, reason: string, logo?: { contentType: string; base64: string } | null): Observable<DocumentBrandingVersionView> {
+    return this.http.post<DocumentBrandingVersionView>(`${this.settings}/document-design/branding/publish`, {
+      locale, reason, logoContentType: logo?.contentType ?? null, logoBase64: logo?.base64 ?? null,
+    });
   }
 }

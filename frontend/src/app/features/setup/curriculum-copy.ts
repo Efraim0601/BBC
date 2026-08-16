@@ -18,10 +18,10 @@ import { AcademicSessionView } from '../../core/foundation.api';
           <h3 class="font-bold text-ink">Reuse class subjects</h3>
           <p class="text-xs text-mute mt-1">Preview class-specific coefficients, rules, groups, and optional teachers before anything is written.</p>
         </div>
-        <button type="button" (click)="preview()" [disabled]="busy() || !sourceId || !targetSessionId" class="h-9 px-3 rounded-lg bg-violet-600 text-white text-sm font-semibold disabled:opacity-50">{{ busy() ? 'â€¦' : 'Preview reuse' }}</button>
+        <button type="button" (click)="preview()" [disabled]="busy() || !sourceId || !targetSessionId" class="h-9 px-3 rounded-lg bg-violet-600 text-white text-sm font-semibold disabled:opacity-50">{{ busy() ? '…' : 'Preview reuse' }}</button>
       </div>
       <div class="grid grid-cols-1 md:grid-cols-5 gap-3 mt-4">
-        <label class="block md:col-span-2"><span class="meta">Previous session *</span><select [(ngModel)]="sourceId" class="field"><option value="">Choose a source</option>@for (s of sourceSessions; track s.id) { <option [value]="s.id">{{ s.label }} Â· {{ s.startDate }}</option> }</select></label>
+        <label class="block md:col-span-2"><span class="meta">Previous session *</span><select [(ngModel)]="sourceId" class="field"><option value="">Choose a source</option>@for (s of sourceSessions; track s.id) { <option [value]="s.id">{{ s.label }} · {{ s.startDate }}</option> }</select></label>
         <label class="block"><span class="meta">Merge behavior</span><select [(ngModel)]="mergeMode" class="field"><option value="FILL_MISSING">Fill missing only</option><option value="UPDATE_SELECTED">Update selected rows</option><option value="UPDATE_ALL">Update all rows</option></select></label>
         <label class="flex items-center gap-2 pt-6 text-xs font-semibold"><input type="checkbox" [(ngModel)]="includeGroups" /> Subject groups</label>
         <label class="flex items-center gap-2 pt-6 text-xs font-semibold"><input type="checkbox" [(ngModel)]="includeTeachers" /> Copy teachers (optional)</label>
@@ -33,12 +33,12 @@ import { AcademicSessionView } from '../../core/foundation.api';
       @if (message(); as m) { <div class="mt-3 rounded-lg px-3 py-2 text-xs" [class]="m.ok ? 'bg-emerald-50 text-emerald-800' : 'bg-rose-50 text-rose-800'">{{ m.text }}</div> }
       @if (proposal(); as p) {
         <div class="mt-4 rounded-lg border border-slate-200 bg-white p-3">
-          <div class="flex flex-wrap items-center justify-between gap-2"><div class="text-sm font-bold text-ink">Preview Â· {{ p.createCount }} create Â· {{ p.updateCount }} update Â· {{ p.keepCount }} keep</div><span class="text-xs text-mute">Teacher warnings do not block subject copying</span></div>
-          @if (p.blockers.length) { <div class="mt-2 text-xs text-rose-700">@for (b of p.blockers; track b) { <div>â€¢ {{ readable(b) }}</div> }</div> }
+          <div class="flex flex-wrap items-center justify-between gap-2"><div class="text-sm font-bold text-ink">Preview · {{ p.createCount }} create · {{ p.updateCount }} update · {{ p.keepCount }} keep</div><span class="text-xs text-mute">Teacher warnings do not block subject copying</span></div>
+          @if (p.blockers.length) { <div class="mt-2 text-xs text-rose-700">@for (b of p.blockers; track b) { <div>• {{ readable(b) }}</div> }</div> }
           <div class="mt-3 space-y-2 max-h-80 overflow-auto">
             @for (row of p.rows; track row.key) {
               <div class="rounded-md border border-slate-100 px-3 py-2 text-xs">
-                <div class="flex flex-wrap items-center justify-between gap-2"><strong>{{ row.className }} Â· {{ row.subjectCode }}</strong><span class="chip" [class]="row.status === 'CREATE' ? 'bg-emerald-50 text-emerald-700' : row.status === 'KEEP' ? 'bg-slate-100 text-slate-600' : 'bg-amber-50 text-amber-700'">{{ row.status }}</span></div>
+                <div class="flex flex-wrap items-center justify-between gap-2"><strong>{{ row.className }} · {{ row.subjectCode }}</strong><span class="chip" [class]="row.status === 'CREATE' ? 'bg-emerald-50 text-emerald-700' : row.status === 'KEEP' ? 'bg-slate-100 text-slate-600' : 'bg-amber-50 text-amber-700'">{{ row.status }}</span></div>
                 @if (row.existing && mergeMode === 'UPDATE_SELECTED') { <label class="flex items-center gap-2 mt-2 text-[10px] text-amber-800"><input type="checkbox" [checked]="selectedKeys.includes(row.key)" (change)="toggle(row.key, $event)" /> Replace target row</label> }
                 @if (row.subjectId) {
                   <div class="grid grid-cols-2 md:grid-cols-5 gap-2 mt-2">

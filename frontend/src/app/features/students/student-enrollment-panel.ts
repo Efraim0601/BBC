@@ -171,7 +171,10 @@ export class StudentEnrollmentPanelComponent implements OnChanges {
   private reload(): void {
     this.loading.set(true); this.error.set(null); this.context.load();
     this.api.enrollmentHistory(this.student.id).subscribe({ next: (rows) => { this.enrollments.set(rows); const currentId = this.context.sessionId(); const active = rows.find((e) => e.status === 'ACTIVE' && (!currentId || e.academicSessionId === currentId)) ?? rows.find((e) => e.status === 'ACTIVE') ?? null; this.active.set(active); this.transferDraft.classId = active?.classId ?? this.student.classId ?? null; const session = this.context.sessions().find((s) => s.id === active?.academicSessionId); this.transferDraft.effectiveDate = this.clampedToday(session?.startDate, session?.endDate); this.loading.set(false); }, error: (e) => { this.loading.set(false); this.setError(e); } });
-    this.loadDocuments(); this.api.actionPermissions().subscribe((p) => this.permissions.set(p));
+    this.loadDocuments(); this.api.actionPermissions().subscribe({
+      next: (p) => this.permissions.set(p),
+      error: () => this.permissions.set({}),
+    });
   }
   private loadDocuments(): void { this.api.listDocuments('Student', this.student.id).subscribe({ next: (d) => this.documents.set(d), error: () => this.documents.set([]) }); }
   private setError(e: any): void {

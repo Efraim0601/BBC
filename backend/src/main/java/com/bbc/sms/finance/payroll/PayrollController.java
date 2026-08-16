@@ -39,135 +39,135 @@ public class PayrollController {
     }
 
     @GetMapping("/components")
-    @PreAuthorize("@perm.canAction('PAYROLL_VIEW')")
+    @PreAuthorize("@policy.canAction('PAYROLL_VIEW')")
     public List<ComponentView> components() { return payroll.components(); }
 
     @PostMapping("/components")
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("@perm.canAction('PAYROLL_COMPONENT_MANAGE')")
+    @PreAuthorize("@policy.canAction('PAYROLL_COMPONENT_MANAGE')")
     public ComponentView createComponent(@Valid @RequestBody ComponentUpsert request) { return payroll.createComponent(request); }
 
     @PutMapping("/components/{id}")
-    @PreAuthorize("@perm.canAction('PAYROLL_COMPONENT_MANAGE')")
+    @PreAuthorize("@policy.canAction('PAYROLL_COMPONENT_MANAGE')")
     public ComponentView updateComponent(@PathVariable UUID id, @Valid @RequestBody ComponentUpsert request) {
         return payroll.updateComponent(id, request);
     }
 
     @GetMapping("/periods")
-    @PreAuthorize("@perm.canAction('PAYROLL_VIEW')")
+    @PreAuthorize("@policy.canAction('PAYROLL_VIEW')")
     public List<PeriodView> periods() { return payroll.periods(); }
 
     @GetMapping("/payment-options")
-    @PreAuthorize("@perm.canAction('PAYROLL_VIEW')")
+    @PreAuthorize("@policy.canAction('PAYROLL_VIEW')")
     public PaymentOptionsView paymentOptions() { return payroll.paymentOptions(); }
 
     @PostMapping("/periods")
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("@perm.canAction('PAYROLL_PERIOD_MANAGE')")
+    @PreAuthorize("@policy.canAction('PAYROLL_PERIOD_MANAGE')")
     public PeriodView createPeriod(@Valid @RequestBody PeriodRequest request) { return payroll.createPeriod(request); }
 
     @PutMapping("/periods/{id}")
-    @PreAuthorize("@perm.canAction('PAYROLL_PERIOD_MANAGE')")
+    @PreAuthorize("@policy.canAction('PAYROLL_PERIOD_MANAGE')")
     public PeriodView updatePeriod(@PathVariable UUID id, @Valid @RequestBody PeriodRequest request) {
         return payroll.updatePeriod(id, request);
     }
 
     @PostMapping("/periods/{id}/close")
-    @PreAuthorize("@perm.canAction('PAYROLL_PERIOD_MANAGE')")
+    @PreAuthorize("@policy.canAction('PAYROLL_PERIOD_MANAGE')")
     public PeriodView closePeriod(@PathVariable UUID id, @Valid @RequestBody ActionRequest request) {
         return payroll.closePeriod(id, request);
     }
 
     @GetMapping("/runs")
-    @PreAuthorize("@perm.canAction('PAYROLL_VIEW')")
+    @PreAuthorize("@policy.canAction('PAYROLL_VIEW')")
     public List<RunView> runs() { return payroll.runs(); }
 
     @PostMapping("/preview")
-    @PreAuthorize("@perm.canAction('PAYROLL_CALCULATE')")
+    @PreAuthorize("@policy.canAction('PAYROLL_CALCULATE')")
     public PreviewView preview(@Valid @RequestBody RunRequest request) { return payroll.preview(request); }
 
     @PostMapping("/runs")
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("@perm.canAction('PAYROLL_CALCULATE')")
+    @PreAuthorize("@policy.canAction('PAYROLL_CALCULATE')")
     public RunDetailView createRun(@Valid @RequestBody RunRequest request) { return payroll.createRun(request); }
 
     @GetMapping("/runs/{id}")
-    @PreAuthorize("@perm.canAction('PAYROLL_VIEW')")
+    @PreAuthorize("@policy.canAction('PAYROLL_VIEW')")
     public RunDetailView run(@PathVariable UUID id) { return payroll.detail(id); }
 
     @PostMapping("/runs/{id}/calculate")
-    @PreAuthorize("@perm.canAction('PAYROLL_CALCULATE')")
+    @PreAuthorize("@policy.canAction('PAYROLL_CALCULATE')")
     public RunDetailView calculate(@PathVariable UUID id,
                                    @RequestHeader(value = "Idempotency-Key", required = false) String key) {
         return payroll.calculate(id, key);
     }
 
     @PostMapping("/adjustments")
-    @PreAuthorize("@perm.canAction('PAYROLL_ADJUST')")
+    @PreAuthorize("@policy.canAction('PAYROLL_ADJUST')")
     public RunDetailView adjust(@Valid @RequestBody AdjustmentRequest request) { return payroll.adjust(request); }
 
     @PostMapping("/runs/{id}/review")
-    @PreAuthorize("@perm.canAction('PAYROLL_REVIEW')")
+    @PreAuthorize("@policy.canAction('PAYROLL_REVIEW')")
     public RunDetailView review(@PathVariable UUID id, @Valid @RequestBody ActionRequest request) {
         return payroll.review(id, request);
     }
 
     @PostMapping("/runs/{id}/approve")
-    @PreAuthorize("@perm.canAction('PAYROLL_APPROVE')")
+    @PreAuthorize("@policy.canAction('PAYROLL_APPROVE')")
     public RunDetailView approve(@PathVariable UUID id, @Valid @RequestBody ActionRequest request) {
         return payroll.approve(id, request);
     }
 
     @PostMapping("/runs/{id}/void")
-    @PreAuthorize("@perm.canAction('PAYROLL_VOID')")
+    @PreAuthorize("@policy.canAction('PAYROLL_VOID')")
     public RunDetailView voidRun(@PathVariable UUID id, @Valid @RequestBody ActionRequest request,
                                  @RequestHeader(value = "Idempotency-Key", required = false) String key) {
         return payroll.voidRun(id, request, key);
     }
 
     @PostMapping("/runs/{id}/pay")
-    @PreAuthorize("@perm.canAction('PAYROLL_PAY')")
+    @PreAuthorize("@policy.canAction('PAYROLL_PAY')")
     public PayResultView pay(@PathVariable UUID id, @Valid @RequestBody PayRequest request,
                              @RequestHeader(value = "Idempotency-Key", required = false) String key) {
         return payroll.pay(id, request, key);
     }
 
     @GetMapping("/runs/{id}/employees/{employeePayrollId}")
-    @PreAuthorize("@perm.canAction('PAYROLL_VIEW')")
+    @PreAuthorize("@policy.canAction('PAYROLL_VIEW')")
     public EmployeeView employee(@PathVariable UUID employeePayrollId) { return payroll.employee(employeePayrollId); }
 
     @PostMapping("/runs/{id}/payslips")
-    @PreAuthorize("@perm.canAction('PAYSLIP_REGENERATE')")
+    @PreAuthorize("@policy.canAction('PAYSLIP_REGENERATE')")
     public PayslipJobView generatePayslips(@PathVariable UUID id,
                                            @RequestHeader(value = "Idempotency-Key", required = false) String key) {
         return payroll.generatePayslips(id, key);
     }
 
     @GetMapping("/payslip-jobs/{id}")
-    @PreAuthorize("@perm.canAction('PAYSLIP_VIEW_ALL')")
+    @PreAuthorize("@policy.canAction('PAYSLIP_VIEW_ALL')")
     public PayslipJobView payslipJob(@PathVariable UUID id) { return payroll.payslipJob(id); }
 
     @GetMapping("/payslip-jobs/{id}/results")
-    @PreAuthorize("@perm.canAction('PAYSLIP_VIEW_ALL')")
+    @PreAuthorize("@policy.canAction('PAYSLIP_VIEW_ALL')")
     public List<PayslipJobResultView> payslipJobResults(@PathVariable UUID id) { return payroll.payslipJobResults(id); }
 
     @PostMapping("/payslip-jobs/{id}/retry")
-    @PreAuthorize("@perm.canAction('PAYSLIP_REGENERATE')")
+    @PreAuthorize("@policy.canAction('PAYSLIP_REGENERATE')")
     public PayslipJobView retryPayslipJob(@PathVariable UUID id,
                                           @RequestHeader(value = "Idempotency-Key", required = false) String key) {
         return payroll.retryPayslipJob(id, key);
     }
 
     @GetMapping("/payslips")
-    @PreAuthorize("@perm.canAction('PAYSLIP_VIEW_ALL')")
+    @PreAuthorize("@policy.canAction('PAYSLIP_VIEW_ALL')")
     public List<PayslipView> payslips() { return payroll.payslips(); }
 
     @GetMapping("/payslips/{id}")
-    @PreAuthorize("@perm.canAction('PAYSLIP_VIEW_ALL')")
+    @PreAuthorize("@policy.canAction('PAYSLIP_VIEW_ALL')")
     public PayslipView payslip(@PathVariable UUID id) { return payroll.payslip(id, false); }
 
     @GetMapping("/payslips/{id}/download")
-    @PreAuthorize("@perm.canAction('PAYSLIP_VIEW_ALL')")
+    @PreAuthorize("@policy.canAction('PAYSLIP_VIEW_ALL')")
     public ResponseEntity<byte[]> download(@PathVariable UUID id) {
         PayslipView slip = payroll.payslip(id, false);
         UUID documentId = payroll.payslipDocument(id, false);
@@ -175,7 +175,7 @@ public class PayrollController {
     }
 
     @PostMapping("/payslips/{id}/regenerate")
-    @PreAuthorize("@perm.canAction('PAYSLIP_REGENERATE')")
+    @PreAuthorize("@policy.canAction('PAYSLIP_REGENERATE')")
     public PayslipView regenerate(@PathVariable UUID id,
                                   @RequestHeader(value = "Idempotency-Key", required = false) String key) {
         return payroll.regeneratePayslip(id, key);

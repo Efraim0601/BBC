@@ -110,8 +110,10 @@ public class ReportCardPdfService {
                 ? "BAYO BILINGUAL COMPLEX" : (fr || branding.schoolNameEn() == null || branding.schoolNameEn().isBlank()
                 ? branding.schoolName() : branding.schoolNameEn());
         text(cs, bold(), 15, 205, 754, clip(schoolName, 34));
-        String location = branding == null ? "Maroua" : blankJoin(branding.city(), branding.country(), "Maroua");
-        text(cs, normal(), 9, 238, 740, clip(location + " · Official academic report card", 50));
+        String location = branding == null ? "Maroua" : blankJoin(
+                blankJoin(branding.address(), blankJoin(branding.city(), branding.country(), ""), ""),
+                "Official academic report card", "Maroua");
+        text(cs, normal(), 9, 238, 740, clip(location, 72));
         if (branding != null && branding.ministryText() != null && !branding.ministryText().isBlank()) {
             text(cs, normal(), 7, LEFT, 719, clip(branding.ministryText(), 72));
         }

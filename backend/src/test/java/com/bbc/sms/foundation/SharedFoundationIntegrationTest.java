@@ -96,7 +96,7 @@ class SharedFoundationIntegrationTest {
         for (String action : new String[]{
                 "ACADEMIC_ROSTER_VIEW", "STUDENT_DIRECTORY_VIEW", "ENROLLMENT_VIEW", "ATTENDANCE_POLICY_MANAGE", "ATTENDANCE_ROSTER_VIEW",
                 "ATTENDANCE_MARK", "ATTENDANCE_FINALIZE", "ATTENDANCE_REOPEN",
-                "ATTENDANCE_ANALYTICS_VIEW", "TIMETABLE_PUBLISH"}) {
+                "ATTENDANCE_ANALYTICS_VIEW", "ATTENDANCE_RECONCILE", "TIMETABLE_PUBLISH"}) {
             jdbc.update("""
                 INSERT INTO permission_role_action(school_id,role_code,action_code,effect,scope_mode,is_permanent,reason)
                 VALUES (?,? ,?,'ALLOW','SCHOOL_ALL',true,'Foundation integration fixture')
@@ -191,6 +191,97 @@ class SharedFoundationIntegrationTest {
     }
 
     @Test
+    void attendanceGenerationUsesOnlyThePublishedTimetableVersion() {
+        UUID academicId = UUID.randomUUID();
+        UUID classId = UUID.randomUUID();
+        UUID oldVersionId = UUID.randomUUID();
+        UUID publishedVersionId = UUID.randomUUID();
+        String sectionId = "v" + schoolId.toString().substring(0, 8);
+        LocalDate date = LocalDate.of(2026, 9, 1);
+
+        jdbc.update("INSERT INTO section(id,school_id,label,subsystem,level) VALUES (?,?,'Secondary','FR','secondary')",
+                sectionId, schoolId);
+        jdbc.update("""
+            INSERT INTO school_class(id,school_id,section_id,name,subsystem,level)
+            VALUES (?,?,?,'Versioned 4E','FR','secondary')
+            """, classId, schoolId, sectionId);
+        jdbc.update("""
+            INSERT INTO academic_session(id,school_id,code,label,start_date,end_date,status,is_current)
+            VALUES (?,?, '2026-2027','2026-2027','2026-09-01','2027-07-31','OPEN',true)
+            """, academicId, schoolId);
+        jdbc.update("""
+            INSERT INTO timetable_class_config(school_id,academic_session_id,class_id,model,status)
+            VALUES (?,?,?,'DEPARTMENTAL','PUBLISHED')
+            """, schoolId, academicId, classId);
+        jdbc.update("""
+            INSERT INTO timetable_version(id,school_id,academic_session_id,version_no,status,effective_from,effective_to,published_at)
+            VALUES (?,?,?,1,'ARCHIVED','2026-09-01','2027-07-31',NULL),
+                   (?,?,?,2,'PUBLISHED','2026-09-01','2027-07-31',now())
+            """, oldVersionId, schoolId, academicId, publishedVersionId, schoolId, academicId);
+        jdbc.update("""
+            INSERT INTO timetable_slot(id,school_id,class_id,academic_session_id,timetable_version_id,day_idx,slot_idx,subject_code)
+            VALUES (gen_random_uuid(),?,?,?,?,1,0,'FRANCAIS'),
+                   (gen_random_uuid(),?,?,?,?,1,0,'FRANCAIS')
+            """, schoolId, classId, academicId, oldVersionId,
+                schoolId, classId, academicId, publishedVersionId);
+
+        var preview = attendance.generate(date, date, true);
+
+        assertThat(preview.expectedSessions()).isEqualTo(1);
+        assertThat(preview.synchronizedSessions()).isZero();
+    }
+
+    @Test
+    void attendanceGenerationExcludesConfiguredHolidays() {
+        UUID academicId = UUID.randomUUID();
+        UUID classId = UUID.randomUUID();
+        String sectionId = "h" + schoolId.toString().substring(0, 8);
+        LocalDate date = LocalDate.of(2026, 9, 2);
+
+        jdbc.update("INSERT INTO section(id,school_id,label,subsystem,level) VALUES (?,?,'Holiday','FR','primary')",
+                sectionId, schoolId);
+        jdbc.update("""
+            INSERT INTO school_class(id,school_id,section_id,name,subsystem,level)
+            VALUES (?,?,?,'Holiday CP','FR','primary')
+            """, classId, schoolId, sectionId);
+        jdbc.update("""
+            INSERT INTO academic_session(id,school_id,code,label,start_date,end_date,status,is_current)
+            VALUES (?,?, '2026-2027','2026-2027','2026-09-01','2027-07-31','OPEN',true)
+            """, academicId, schoolId);
+        jdbc.update("INSERT INTO school_holiday(id,school_id,holiday_date,label) VALUES (gen_random_uuid(),?,?,?)",
+                schoolId, date, "Gate 8 holiday regression");
+
+        var preview = attendance.generate(date, date, true);
+
+        assertThat(preview.expectedSessions()).isZero();
+        assertThat(preview.synchronizedSessions()).isZero();
+    }
+
+    @Test
+    void attendanceGenerationSkipsSecondaryClassesWithoutPublishedConfiguration() {
+        UUID academicId = UUID.randomUUID();
+        UUID classId = UUID.randomUUID();
+        String sectionId = "n" + schoolId.toString().substring(0, 8);
+        LocalDate date = LocalDate.of(2026, 8, 14);
+
+        jdbc.update("INSERT INTO section(id,school_id,label,subsystem,level) VALUES (?,?,'No timetable','FR','secondary')",
+                sectionId, schoolId);
+        jdbc.update("""
+            INSERT INTO school_class(id,school_id,section_id,name,subsystem,level)
+            VALUES (?,?,?,'No timetable 6E','FR','secondary')
+            """, classId, schoolId, sectionId);
+        jdbc.update("""
+            INSERT INTO academic_session(id,school_id,code,label,start_date,end_date,status,is_current)
+            VALUES (?,?, 'G8-NO-TIMETABLE','G8 no timetable','2026-08-14','2026-08-14','OPEN',false)
+            """, academicId, schoolId);
+
+        var result = attendance.generate(date, date, false);
+
+        assertThat(result.expectedSessions()).isZero();
+        assertThat(result.synchronizedSessions()).isZero();
+    }
+
+    @Test
     void academicRosterUsesActiveEnrollmentForTheRequestedSessionAndClass() {
         UUID academicId = UUID.randomUUID();
         UUID classId = UUID.randomUUID();
@@ -214,6 +305,109 @@ class SharedFoundationIntegrationTest {
 
         assertThat(roster).extracting(v -> v.id()).containsExactly(enrolledStudent);
         assertThat(roster.getFirst().className()).isEqualTo("CE1");
+    }
+
+    @Test
+    void academicStudentRosterDoesNotRequireEnrollmentHistoryAuthority() {
+        UUID academicId = UUID.randomUUID();
+        UUID classId = UUID.randomUUID();
+        UUID subjectId = UUID.randomUUID();
+        UUID employeeId = UUID.randomUUID();
+        UUID teacherUserId = UUID.randomUUID();
+        UUID studentId = UUID.randomUUID();
+        String sectionId = "rd" + schoolId.toString().substring(0, 8);
+
+        jdbc.update("INSERT INTO section(id,school_id,label,subsystem,level) VALUES (?,?,?,'FR','secondary')",
+                sectionId, schoolId, "Roster boundary");
+        jdbc.update("INSERT INTO school_class(id,school_id,section_id,name,subsystem,level) VALUES (?,?,?,'4E Roster','FR','secondary')",
+                classId, schoolId, sectionId);
+        jdbc.update("INSERT INTO academic_session(id,school_id,code,label,start_date,end_date,status,is_current) VALUES (?,?, '2026-2027','2026-2027','2026-09-01','2027-07-31','OPEN',true)",
+                academicId, schoolId);
+        jdbc.update("INSERT INTO employee(id,school_id,code,name,type,active,level) VALUES (?,?,?,'Roster Teacher','Permanent',true,'secondary')",
+                employeeId, schoolId, "RD-" + schoolId.toString().substring(0, 8));
+        jdbc.update("INSERT INTO app_user(id,school_id,username,password_hash,display_name,initials,role_code,employee_id,active) VALUES (?,?,?,'test','Roster Teacher','RT','form_teacher',?,true)",
+                teacherUserId, schoolId, "roster-teacher-" + schoolId.toString().substring(0, 8), employeeId);
+        jdbc.update("INSERT INTO app_user_role(school_id,user_id,role_code,is_primary,reason) VALUES (?,?, 'form_teacher',true,'Roster policy boundary regression') ON CONFLICT DO NOTHING",
+                schoolId, teacherUserId);
+        for (String action : new String[]{"ACADEMIC_ROSTER_VIEW", "STUDENT_DIRECTORY_VIEW"}) {
+            jdbc.update("INSERT INTO permission_role_action(school_id,role_code,action_code,effect,scope_mode,is_permanent,reason) VALUES (?,?,?,'ALLOW','ASSIGNED_CLASSES',true,'Roster policy boundary regression') ON CONFLICT DO NOTHING",
+                    schoolId, "form_teacher", action);
+        }
+        jdbc.update("INSERT INTO subject(id,school_id,code,label,coef,subsystem) VALUES (?,?,?,'{\"fr\":\"Français\",\"en\":\"French\"}'::jsonb,1,'FR')",
+                subjectId, schoolId, "RD-FR");
+        jdbc.update("INSERT INTO academic_class_subject_teacher(school_id,academic_session_id,class_id,subject_id,employee_id,role,effective_from,source,active) VALUES (?,?,?,?,?,'RESPONSIBLE','2026-09-01','ACADEMIC_SETUP',true)",
+                schoolId, academicId, classId, subjectId, employeeId);
+        jdbc.update("INSERT INTO student(id,school_id,matricule,first_name,last_name,class_id,class_name,subsystem,level) VALUES (?,?, 'RD-1','Active','Roster',?,'4E Roster','FR','secondary')",
+                studentId, schoolId, classId);
+        jdbc.update("INSERT INTO student_enrollment(school_id,student_id,academic_session_id,school_class_id,class_name_snapshot,level_snapshot,subsystem_snapshot,status,enrolled_on,source) VALUES (?,?,?,?,'4E Roster','secondary','FR','ACTIVE','2026-09-01','TEST')",
+                schoolId, studentId, academicId, classId);
+
+        AppUserPrincipal teacher = new AppUserPrincipal(teacherUserId, schoolId,
+                "roster-teacher", "form_teacher", "Roster Teacher", "RT");
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(teacher, null, teacher.getAuthorities()));
+
+        assertThat(students.roster(academicId, classId)).extracting(v -> v.id()).containsExactly(studentId);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM permission_role_action WHERE school_id=? AND role_code='form_teacher' AND action_code='ENROLLMENT_VIEW'",
+                Integer.class, schoolId)).isZero();
+        assertThat(jdbc.queryForObject("""
+                SELECT count(*) FROM permission_role_template_rule
+                 WHERE template_code='form_teacher'
+                   AND action_code='STUDENT_DIRECTORY_VIEW'
+                   AND effect='ALLOW' AND scope_mode='ASSIGNED_CLASSES'
+                """, Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("""
+                SELECT count(*) FROM permission_role_action
+                 WHERE school_id=? AND role_code='form_teacher'
+                   AND action_code='STUDENT_DIRECTORY_VIEW'
+                   AND effect='ALLOW' AND scope_mode='ASSIGNED_CLASSES'
+                """, Integer.class, schoolId)).isEqualTo(1);
+    }
+
+    @Test
+    void teacherStudentDirectoryOrdersDistinctEnrollmentRowsWithPostgresCompatibleSql() {
+        UUID academicId = UUID.randomUUID();
+        UUID classId = UUID.randomUUID();
+        UUID subjectId = UUID.randomUUID();
+        UUID employeeId = UUID.randomUUID();
+        UUID teacherUserId = UUID.randomUUID();
+        UUID studentId = UUID.randomUUID();
+        String sectionId = "sd" + schoolId.toString().substring(0, 8);
+
+        jdbc.update("INSERT INTO section(id,school_id,label,subsystem,level) VALUES (?,?,?,'FR','secondary')",
+                sectionId, schoolId, "Directory");
+        jdbc.update("INSERT INTO school_class(id,school_id,section_id,name,subsystem,level) VALUES (?,?,?,'6eme Directory','FR','secondary')",
+                classId, schoolId, sectionId);
+        jdbc.update("INSERT INTO academic_session(id,school_id,code,label,start_date,end_date,status,is_current) VALUES (?,?, '2026-2027','2026-2027','2026-09-01','2027-07-31','OPEN',true)",
+                academicId, schoolId);
+        jdbc.update("INSERT INTO employee(id,school_id,code,name,type,active,level) VALUES (?,?,?,'Directory Teacher','Permanent',true,'secondary')",
+                employeeId, schoolId, "SD-" + schoolId.toString().substring(0, 8));
+        jdbc.update("INSERT INTO app_user(id,school_id,username,password_hash,display_name,initials,role_code,employee_id,active) VALUES (?,?,?,'test','Directory Teacher','DT','teacher',?,true)",
+                teacherUserId, schoolId, "directory-teacher-" + schoolId.toString().substring(0, 8), employeeId);
+        jdbc.update("INSERT INTO app_user_role(school_id,user_id,role_code,is_primary,reason) VALUES (?,?, 'teacher',true,'Student directory regression') ON CONFLICT DO NOTHING",
+                schoolId, teacherUserId);
+        jdbc.update("INSERT INTO permission_role_action(school_id,role_code,action_code,effect,scope_mode,is_permanent,reason) VALUES (?,?,?,'ALLOW','ASSIGNED_CLASSES',true,'Student directory regression') ON CONFLICT DO NOTHING",
+                schoolId, "teacher", "ACADEMIC_ROSTER_VIEW");
+        jdbc.update("INSERT INTO permission_role_action(school_id,role_code,action_code,effect,scope_mode,is_permanent,reason) VALUES (?,?,?,'ALLOW','ASSIGNED_CLASSES',true,'Student directory regression') ON CONFLICT DO NOTHING",
+                schoolId, "teacher", "STUDENT_DIRECTORY_VIEW");
+        jdbc.update("INSERT INTO subject(id,school_id,code,label,coef,subsystem) VALUES (?,?,?,'{\"fr\":\"Math\",\"en\":\"Math\"}'::jsonb,1,'FR')",
+                subjectId, schoolId, "SDM");
+        jdbc.update("INSERT INTO academic_class_subject_teacher(school_id,academic_session_id,class_id,subject_id,employee_id,role,effective_from,source,active) VALUES (?,?,?,?,?,'RESPONSIBLE','2026-09-01','MANUAL',true)",
+                schoolId, academicId, classId, subjectId, employeeId);
+        jdbc.update("INSERT INTO student(id,school_id,matricule,first_name,last_name,class_id,class_name,subsystem,level) VALUES (?,?, 'SD-1','Ada','Directory',?,'6eme Directory','FR','secondary')",
+                studentId, schoolId, classId);
+        jdbc.update("INSERT INTO student_enrollment(school_id,student_id,academic_session_id,school_class_id,class_name_snapshot,level_snapshot,subsystem_snapshot,status,enrolled_on,source) VALUES (?,?,?,?,'6eme Directory','secondary','FR','ACTIVE','2026-09-01','TEST')",
+                schoolId, studentId, academicId, classId);
+
+        AppUserPrincipal teacher = new AppUserPrincipal(teacherUserId, schoolId, "directory-teacher", "teacher",
+                "Directory Teacher", "DT");
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(teacher, null, teacher.getAuthorities()));
+
+        var rows = students.list(null);
+
+        assertThat(rows).extracting(v -> v.id()).containsExactly(studentId);
+        assertThat(rows.getFirst().className()).isEqualTo("6eme Directory");
     }
 
     @Test

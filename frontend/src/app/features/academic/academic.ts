@@ -1054,6 +1054,43 @@ export class AcademicComponent {
       s.name.toLowerCase().includes(q) || s.matricule.toLowerCase().includes(q));
   });
 
+  /** Teacher grade-entry must use the server-filtered academic scope model.
+   * The setup class catalogue is intentionally reserved for administration
+   * and returns 403 for ordinary teachers. */
+  private loadClasses(): void {
+    const role = this.auth.user()?.role;
+    if (role === 'teacher' || role === 'form_teacher') {
+      this.api.academicMyScope().subscribe({
+        next: (scope) => {
+          const seen = new Set<string>();
+          const classes = [...scope.subjects, ...scope.classOverviews]
+            .filter((item) => {
+              if (seen.has(item.classId)) return false;
+              seen.add(item.classId);
+              return true;
+            })
+            .map((item) => ({
+              id: item.classId,
+              name: item.className,
+              sectionId: '',
+              sectionLabel: '',
+              subsystem: '',
+              level: item.level,
+              studentCount: 0,
+              teacherCount: 0,
+            }));
+          this.classes.set(classes);
+        },
+        error: () => this.classes.set([]),
+      });
+      return;
+    }
+    this.setupApi.listClasses().subscribe({
+      next: (classes) => this.classes.set(classes),
+      error: () => this.classes.set([]),
+    });
+  }
+
   constructor() {
     const requestedMode = this.route.snapshot.queryParamMap.get('mode') as Mode | null;
     const requestedClassId = this.route.snapshot.queryParamMap.get('classId');
@@ -1061,10 +1098,7 @@ export class AcademicComponent {
     const requestedSubjectCode = this.route.snapshot.queryParamMap.get('subjectCode');
     if (requestedSubjectCode) this.selectedGradeSubjectCode.set(requestedSubjectCode.toUpperCase());
     if (requestedMode && ['bulletin', 'grade-entry', 'inputs', 'pv', 'overview', 'batch'].includes(requestedMode)) this.mode.set(requestedMode);
-    this.setupApi.listClasses().subscribe({
-      next: (c) => { this.classes.set(c); const klass = c.find((item) => item.id === requestedClassId); if (klass && this.academicSessionId()) this.onClassChange(klass.name, !!requestedSubjectCode); },
-      error: () => this.classes.set([]),
-    });
+    this.loadClasses();
     this.foundationApi.currentSession().subscribe({
       next: (s) => {
         this.academicSessionId.set(s.id);
