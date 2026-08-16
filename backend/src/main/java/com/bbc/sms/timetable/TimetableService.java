@@ -80,6 +80,16 @@ public class TimetableService {
     @Transactional(readOnly=true)
     public List<PeriodView> periods() {
         policy.require("TIMETABLE_MASTER_VIEW", schoolContext());
+        return periodsInternal();
+    }
+
+    /**
+     * Read-only period metadata used by teacher schedules.  The period
+     * configuration is school-wide, but exposing it as part of a teacher's
+     * already-authorized schedule must not grant access to edit or administer
+     * the master timetable.
+     */
+    private List<PeriodView> periodsInternal() {
         return jdbc.query("SELECT id,slot_idx,label,start_time,end_time,active FROM timetable_period WHERE school_id=? AND active ORDER BY slot_idx",
             (rs,n)->new PeriodView(rs.getObject(1,UUID.class),rs.getInt(2),rs.getString(3),
                 rs.getTime(4).toLocalTime().toString(),rs.getTime(5).toLocalTime().toString(),rs.getBoolean(6)),TenantContext.get());
@@ -326,6 +336,8 @@ public class TimetableService {
         Map<UUID,String> names=classNames(schoolId);
         Map<UUID,SchoolClass> classes=classRepo.findBySchoolIdOrderByName(schoolId).stream()
             .collect(Collectors.toMap(SchoolClass::getId,c->c));
+        Map<String,String> subjectNames=jdbc.query("SELECT code,COALESCE(label->>'fr',label->>'en',code) FROM subject WHERE school_id=?",
+            rs->{ Map<String,String> result=new HashMap<>(); while(rs.next()) result.put(rs.getString(1),rs.getString(2)); return result; }, schoolId);
         List<SlotView> slots=new ArrayList<>();
         for (TimetableSlot slot : slotRepo.findBySchoolIdAndAcademicSessionId(schoolId,academic.getId())) {
             if (!isPublished(slot.getClassId(),academic.getId())) continue;
@@ -335,11 +347,11 @@ public class TimetableService {
             UUID effectiveTeacher=slot.getPublishedTeacherId()==null ? slot.getTeacherId() : slot.getPublishedTeacherId();
             if (teacherId.equals(effectiveTeacher)) {
                 slots.add(new SlotView(slot.getId(),slot.getDayIdx(),slot.getSlotIdx(),slot.getSubjectCode(),
-                    effectiveTeacher,slot.getRoom(),names.get(slot.getClassId())));
+                    effectiveTeacher,slot.getRoom(),names.get(slot.getClassId()),subjectNames.get(slot.getSubjectCode())));
             }
         }
         slots.sort(Comparator.comparingInt(SlotView::dayIdx).thenComparingInt(SlotView::slotIdx));
-        return new TeacherSchedule(teacherId,teacher.getName(),academic.getLabel(),slots);
+        return new TeacherSchedule(teacherId,teacher.getName(),academic.getLabel(),periodsInternal(),slots);
     }
 
     private void validateTeachingModel(SubjectTeacherView assignment,UUID requestedTeacherId,String subjectCode) {

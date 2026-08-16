@@ -11,10 +11,10 @@ export interface SubjectTeacherView { subjectCode:string; teacherId:string|null;
   status?:'RESOLVED'|'MISSING'|'AMBIGUOUS'; errorCode?:string|null; assignmentId?:string|null; assignmentVersion?:number; }
 export interface PeriodView { id:string; slotIdx:number; label:string; startTime:string; endTime:string; active:boolean; }
 export interface SlotView { id:string; dayIdx:number; slotIdx:number; subjectCode:string|null;
-  teacherId:string|null; room:string|null; className:string|null; }
+  teacherId:string|null; room:string|null; className:string|null; subjectName?:string|null; }
 export interface ConflictSlot { classId:string; className:string|null; subjectCode:string|null; room:string|null; }
 export interface TeacherConflict { dayIdx:number; slotIdx:number; teacherId:string; teacherName:string|null; slots:ConflictSlot[]; }
-export interface TeacherSchedule { teacherId:string; teacherName:string; sessionLabel:string; slots:SlotView[]; }
+export interface TeacherSchedule { teacherId:string; teacherName:string; sessionLabel:string; periods?:PeriodView[]; slots:SlotView[]; }
 export interface SlotSaveBody { className:string; dayIdx:number; slotIdx:number; subjectCode?:string; teacherId?:string; room?:string; }
 export interface TimetableVersionView { id:string; academicSessionId:string; versionNo:number; status:'DRAFT'|'PUBLISHED'|'ARCHIVED'; effectiveFrom:string; effectiveTo:string|null; timezone:string; copiedFromVersionId:string|null; slotCount:number; classCount:number; version:number; }
 export interface TimetableVersionDiff { fromVersionId:string; toVersionId:string; added:number; removed:number; changed:number; changes:string[]; }
