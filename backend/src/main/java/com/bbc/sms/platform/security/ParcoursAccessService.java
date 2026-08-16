@@ -37,8 +37,28 @@ public class ParcoursAccessService {
     }
 
     public String scopeMode(UUID userId) {
-        return jdbc.query("SELECT COALESCE(parcours_scope_mode,'NONE') FROM app_user WHERE id=?",
-                rs -> rs.next() ? rs.getString(1).toUpperCase() : "NONE", userId);
+        // Accountants operate school-wide.  Their role is the source of truth
+        // for the parcours picker, just like the finance action policy is the
+        // source of truth for fee collection.  Do not depend on the historic
+        // per-user column here: accounts created before the scope backfill (or
+        // accounts whose role was changed later) may still contain NONE or a
+        // teacher-derived value.  A role-level decision keeps the rule true
+        // for every current and future accountant account.
+        return jdbc.query("""
+                SELECT CASE WHEN lower(COALESCE(u.role_code,''))='accountant'
+                                  OR EXISTS (
+                                      SELECT 1 FROM app_user_role ur
+                                       WHERE ur.user_id=u.id
+                                         AND lower(ur.role_code)='accountant'
+                                         AND (ur.effective_from IS NULL OR ur.effective_from<=current_date)
+                                         AND (ur.effective_to IS NULL OR ur.effective_to>=current_date)
+                                  )
+                            THEN 'GLOBAL'
+                            ELSE COALESCE(u.parcours_scope_mode,'NONE')
+                       END
+                  FROM app_user u
+                 WHERE u.id=?
+                """, rs -> rs.next() ? rs.getString(1).toUpperCase() : "NONE", userId);
     }
 
     public boolean isGlobal(UUID userId) { return "GLOBAL".equals(scopeMode(userId)); }

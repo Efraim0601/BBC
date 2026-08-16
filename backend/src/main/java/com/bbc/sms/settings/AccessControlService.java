@@ -380,7 +380,11 @@ public class AccessControlService {
             if (raw.permanent() && raw.effectiveTo() != null) {
                 throw ApiException.badRequest("Une règle permanente ne peut pas avoir de date de fin");
             }
-            if (enforceExpiry && !raw.permanent()
+            // Inherited rules are only placeholders in a role replacement;
+            // they do not grant or deny anything. Require an expiry only for
+            // an explicit sensitive ALLOW/DENY rule being written.
+            if (enforceExpiry && ("ALLOW".equals(effect) || "DENY".equals(effect))
+                    && !raw.permanent()
                     && Set.of("HIGH", "CRITICAL").contains(action.riskLevel())
                     && raw.effectiveTo() == null) {
                 throw ApiException.badRequest("Une règle sensible doit avoir une date de fin ou être permanente");
