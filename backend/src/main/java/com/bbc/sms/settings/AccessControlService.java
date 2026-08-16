@@ -41,18 +41,6 @@ public class AccessControlService {
 
     private record PotentialGrant(boolean allowed, String scopeMode) {}
 
-    private static final List<Set<String>> SEPARATION_OF_DUTY_CONFLICTS = List.of(
-            Set.of("FEE_WAIVE_REQUEST", "FEE_WAIVE_APPROVE"),
-            Set.of("REFUND_REQUEST", "REFUND_APPROVE"),
-            Set.of("PAYMENT_COLLECT", "PAYMENT_REVERSE"),
-            Set.of("CASHIER_SESSION_OPEN", "CASHIER_SESSION_CLOSE"),
-            Set.of("CASHIER_SESSION_APPROVE", "CASHIER_SESSION_CLOSE"),
-            Set.of("LEDGER_POST", "LEDGER_REVERSE"),
-            Set.of("LEDGER_CLOSE", "LEDGER_REOPEN"),
-            Set.of("PAYROLL_CALCULATE", "PAYROLL_APPROVE"),
-            Set.of("PAYROLL_REVIEW", "PAYROLL_APPROVE"),
-            Set.of("PAYROLL_APPROVE", "PAYROLL_PAY"));
-
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
     private final AuthorizationPolicyService policy;
@@ -111,8 +99,7 @@ public class AccessControlService {
     @Transactional(readOnly = true)
     public PolicyPreview previewRole(String roleCode, RoleMutation mutation) {
         RoleView role = role(roleCode);
-        List<RuleInput> desired = validateRules(roleCode, mutation.rules(), false,
-                mutation.separationOfDutiesOverride(), mutation.separationOfDutiesReason(), false);
+        List<RuleInput> desired = validateRules(roleCode, mutation.rules(), false);
         List<RuleView> before = roleRules(roleCode);
         return preview("ROLE", role.code(), before, desired,
                 affectedUsers(role.code()), preservedUserExceptions(role.code()));
@@ -123,8 +110,7 @@ public class AccessControlService {
         RoleView role = role(roleCode);
         assertVersion(mutation.expectedPolicyVersion());
         List<RuleView> beforeRules = roleRules(roleCode);
-        List<RuleInput> desired = validateRules(roleCode, mutation.rules(), true,
-                mutation.separationOfDutiesOverride(), mutation.separationOfDutiesReason(), true);
+        List<RuleInput> desired = validateRules(roleCode, mutation.rules(), true);
         requireHighRiskConfirmation(beforeRules, desired, mutation.confirmHighRisk());
         assertPermissionAdministratorSurvivesRoleMutation(role.code(), desired);
         String before = json(beforeRules);
@@ -193,8 +179,7 @@ public class AccessControlService {
     @Transactional(readOnly = true)
     public PolicyPreview previewUser(UUID userId, UserMutation mutation) {
         user(userId);
-        List<RuleInput> desired = validateRules("user:" + userId, mutation.rules(), false,
-                mutation.separationOfDutiesOverride(), mutation.separationOfDutiesReason(), false);
+        List<RuleInput> desired = validateRules("user:" + userId, mutation.rules(), false);
         return preview("USER", userId.toString(), userRules(userId), desired,
                 List.of(user(userId)), List.of());
     }
@@ -204,8 +189,7 @@ public class AccessControlService {
         user(userId);
         assertVersion(mutation.expectedPolicyVersion());
         List<RuleView> beforeRules = userRules(userId);
-        List<RuleInput> desired = validateRules("user:" + userId, mutation.rules(), true,
-                mutation.separationOfDutiesOverride(), mutation.separationOfDutiesReason(), true);
+        List<RuleInput> desired = validateRules("user:" + userId, mutation.rules(), true);
         requireHighRiskConfirmation(beforeRules, desired, mutation.confirmHighRisk());
         assertPermissionAdministratorSurvivesUserMutation(userId, desired);
         String before = json(beforeRules);
@@ -332,10 +316,7 @@ public class AccessControlService {
                 rs.getObject("occurred_at", OffsetDateTime.class)), schoolId(), safeLimit);
     }
 
-    private List<RuleInput> validateRules(String subject, List<RuleInput> rules, boolean enforceExpiry,
-                                          boolean separationOfDutiesOverride,
-                                          String separationOfDutiesReason,
-                                          boolean strictSeparationOfDuties) {
+    private List<RuleInput> validateRules(String subject, List<RuleInput> rules, boolean enforceExpiry) {
         if (rules == null) throw ApiException.badRequest("La liste des règles est obligatoire");
         Map<String, ActionMeta> actions = catalog().stream().collect(Collectors.toMap(
                 ActionView::code, a -> new ActionMeta(a.code(), a.module(), a.groupCode(),
@@ -400,15 +381,9 @@ public class AccessControlService {
                     hasScopePayload(raw.scopePayload()) ? raw.scopePayload() : null,
                     raw.effectiveFrom(), raw.effectiveTo(), raw.permanent(), raw.reason().trim()));
         }
-        List<Set<String>> conflicts = separationOfDutiesConflicts(normalized);
-        if (separationOfDutiesOverride
-                && (separationOfDutiesReason == null || separationOfDutiesReason.isBlank())) {
-            throw ApiException.badRequest("La justification de l'exception de séparation des tâches est obligatoire");
-        }
-        if (strictSeparationOfDuties && !conflicts.isEmpty() && !separationOfDutiesOverride) {
-            throw ApiException.coded(HttpStatus.CONFLICT, "FINANCE_SEPARATION_OF_DUTIES",
-                    "Ces actions financières créent un conflit de séparation des tâches. Documentez une exception explicite.");
-        }
+        // Separation-of-duties enforcement is intentionally disabled for now.
+        // Keep the request fields for API compatibility so the control can be
+        // reintroduced later without changing the access-control contract.
         return normalized;
     }
 
@@ -456,11 +431,6 @@ public class AccessControlService {
                         "This rule covers the whole school."));
             }
         }
-        if (!separationOfDutiesConflicts(after).isEmpty()) {
-            warnings.add(new RiskWarning("FINANCE_SEPARATION_OF_DUTIES", "CRITICAL",
-                    "Cette combinaison sépare mal la demande, l'approbation ou la clôture financière.",
-                    "This combination conflicts with request, approval, reversal or close duties."));
-        }
         if (!preservedUserExceptions.isEmpty()) {
             warnings.add(new RiskWarning("USER_EXCEPTIONS_PRESERVED", "MEDIUM",
                     "Les exceptions explicites des utilisateurs concernés seront conservées.",
@@ -471,16 +441,6 @@ public class AccessControlService {
                         Set.of("HIGH", "CRITICAL").contains(w.severity())),
                 affectedUsers == null ? List.of() : affectedUsers,
                 preservedUserExceptions == null ? List.of() : preservedUserExceptions);
-    }
-
-    private List<Set<String>> separationOfDutiesConflicts(List<RuleInput> rules) {
-        Set<String> allowed = rules.stream()
-                .filter(rule -> "ALLOW".equals(rule.effect()))
-                .map(RuleInput::actionCode)
-                .collect(Collectors.toSet());
-        return SEPARATION_OF_DUTY_CONFLICTS.stream()
-                .filter(pair -> pair.stream().allMatch(allowed::contains))
-                .toList();
     }
 
     private void requireHighRiskConfirmation(List<RuleView> before, List<RuleInput> after,
