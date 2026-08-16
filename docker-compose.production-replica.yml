@@ -1,0 +1,45 @@
+# Isolated local production-replica stack.
+#
+# It uses the same application image/source as the simulation stack, but a
+# different PostgreSQL volume and different host ports. Both stacks can run at
+# the same time; switching is simply switching the browser URL.
+#
+# Start with:
+#   docker compose -p bbc-production-replica \
+#     -f docker-compose.yml -f docker-compose.production-replica.yml \
+#     up -d --build
+services:
+  db:
+    ports: !override
+      - "5543:5432"
+    volumes: !override
+      - bbc-production-replica-db:/var/lib/postgresql/data
+
+  backend:
+    environment:
+      BBC_ADMIN_USERNAME: admin
+      BBC_ADMIN_PASSWORD: admin
+      BBC_ADMIN_NAME: Production Administrator
+      BBC_CORS_ORIGINS: http://localhost:8120
+      SPRING_PROFILES_ACTIVE: e2e
+      BBC_E2E_FIXTURES_ENABLED: "false"
+    ports: !override
+      - "8121:8080"
+    volumes: !override
+      - bbc-production-replica-documents:/data/documents
+
+  frontend:
+    ports: !override
+      - "8120:80"
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "8145:8025"
+
+volumes:
+  bbc-production-replica-db:
+    external: true
+    name: bbc-production-replica-db
+  bbc-production-replica-documents:
+    name: bbc-production-replica-documents
