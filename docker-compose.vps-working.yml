@@ -1,0 +1,41 @@
+# VPS override for the working/test database stack.
+# Run with:
+#   docker compose --env-file .env.vps-working -p bbc-working \
+#     -f docker-compose.server.yml -f docker-compose.vps-working.yml up -d --build
+services:
+  db:
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
+    ports: !override
+      - "127.0.0.1:25432:5432"
+    volumes: !override
+      - bbc_working_pgdata:/var/lib/postgresql/data
+
+  backend:
+    environment:
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
+      BBC_CORS_ORIGINS: ${PUBLIC_ORIGIN:?PUBLIC_ORIGIN must be set}
+      BBC_JWT_SECRET: ${BBC_JWT_SECRET:?BBC_JWT_SECRET must be set}
+      BBC_ADMIN_USERNAME: ${BBC_ADMIN_USERNAME:-admin}
+      BBC_ADMIN_PASSWORD: ${BBC_ADMIN_PASSWORD:-}
+      BBC_ADMIN_NAME: ${BBC_ADMIN_NAME:-Administrator}
+      BBC_SCHOOL_NAME: ${BBC_SCHOOL_NAME:-Bayo Bilingual Complex}
+      BBC_SCHOOL_CODE: ${BBC_SCHOOL_CODE:-BBC}
+    ports: !override
+      - "127.0.0.1:28080:8080"
+    volumes: !override
+      - bbc_working_documents:/data/documents
+
+  frontend:
+    ports: !override
+      - "20080:80"
+      - "20443:443"
+    volumes: !override
+      - ./frontend/nginx.ssl.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certs-working:/etc/nginx/certs:ro
+
+volumes:
+  bbc_working_pgdata:
+    name: bbc-vps-working-pgdata
+  bbc_working_documents:
+    name: bbc-vps-working-documents
