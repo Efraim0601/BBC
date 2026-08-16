@@ -24,13 +24,13 @@ The current database contains the following high-level data:
 | Area | Current count | Meaning |
 |---|---:|---|
 | Students | 745 | 740 source rows plus five deliberate demonstration records |
-| Classes | 43 | Maternelle, primary, and secondary French/English classes |
+| Classes | 46 | Maternelle, primary, and secondary French/English classes |
 | Subjects | 42 | French and English subject catalogue |
-| Class-subject assignments | 499 | Curriculum rows with class-specific coefficients and rules |
+| Class-subject assignments | 532 | Curriculum rows with class-specific coefficients and rules |
 | Employees | 11 | Teachers, form teachers, accountant, and direction |
 | Guardians | 607 | Imported guardians plus portal-enabled demonstration families |
 | Enrollments | 745 | One current-session enrollment per imported/demo student |
-| Assessment templates | 2,994 | One default assessment per assigned subject for S1–S6 |
+| Assessment templates | 3,192 | One default assessment per assigned subject for S1–S6 |
 | Timetable slots | 100 | Four representative classes, 25 slots each |
 
 The latest Git branch was already pushed before this document was prepared. `git push` returned `Everything up-to-date`; no unrelated generated artifacts were staged.
@@ -234,6 +234,10 @@ The result must not be manually entered as if it were an eighth unrelated examin
 
 ### 6.1 Sections created
 
+In this application, a **section** is the parcours boundary: educational level plus language subsystem (`maternelle|primary|secondary` × `FR|EN`). A grade band such as SIL, CE1, or 6ème is represented by the class name, not by a second section record. This is enforced by the API’s section model, whose level is limited to `maternelle`, `primary`, or `secondary`.
+
+Therefore, SIL/CP/CE1/CE2/CM1/CM2 are the primary class families inside `Primaire FR` (or `Primary EN` where the English naming is used), while 6ème/5ème/4ème/etc. are the secondary class families inside `Secondaire FR` or `Secondary EN`.
+
 | Code | Label | Educational level | Language |
 |---|---|---|---|
 | mat-fr | Maternelle FR | Maternelle | French |
@@ -242,6 +246,12 @@ The result must not be manually entered as if it were an eighth unrelated examin
 | pri-en | Primary EN | Primary | English |
 | sec-fr | Secondaire FR | Secondary | French |
 | sec-en | Secondary EN | Secondary | English |
+
+### 6.1.1 Nursery/maternelle decision
+
+Maternelle should remain a separate **educational level** in the database, while it may be displayed under a broader “Primary school” administrative umbrella in navigation. The reason is that the application already gives it a distinct level and policy model: its curriculum, age range, report-card expectations, fee policy, progression rules, and future attendance/reporting needs are not identical to primary. Treating it as primary only at the UI grouping level preserves a simple user experience without losing the data distinction needed for correct rules.
+
+That is the model used here: `Maternelle FR` and `Maternelle EN` are separate sections, but both can be managed by the same school administration. The mandatory production walkthrough currently focuses on primary and secondary as requested; the maternelle data is configured and structurally ready.
 
 ### 6.2 Classes created
 
@@ -258,12 +268,12 @@ Maternelle EN:
 
 Primary FR:
 
-- `SIL B`, `SIL C`
+- `SIL A`, `SIL B`, `SIL C`
 - `CP A`, `CP B`, `CP C`
 - `CE1 A`, `CE1 B`, `CE1 C`
 - `CE2 A`, `CE2 B`, `CE2 C`
-- `CM1 A`, `CM1 B`
-- `CM2 A`, `CM2 B`
+- `CM1 A`, `CM1 B`, `CM1 C`
+- `CM2 A`, `CM2 B`, `CM2 C`
 
 Primary EN:
 
@@ -325,7 +335,7 @@ The subject-level coefficient is only the default. The report card must use the 
 
 ### 7.3 Curriculum configured
 
-There are 499 curriculum rows:
+There are 532 curriculum rows:
 
 | Level/language | Main default curriculum |
 |---|---|
@@ -372,13 +382,21 @@ Do not implement a per-subject hard fail merely because a curriculum row is mark
 
 For primary/maternelle, the class teacher is the default responsible teacher for the class. The class teacher can see and enter all configured subjects for the assigned class, subject to the final permission policy.
 
-The new database configured homeroom assignments for all 26 non-secondary classes. The representative links include:
+The new database configured homeroom assignments for all 29 non-secondary classes. The representative links include:
 
 - MBAH Junior: CE1 A, CE1 C, CM1 A, CM2 A, SIL B
 - Jeanne Dongmo: CE1 B, CE2 A, CM1 B, CM2 B, SIL C
 - Paul Ngono: the remaining French primary classes
 - Aline Ndom: all configured maternelle classes
 - Grace Forchu: all configured primary English classes
+
+The three final primary-French class slots were then completed from sibling-class templates:
+
+- `SIL A` copied the SIL B curriculum and homeroom responsibility.
+- `CM1 C` copied the CM1 B curriculum and homeroom responsibility.
+- `CM2 C` copied the CM2 B curriculum and homeroom responsibility.
+
+Each of these classes now has 11 curriculum subjects, six sequence templates, and an active homeroom assignment. They have no imported students because no source file identified those classes; they are ready for normal admissions.
 
 ### 8.3 Secondary rule
 
@@ -543,11 +561,12 @@ The request contains `academicSessionId`, `classId`, and `mode=ALL_SEQUENCES`; t
 
 ### 10.3 Actual result
 
-The template was applied for all 43 classes:
+The template was applied for all 46 classes:
 
-- 2,994 assessment rows created.
+- 3,192 assessment rows created.
 - One default assessment per assigned subject for S1 through S6.
 - `6ème A` preview contained 90 rows (15 subjects × 6 sequences).
+- The three newly completed primary classes each added 66 rows (11 subjects × 6 sequences).
 
 Running the same generation again returns zero rows to update because the operation is idempotent. That is expected; the user should be directed to the existing evaluation list rather than seeing a confusing empty result.
 
@@ -740,7 +759,7 @@ Current version:
 - Slots: 100
 - Classes represented: CE1 A, 6ème A, Class 1, Nursery 1
 
-The 100 slots were intentionally limited to four representative classes. The other 39 classes are configured and enrolled where applicable but do not yet have a populated weekly master timetable.
+The 100 slots were intentionally limited to four representative classes. The other 42 classes are configured and enrolled where applicable but do not yet have a populated weekly master timetable.
 
 ### 12.3 Timetable tests completed
 
@@ -1042,13 +1061,13 @@ This is the recommended human test sequence on `http://localhost:8110`.
 - New database has no dependency on old database volumes.
 - School profile persisted with correct UTF-8 accents.
 - Current academic session and reporting-period dependencies created.
-- Six sections and 43 classes created.
-- 42 subjects and 499 curriculum rows created.
+- Six sections and 46 classes created.
+- 42 subjects and 532 curriculum rows created.
 - 248 secondary subject responsibilities configured.
-- 26 primary/maternelle homeroom assignments configured.
+- 29 primary/maternelle homeroom assignments configured.
 - 740 source rows imported, with two explicit incomplete-name review records.
 - Five demonstration students/family cases added.
-- 2,994 idempotent assessment templates generated.
+- 3,192 idempotent assessment templates generated.
 - Finance fee plans and installment template created.
 - Charges generated with zero blocked/failed rows across tested scopes.
 - A partial payment and a full payment posted with receipts and journal entries.
