@@ -22,6 +22,12 @@ public class TimetableController {
         return service.classes();
     }
 
+    @GetMapping("/classes/{classId}/subject-teachers")
+    @PreAuthorize("@perm.can('timetable','read')")
+    public List<SubjectTeacherView> subjectTeachers(@PathVariable java.util.UUID classId) {
+        return service.subjectTeachers(classId);
+    }
+
     /** Distinct room labels already used in this school (suggestions for the slot editor). */
     @GetMapping("/rooms")
     @PreAuthorize("@perm.can('timetable','read')")

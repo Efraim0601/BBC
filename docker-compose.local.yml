@@ -25,3 +25,27 @@ services:
   frontend:
     ports: !override
       - "8082:80"
+
+  # Standalone replica of the PRODUCTION database (bbcomplex.com).
+  # Restored from output/bbc_prod_2026-08-10.dump — original prod schema + data.
+  # Intentionally isolated: separate volume, separate port, no demo profile.
+  proddb:
+    image: postgres:16-alpine
+    container_name: bbcomplex-proddb
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: bbc_sms
+      POSTGRES_USER: bbc
+      POSTGRES_PASSWORD: bbc
+    ports:
+      - "5435:5432"
+    volumes:
+      - proddb_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bbc -d bbc_sms"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  proddb_pgdata:

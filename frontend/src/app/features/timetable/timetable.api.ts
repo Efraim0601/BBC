@@ -6,6 +6,8 @@ import { environment } from '../../../environments/environment';
 export interface ClassRef { id:string; name:string; sectionId:string; subsystem:string; level:string;
   model:'HOMEROOM'|'DEPARTMENTAL'; status:'DRAFT'|'PUBLISHED'; homeroomTeacherId:string|null;
   homeroomTeacherName:string|null; version:number; }
+export interface SubjectTeacherView { subjectCode:string; teacherId:string|null; teacherName:string|null;
+  teacherCode:string|null; source:string|null; locked:boolean; message:string|null; }
 export interface PeriodView { id:string; slotIdx:number; label:string; startTime:string; endTime:string; active:boolean; }
 export interface SlotView { id:string; dayIdx:number; slotIdx:number; subjectCode:string|null;
   teacherId:string|null; room:string|null; className:string|null; }
@@ -18,6 +20,7 @@ export interface SlotSaveBody { className:string; dayIdx:number; slotIdx:number;
 export class TimetableApi {
   private http=inject(HttpClient); private base=`${environment.apiUrl}/timetable`;
   classes():Observable<ClassRef[]>{return this.http.get<ClassRef[]>(`${this.base}/classes`);}
+  subjectTeachers(classId:string):Observable<SubjectTeacherView[]>{return this.http.get<SubjectTeacherView[]>(`${this.base}/classes/${classId}/subject-teachers`);}
   periods():Observable<PeriodView[]>{return this.http.get<PeriodView[]>(`${this.base}/periods`);}
   updatePeriod(p:PeriodView):Observable<PeriodView>{return this.http.put<PeriodView>(`${this.base}/periods/${p.slotIdx}`,{label:p.label,startTime:p.startTime,endTime:p.endTime,active:p.active});}
   rooms():Observable<string[]>{return this.http.get<string[]>(`${this.base}/rooms`);}

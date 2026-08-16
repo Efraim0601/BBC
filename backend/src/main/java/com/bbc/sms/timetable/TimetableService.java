@@ -45,6 +45,25 @@ public class TimetableService {
             .filter(c->allowed==null||allowed.contains(c.getId())).map(c->toRef(c,sessionId)).toList();
     }
 
+    /**
+     * Returns the session/class/subject teacher assignments used by the timetable.
+     * Primary classes always resolve to the configured homeroom teacher. Secondary
+     * classes resolve to the active responsible teacher in Class subjects.
+     */
+    @Transactional(readOnly=true)
+    public List<SubjectTeacherView> subjectTeachers(UUID classId) {
+        UUID schoolId=TenantContext.get(); UUID sessionId=currentSession().getId();
+        SchoolClass cls=requireClass(schoolId,classId); teacherScope.assertClass(classId);
+        List<String> subjectCodes=jdbc.query("""
+            SELECT s.code
+              FROM academic_curriculum_subject cs
+              JOIN subject s ON s.id=cs.subject_id
+             WHERE cs.school_id=? AND cs.academic_session_id=? AND cs.class_id=?
+             ORDER BY cs.display_order,s.code
+            """,(rs,n)->rs.getString(1),schoolId,sessionId,classId);
+        return subjectCodes.stream().map(code->resolveSubjectTeacher(cls,sessionId,code)).toList();
+    }
+
     @Transactional(readOnly=true)
     public List<PeriodView> periods() {
         return jdbc.query("SELECT id,slot_idx,label,start_time,end_time,active FROM timetable_period WHERE school_id=? AND active ORDER BY slot_idx",
@@ -79,7 +98,7 @@ public class TimetableService {
         SchoolClass cls=findClass(schoolId,className); teacherScope.assertClass(cls.getId());
         return slotRepo.findBySchoolIdAndAcademicSessionIdAndClassId(schoolId,academic.getId(),cls.getId()).stream()
             .sorted(Comparator.comparingInt(TimetableSlot::getDayIdx).thenComparingInt(TimetableSlot::getSlotIdx))
-            .map(s->toView(s,cls.getName())).toList();
+            .map(s->toEffectiveView(s,cls,academic.getId())).toList();
     }
 
     @Transactional(readOnly=true)
@@ -88,7 +107,12 @@ public class TimetableService {
     @Transactional(readOnly=true)
     public List<TeacherConflict> conflicts() {
         UUID schoolId=TenantContext.get(), sessionId=currentSession().getId();
-        return buildConflicts(schoolId,slotRepo.findBySchoolIdAndAcademicSessionIdAndTeacherIdIsNotNull(schoolId,sessionId));
+        Map<UUID,SchoolClass> classes=classRepo.findBySchoolIdOrderByName(schoolId).stream()
+            .collect(Collectors.toMap(SchoolClass::getId,c->c));
+        List<TimetableSlot> effective=slotRepo.findBySchoolIdAndAcademicSessionId(schoolId,sessionId).stream()
+            .map(s->effectiveSlot(s,classes.get(s.getClassId()),sessionId))
+            .filter(s->s.getTeacherId()!=null).toList();
+        return buildConflicts(schoolId,effective);
     }
 
     @Transactional
@@ -133,21 +157,25 @@ public class TimetableService {
     public SlotSaveResult upsertSlot(SlotUpsert in) {
         UUID schoolId=TenantContext.get(); AcademicSession academic=currentSession();
         SchoolClass cls=findClass(schoolId,in.className()); teacherScope.assertClass(cls.getId());
+        ensureConfig(cls,academic.getId());
         ensureDraft(cls.getId(),academic.getId());
         if(in.dayIdx()<0||in.dayIdx()>5) throw ApiException.badRequest("Jour invalide");
         if(!periodExists(in.slotIdx())) throw ApiException.badRequest("Cette période n'est pas configurée");
         if(in.subjectCode()==null||in.subjectCode().isBlank()) throw ApiException.badRequest("La matière est obligatoire");
-        if(in.teacherId()==null) throw ApiException.badRequest("L'enseignant est obligatoire");
-        setup.bindTeacherSection(in.teacherId(),cls.getLevel());
-        validateTeachingModel(cls,academic.getId(),in.teacherId(),in.subjectCode());
-        assertNoTeacherConflict(schoolId,academic.getId(),cls,in);
-        assertNoRoomConflict(schoolId,academic.getId(),cls,in);
+        String subjectCode=in.subjectCode().trim().toUpperCase(Locale.ROOT);
+        SubjectTeacherView assignment=resolveSubjectTeacher(cls,academic.getId(),subjectCode);
+        validateTeachingModel(assignment,in.teacherId(),subjectCode);
+        UUID teacherId=assignment.teacherId();
+        setup.bindTeacherSection(teacherId,cls.getLevel());
+        SlotUpsert canonical=new SlotUpsert(in.className(),in.dayIdx(),in.slotIdx(),subjectCode,teacherId,in.room());
+        assertNoEffectiveTeacherConflict(schoolId,academic.getId(),cls,canonical);
+        assertNoRoomConflict(schoolId,academic.getId(),cls,canonical);
 
         TimetableSlot slot=slotRepo.findBySchoolIdAndAcademicSessionIdAndClassIdAndDayIdxAndSlotIdx(
             schoolId,academic.getId(),cls.getId(),in.dayIdx(),in.slotIdx()).orElseGet(TimetableSlot::new);
         slot.setSchoolId(schoolId); slot.setAcademicSessionId(academic.getId()); slot.setClassId(cls.getId());
-        slot.setDayIdx(in.dayIdx()); slot.setSlotIdx(in.slotIdx()); slot.setSubjectCode(in.subjectCode().trim().toUpperCase(Locale.ROOT));
-        slot.setTeacherId(in.teacherId()); slot.setRoom(trim(in.room()));
+        slot.setDayIdx(in.dayIdx()); slot.setSlotIdx(in.slotIdx()); slot.setSubjectCode(subjectCode);
+        slot.setTeacherId(teacherId); slot.setRoom(trim(in.room()));
         try { slot=slotRepo.saveAndFlush(slot); }
         catch(DataIntegrityViolationException e){ throw ApiException.conflict("Conflit de planning : cet enseignant ou cette salle est déjà occupé à cette heure."); }
         jdbc.update("UPDATE timetable_class_config SET version=version+1,updated_at=now() WHERE school_id=? AND academic_session_id=? AND class_id=?",
@@ -170,6 +198,19 @@ public class TimetableService {
         if(slots.isEmpty()) throw ApiException.badRequest("Ajoutez au moins un cours avant de publier l'emploi du temps");
         if("HOMEROOM".equals(current.model())&&current.homeroomTeacherId()==null)
             throw ApiException.badRequest("Définissez d'abord l'enseignant titulaire");
+        for (TimetableSlot slot : slots) {
+            if (slot.getSubjectCode()==null || slot.getSubjectCode().isBlank())
+                throw ApiException.badRequest("Each timetable slot must have a subject before publication.");
+            String code=slot.getSubjectCode().trim().toUpperCase(Locale.ROOT);
+            SubjectTeacherView assignment=resolveSubjectTeacher(cls,academic.getId(),code);
+            if (assignment.teacherId()==null)
+                throw ApiException.badRequest("Cannot publish "+cls.getName()+": "+assignment.message());
+            SlotUpsert canonical=new SlotUpsert(cls.getName(),slot.getDayIdx(),slot.getSlotIdx(),code,assignment.teacherId(),slot.getRoom());
+            assertNoEffectiveTeacherConflict(schoolId,academic.getId(),cls,canonical);
+            slot.setSubjectCode(code);
+            slot.setTeacherId(assignment.teacherId());
+        }
+        slotRepo.flush();
         if(slots.stream().anyMatch(s->s.getTeacherId()==null||s.getSubjectCode()==null||s.getSubjectCode().isBlank()))
             throw ApiException.badRequest("Chaque cours doit avoir une matière et un enseignant avant publication");
         int changed=jdbc.update("""
@@ -204,31 +245,45 @@ public class TimetableService {
         UUID schoolId=TenantContext.get(); AcademicSession academic=currentSession();
         Employee teacher=employees.findByIdAndSchoolId(teacherId,schoolId).orElseThrow(()->ApiException.notFound("Enseignant"));
         Map<UUID,String> names=classNames(schoolId);
-        List<SlotView> slots=slotRepo.findBySchoolIdAndAcademicSessionIdAndTeacherIdOrderByDayIdxAscSlotIdxAsc(schoolId,academic.getId(),teacherId).stream()
-            .filter(s->isPublished(s.getClassId(),academic.getId())).map(s->toView(s,names.get(s.getClassId()))).toList();
+        Map<UUID,SchoolClass> classes=classRepo.findBySchoolIdOrderByName(schoolId).stream()
+            .collect(Collectors.toMap(SchoolClass::getId,c->c));
+        List<SlotView> slots=new ArrayList<>();
+        for (TimetableSlot slot : slotRepo.findBySchoolIdAndAcademicSessionId(schoolId,academic.getId())) {
+            if (!isPublished(slot.getClassId(),academic.getId())) continue;
+            SchoolClass cls=classes.get(slot.getClassId());
+            UUID effectiveTeacher=effectiveTeacherId(cls,academic.getId(),slot.getSubjectCode(),slot.getTeacherId());
+            if (teacherId.equals(effectiveTeacher)) {
+                slots.add(new SlotView(slot.getId(),slot.getDayIdx(),slot.getSlotIdx(),slot.getSubjectCode(),
+                    effectiveTeacher,slot.getRoom(),names.get(slot.getClassId())));
+            }
+        }
+        slots.sort(Comparator.comparingInt(SlotView::dayIdx).thenComparingInt(SlotView::slotIdx));
         return new TeacherSchedule(teacherId,teacher.getName(),academic.getLabel(),slots);
     }
 
-    private void validateTeachingModel(SchoolClass cls,UUID sessionId,UUID teacherId,String subjectCode) {
-        ClassRef config=toRef(cls,sessionId);
-        if("HOMEROOM".equals(config.model())) {
-            if(config.homeroomTeacherId()==null) throw ApiException.badRequest("Configurez l'enseignant titulaire avant d'ajouter les cours");
-            if(!config.homeroomTeacherId().equals(teacherId)) throw ApiException.badRequest("Au primaire, tous les cours doivent être assurés par l'enseignant titulaire "+config.homeroomTeacherName());
-            return;
+    private void validateTeachingModel(SubjectTeacherView assignment,UUID requestedTeacherId,String subjectCode) {
+        if (assignment==null || assignment.teacherId()==null) {
+            throw ApiException.badRequest(assignment==null || assignment.message()==null
+                ? "No teacher is assigned to the class subject "+subjectCode
+                : assignment.message());
         }
-        Integer subjectOk=jdbc.query("SELECT 1 FROM teacher_subject ts JOIN subject s ON s.id=ts.subject_id WHERE ts.employee_id=? AND s.school_id=? AND upper(s.code)=upper(?)",
-            rs->rs.next()?1:0,teacherId,TenantContext.get(),subjectCode);
-        Integer classOk=jdbc.query("SELECT 1 FROM teacher_class WHERE employee_id=? AND class_id=?",rs->rs.next()?1:0,teacherId,cls.getId());
-        if(subjectOk==0) throw ApiException.badRequest("Cet enseignant n'est pas affecté à la matière "+subjectCode);
-        if(classOk==0) throw ApiException.badRequest("Cet enseignant n'est pas affecté à la classe "+cls.getName());
+        if (requestedTeacherId!=null && !assignment.teacherId().equals(requestedTeacherId)) {
+            throw ApiException.badRequest("The teacher for "+subjectCode+" is managed by Class subjects and must be "+assignment.teacherName()+".");
+        }
     }
 
-    private void assertNoTeacherConflict(UUID schoolId,UUID sessionId,SchoolClass cls,SlotUpsert in) {
-        List<Map<String,Object>> rows=jdbc.queryForList("""
-          SELECT c.name,s.subject_code,s.room FROM timetable_slot s JOIN school_class c ON c.id=s.class_id
-           WHERE s.school_id=? AND s.academic_session_id=? AND s.day_idx=? AND s.slot_idx=? AND s.teacher_id=? AND s.class_id<>?
-          """,schoolId,sessionId,in.dayIdx(),in.slotIdx(),in.teacherId(),cls.getId());
-        if(!rows.isEmpty()) throw ApiException.conflict("Enseignant indisponible : il assure déjà "+rows.getFirst().get("subject_code")+" en "+rows.getFirst().get("name")+" sur cette période.");
+    private void assertNoEffectiveTeacherConflict(UUID schoolId,UUID sessionId,SchoolClass cls,SlotUpsert in) {
+        Map<UUID,SchoolClass> classes=classRepo.findBySchoolIdOrderByName(schoolId).stream()
+            .collect(Collectors.toMap(SchoolClass::getId,c->c));
+        for (TimetableSlot slot : slotRepo.findBySchoolIdAndAcademicSessionId(schoolId,sessionId)) {
+            if (slot.getClassId().equals(cls.getId()) || slot.getDayIdx()!=in.dayIdx() || slot.getSlotIdx()!=in.slotIdx()) continue;
+            UUID effectiveTeacher=effectiveTeacherId(classes.get(slot.getClassId()),sessionId,slot.getSubjectCode(),slot.getTeacherId());
+            if (in.teacherId().equals(effectiveTeacher)) {
+                SchoolClass other=classes.get(slot.getClassId());
+                throw ApiException.conflict("Teacher unavailable: this teacher already teaches "+slot.getSubjectCode()+" in "+
+                    (other==null ? "another class" : other.getName())+" at this time.");
+            }
+        }
     }
 
     private void assertNoRoomConflict(UUID schoolId,UUID sessionId,SchoolClass cls,SlotUpsert in) {
@@ -238,6 +293,70 @@ public class TimetableService {
            WHERE s.school_id=? AND s.academic_session_id=? AND s.day_idx=? AND s.slot_idx=? AND lower(s.room)=lower(?) AND s.class_id<>?
           """,schoolId,sessionId,in.dayIdx(),in.slotIdx(),in.room().trim(),cls.getId());
         if(!rows.isEmpty()) throw ApiException.conflict("Salle indisponible : "+in.room().trim()+" est déjà utilisée par "+rows.getFirst().get("name")+" sur cette période.");
+    }
+
+    private record TimetableConfig(String model, UUID homeroomTeacherId, String homeroomTeacherName) {}
+
+    private SubjectTeacherView resolveSubjectTeacher(SchoolClass cls,UUID sessionId,String subjectCode) {
+        String code=subjectCode.trim().toUpperCase(Locale.ROOT);
+        UUID schoolId=TenantContext.get();
+        Integer configured=jdbc.queryForObject("""
+            SELECT count(*) FROM academic_curriculum_subject cs JOIN subject s ON s.id=cs.subject_id
+             WHERE cs.school_id=? AND cs.academic_session_id=? AND cs.class_id=? AND upper(s.code)=upper(?)
+            """,Integer.class,schoolId,sessionId,cls.getId(),code);
+        if (configured==null || configured==0) {
+            return new SubjectTeacherView(code,null,null,null,null,true,
+                "Subject "+code+" is not assigned to this class in Academic setup > Class subjects.");
+        }
+        TimetableConfig config=readConfig(cls,sessionId);
+        if ("HOMEROOM".equals(config.model())) {
+            if (config.homeroomTeacherId()==null) {
+                return new SubjectTeacherView(code,null,null,null,"HOMEROOM",true,
+                    "Configure the homeroom teacher before scheduling this primary class.");
+            }
+            return new SubjectTeacherView(code,config.homeroomTeacherId(),config.homeroomTeacherName(),null,
+                "HOMEROOM",true,"Inherited from the class homeroom teacher.");
+        }
+        return jdbc.query("""
+            SELECT ast.employee_id,e.name,e.code,ast.source
+              FROM academic_class_subject_teacher ast
+              JOIN subject s ON s.id=ast.subject_id
+              JOIN employee e ON e.id=ast.employee_id
+             WHERE ast.school_id=? AND ast.academic_session_id=? AND ast.class_id=?
+               AND upper(s.code)=upper(?) AND ast.active=true
+             ORDER BY CASE ast.role WHEN 'RESPONSIBLE' THEN 0 WHEN 'HOMEROOM' THEN 1 ELSE 2 END,
+                      ast.created_at LIMIT 1
+            """,rs -> rs.next()
+                ? new SubjectTeacherView(code,rs.getObject(1,UUID.class),rs.getString(2),rs.getString(3),rs.getString(4),true,
+                    "Inherited from the responsible teacher assigned in Class subjects.")
+                : new SubjectTeacherView(code,null,null,null,null,true,
+                    "Assign a responsible teacher for "+code+" in Academic setup > Class subjects before scheduling it."),
+            schoolId,sessionId,cls.getId(),code);
+    }
+
+    private UUID effectiveTeacherId(SchoolClass cls,UUID sessionId,String subjectCode,UUID storedTeacherId) {
+        if (cls==null || subjectCode==null || subjectCode.isBlank()) return storedTeacherId;
+        SubjectTeacherView assignment=resolveSubjectTeacher(cls,sessionId,subjectCode);
+        return assignment.teacherId()==null ? storedTeacherId : assignment.teacherId();
+    }
+
+    private TimetableSlot effectiveSlot(TimetableSlot source,SchoolClass cls,UUID sessionId) {
+        TimetableSlot effective=new TimetableSlot();
+        effective.setId(source.getId()); effective.setSchoolId(source.getSchoolId()); effective.setAcademicSessionId(source.getAcademicSessionId());
+        effective.setClassId(source.getClassId()); effective.setDayIdx(source.getDayIdx()); effective.setSlotIdx(source.getSlotIdx());
+        effective.setSubjectCode(source.getSubjectCode()); effective.setRoom(source.getRoom());
+        effective.setTeacherId(effectiveTeacherId(cls,sessionId,source.getSubjectCode(),source.getTeacherId()));
+        return effective;
+    }
+
+    private TimetableConfig readConfig(SchoolClass cls,UUID sessionId) {
+        return jdbc.query("""
+            SELECT x.model,x.homeroom_teacher_id,e.name
+              FROM timetable_class_config x LEFT JOIN employee e ON e.id=x.homeroom_teacher_id
+             WHERE x.school_id=? AND x.academic_session_id=? AND x.class_id=?
+            """,rs -> rs.next()
+                ? new TimetableConfig(rs.getString(1),rs.getObject(2,UUID.class),rs.getString(3))
+                : new TimetableConfig(model(cls),null,null),TenantContext.get(),sessionId,cls.getId());
     }
 
     private ClassRef toRef(SchoolClass c,UUID sessionId) {
@@ -268,6 +387,10 @@ public class TimetableService {
     private SchoolClass requireClass(UUID schoolId,UUID id){return classRepo.findByIdAndSchoolId(id,schoolId).orElseThrow(()->ApiException.notFound("Classe"));}
     private Map<UUID,String> classNames(UUID schoolId){return classRepo.findBySchoolIdOrderByName(schoolId).stream().collect(Collectors.toMap(SchoolClass::getId,SchoolClass::getName));}
     private SlotView toView(TimetableSlot s,String className){return new SlotView(s.getId(),s.getDayIdx(),s.getSlotIdx(),s.getSubjectCode(),s.getTeacherId(),s.getRoom(),className);}
+    private SlotView toEffectiveView(TimetableSlot s,SchoolClass cls,UUID sessionId){
+        return new SlotView(s.getId(),s.getDayIdx(),s.getSlotIdx(),s.getSubjectCode(),
+            effectiveTeacherId(cls,sessionId,s.getSubjectCode(),s.getTeacherId()),s.getRoom(),cls.getName());
+    }
     private List<TeacherConflict> buildConflicts(UUID schoolId,List<TimetableSlot> slots){
         Map<String,List<TimetableSlot>> groups=slots.stream().collect(Collectors.groupingBy(s->s.getDayIdx()+"|"+s.getSlotIdx()+"|"+s.getTeacherId()));
         Map<UUID,String> cn=classNames(schoolId),tn=employees.findBySchoolId(schoolId).stream().collect(Collectors.toMap(Employee::getId,Employee::getName));
