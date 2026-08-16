@@ -25,6 +25,9 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.awt.image.BufferedImage;
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 
@@ -65,18 +68,27 @@ public class ReportCardPdfService {
                 PDImageXObject logo = imageOrNull(doc, branding == null ? null : branding.logoBytes(), "school-logo");
                 PDImageXObject stamp = imageOrNull(doc, branding == null ? null : branding.stampBytes(), "school-stamp");
                 float y = header(doc, page, b, french, image, secondary, branding, logo);
-                y = computed ? computedTableHeader(doc, page, y, french, b) : tableHeader(doc, page, y, french, secondary, annual, templateFamily);
-                for (BulletinLineView line : b.lines()) {
-                    float rowHeight = computed ? computedRowHeight(line, b) : secondary ? secondaryRowHeight(line, annual) : 22;
+                y = secondary ? secondaryTableHeader(doc, page, y, french, annual, templateFamily)
+                        : computed ? computedTableHeader(doc, page, y, french, b)
+                        : tableHeader(doc, page, y, french, false, annual, templateFamily);
+                for (int lineIndex = 0; lineIndex < b.lines().size(); lineIndex++) {
+                    BulletinLineView line = b.lines().get(lineIndex);
+                    GroupStatsView group = secondary && groupEnds(b.lines(), lineIndex) ? groupFor(b, line.subjectGroupCode()) : null;
+                    float rowHeight = secondary ? secondaryRowHeight(line, annual)
+                            : computed ? computedRowHeight(line, b) : 22;
+                    if (group != null) rowHeight += 16;
                     if (y - rowHeight < 78) {
                         footer(doc, page, french);
                         page = new PDPage(PDRectangle.A4); doc.addPage(page);
                         y = header(doc, page, b, french, image, secondary, branding, logo);
-                        y = computed ? computedTableHeader(doc, page, y, french, b) : tableHeader(doc, page, y, french, secondary, annual, templateFamily);
+                        y = secondary ? secondaryTableHeader(doc, page, y, french, annual, templateFamily)
+                                : computed ? computedTableHeader(doc, page, y, french, b)
+                                : tableHeader(doc, page, y, french, false, annual, templateFamily);
                     }
-                    if (computed) y -= computedRow(doc, page, y, line, french, b);
-                    else if (secondary) y -= secondaryRow(doc, page, y, line, french, annual);
+                    if (secondary) y -= secondaryRow(doc, page, y, line, french, annual);
+                    else if (computed) y -= computedRow(doc, page, y, line, french, b);
                     else { row(doc, page, y, line, french, false); y -= 22; }
+                    if (group != null) y -= secondaryGroupRow(doc, page, y, group, french, annual);
                 }
                 y -= 5;
                 if (y < 230) { footer(doc, page, french); page = new PDPage(PDRectangle.A4); doc.addPage(page); y = header(doc, page, b, french, image, secondary, branding, logo) - 10; }
@@ -99,6 +111,7 @@ public class ReportCardPdfService {
 
     private float header(PDDocument doc, PDPage page, BulletinSnapshotView b, boolean fr, PDImageXObject photo,
                          boolean secondary, BrandingRenderData branding, PDImageXObject logo) throws Exception {
+        if (secondary) return secondaryHeader(doc, page, b, fr, branding, logo);
         PDPageContentStream cs = new PDPageContentStream(doc, page);
         line(cs, LEFT, 775, RIGHT, 775, 1.2f);
         text(cs, bold(), 10, LEFT, 805, "REPUBLIC OF CAMEROON");
@@ -131,6 +144,59 @@ public class ReportCardPdfService {
         text(cs, bold(), 8, 285, 612, secondary ? "SECONDARY MODEL: EVALUATIONS / TERMS" : "PRIMARY MODEL: SEQUENCES / TERM COMPONENTS");
         cs.close();
         return 592;
+    }
+
+    /** Header and identity grid used by the official Francophone/Anglophone secondary forms. */
+    private float secondaryHeader(PDDocument doc, PDPage page, BulletinSnapshotView b, boolean fr,
+                                  BrandingRenderData branding, PDImageXObject logo) throws Exception {
+        StudentRenderData student = studentData(b);
+        String schoolName = branding == null || branding.schoolName() == null || branding.schoolName().isBlank()
+                ? "BAYO BILINGUAL COMPLEX" : branding.schoolName();
+        String schoolNameEn = branding == null || branding.schoolNameEn() == null || branding.schoolNameEn().isBlank()
+                ? schoolName : branding.schoolNameEn();
+        String ministry = branding == null || branding.ministryText() == null || branding.ministryText().isBlank()
+                ? "MINISTERE DES ENSEIGNEMENTS SECONDAIRES" : branding.ministryText();
+        String delegation = branding == null || branding.delegationText() == null || branding.delegationText().isBlank()
+                ? "DELEGATION REGIONALE / DEPARTEMENTALE" : branding.delegationText();
+        try (PDPageContentStream cs = new PDPageContentStream(doc, page)) {
+            text(cs, bold(), 7, LEFT, 814, "REPUBLIQUE DU CAMEROUN");
+            text(cs, normal(), 6, LEFT + 18, 804, "Paix-Travail-Patrie");
+            text(cs, bold(), 6, LEFT, 791, clip(ministry, 42));
+            text(cs, normal(), 6, LEFT, 781, clip(delegation, 42));
+            text(cs, bold(), 7, 407, 814, "REPUBLIC OF CAMEROON");
+            text(cs, normal(), 6, 430, 804, "Peace-Work-Fatherland");
+            text(cs, bold(), 6, 392, 791, "MINISTRY OF SECONDARY EDUCATION");
+            text(cs, normal(), 6, 392, 781, "REGIONAL / DIVISIONAL DELEGATION");
+            if (logo != null) cs.drawImage(logo, 274, 780, 46, 46);
+            text(cs, bold(), 8, 220, 766, clip(fr ? schoolName : schoolNameEn, 34));
+            if (branding != null && branding.motto() != null && !branding.motto().isBlank())
+                text(cs, normal(), 6, 245, 755, clip(branding.motto(), 28));
+            line(cs, LEFT, 744, RIGHT, 744, 1f);
+
+            String title = reportTitle(b, fr);
+            text(cs, bold(), 13, Math.max(LEFT, 297 - title.length() * 3.4f), 726, title);
+            text(cs, bold(), 9, 225, 713, (fr ? "ANNEE SCOLAIRE : " : "SCHOOL YEAR : ") + student.schoolYear());
+
+            float top = 700;
+            float bottom = 632;
+            box(cs, LEFT, bottom, RIGHT, top);
+            line(cs, 360, bottom, 360, top, .45f);
+            line(cs, LEFT, 683, RIGHT, 683, .35f);
+            line(cs, LEFT, 666, RIGHT, 666, .35f);
+            line(cs, LEFT, 649, RIGHT, 649, .35f);
+            text(cs, bold(), 7, 48, 689, fr ? "NOM ET PRENOMS" : "NAME OF STUDENT");
+            text(cs, bold(), 8, 142, 689, safeText(b.studentName()));
+            text(cs, bold(), 7, 368, 689, fr ? "CLASSE" : "CLASS");
+            text(cs, bold(), 8, 424, 689, safeText(b.className()));
+            text(cs, normal(), 7, 48, 672, (fr ? "NE(E) LE / A : " : "BORN ON / AT: ") + student.birth());
+            text(cs, normal(), 7, 368, 672, (fr ? "MATRICULE : " : "STUDENT ID: ") + safeText(b.matricule()));
+            text(cs, normal(), 7, 48, 655, (fr ? "SEXE : " : "GENDER: ") + student.sex()
+                    + "     " + (fr ? "REDOUBLANT(E) : " : "REPEATER: ") + student.repeater());
+            text(cs, normal(), 7, 368, 655, (fr ? "EFFECTIF : " : "CLASS ENROLMENT: ") + b.classSize());
+            text(cs, normal(), 7, 48, 638, (fr ? "PARENT / TUTEUR : " : "PARENT / GUARDIAN: ") + clip(student.parent(), 42));
+            text(cs, normal(), 7, 368, 638, (fr ? "PROF. TITULAIRE : " : "CLASS MASTER: ") + clip(student.classMaster(), 25));
+        }
+        return 616;
     }
 
     private float tableHeader(PDDocument doc, PDPage page, float y, boolean fr, boolean secondary,
@@ -251,26 +317,35 @@ public class ReportCardPdfService {
 
     private float secondaryTableHeader(PDDocument doc, PDPage page, float y, boolean fr,
                                        boolean annual, String templateFamily) throws Exception {
+        float[] boundaries = annual
+                ? new float[]{42, 170, 202, 234, 266, 300, 333, 375, 410, 460, 553}
+                : new float[]{42, 135, 290, 320, 350, 383, 425, 460, 500, 553};
         try (PDPageContentStream cs = new PDPageContentStream(doc, page, PDPageContentStream.AppendMode.APPEND, true)) {
-            cs.setNonStrokingColor(BLUE, 0.34f, 0.57f);
+            cs.setNonStrokingColor(.82f, .82f, .82f);
             cs.addRect(LEFT, y - 18, RIGHT - LEFT, 22); cs.fill();
-            cs.setNonStrokingColor(1, 1, 1);
+            cs.setNonStrokingColor(0, 0, 0);
             text(cs, bold(), 7, 48, y - 10, fr ? "MATIERE / PROF." : "SUBJECT / TEACHER");
             if (annual) {
-                text(cs, bold(), 7, 146, y - 10, "T1");
-                text(cs, bold(), 7, 178, y - 10, "T2");
-                text(cs, bold(), 7, 210, y - 10, "T3");
-                text(cs, bold(), 7, 247, y - 10, fr ? "MOY" : "AV/20");
+                text(cs, bold(), 6, 179, y - 10, "T1");
+                text(cs, bold(), 6, 211, y - 10, "T2");
+                text(cs, bold(), 6, 243, y - 10, "T3");
+                text(cs, bold(), 6, 270, y - 10, fr ? "MOY" : "AV");
+                text(cs, bold(), 6, 306, y - 10, "COEF");
+                text(cs, bold(), 6, 341, y - 10, fr ? "PROD" : "PRODUCT");
+                text(cs, bold(), 6, 381, y - 10, fr ? "COTE" : "GRADE");
+                text(cs, bold(), 6, 416, y - 10, "[MIN-MAX]");
+                text(cs, bold(), 6, 466, y - 10, fr ? "APPRECIATION / VISA" : "REMARK / SIGNATURE");
             } else {
-                text(cs, bold(), 7, 142, y - 10, fr ? "COMPETENCES EVALUEES" : "COMPETENCIES EVALUATED");
-                text(cs, bold(), 7, 247, y - 10, fr ? "M/20" : "MK/20");
+                text(cs, bold(), 6, 142, y - 10, fr ? "COMPETENCES EVALUEES" : "COMPETENCIES EVALUATED");
+                text(cs, bold(), 6, 296, y - 10, "N/20");
+                text(cs, bold(), 6, 326, y - 10, "M/20");
+                text(cs, bold(), 6, 355, y - 10, "COEF");
+                text(cs, bold(), 6, 389, y - 10, fr ? "PROD" : "PRODUCT");
+                text(cs, bold(), 6, 431, y - 10, fr ? "COTE" : "GRADE");
+                text(cs, bold(), 6, 466, y - 10, "[MIN-MAX]");
+                text(cs, bold(), 6, 505, y - 10, fr ? "APPREC. / VISA" : "REMARK / SIGN.");
             }
-            text(cs, bold(), 7, 292, y - 10, "COEF");
-            text(cs, bold(), 7, 337, y - 10, fr ? "PROD" : "PRODUCT");
-            text(cs, bold(), 7, 392, y - 10, fr ? "COTE" : "GRADE");
-            text(cs, bold(), 7, 450, y - 10, fr ? "APPRECIATION" : "REMARKS");
-            cs.setNonStrokingColor(0, 0, 0);
-            for (float x : new float[]{42, 142, 247, 292, 337, 392, 450, 553}) line(cs, x, y + 4, x, y - 18, 0.6f);
+            for (float x : boundaries) line(cs, x, y + 4, x, y - 18, 0.6f);
             line(cs, LEFT, y - 18, RIGHT, y - 18, 0.8f);
         }
         return y - 18;
@@ -281,14 +356,20 @@ public class ReportCardPdfService {
                                boolean fr, boolean annual) throws Exception {
         float height = secondaryRowHeight(l, annual);
         List<String> competencies = new java.util.ArrayList<>();
+        List<String> competencyMarks = new java.util.ArrayList<>();
         if (!annual && l.assessments() != null) {
             for (AssessmentEvidenceView a : l.assessments()) {
                 String label = a.label() == null || a.label().isBlank() ? a.code() : a.label();
-                String mark = a.mark() == null ? "" : "  " + number(a.mark());
-                competencies.addAll(wrap(label + mark, 17));
+                List<String> wrapped = wrap(label, 31);
+                competencies.addAll(wrapped);
+                competencyMarks.add(a.mark() == null ? "-" : number(a.mark()));
+                for (int i = 1; i < wrapped.size(); i++) competencyMarks.add("");
             }
         }
-        if (competencies.isEmpty() && !annual) competencies.add(componentText(l));
+        if (competencies.isEmpty() && !annual) {
+            competencies.add(componentText(l));
+            competencyMarks.add(number(l.mark()));
+        }
         int lines = Math.max(1, competencies.size());
         height = Math.max(height, Math.max(22, 8 + lines * 9));
         String remark = l.teacherRemark() == null ? l.appreciation() : l.teacherRemark();
@@ -302,15 +383,25 @@ public class ReportCardPdfService {
             // numeric marks and make the right-most columns unreadable.
             if (annual) {
                 drawAnnualMarks(cs, l, y - 12);
+                text(cs, normal(), 8, 307, y - 12, String.valueOf(l.coefficient()));
+                text(cs, normal(), 8, 341, y - 12, number(l.weighted()));
+                text(cs, bold(), 7, 381, y - 12, grade(l.mark()));
+                text(cs, normal(), 7, 418, y - 12, "-");
+                drawWrapped(cs, remarkLines, 466, y - 12, 6, 8);
             } else {
-                drawWrapped(cs, competencies, 150, y - 12, 7, 9);
-                text(cs, normal(), 9, 256, y - 14, number(l.mark()));
+                drawWrapped(cs, competencies, 140, y - 12, 6, 8);
+                drawWrapped(cs, competencyMarks, 296, y - 12, 6, 8);
+                text(cs, bold(), 8, 326, y - 14, number(l.mark()));
+                text(cs, normal(), 8, 357, y - 14, String.valueOf(l.coefficient()));
+                text(cs, normal(), 8, 390, y - 14, number(l.weighted()));
+                text(cs, bold(), 7, 432, y - 14, grade(l.mark()));
+                text(cs, normal(), 7, 467, y - 14, "-");
+                drawWrapped(cs, remarkLines, 505, y - 12, 6, 8);
             }
-            text(cs, normal(), 9, 303, y - 14, String.valueOf(l.coefficient()));
-            text(cs, normal(), 9, 350, y - 14, number(l.weighted()));
-            text(cs, bold(), 8, 398, y - 14, grade(l.mark()));
-            drawWrapped(cs, remarkLines, 456, y - 12, 7, 9);
-            for (float x : new float[]{42, 142, 247, 292, 337, 392, 450, 553}) line(cs, x, y, x, y - height, 0.35f);
+            float[] boundaries = annual
+                    ? new float[]{42, 170, 202, 234, 266, 300, 333, 375, 410, 460, 553}
+                    : new float[]{42, 135, 290, 320, 350, 383, 425, 460, 500, 553};
+            for (float x : boundaries) line(cs, x, y, x, y - height, 0.35f);
             line(cs, LEFT, y - height, RIGHT, y - height, 0.35f);
         }
         return height;
@@ -321,8 +412,7 @@ public class ReportCardPdfService {
         if (!annual && l.assessments() != null) {
             for (AssessmentEvidenceView a : l.assessments()) {
                 String label = a.label() == null || a.label().isBlank() ? a.code() : a.label();
-                String mark = a.mark() == null ? "" : "  " + number(a.mark());
-                competencies.addAll(wrap(label + mark, 17));
+                competencies.addAll(wrap(label, 31));
             }
         }
         if (competencies.isEmpty() && !annual) competencies.add(componentText(l));
@@ -333,15 +423,68 @@ public class ReportCardPdfService {
     }
 
     private void drawAnnualMarks(PDPageContentStream cs, BulletinLineView l, float y) throws Exception {
-        int index = 0;
-        if (l.periodMarks() != null) {
-            for (PeriodMarkView mark : l.periodMarks()) {
-                if (index >= 3) break;
-                text(cs, normal(), 8, 150 + index * 32, y, number(mark.mark()));
-                index++;
-            }
+        List<PeriodMarkView> marks = annualPeriodMarks(l);
+        for (int index = 0; index < 3; index++) {
+            BigDecimal value = index < marks.size() ? marks.get(index).mark() : null;
+            text(cs, normal(), 7, 178 + index * 32, y, number(value));
         }
-        text(cs, bold(), 8, 247, y, number(l.mark()));
+        text(cs, bold(), 7, 272, y, number(l.mark()));
+    }
+
+    private float secondaryGroupRow(PDDocument doc, PDPage page, float y, GroupStatsView group,
+                                    boolean fr, boolean annual) throws Exception {
+        float height = 16;
+        try (PDPageContentStream cs = new PDPageContentStream(doc, page, PDPageContentStream.AppendMode.APPEND, true)) {
+            cs.setNonStrokingColor(.9f, .9f, .9f);
+            cs.addRect(LEFT, y - height, RIGHT - LEFT, height); cs.fill();
+            cs.setNonStrokingColor(0, 0, 0);
+            String label = group.label() == null || group.label().isBlank() ? group.code() : group.label();
+            text(cs, bold(), 7, 48, y - 11, (fr ? "TOTAL " : "GROUP TOTAL ") + clip(label, 26));
+            if (annual) {
+                text(cs, bold(), 7, 272, y - 11, number(group.average()));
+                text(cs, bold(), 7, 307, y - 11, String.valueOf(group.coefficient()));
+                text(cs, bold(), 7, 341, y - 11, number(group.total()));
+                text(cs, bold(), 7, 381, y - 11, grade(group.average()));
+            } else {
+                text(cs, bold(), 7, 326, y - 11, number(group.average()));
+                text(cs, bold(), 7, 357, y - 11, String.valueOf(group.coefficient()));
+                text(cs, bold(), 7, 390, y - 11, number(group.total()));
+                text(cs, bold(), 7, 432, y - 11, grade(group.average()));
+            }
+            box(cs, LEFT, y - height, RIGHT, y);
+        }
+        return height;
+    }
+
+    private boolean groupEnds(List<BulletinLineView> lines, int index) {
+        String code = lines.get(index).subjectGroupCode();
+        if (code == null || code.isBlank()) return false;
+        return index + 1 >= lines.size() || !code.equals(lines.get(index + 1).subjectGroupCode());
+    }
+
+    private GroupStatsView groupFor(BulletinSnapshotView bulletin, String code) {
+        if (code == null || bulletin.groupStats() == null) return null;
+        return bulletin.groupStats().stream().filter(group -> code.equals(group.code())).findFirst().orElse(null);
+    }
+
+    private List<PeriodMarkView> annualPeriodMarks(BulletinLineView line) {
+        if (line.periodMarks() == null) return List.of();
+        List<PeriodMarkView> termMarks = line.periodMarks().stream()
+                .filter(value -> {
+                    String code = value.periodCode() == null ? "" : value.periodCode().toUpperCase(Locale.ROOT);
+                    return code.matches("T[123](_RESULT)?") || code.contains("TRIM");
+                })
+                .sorted(Comparator.comparingInt(value -> periodNumber(value.periodCode())))
+                .toList();
+        return termMarks.isEmpty() ? line.periodMarks().stream()
+                .sorted(Comparator.comparingInt(value -> periodNumber(value.periodCode())))
+                .limit(3).toList() : termMarks;
+    }
+
+    private static int periodNumber(String code) {
+        if (code == null) return 99;
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("([1-6])").matcher(code);
+        return matcher.find() ? Integer.parseInt(matcher.group(1)) : 99;
     }
 
     private void row(PDDocument doc, PDPage page, float y, BulletinLineView l, boolean fr, boolean secondary) throws Exception {
@@ -470,6 +613,64 @@ public class ReportCardPdfService {
                     ? (fr ? "Cachet" : "Seal") : clip(branding.principalName(), 28));
             if (stamp != null) cs.drawImage(stamp, first + (2 * width) + 100, top - 55, 30, 30);
         }
+    }
+
+    private String reportTitle(BulletinSnapshotView bulletin, boolean fr) {
+        if (annual(bulletin)) return fr ? "BULLETIN SCOLAIRE ANNUEL" : "ANNUAL REPORT SHEET";
+        String label = safeText(bulletin.reportingPeriodLabel()).toUpperCase(Locale.ROOT);
+        if ("TERM_RESULT".equalsIgnoreCase(bulletin.reportingPeriodType())
+                || "TERM".equalsIgnoreCase(bulletin.product()))
+            return fr ? "BULLETIN SCOLAIRE - " + label : label + " PROGRESS RECORD";
+        return fr ? "BULLETIN DE NOTES - " + label : label + " PROGRESS RECORD";
+    }
+
+    private StudentRenderData studentData(BulletinSnapshotView bulletin) {
+        StudentRenderData fallback = new StudentRenderData("-", "-", "-", "-", "-", "-",
+                sessionCode(bulletin));
+        try {
+            List<StudentRenderData> rows = jdbc.query("""
+                SELECT s.dob,s.birthplace,s.sex,s.repeats,
+                       concat_ws(' / ',nullif(s.parent_name,''),nullif(s.parent_phone,'')) parent_contact,
+                       coalesce((SELECT e.name
+                                   FROM student_enrollment se
+                                   JOIN class_teacher_assignment a
+                                     ON a.school_id=se.school_id
+                                    AND a.academic_session_id=se.academic_session_id
+                                    AND a.class_id=se.school_class_id
+                                    AND a.role='HOMEROOM' AND a.status='ACTIVE'
+                                   JOIN employee e ON e.id=a.employee_id AND e.school_id=a.school_id
+                                  WHERE se.school_id=s.school_id AND se.student_id=s.id
+                                    AND se.academic_session_id=? AND se.status='ACTIVE'
+                                  ORDER BY a.effective_from DESC LIMIT 1),'-') class_master,
+                       coalesce((SELECT code FROM academic_session WHERE id=? AND school_id=s.school_id),'-') school_year
+                  FROM student s WHERE s.id=? AND s.school_id=?
+                """, (rs, n) -> new StudentRenderData(
+                    rs.getObject("dob", LocalDate.class) == null ? "-"
+                            : rs.getObject("dob", LocalDate.class).format(DateTimeFormatter.ofPattern("dd/MM/yyyy")),
+                    safeText(rs.getString("birthplace")), safeText(rs.getString("sex")),
+                    rs.getBoolean("repeats") ? "Oui / Yes" : "Non / No",
+                    safeText(rs.getString("parent_contact")), safeText(rs.getString("class_master")),
+                    safeText(rs.getString("school_year"))),
+                    bulletin.academicSessionId(), bulletin.academicSessionId(), bulletin.studentId(), TenantContext.get());
+            return rows == null || rows.isEmpty() ? fallback : rows.getFirst();
+        } catch (RuntimeException ignored) {
+            return fallback;
+        }
+    }
+
+    private String sessionCode(BulletinSnapshotView bulletin) {
+        try {
+            List<String> values = jdbc.query("SELECT code FROM academic_session WHERE id=? AND school_id=?",
+                    (rs, n) -> rs.getString(1), bulletin.academicSessionId(), TenantContext.get());
+            return values == null || values.isEmpty() ? "-" : safeText(values.getFirst());
+        } catch (RuntimeException ignored) {
+            return "-";
+        }
+    }
+
+    private record StudentRenderData(String dob, String birthplace, String sex, String repeater,
+                                     String parent, String classMaster, String schoolYear) {
+        String birth() { return "-".equals(dob) ? birthplace : dob + ("-".equals(birthplace) ? "" : " / " + birthplace); }
     }
 
     private record BrandingRenderData(String schoolName, String schoolNameEn, String motto,

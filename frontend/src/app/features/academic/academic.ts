@@ -13,6 +13,7 @@ import { ScopeService } from '../../core/scope.service';
 import { I18nService } from '../../core/i18n.service';
 import { Student } from '../../core/models';
 import { ApcBulletinComponent } from './apc-bulletin';
+import { SecondaryBulletinComponent } from './secondary-bulletin';
 import { PhotoApi } from '../../core/photo.api';
 import {
   IconComponent, CardComponent, PageHeaderComponent, EmptyComponent,
@@ -101,7 +102,7 @@ const appreciation = (avg: number, fr: boolean): string => {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     FormsModule, DatePipe, IconComponent, CardComponent, PageHeaderComponent,
-    EmptyComponent, AvatarComponent, TabsComponent, ApcBulletinComponent,
+    EmptyComponent, AvatarComponent, TabsComponent, ApcBulletinComponent, SecondaryBulletinComponent,
   ],
   template: `
     <div class="fade-in max-w-6xl mx-auto">
@@ -510,6 +511,8 @@ const appreciation = (avg: number, fr: boolean): string => {
               @if (bulletin(); as b) {
                 @if (isApc()) {
                   <bbc-card className="overflow-x-auto"><bbc-apc-bulletin [view]="b" /></bbc-card>
+                } @else if (isSecondary()) {
+                  <bbc-card className="overflow-x-auto"><bbc-secondary-bulletin [view]="b" /></bbc-card>
                 } @else {
                   <bbc-card className="overflow-hidden">
                     <div class="bg-white rounded-xl2 overflow-hidden -m-5 print:m-0">
@@ -997,9 +1000,11 @@ export class AcademicComponent {
   protected selectedClass = signal('');
   protected selectedClassId = signal('');
   protected classStudents = signal<Student[]>([]);
+  protected classMasterName = signal('');
   protected studentQuery = signal('');
   protected selectedStudentId = signal('');
   protected academicSessionId = signal('');
+  protected academicSessionCode = signal('');
   protected sequence = signal(1);
   protected reportingPeriods = signal<AcademicReportingPeriodView[]>([]);
   protected selectedReportingPeriodId = signal('');
@@ -1071,6 +1076,11 @@ export class AcademicComponent {
       s.name.toLowerCase().includes(q) || s.matricule.toLowerCase().includes(q));
   });
 
+  protected isSecondary = computed(() => {
+    const level = (this.bulletin()?.educationalLevel ?? this.scope.scope()?.level ?? '').toLowerCase();
+    return level === 'secondary';
+  });
+
   /** Teacher grade-entry must use the server-filtered academic scope model.
    * The setup class catalogue is intentionally reserved for administration
    * and returns 403 for ordinary teachers. */
@@ -1121,6 +1131,7 @@ export class AcademicComponent {
     this.foundationApi.currentSession().subscribe({
       next: (s) => {
         this.academicSessionId.set(s.id);
+        this.academicSessionCode.set(s.code || s.label);
         this.foundationApi.reportingDependencies(s.id).subscribe({ next: (rows) => this.reportingDependencies.set(rows), error: () => this.reportingDependencies.set([]) });
         this.foundationApi.reportingPeriods(s.id).subscribe({
         next: (periods) => {
@@ -1203,6 +1214,7 @@ export class AcademicComponent {
     if (!preserveSubjectCode) this.selectedGradeSubjectCode.set('');
     this.studentQuery.set('');
     this.classStudents.set([]);
+    this.classMasterName.set('');
     this.batchJob.set(null); this.batchJobs.set([]); this.batchItems.set([]);
     if (!name) return;
     const sessionId = this.academicSessionId();
@@ -1222,6 +1234,13 @@ export class AcademicComponent {
           this.notice.set({ ok: false, text: this.explainError(e) });
         }
       },
+    });
+    this.setupApi.curriculum(sessionId, classId).subscribe({
+      next: (curriculum) => {
+        if (this.academicSessionId() === sessionId && this.selectedClassId() === classId)
+          this.classMasterName.set(curriculum.homeroomTeacher?.employeeName ?? '');
+      },
+      error: () => this.classMasterName.set(''),
     });
     if (this.mode() === 'pv' || this.mode() === 'overview') this.loadPv();
     if (this.mode() === 'grade-entry') this.loadGradeEntry();
@@ -1768,10 +1787,19 @@ export class AcademicComponent {
 
   private mapSnapshot(snapshot: BulletinSnapshotView): BulletinView {
     const period = this.reportingPeriods().find((p) => p.id === snapshot.reportingPeriodId);
+    const student = this.classStudents().find((value) => value.id === snapshot.studentId);
     return {
       id: snapshot.id,
       studentId: snapshot.studentId,
       studentName: snapshot.studentName,
+      matricule: snapshot.matricule,
+      schoolYear: this.academicSessionCode(),
+      birthDate: student?.dob,
+      birthPlace: student?.birthplace,
+      sex: student?.sex,
+      repeater: student?.repeats,
+      parentContact: [student?.parentName, student?.parentPhone].filter(Boolean).join(' / ') || null,
+      classMasterName: this.classMasterName() || null,
       className: snapshot.className ?? '',
       educationalLevel: snapshot.educationalLevel,
       subsystem: snapshot.subsystem,
@@ -1789,6 +1817,7 @@ export class AcademicComponent {
         teacherName: line.teacherName,
         subjectGroupCode: line.subjectGroupCode,
         subjectGroupLabel: line.subjectGroupLabel,
+        assessments: line.assessments ?? undefined,
       })),
       average: snapshot.average,
       rank: snapshot.rank,
