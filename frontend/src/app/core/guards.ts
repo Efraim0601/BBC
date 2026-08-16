@@ -3,11 +3,20 @@ import { CanActivateFn, Router } from '@angular/router';
 import { AuthService } from './auth.service';
 import { ScopeService } from './scope.service';
 import { Level } from './models';
+import { catchError, map, of } from 'rxjs';
 
 export const authGuard: CanActivateFn = () => {
   const auth = inject(AuthService);
   const router = inject(Router);
   return auth.isLoggedIn() ? true : router.createUrlTree(['/login']);
+};
+
+/** The parent portal is a role boundary, not an empty shell for staff users. */
+export const parentGuard: CanActivateFn = () => {
+  const auth = inject(AuthService);
+  const router = inject(Router);
+  if (!auth.isLoggedIn()) return router.createUrlTree(['/login']);
+  return auth.user()?.role === 'parent' ? true : router.createUrlTree(['/apps']);
 };
 
 /**
@@ -32,5 +41,48 @@ export const permissionGuard = (module: string, level: Level = 'read'): CanActiv
     const router = inject(Router);
     if (!auth.isLoggedIn()) return router.createUrlTree(['/login']);
     return auth.can(module, level) ? true : router.createUrlTree(['/apps']);
+  };
+};
+
+/**
+ * Opens a resource-scoped module for action-authorized users whose legacy
+ * module matrix is empty.  CONTEXT_REQUIRED is deliberate here: the module
+ * establishes the resource context and the API remains the authorization
+ * boundary for each row/action.
+ */
+export const contextualActionGuard = (actionCode: string): CanActivateFn => {
+  return () => {
+    const auth = inject(AuthService);
+    const router = inject(Router);
+    if (!auth.isLoggedIn()) return router.createUrlTree(['/login']);
+    const redirect = router.createUrlTree(['/apps']);
+    const allowed = () => {
+      const state = auth.actionState(actionCode);
+      return state === 'ALLOW' || state === 'CONTEXT_REQUIRED';
+    };
+    if (!auth.capabilities() || auth.actionState(actionCode) === 'LOADING') {
+      return auth.loadCapabilities().pipe(
+        map(() => allowed() ? true : redirect),
+        catchError(() => of(redirect)),
+      );
+    }
+    return allowed() ? true : redirect;
+  };
+};
+
+/** Action-aware guard; waits for server capabilities instead of falling back to module write. */
+export const actionGuard = (actionCode: string): CanActivateFn => {
+  return () => {
+    const auth = inject(AuthService);
+    const router = inject(Router);
+    if (!auth.isLoggedIn()) return router.createUrlTree(['/login']);
+    const redirect = router.createUrlTree(['/apps']);
+    if (!auth.capabilities() || auth.actionState(actionCode) === 'LOADING') {
+      return auth.loadCapabilities().pipe(
+        map(() => auth.canAction(actionCode) ? true : redirect),
+        catchError(() => of(redirect)),
+      );
+    }
+    return auth.canAction(actionCode) ? true : redirect;
   };
 };

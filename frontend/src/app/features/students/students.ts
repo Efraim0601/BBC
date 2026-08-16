@@ -3,7 +3,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { StudentApi, StudentUpsert, ParentAccountView, ParentLinkRequest, StudentImportRow, StudentImportRequest, StudentImportResult } from './students.api';
-import { SetupApi, ClassView } from '../../core/setup.api';
+import { ClassView } from '../../core/setup.api';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
 import { ScopeService } from '../../core/scope.service';
@@ -749,7 +749,6 @@ export class StudentsComponent {
   protected i18n = inject(I18nService);
   private api = inject(StudentApi);
   private photoApi = inject(PhotoApi);
-  private setupApi = inject(SetupApi);
   private auth = inject(AuthService);
   private scopeSvc = inject(ScopeService);
   private router = inject(Router);
@@ -795,7 +794,14 @@ export class StudentsComponent {
   protected importing = signal(false);
   protected importError = signal<string | null>(null);
 
-  protected canWrite = this.auth.can('students', 'write');
+  /** Action-authorized registrar users may use scoped student controls even
+   * when the legacy module matrix intentionally has no students entry. */
+  protected get canWrite(): boolean {
+    return this.auth.can('students', 'write')
+      || this.auth.canModuleOrAction('students', 'STUDENT_PROFILE_CREATE')
+      || this.auth.canModuleOrAction('students', 'STUDENT_PROFILE_EDIT')
+      || this.auth.canModuleOrAction('students', 'GUARDIAN_LINK_MANAGE');
+  }
   protected draft: StudentUpsert = this.blank();
   /**
    * Photo saisie dans le formulaire (data URL) ; envoyée APRÈS l'enregistrement,
@@ -901,7 +907,10 @@ export class StudentsComponent {
 
   constructor() {
     this.reload();
-    this.setupApi.listClasses().subscribe((c) => this.classes.set(c));
+    this.api.listClassOptions().subscribe({
+      next: (c) => this.classes.set(c),
+      error: () => this.classes.set([]),
+    });
 
     // Load the linked parent accounts whenever the selected student changes.
     effect(() => {
@@ -1303,7 +1312,15 @@ export class StudentsComponent {
     this.importing.set(true);
     this.importError.set(null);
     this.api.importStudents(req).subscribe({
-      next: (res) => { this.importing.set(false); this.importResult.set(res); this.reload(); this.setupApi.listClasses().subscribe((c) => this.classes.set(c)); },
+      next: (res) => {
+        this.importing.set(false);
+        this.importResult.set(res);
+        this.reload();
+        this.api.listClassOptions().subscribe({
+          next: (c) => this.classes.set(c),
+          error: () => this.classes.set([]),
+        });
+      },
       error: (e) => { this.importing.set(false); this.importError.set(this.importErrorMessage(e)); },
     });
   }

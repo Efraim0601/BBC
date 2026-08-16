@@ -5,6 +5,7 @@ import com.bbc.sms.finance.accounting.AccountingPeriodService;
 import com.bbc.sms.finance.accounting.ChartOfAccount;
 import com.bbc.sms.finance.accounting.ChartOfAccountRepository;
 import com.bbc.sms.finance.accounting.LedgerPostingService;
+import com.bbc.sms.finance.FinancePolicyService;
 import com.bbc.sms.foundation.audit.AuditService;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AppUserPrincipal;
@@ -14,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -33,6 +35,7 @@ public class ChargeAdjustmentService {
     private final AccountingPeriodService periods;
     private final LedgerPostingService ledger;
     private final AuditService audit;
+    private final FinancePolicyService financePolicy;
 
     public ChargeAdjustmentService(StudentChargeRepository charges,
                                    ChargeInstallmentRepository installments,
@@ -40,7 +43,8 @@ public class ChargeAdjustmentService {
                                    ChartOfAccountRepository accounts,
                                    AccountingPeriodService periods,
                                    LedgerPostingService ledger,
-                                   AuditService audit) {
+                                   AuditService audit,
+                                   FinancePolicyService financePolicy) {
         this.charges = charges;
         this.installments = installments;
         this.adjustments = adjustments;
@@ -48,11 +52,13 @@ public class ChargeAdjustmentService {
         this.periods = periods;
         this.ledger = ledger;
         this.audit = audit;
+        this.financePolicy = financePolicy;
     }
 
     @Transactional(readOnly = true)
     public AdjustmentImpact impact(UUID chargeId, AdjustmentRequest request) {
         StudentCharge charge = requireCharge(chargeId);
+        financePolicy.requireCharge("CHARGE_ADJUST", chargeId, request.effectiveDate());
         List<String> blockers = new ArrayList<>();
         if (!List.of("WAIVER", "ADJUSTMENT").contains(normalize(request.adjustmentType()))) {
             blockers.add("Le type doit être WAIVER ou ADJUSTMENT.");
@@ -72,6 +78,7 @@ public class ChargeAdjustmentService {
     @Transactional
     public AdjustmentView request(UUID chargeId, AdjustmentRequest request) {
         UUID schoolId = TenantContext.get();
+        financePolicy.requireCharge("FEE_WAIVE_REQUEST", chargeId, request.effectiveDate());
         StudentCharge charge = charges.findForUpdateByIdAndSchoolId(chargeId, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Charge"));
         if (request.version() != null && request.version() != charge.getVersion()) conflict("charge");
@@ -103,6 +110,14 @@ public class ChargeAdjustmentService {
                 .orElseThrow(() -> ApiException.notFound("Demande d'ajustement"));
         if (request.version() != adjustment.getVersion()) conflict("demande d'ajustement");
         if (!"REQUESTED".equals(adjustment.getStatus())) throw ApiException.conflict("Cette demande a déjà été décidée et est immuable.");
+        // Evaluate the approval against the adjustment's effective academic
+        // date.  Using the server's current date rejects valid future-session
+        // fixtures (and real scheduled waivers) before the policy decision is
+        // even evaluated.
+        financePolicy.requireCharge("FEE_WAIVE_APPROVE", adjustment.getChargeId(), adjustment.getEffectiveDate());
+        if (adjustment.getRequestedBy() != null && adjustment.getRequestedBy().equals(currentUserId())) {
+            throw ApiException.forbidden("La personne qui demande la remise ne peut pas l'approuver.");
+        }
         if (!request.approve()) {
             adjustment.setStatus("REJECTED");
             adjustment.setApprovedBy(currentUserId());
@@ -127,7 +142,7 @@ public class ChargeAdjustmentService {
             }
         }
         AccountingPeriod period = periods.requireOpenForDate(adjustment.getEffectiveDate(), charge.getAcademicSessionId());
-        var journal = ledger.createDraft(new JournalUpsert(adjustment.getEffectiveDate(),
+        var journal = ledger.createDraftInternal(new JournalUpsert(adjustment.getEffectiveDate(),
                 "Ajustement charge " + charge.getFeeTypeCode(), charge.getCurrency(), period.getId(),
                 "STUDENT_CHARGE_ADJUSTMENT", adjustment.getId().toString(), "CHARGE_ADJUSTMENT:" + adjustment.getId(), List.of(
                 new JournalLineInput(adjustment.getContraAccountId(), adjustment.getAmountMinor(), 0,
@@ -136,7 +151,7 @@ public class ChargeAdjustmentService {
                 new JournalLineInput(charge.getReceivableAccountId(), 0, adjustment.getAmountMinor(),
                         charge.getStudentId(), charge.getStudentEnrollmentId(), null, charge.getSchoolClassIdSnapshot(), charge.getFeeTypeCode(),
                         "Réduction créance")), null));
-        ledger.post(journal.id(), "CHARGE-ADJUSTMENT-JOURNAL:" + adjustment.getId());
+        ledger.postNowInternal(journal.id());
         adjustment.setStatus("POSTED");
         adjustment.setApprovedBy(currentUserId());
         adjustment.setApprovedAt(Instant.now());
@@ -152,6 +167,7 @@ public class ChargeAdjustmentService {
     @Transactional(readOnly = true)
     public List<AdjustmentView> list(UUID chargeId) {
         requireCharge(chargeId);
+        financePolicy.requireCharge("FINANCE_OVERVIEW_VIEW", chargeId, LocalDate.now());
         return adjustments.findBySchoolIdAndChargeIdOrderByCreatedAtAsc(TenantContext.get(), chargeId).stream().map(this::view).toList();
     }
 

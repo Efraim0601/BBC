@@ -30,53 +30,53 @@ public class AcademicSessionController {
         this.configurationCopy = configurationCopy; this.idempotency = idempotency;
     }
 
-    @GetMapping @PreAuthorize("@perm.canAction('SESSION_VIEW')")
+    @GetMapping @PreAuthorize("@policy.canAction('SESSION_VIEW')")
     public List<SessionView> list() { return service.list(); }
 
-    @GetMapping("/current") @PreAuthorize("@perm.canAction('SESSION_VIEW')")
+    @GetMapping("/current") @PreAuthorize("@policy.canAction('SESSION_VIEW')")
     public SessionView current() { return service.current(); }
 
     @PostMapping @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("@perm.canAction('SESSION_MANAGE')")
+    @PreAuthorize("@policy.canAction('SESSION_MANAGE')")
     public SessionView create(@Valid @RequestBody SessionUpsert in) { return service.create(in); }
 
-    @PutMapping("/{id}") @PreAuthorize("@perm.canAction('SESSION_MANAGE')")
+    @PutMapping("/{id}") @PreAuthorize("@policy.canAction('SESSION_MANAGE')")
     public SessionView update(@PathVariable UUID id, @Valid @RequestBody SessionUpsert in) { return service.update(id, in); }
 
-    @PostMapping("/{id}/state") @PreAuthorize("@perm.canAction('SESSION_MANAGE')")
+    @PostMapping("/{id}/state") @PreAuthorize("@policy.canAction('SESSION_MANAGE')")
     public SessionView state(@PathVariable UUID id, @Valid @RequestBody SessionStateRequest in) { return service.changeState(id, in); }
 
     @PostMapping("/{sessionId}/terms") @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("@perm.canAction('SESSION_MANAGE')")
+    @PreAuthorize("@policy.canAction('SESSION_MANAGE')")
     public TermView addTerm(@PathVariable UUID sessionId, @Valid @RequestBody TermUpsert in) { return service.addTerm(sessionId, in); }
 
-    @PutMapping("/terms/{id}") @PreAuthorize("@perm.canAction('SESSION_MANAGE')")
+    @PutMapping("/terms/{id}") @PreAuthorize("@policy.canAction('SESSION_MANAGE')")
     public TermView updateTerm(@PathVariable UUID id, @Valid @RequestBody TermUpsert in) { return service.updateTerm(id, in); }
 
     @DeleteMapping("/terms/{id}") @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize("@perm.canAction('SESSION_MANAGE')")
+    @PreAuthorize("@policy.canAction('SESSION_MANAGE')")
     public void deleteTerm(@PathVariable UUID id, @RequestParam(required = false) String reason) { service.deleteTerm(id, reason); }
 
     @GetMapping("/{sessionId}/reporting-periods")
-    @PreAuthorize("@perm.canAction('SESSION_VIEW')")
+    @PreAuthorize("@policy.canAction('SESSION_VIEW')")
     public List<ReportingPeriodView> reportingPeriods(@PathVariable UUID sessionId) {
         return service.reportingPeriods(sessionId);
     }
 
     @GetMapping("/{sessionId}/readiness")
-    @PreAuthorize("@perm.canAction('SESSION_VIEW')")
+    @PreAuthorize("@policy.canAction('SESSION_VIEW')")
     public SessionReadinessView readiness(@PathVariable UUID sessionId) {
         return service.readiness(sessionId);
     }
 
     @GetMapping("/{sessionId}/term-management-windows")
-    @PreAuthorize("@perm.canAction('SESSION_VIEW')")
+    @PreAuthorize("@policy.canAction('SESSION_VIEW')")
     public List<TermManagementWindowView> termManagementWindows(@PathVariable UUID sessionId) {
         return termManagementWindows.list(sessionId);
     }
 
     @PutMapping("/{sessionId}/terms/{termId}/management-window")
-    @PreAuthorize("@perm.canAction('SESSION_MANAGE')")
+    @PreAuthorize("@policy.canAction('SESSION_MANAGE')")
     public TermManagementWindowView updateTermManagementWindow(@PathVariable UUID sessionId,
                                                                 @PathVariable UUID termId,
                                                                 @RequestBody TermManagementWindowUpsert input) {
@@ -84,19 +84,19 @@ public class AcademicSessionController {
     }
 
     @GetMapping("/{sessionId}/reporting-periods/dependencies")
-    @PreAuthorize("@perm.canAction('SESSION_VIEW')")
+    @PreAuthorize("@policy.canAction('SESSION_VIEW')")
     public List<StructureDependencyView> dependencies(@PathVariable UUID sessionId) {
         return service.dependencies(sessionId);
     }
 
     @GetMapping("/{sessionId}/window-rules")
-    @PreAuthorize("@perm.canAction('SESSION_VIEW')")
+    @PreAuthorize("@policy.canAction('SESSION_VIEW')")
     public List<WorkflowWindowRuleView> windowRules(@PathVariable UUID sessionId) {
         return windowRules.list(sessionId);
     }
 
     @PutMapping("/{sessionId}/window-rules")
-    @PreAuthorize("@perm.canAction('SESSION_MANAGE')")
+    @PreAuthorize("@policy.canAction('SESSION_MANAGE')")
     @Deprecated
     public WorkflowWindowRuleView saveWindowRule(@PathVariable UUID sessionId,
                                                   @Valid @RequestBody WorkflowWindowRuleUpsert in) {
@@ -104,14 +104,14 @@ public class AcademicSessionController {
     }
 
     @PostMapping("/{targetSessionId}/configuration-copy/preview")
-    @PreAuthorize("@perm.canAction('SESSION_VIEW')")
+    @PreAuthorize("@policy.canAction('SESSION_VIEW')")
     public ConfigurationCopyPreview previewConfigurationCopy(@PathVariable UUID targetSessionId,
                                                               @Valid @RequestBody ConfigurationCopyPreviewRequest in) {
         return configurationCopy.preview(targetSessionId, in);
     }
 
     @PostMapping("/{targetSessionId}/configuration-copy/apply")
-    @PreAuthorize("@perm.canAction('SESSION_MANAGE')")
+    @PreAuthorize("@policy.canAction('SESSION_MANAGE')")
     public ConfigurationCopyPreview applyConfigurationCopy(@PathVariable UUID targetSessionId,
                                                             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
                                                             @Valid @RequestBody ConfigurationCopyApplyRequest in) {
@@ -122,14 +122,14 @@ public class AcademicSessionController {
 
     @PostMapping("/{sessionId}/reporting-periods")
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("@perm.canAction('SESSION_MANAGE')")
+    @PreAuthorize("@policy.canAction('SESSION_MANAGE')")
     public ReportingPeriodView createReportingPeriod(@PathVariable UUID sessionId,
                                                        @Valid @RequestBody ReportingPeriodUpsert in) {
         return service.upsertReportingPeriod(sessionId, null, in);
     }
 
     @PutMapping("/{sessionId}/reporting-periods/{id}")
-    @PreAuthorize("@perm.canAction('SESSION_MANAGE')")
+    @PreAuthorize("@policy.canAction('SESSION_MANAGE')")
     public ReportingPeriodView updateReportingPeriod(@PathVariable UUID sessionId, @PathVariable UUID id,
                                                       @Valid @RequestBody ReportingPeriodUpsert in) {
         return service.upsertReportingPeriod(sessionId, id, in);
@@ -137,19 +137,19 @@ public class AcademicSessionController {
 
     @DeleteMapping("/reporting-periods/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize("@perm.canAction('SESSION_MANAGE')")
+    @PreAuthorize("@policy.canAction('SESSION_MANAGE')")
     public void deleteReportingPeriod(@PathVariable UUID id, @RequestParam(required = false) String reason) {
         service.deleteReportingPeriod(id, reason);
     }
 
     @PostMapping("/{sessionId}/reporting-periods/standard/preview")
-    @PreAuthorize("@perm.canAction('SESSION_VIEW')")
+    @PreAuthorize("@policy.canAction('SESSION_VIEW')")
     public StandardStructureView previewStandardStructure(@PathVariable UUID sessionId) {
         return service.previewStandardStructure(sessionId);
     }
 
     @PostMapping("/{sessionId}/reporting-periods/standard/apply")
-    @PreAuthorize("@perm.canAction('SESSION_MANAGE')")
+    @PreAuthorize("@policy.canAction('SESSION_MANAGE')")
     public StandardStructureView applyStandardStructure(@PathVariable UUID sessionId,
                                                          @RequestParam(required = false) String reason,
                                                          @RequestParam(required = false) String fingerprint,
@@ -162,14 +162,14 @@ public class AcademicSessionController {
     }
 
     @GetMapping("/{sessionId}/window-overrides")
-    @PreAuthorize("@perm.canAction('SESSION_VIEW')")
+    @PreAuthorize("@policy.canAction('SESSION_VIEW')")
     public List<WindowOverrideView> windowOverrides(@PathVariable UUID sessionId,
                                                      @RequestParam(required = false) UUID reportingPeriodId) {
         return overrides.list(sessionId, reportingPeriodId);
     }
 
     @GetMapping("/{sessionId}/reporting-periods/{periodId}/effective-window")
-    @PreAuthorize("@perm.canAction('SESSION_VIEW')")
+    @PreAuthorize("@policy.canAction('SESSION_VIEW')")
     public AcademicWindowPolicyService.WindowView effectiveWindow(@PathVariable UUID sessionId,
                                                                     @PathVariable UUID periodId,
                                                                     @RequestParam String action) {
@@ -186,7 +186,7 @@ public class AcademicSessionController {
 
     @PostMapping("/{sessionId}/window-overrides")
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("@perm.canAction('ACADEMIC_WINDOW_OVERRIDE')")
+    @PreAuthorize("@policy.canAction('ACADEMIC_WINDOW_OVERRIDE')")
     @Deprecated
     public WindowOverrideView createWindowOverride(@PathVariable UUID sessionId,
                                                     @Valid @RequestBody WindowOverrideUpsert in) {
@@ -195,7 +195,7 @@ public class AcademicSessionController {
 
     @PostMapping("/window-overrides/{id}/revoke")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize("@perm.canAction('ACADEMIC_WINDOW_OVERRIDE')")
+    @PreAuthorize("@policy.canAction('ACADEMIC_WINDOW_OVERRIDE')")
     public void revokeWindowOverride(@PathVariable UUID id, @RequestParam String reason) {
         overrides.revoke(id, reason);
     }

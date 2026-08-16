@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, ChangeDetectorRef, Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
-import { ClassView, SetupApi } from '../../core/setup.api';
+import { ClassView } from '../../core/setup.api';
 import { I18nService } from '../../core/i18n.service';
 import { CardComponent, IconComponent, PageHeaderComponent } from '../../core/ui';
 import { GuardianInput, GuardianSearchView, StudentApi, StudentUpsert } from './students.api';
@@ -48,7 +48,7 @@ import { GuardianInput, GuardianSearchView, StudentApi, StudentUpsert } from './
         @if(step()===1){
           <section class="space-y-4">
             <h2 class="text-lg font-bold">{{fr()?'Placement scolaire':'School placement'}}</h2>
-            <label class="block"><span class="label">{{fr()?'Classe actuelle':'Current class'}}<span class="required-mark">*</span><span class="required-hint">{{fr()?'Obligatoire':'Required'}}</span></span><select class="input w-full" [(ngModel)]="student.classId" [class.input-error]="attemptedCurrent()&&!student.classId" [attr.aria-invalid]="attemptedCurrent()&&!student.classId"><option [ngValue]="null">{{fr()?'Sélectionner une classe':'Select a class'}}</option>@for(c of classes();track c.id){<option [value]="c.id">{{c.name}} · {{c.subsystem}} · {{c.level}}</option>}</select>@if(attemptedCurrent()&&!student.classId){<span class="field-error">{{fr()?'Sélectionnez la classe actuelle de l’élève.':'Select the student’s current class.'}}</span>}</label>
+            <label class="block"><span class="label">{{fr()?'Classe actuelle':'Current class'}}<span class="required-mark">*</span><span class="required-hint">{{fr()?'Obligatoire':'Required'}}</span></span><select class="input w-full" [(ngModel)]="student.classId" [class.input-error]="attemptedCurrent()&&!student.classId" [attr.aria-invalid]="attemptedCurrent()&&!student.classId"><option [ngValue]="null">{{fr()?'Sélectionner une classe':'Select a class'}}</option>@for(c of classes();track c.id){<option [value]="c.id">{{c.name}} · {{c.subsystem}} · {{c.level}}</option>}</select>@if(attemptedCurrent()&&!student.classId){<span class="field-error">{{fr()?'Sélectionnez la classe actuelle de l’élève.':'Select the student’s current class.'}}</span>}</label>@if(classOptionsUnavailable()){<div role="alert" class="p-3 rounded-xl border border-amber-200 bg-amber-50 text-amber-800 text-sm">{{fr()?'Les classes ne sont pas disponibles pour ce profil. Demandez l’accès aux inscriptions.':'Class options are unavailable for this profile. Request enrollment access.'}}</div>}
             <div class="p-3 rounded-xl bg-blue-50 text-blue-800 text-sm">{{fr()?'L’inscription est automatiquement liée à la session académique courante.':'Enrollment is automatically linked to the current academic session.'}}</div>
           </section>
         }
@@ -102,13 +102,13 @@ import { GuardianInput, GuardianSearchView, StudentApi, StudentUpsert } from './
     </div>`,
 })
 export class StudentRegistrationComponent {
-  private api=inject(StudentApi); private setup=inject(SetupApi); private cdr=inject(ChangeDetectorRef); protected router=inject(Router); private i18n=inject(I18nService);
-  protected fr=()=>this.i18n.lang()==='fr'; protected step=signal(0); protected attemptedStep=signal<number|null>(null); protected classes=signal<ClassView[]>([]); protected saving=signal(false); protected error=signal<string|null>(null); protected result=signal<any|null>(null);
+  private api=inject(StudentApi); private cdr=inject(ChangeDetectorRef); protected router=inject(Router); private i18n=inject(I18nService);
+  protected fr=()=>this.i18n.lang()==='fr'; protected step=signal(0); protected attemptedStep=signal<number|null>(null); protected classes=signal<ClassView[]>([]); protected saving=signal(false); protected error=signal<string|null>(null); protected result=signal<any|null>(null); protected classOptionsUnavailable=signal(false);
   protected labels=()=>this.fr()?['Élève','Classe','Famille','Accès','Vérifier']:['Student','Class','Family','Access','Review'];
   protected student:StudentUpsert={firstName:'',lastName:'',niu:'',sex:'M',dob:null,birthplace:'',repeats:false,classId:null,parentName:'',parentPhone:''};
   protected guardians:GuardianInput[]=[this.blankGuardian()]; protected queries:string[]=['']; protected searchResults:GuardianSearchView[][]=[[]];
 
-  constructor(){this.setup.listClasses().subscribe(c=>this.classes.set(c));}
+  constructor(){this.api.listClassOptions().subscribe({next:c=>{this.classes.set(c);this.classOptionsUnavailable.set(false)},error:()=>{this.classes.set([]);this.classOptionsUnavailable.set(true)}});}
   protected attemptedCurrent(){return this.attemptedStep()===this.step();}
   protected next(){this.attemptedStep.set(this.step());if(!this.validStep())return;this.attemptedStep.set(null);this.step.update(value=>value+1);}
   protected previous(){this.attemptedStep.set(null);this.error.set(null);this.step.update(value=>Math.max(0,value-1));}

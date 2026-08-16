@@ -10,6 +10,9 @@ import com.bbc.sms.foundation.session.AcademicReportingPeriod;
 import com.bbc.sms.foundation.session.AcademicReportingPeriodRepository;
 import com.bbc.sms.foundation.session.AcademicWindowPolicyService;
 import com.bbc.sms.platform.common.ApiException;
+import com.bbc.sms.platform.security.AuthorizationPolicyService;
+import com.bbc.sms.platform.security.PolicyResourceContext;
+import com.bbc.sms.platform.tenant.ParcoursContext;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.student.Student;
 import com.bbc.sms.student.StudentRepository;
@@ -52,6 +55,7 @@ public class BulletinSnapshotService {
     private final ObjectMapper mapper;
     private final JdbcTemplate jdbc;
     private final AuditService audit;
+    private final AuthorizationPolicyService policy;
 
     public BulletinSnapshotService(AcademicReportingPeriodRepository periods, AcademicAssessmentRepository assessments,
                                    AcademicGradeRepository grades, SubjectResultCommentRepository comments,
@@ -59,11 +63,11 @@ public class BulletinSnapshotService {
                                    StudentRepository students, SubjectRepository subjects,
                                    SubjectClassCoefRepository subjectClassCoefs, SchoolClassRepository classes,
                                    AcademicWindowPolicyService windows, AcademicAccessPolicyService accessPolicy, TeachingAssignmentResolver assignments, ObjectMapper mapper,
-                                   JdbcTemplate jdbc, AuditService audit) {
+                                   JdbcTemplate jdbc, AuditService audit, AuthorizationPolicyService policy) {
         this.periods = periods; this.assessments = assessments; this.grades = grades; this.comments = comments; this.packets = packets;
         this.versions = versions; this.enrollments = enrollments; this.students = students; this.subjects = subjects;
         this.subjectClassCoefs = subjectClassCoefs; this.classes = classes;
-        this.windows = windows; this.accessPolicy = accessPolicy; this.assignments = assignments; this.mapper = mapper; this.jdbc = jdbc; this.audit = audit;
+        this.windows = windows; this.accessPolicy = accessPolicy; this.assignments = assignments; this.mapper = mapper; this.jdbc = jdbc; this.audit = audit; this.policy = policy;
     }
 
     private StudentEnrollment enrollment(UUID studentId, AcademicReportingPeriod period) {
@@ -103,10 +107,17 @@ public class BulletinSnapshotService {
         return new CurrentSnapshot(student, enrollment, calculation, attendance, conduct, trace, json, sha256(json));
     }
 
-    private List<String> officialBlockers(Calculation calculation, ConductSummaryView conduct) {
+    private List<String> officialBlockers(AcademicReportingPeriod period, Calculation calculation, ConductSummaryView conduct) {
         List<String> blockers = new ArrayList<>(calculation == null ? List.of() : calculation.blockers());
-        if (conduct == null || !"APPROVED".equalsIgnoreCase(conduct.status())) addDistinct(blockers, "CONDUCT_NOT_APPROVED");
+        if (requiresCouncilApproval(period) && (conduct == null || !"APPROVED".equalsIgnoreCase(conduct.status()))) {
+            addDistinct(blockers, "CONDUCT_NOT_APPROVED");
+        }
         return blockers;
+    }
+
+    static boolean requiresCouncilApproval(AcademicReportingPeriod period) {
+        return period != null && Set.of("TERM_RESULT", "ANNUAL_RESULT")
+                .contains(String.valueOf(period.getPeriodType()).toUpperCase(Locale.ROOT));
     }
 
     private BulletinSnapshotView persistedView(BulletinVersion version, AcademicReportingPeriod period,
@@ -146,7 +157,7 @@ public class BulletinSnapshotService {
         BulletinVersion active = latestActive(studentId, periodId);
         if (official != null && active == null) return viewFromSnapshot(official, period, student);
         CurrentSnapshot current = currentSnapshot(studentId, period, student, enrollment);
-        List<String> officialBlockers = officialBlockers(current.calculation(), current.conduct());
+        List<String> officialBlockers = officialBlockers(period, current.calculation(), current.conduct());
         if (active != null) {
             if (Objects.equals(active.getSnapshotHash(), current.hash()) && officialBlockers.isEmpty())
                 return persistedView(active, period, student, current, "CURRENT", false);
@@ -200,7 +211,7 @@ public class BulletinSnapshotService {
         StudentEnrollment enrollment = enrollment(previous.getStudentId(), period);
         if (enrollment == null) throw ApiException.conflict("Aucune inscription active pour l'actualisation.");
         CurrentSnapshot current = currentSnapshot(previous.getStudentId(), period, student, enrollment);
-        List<String> blockers = officialBlockers(current.calculation(), current.conduct());
+        List<String> blockers = officialBlockers(period, current.calculation(), current.conduct());
         if (!blockers.isEmpty()) {
             throw ApiException.blockers("BULLETIN_NOT_READY",
                     "Le brouillon ne peut pas être actualisé tant que ses sources ne sont pas prêtes.", blockers);
@@ -315,7 +326,7 @@ public class BulletinSnapshotService {
         accessPolicy.requireStudent(AcademicAccessPolicyService.Capability.CLASS_REPORT_CARD_VIEW,
                 studentId, period.getAcademicSessionId(), period.getStartDate(), null);
         Student student = students.findByIdAndSchoolId(studentId, TenantContext.get())
-                .orElseThrow(() -> ApiException.notFound("Ã‰lÃ¨ve"));
+                .orElseThrow(() -> ApiException.notFound("Élève"));
         StudentEnrollment enrollment = enrollment(studentId, period);
         if (enrollment == null) throw ApiException.conflict("Cet élève n'est pas inscrit dans la session académique sélectionnée.");
         // A preview never creates a version. If an explicit draft/correction already
@@ -346,6 +357,28 @@ public class BulletinSnapshotService {
         return viewFromSnapshot(version, period, student);
     }
 
+    /**
+     * Official report-card generation is a STUDENT-scoped V2 action. Resolve
+     * its resource context from the persisted snapshot/enrollment rather than
+     * relying on a legacy role-only controller check or a client header.
+     */
+    @Transactional(readOnly = true)
+    public void requireDocumentGeneration(BulletinSnapshotView snapshot) {
+        AcademicReportingPeriod period = period(snapshot.reportingPeriodId());
+        StudentEnrollment active = enrollment(snapshot.studentId(), period);
+        if (active == null || active.getSchoolClassId() == null) {
+            throw ApiException.forbidden("L'inscription active de l'élève est requise pour générer le document.");
+        }
+        String level = Optional.ofNullable(active.getLevelSnapshot()).filter(value -> !value.isBlank())
+                .orElse(snapshot.educationalLevel());
+        String subsystem = Optional.ofNullable(active.getSubsystemSnapshot()).filter(value -> !value.isBlank())
+                .orElse(snapshot.subsystem());
+        policy.require("DOCUMENT_GENERATE", new PolicyResourceContext(
+                TenantContext.get(), snapshot.academicSessionId(), period.getStartDate(),
+                new ParcoursContext.Scope(level.toLowerCase(Locale.ROOT), subsystem.toUpperCase(Locale.ROOT)),
+                active.getSchoolClassId(), null, snapshot.studentId(), null, snapshot.id(), null, null, level));
+    }
+
     @Transactional
     public BulletinSnapshotView validate(UUID id) {
         BulletinVersion version = versions.findByIdAndSchoolIdForUpdate(id, TenantContext.get()).orElseThrow(() -> ApiException.notFound("Version de bulletin"));
@@ -363,7 +396,7 @@ public class BulletinSnapshotService {
                     "Le brouillon ne correspond plus aux sources actuelles. Actualisez-le avant validation.",
                     List.of("BULLETIN_DRAFT_STALE"));
         }
-        List<String> blockers = officialBlockers(current.calculation(), current.conduct());
+        List<String> blockers = officialBlockers(period, current.calculation(), current.conduct());
         if (!blockers.isEmpty()) throw ApiException.blockers("BULLETIN_NOT_READY",
                 "Bulletin incomplet ou preuves administratives non approuvées : " + String.join("; ", blockers), blockers);
         version.setState("VALIDATED"); version.setValidatedAt(Instant.now()); version.setValidatedBy(currentUserId());
@@ -399,7 +432,7 @@ public class BulletinSnapshotService {
             throw ApiException.blockers("BULLETIN_DRAFT_STALE",
                     "Le bulletin validé ne correspond plus aux sources actuelles.", List.of("BULLETIN_DRAFT_STALE"));
         }
-        List<String> blockers = officialBlockers(current.calculation(), current.conduct());
+        List<String> blockers = officialBlockers(period, current.calculation(), current.conduct());
         if (!blockers.isEmpty()) throw ApiException.blockers("BULLETIN_NOT_READY",
                 "Le bulletin ne peut pas être publié : " + String.join("; ", blockers), blockers);
         version.setState("PUBLISHED");
@@ -1122,7 +1155,7 @@ public class BulletinSnapshotService {
     private BulletinSnapshotView view(BulletinVersion v, AcademicReportingPeriod p, Student s, Calculation c,
                                       AttendanceSummaryView attendance, ConductSummaryView conduct, SnapshotTrace trace,
                                       String relation, boolean refreshRequired) {
-        List<String> validationBlockers = officialBlockers(c, conduct);
+        List<String> validationBlockers = officialBlockers(p, c, conduct);
         List<BulletinIssueView> issues = new ArrayList<>(c.issues());
         if (validationBlockers.contains("CONDUCT_NOT_APPROVED")) {
             issues.add(issue("CONDUCT_NOT_APPROVED", "ERROR", p.getCode(), null,

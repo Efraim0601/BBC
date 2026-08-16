@@ -72,16 +72,16 @@ class AccountingFoundationIntegrationTest {
     @Test
     void postsBalancedJournalOnceAndKeepsTrialBalanceEqualOnReplay() {
         assertThat(sequences.allocateJournalNumber("2026-01")).isEqualTo("JRN/2026-01/000001");
-        var draft = ledger.createDraft(journal("EVENT-1", 1000, null));
-        var posted = ledger.post(draft.id(), "post-event-1");
-        var replay = ledger.post(draft.id(), "post-event-1");
+        var draft = ledger.createDraftInternal(journal("EVENT-1", 1000, null));
+        var posted = ledger.postNowInternal(draft.id());
+        var replay = ledger.postNowInternal(draft.id());
 
         assertThat(posted.status()).isEqualTo("POSTED");
         assertThat(posted.number()).isEqualTo("JRN/2026-01/000002");
         assertThat(replay.id()).isEqualTo(posted.id());
         assertThat(replay.status()).isEqualTo("POSTED");
 
-        var trial = ledger.trialBalance(LocalDate.of(2026, 1, 31), false);
+        var trial = ledger.trialBalanceInternal(LocalDate.of(2026, 1, 31), false);
         assertThat(trial.balanced()).isTrue();
         assertThat(trial.totalDebitMinor()).isEqualTo(1000);
         assertThat(trial.totalCreditMinor()).isEqualTo(1000);
@@ -89,24 +89,24 @@ class AccountingFoundationIntegrationTest {
 
     @Test
     void rejectsDuplicateSourceEventAndPostingToClosedPeriod() {
-        ledger.createDraft(journal("EVENT-2", 500, null));
-        assertThatThrownBy(() -> ledger.createDraft(journal("EVENT-2", 500, null)))
+        ledger.createDraftInternal(journal("EVENT-2", 500, null));
+        assertThatThrownBy(() -> ledger.createDraftInternal(journal("EVENT-2", 500, null)))
                 .isInstanceOf(ApiException.class)
                 .satisfies(error -> assertThat(((ApiException) error).getCode()).isEqualTo("SOURCE_EVENT_DUPLICATE"));
 
-        var closedDraft = ledger.createDraft(journal(null, 200, null));
+        var closedDraft = ledger.createDraftInternal(journal(null, 200, null));
         jdbc.update("UPDATE accounting_period SET status='CLOSED' WHERE id=? AND school_id=?", periodId, schoolId);
-        assertThatThrownBy(() -> ledger.post(closedDraft.id(), "closed-post"))
+        assertThatThrownBy(() -> ledger.postNowInternal(closedDraft.id()))
                 .isInstanceOf(ApiException.class)
                 .satisfies(error -> assertThat(((ApiException) error).getCode()).isEqualTo("POSTING_PERIOD_CLOSED"));
     }
 
     @Test
     void postedJournalCannotBeEditedAndOtherTenantCannotReadIt() {
-        var posted = ledger.post(ledger.createDraft(journal(null, 300, null)).id(), "post-immutable");
+        var posted = ledger.postNowInternal(ledger.createDraftInternal(journal(null, 300, null)).id());
         JournalUpsert edit = journal(null, 301, posted.version());
 
-        assertThatThrownBy(() -> ledger.updateDraft(posted.id(), edit))
+        assertThatThrownBy(() -> ledger.updateDraftInternal(posted.id(), edit))
                 .isInstanceOf(ApiException.class)
                 .hasMessageContaining("immuable");
         assertThatThrownBy(() -> jdbc.update("UPDATE journal_entry SET description='tampered' WHERE id=?", posted.id()))
@@ -116,7 +116,7 @@ class AccountingFoundationIntegrationTest {
         jdbc.update("INSERT INTO school(id,code,name) VALUES (?,?,?)", otherSchool,
                 "B" + otherSchool.toString().substring(0, 8), "Other school");
         TenantContext.set(otherSchool);
-        assertThatThrownBy(() -> ledger.detail(posted.id()))
+        assertThatThrownBy(() -> ledger.detailInternal(posted.id()))
                 .isInstanceOf(ApiException.class)
                 .satisfies(error -> assertThat(((ApiException) error).getCode()).isEqualTo("NOT_FOUND"));
     }

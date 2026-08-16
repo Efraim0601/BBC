@@ -3,6 +3,9 @@ package com.bbc.sms.timetable;
 import com.bbc.sms.foundation.audit.AuditService;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AppUserPrincipal;
+import com.bbc.sms.platform.security.AuthorizationPolicyService;
+import com.bbc.sms.platform.security.PolicyResourceContext;
+import com.bbc.sms.platform.tenant.ParcoursContext;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.timetable.dto.TimetableVersionDtos.*;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -30,16 +33,20 @@ public class TimetableVersionService {
     private final JdbcTemplate jdbc;
     private final AuditService audit;
     private final TeachingAssignmentResolver assignments;
+    private final AuthorizationPolicyService policy;
 
     public TimetableVersionService(JdbcTemplate jdbc, AuditService audit,
-                                   TeachingAssignmentResolver assignments) {
+                                   TeachingAssignmentResolver assignments,
+                                   AuthorizationPolicyService policy) {
         this.jdbc = jdbc;
         this.audit = audit;
         this.assignments = assignments;
+        this.policy = policy;
     }
 
     @Transactional(readOnly = true)
     public List<TimetableVersionView> list(UUID sessionId) {
+        policy.require("TIMETABLE_MASTER_VIEW", schoolContext());
         UUID school = TenantContext.get();
         requireSession(sessionId);
         return jdbc.query("""
@@ -57,6 +64,11 @@ public class TimetableVersionService {
 
     @Transactional(readOnly = true)
     public TimetableVersionView view(UUID id) {
+        policy.require("TIMETABLE_MASTER_VIEW", schoolContext());
+        return versionView(id);
+    }
+
+    private TimetableVersionView versionView(UUID id) {
         Map<String, Object> row = jdbc.queryForMap("""
             SELECT v.id,v.academic_session_id,v.version_no,v.status,v.effective_from,v.effective_to,
                    v.timezone,v.copied_from_version_id,v.version,count(s.id) AS slot_count,count(DISTINCT s.class_id) AS class_count
@@ -68,6 +80,7 @@ public class TimetableVersionService {
 
     @Transactional
     public TimetableVersionView create(TimetableVersionUpsert in) {
+        policy.require("TIMETABLE_DRAFT", schoolContext());
         UUID school = TenantContext.get();
         requireSession(in.academicSessionId());
         validateDates(in.effectiveFrom(), in.effectiveTo());
@@ -95,15 +108,21 @@ public class TimetableVersionService {
                   FROM timetable_slot WHERE school_id=? AND timetable_version_id=?
                 """, in.academicSessionId(), id, school, source);
         }
-        TimetableVersionView result = view(id);
+        // Return the mutation result without requiring the unrelated master
+        // timetable-read action a second time.  A manager may be allowed to
+        // create/publish a version while the master grid remains separately
+        // governed.
+        TimetableVersionView result = versionView(id);
         audit.record("TIMETABLE_VERSION_CREATED", "TimetableVersion", id.toString(), null, result, in.reason());
         return result;
     }
 
     @Transactional
     public TimetableVersionView publish(UUID id, TimetableVersionActionRequest in) {
+        policy.require("TIMETABLE_PUBLISH", schoolContext());
         UUID school = TenantContext.get();
         Map<String, Object> current = jdbc.queryForMap("SELECT * FROM timetable_version WHERE id=? AND school_id=? FOR UPDATE", id, school);
+        assertActionVersion(in.version(), ((Number) current.get("version")).longValue(), "publier");
         if (!"DRAFT".equals(current.get("status"))) throw ApiException.conflict("Seul un brouillon de planning peut être publié");
         UUID sessionId = (UUID) current.get("academic_session_id");
         LocalDate effectiveDate = localDate(current.get("effective_from"));
@@ -177,31 +196,44 @@ public class TimetableVersionService {
                    published_assignment_version=assignment_version
              WHERE school_id=? AND timetable_version_id=?
             """, school, id);
-        TimetableVersionView result = view(id);
+        TimetableVersionView result = versionView(id);
         audit.record("TIMETABLE_VERSION_PUBLISHED", "TimetableVersion", id.toString(), current, result, in.reason());
         return result;
     }
 
     @Transactional
     public TimetableVersionView archive(UUID id, TimetableVersionActionRequest in) {
+        policy.require("TIMETABLE_ARCHIVE", schoolContext());
         int changed = jdbc.update("UPDATE timetable_version SET status='ARCHIVED',archive_reason=?,version=version+1,updated_at=now() WHERE id=? AND school_id=? AND status<>'ARCHIVED'", in.reason().trim(), id, TenantContext.get());
         if (changed == 0) throw ApiException.notFound("Version du planning");
-        TimetableVersionView result = view(id);
+        TimetableVersionView result = versionView(id);
         audit.record("TIMETABLE_VERSION_ARCHIVED", "TimetableVersion", id.toString(), null, result, in.reason());
         return result;
     }
 
     @Transactional
     public TimetableVersionView reopenAsNew(UUID id, TimetableVersionActionRequest in) {
-        TimetableVersionView old = view(id);
+        policy.require("TIMETABLE_REOPEN", schoolContext());
+        TimetableVersionView old = versionView(id);
+        assertActionVersion(in.version(), old.version(), "rouvrir");
         TimetableVersionView created = create(new TimetableVersionUpsert(old.academicSessionId(), old.effectiveFrom(), old.effectiveTo(), old.timezone(), id, in.reason()));
         jdbc.update("UPDATE timetable_class_config SET status='DRAFT',version=version+1,updated_at=now() WHERE school_id=? AND academic_session_id=?",
                 TenantContext.get(), old.academicSessionId());
         return created;
     }
 
+    private static void assertActionVersion(Long requested, long current, String action) {
+        long stale = requested == null ? -1L : requested;
+        if (requested == null || requested != current) {
+            throw ApiException.staleVersion(
+                    "La version du planning a changé depuis son chargement. Rechargez avant de " + action + ".",
+                    current, stale);
+        }
+    }
+
     @Transactional(readOnly = true)
     public TimetableVersionDiff diff(UUID fromId, UUID toId) {
+        policy.require("TIMETABLE_MASTER_VIEW", schoolContext());
         ensureOwned(fromId); ensureOwned(toId);
         int added = count("SELECT count(*) FROM timetable_slot b WHERE b.timetable_version_id=? AND NOT EXISTS (SELECT 1 FROM timetable_slot a WHERE a.timetable_version_id=? AND a.class_id=b.class_id AND a.day_idx=b.day_idx AND a.slot_idx=b.slot_idx)", toId, fromId);
         int removed = count("SELECT count(*) FROM timetable_slot a WHERE a.timetable_version_id=? AND NOT EXISTS (SELECT 1 FROM timetable_slot b WHERE b.timetable_version_id=? AND b.class_id=a.class_id AND b.day_idx=a.day_idx AND b.slot_idx=a.slot_idx)", fromId, toId);
@@ -219,6 +251,7 @@ public class TimetableVersionService {
 
     @Transactional(readOnly = true)
     public List<TimetableDriftView> drift(UUID versionId) {
+        policy.require("TIMETABLE_MASTER_VIEW", schoolContext());
         UUID school = TenantContext.get();
         Map<String, Object> version = jdbc.queryForMap(
                 "SELECT academic_session_id,effective_from,status FROM timetable_version WHERE id=? AND school_id=?",
@@ -263,6 +296,7 @@ public class TimetableVersionService {
 
     @Transactional(readOnly = true)
     public List<TimetableProjectionSlotView> master(UUID versionId, LocalDate occurrenceDate) {
+        policy.require("TIMETABLE_MASTER_VIEW", schoolContext());
         UUID school = TenantContext.get();
         Map<String, Object> version = jdbc.queryForMap(
                 "SELECT academic_session_id,effective_from,effective_to,status FROM timetable_version WHERE id=? AND school_id=?",
@@ -305,11 +339,13 @@ public class TimetableVersionService {
 
     @Transactional(readOnly = true)
     public List<RoomView> rooms() {
+        policy.require("TIMETABLE_ROOM_VIEW", schoolContext());
         return jdbc.query("SELECT id,code,label,capacity,resource_type,active,version FROM timetable_room WHERE school_id=? ORDER BY code", (rs,n) -> new RoomView(rs.getObject(1,UUID.class),rs.getString(2),rs.getString(3),rs.getObject(4,Integer.class),rs.getString(5),rs.getBoolean(6),rs.getLong(7)), TenantContext.get());
     }
 
     @Transactional
     public RoomView saveRoom(UUID id, RoomUpsert in) {
+        policy.require("TIMETABLE_DRAFT", schoolContext());
         UUID school = TenantContext.get(); String code=in.code().trim().toUpperCase(Locale.ROOT);
         UUID room = id == null ? UUID.randomUUID() : id;
         if (id == null) jdbc.update("INSERT INTO timetable_room(id,school_id,code,label,capacity,resource_type,active) VALUES (?,?,?,?,?,?,?)",room,school,code,in.label().trim(),in.capacity(),blank(in.resourceType(),"ROOM"),in.active());
@@ -322,6 +358,7 @@ public class TimetableVersionService {
 
     @Transactional(readOnly = true)
     public List<RoomAvailabilityView> roomAvailability(UUID roomId) {
+        policy.require("TIMETABLE_ROOM_VIEW", schoolContext());
         ensureRoom(roomId);
         return jdbc.query("SELECT id,room_id,day_idx,slot_idx,available,reason FROM timetable_room_availability WHERE school_id=? AND room_id=? ORDER BY day_idx,slot_idx",
                 (rs,n) -> new RoomAvailabilityView(rs.getObject("id",UUID.class), rs.getObject("room_id",UUID.class),
@@ -331,6 +368,7 @@ public class TimetableVersionService {
 
     @Transactional
     public RoomAvailabilityView saveRoomAvailability(UUID roomId, RoomAvailabilityUpsert in) {
+        policy.require("TIMETABLE_DRAFT", schoolContext());
         ensureRoom(roomId);
         if (in.dayIdx() < 0 || in.dayIdx() > 6 || in.slotIdx() < 0 || in.slotIdx() > 15) {
             throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST, "ROOM_SLOT_INVALID",
@@ -352,6 +390,7 @@ public class TimetableVersionService {
 
     @Transactional(readOnly = true)
     public List<TeacherAvailabilityView> teacherAvailability(UUID teacherId) {
+        policy.require("TIMETABLE_RESOURCE_VIEW", schoolContext());
         ensureTeacher(teacherId);
         return jdbc.query("SELECT id,employee_id,day_idx,slot_idx,available,reason FROM timetable_teacher_availability WHERE school_id=? AND employee_id=? ORDER BY day_idx,slot_idx",
                 (rs, n) -> new TeacherAvailabilityView(rs.getObject("id", UUID.class),
@@ -361,6 +400,7 @@ public class TimetableVersionService {
 
     @Transactional
     public TeacherAvailabilityView saveTeacherAvailability(UUID teacherId, TeacherAvailabilityUpsert in) {
+        policy.require("TIMETABLE_DRAFT", schoolContext());
         ensureTeacher(teacherId);
         validateAvailabilitySlot(in.dayIdx(), in.slotIdx());
         UUID school = TenantContext.get();
@@ -383,6 +423,7 @@ public class TimetableVersionService {
 
     @Transactional(readOnly = true)
     public List<TeacherWorkloadView> teacherWorkload(UUID teacherId) {
+        policy.require("TIMETABLE_RESOURCE_VIEW", schoolContext());
         ensureTeacher(teacherId);
         return jdbc.query("SELECT id,employee_id,max_slots_per_day,max_slots_per_week,effective_from,effective_to,reason,version FROM timetable_teacher_workload_policy WHERE school_id=? AND employee_id=? ORDER BY effective_from",
                 (rs, n) -> new TeacherWorkloadView(rs.getObject("id", UUID.class), rs.getObject("employee_id", UUID.class),
@@ -393,6 +434,7 @@ public class TimetableVersionService {
 
     @Transactional
     public TeacherWorkloadView saveTeacherWorkload(UUID teacherId, TeacherWorkloadUpsert in) {
+        policy.require("TIMETABLE_DRAFT", schoolContext());
         ensureTeacher(teacherId);
         validateEffectiveRange(in.effectiveFrom(), in.effectiveTo(), "WORKLOAD_DATE_INVALID");
         if (in.maxSlotsPerDay() == null && in.maxSlotsPerWeek() == null)
@@ -420,6 +462,7 @@ public class TimetableVersionService {
 
     @Transactional(readOnly = true)
     public List<TeacherQualificationView> teacherQualifications(UUID teacherId) {
+        policy.require("TIMETABLE_RESOURCE_VIEW", schoolContext());
         ensureTeacher(teacherId);
         return jdbc.query("SELECT id,employee_id,qualification_code,valid_from,valid_to,evidence_reference,version FROM timetable_teacher_qualification WHERE school_id=? AND employee_id=? ORDER BY valid_from,qualification_code",
                 (rs, n) -> new TeacherQualificationView(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class), rs.getString(3),
@@ -428,6 +471,7 @@ public class TimetableVersionService {
 
     @Transactional
     public TeacherQualificationView saveTeacherQualification(UUID teacherId, TeacherQualificationUpsert in) {
+        policy.require("TIMETABLE_DRAFT", schoolContext());
         ensureTeacher(teacherId);
         validateEffectiveRange(in.validFrom(), in.validTo(), "QUALIFICATION_DATE_INVALID");
         UUID school = TenantContext.get();
@@ -450,6 +494,7 @@ public class TimetableVersionService {
 
     @Transactional(readOnly = true)
     public List<SubjectQualificationRequirementView> subjectQualificationRequirements(UUID sessionId) {
+        policy.require("TIMETABLE_RESOURCE_VIEW", schoolContext());
         requireSession(sessionId);
         return jdbc.query("SELECT id,academic_session_id,subject_code,qualification_code,effective_from,effective_to,reason,version FROM timetable_subject_qualification_requirement WHERE school_id=? AND academic_session_id=? ORDER BY subject_code,effective_from",
                 (rs, n) -> new SubjectQualificationRequirementView(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class), rs.getString(3), rs.getString(4), localDate(rs.getObject(5)), localDate(rs.getObject(6)), rs.getString(7), rs.getLong(8)), TenantContext.get(), sessionId);
@@ -457,6 +502,7 @@ public class TimetableVersionService {
 
     @Transactional
     public SubjectQualificationRequirementView saveSubjectQualificationRequirement(SubjectQualificationRequirementUpsert in) {
+        policy.require("TIMETABLE_DRAFT", schoolContext());
         requireSession(in.academicSessionId());
         validateEffectiveRange(in.effectiveFrom(), in.effectiveTo(), "QUALIFICATION_REQUIREMENT_DATE_INVALID");
         UUID school = TenantContext.get();
@@ -482,18 +528,52 @@ public class TimetableVersionService {
 
     @Transactional(readOnly = true)
     public List<SubstitutionView> substitutions(UUID sessionId, LocalDate date) {
+        // Visibility is evaluated per published occurrence below; a module
+        // read grant must never expose every substitution to a teacher.
         requireSession(sessionId);
         String suffix=date==null?"":" AND x.occurrence_date=?";
         List<Object> args=new ArrayList<>(List.of(TenantContext.get(),sessionId)); if(date!=null) args.add(date);
+        List<SubstitutionScopeRow> scopeRows = jdbc.query("""
+            SELECT x.id,x.academic_session_id,x.timetable_version_id,x.occurrence_date,
+                   x.class_id,x.subject_code,x.day_idx,x.slot_idx
+              FROM timetable_substitution x
+             WHERE x.school_id=? AND x.academic_session_id=?"""+suffix+
+                " ORDER BY x.occurrence_date,x.day_idx,x.slot_idx",
+                (rs,n) -> new SubstitutionScopeRow(rs.getObject("id",UUID.class),
+                        rs.getObject("academic_session_id",UUID.class),
+                        rs.getObject("timetable_version_id",UUID.class),
+                        rs.getObject("occurrence_date",LocalDate.class),
+                        rs.getObject("class_id",UUID.class), rs.getString("subject_code"),
+                        rs.getInt("day_idx"), rs.getInt("slot_idx")), args.toArray());
+        List<UUID> permitted = scopeRows.stream().filter(this::substitutionVisible)
+                .map(SubstitutionScopeRow::id).toList();
+        if (permitted.isEmpty()) return List.of();
+        String placeholders = String.join(",", permitted.stream().map(id -> "?").toList());
+        List<Object> fullArgs = new ArrayList<>(List.of(TenantContext.get()));
+        fullArgs.addAll(permitted);
         return jdbc.query("""
-            SELECT x.*,c.name AS class_name,ot.name AS original_name,rt.name AS replacement_name FROM timetable_substitution x JOIN school_class c ON c.id=x.class_id
-             LEFT JOIN employee ot ON ot.id=x.original_teacher_id LEFT JOIN employee rt ON rt.id=x.replacement_teacher_id
-             WHERE x.school_id=? AND x.academic_session_id=?"""+suffix+" ORDER BY x.occurrence_date,x.day_idx,x.slot_idx",(rs,n)->new SubstitutionView(rs.getObject("id",UUID.class),rs.getObject("academic_session_id",UUID.class),rs.getObject("timetable_version_id",UUID.class),rs.getObject("occurrence_date",LocalDate.class),rs.getObject("class_id",UUID.class),rs.getString("class_name"),rs.getString("subject_code"),rs.getInt("day_idx"),rs.getInt("slot_idx"),rs.getObject("original_teacher_id",UUID.class),rs.getString("original_name"),rs.getObject("replacement_teacher_id",UUID.class),rs.getString("replacement_name"),rs.getString("action"),rs.getString("reason"),rs.getString("status"),rs.getLong("version")),args.toArray());
+            SELECT x.*,c.name AS class_name,ot.name AS original_name,rt.name AS replacement_name
+              FROM timetable_substitution x JOIN school_class c ON c.id=x.class_id
+              LEFT JOIN employee ot ON ot.id=x.original_teacher_id
+              LEFT JOIN employee rt ON rt.id=x.replacement_teacher_id
+             WHERE x.school_id=? AND x.id IN ("""+placeholders+
+                ") ORDER BY x.occurrence_date,x.day_idx,x.slot_idx",
+                (rs,n)->new SubstitutionView(rs.getObject("id",UUID.class),
+                        rs.getObject("academic_session_id",UUID.class),
+                        rs.getObject("timetable_version_id",UUID.class),
+                        rs.getObject("occurrence_date",LocalDate.class),
+                        rs.getObject("class_id",UUID.class),rs.getString("class_name"),
+                        rs.getString("subject_code"),rs.getInt("day_idx"),rs.getInt("slot_idx"),
+                        rs.getObject("original_teacher_id",UUID.class),rs.getString("original_name"),
+                        rs.getObject("replacement_teacher_id",UUID.class),rs.getString("replacement_name"),
+                        rs.getString("action"),rs.getString("reason"),rs.getString("status"),
+                        rs.getLong("version")), fullArgs.toArray());
     }
 
     @Transactional
     public SubstitutionView createSubstitution(SubstitutionUpsert in) {
         requireSession(in.academicSessionId());
+        policy.require("TIMETABLE_SUBSTITUTION_MANAGE", substitutionContext(in));
         if (in.dayIdx() < 0 || in.dayIdx() > 6 || in.slotIdx() < 0 || in.slotIdx() > 15) {
             throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST, "SUBSTITUTION_SLOT_INVALID",
                     "Le jour ou la période de substitution est invalide.", "slotIdx", "Choose a valid school day and bell period.");
@@ -519,6 +599,7 @@ public class TimetableVersionService {
 
     @Transactional
     public SubstitutionView approveSubstitution(UUID id, SubstitutionActionRequest in) {
+        policy.require("TIMETABLE_SUBSTITUTION_MANAGE", substitutionContext(substitution(id)));
         int changed=jdbc.update("UPDATE timetable_substitution SET status='APPROVED',approved_by=?,approved_at=now(),reason=?,version=version+1,updated_at=now() WHERE id=? AND school_id=? AND status='DRAFT' AND (CAST(? AS bigint) IS NULL OR version=CAST(? AS bigint))",currentUser(),in.reason().trim(),id,TenantContext.get(),in.version(),in.version());
         if(changed==0) throw ApiException.conflict("La substitution a changé ou n'est plus en brouillon.");
         return substitution(id);
@@ -526,6 +607,7 @@ public class TimetableVersionService {
 
     @Transactional
     public SubstitutionView cancelSubstitution(UUID id, SubstitutionActionRequest in) {
+        policy.require("TIMETABLE_SUBSTITUTION_MANAGE", substitutionContext(substitution(id)));
         int changed=jdbc.update("UPDATE timetable_substitution SET status='CANCELLED',reason=?,version=version+1,updated_at=now() WHERE id=? AND school_id=? AND status<>'CANCELLED' AND (CAST(? AS bigint) IS NULL OR version=CAST(? AS bigint))",in.reason().trim(),id,TenantContext.get(),in.version(),in.version());
         if(changed==0) throw ApiException.conflict("La substitution a changé ou est déjà annulée.");
         return substitution(id);
@@ -533,6 +615,7 @@ public class TimetableVersionService {
 
     @Transactional(readOnly = true)
     public String exportCsv(UUID versionId) {
+        policy.require("TIMETABLE_EXPORT", versionContext(versionId));
         ensureOwned(versionId);
         List<TimetableExportRow> rows = exportRows(versionId);
         return "# timetable-version="+versionId+"\nclass,day,period,subject,teacherId,room\n"+
@@ -543,6 +626,7 @@ public class TimetableVersionService {
 
     @Transactional(readOnly = true)
     public byte[] exportXlsx(UUID versionId) {
+        policy.require("TIMETABLE_EXPORT", versionContext(versionId));
         ensureOwned(versionId);
         List<TimetableExportRow> rows = exportRows(versionId);
         String sheet = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
@@ -578,8 +662,9 @@ public class TimetableVersionService {
 
     @Transactional(readOnly = true)
     public byte[] exportPdf(UUID versionId) {
+        policy.require("TIMETABLE_EXPORT", versionContext(versionId));
         ensureOwned(versionId);
-        TimetableVersionView version = view(versionId);
+        TimetableVersionView version = versionView(versionId);
         List<TimetableExportRow> rows = exportRows(versionId);
         try (PDDocument document = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             document.getDocumentInformation().setTitle("BBC SMS Timetable V" + version.versionNo());
@@ -612,6 +697,7 @@ public class TimetableVersionService {
 
     @Transactional(readOnly = true)
     public String exportIcal(UUID versionId) {
+        policy.require("TIMETABLE_EXPORT", versionContext(versionId));
         Map<String,Object> version = jdbc.queryForObject("SELECT effective_from,effective_to,timezone FROM timetable_version WHERE id=? AND school_id=?",
                 (rs,n) -> {
                     Map<String,Object> row = new HashMap<>();
@@ -878,6 +964,11 @@ public class TimetableVersionService {
     }
     private record TimetableExportRow(String className, int dayIdx, int slotIdx, String subjectCode, String teacherId, String room) {}
 
+    /** Minimal row used for policy filtering before substitution DTOs are materialized. */
+    private record SubstitutionScopeRow(UUID id, UUID academicSessionId, UUID timetableVersionId,
+                                        LocalDate occurrenceDate, UUID classId, String subjectCode,
+                                        int dayIdx, int slotIdx) {}
+
     private void validateAvailabilitySlot(int dayIdx, int slotIdx) {
         if (dayIdx < 0 || dayIdx > 6 || slotIdx < 0 || slotIdx > 15)
             throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST, "AVAILABILITY_SLOT_INVALID",
@@ -894,6 +985,76 @@ public class TimetableVersionService {
     }
 
     private SubstitutionView substitution(UUID id) { return jdbc.queryForObject("SELECT x.*,c.name,ot.name AS original_name,rt.name AS replacement_name FROM timetable_substitution x JOIN school_class c ON c.id=x.class_id LEFT JOIN employee ot ON ot.id=x.original_teacher_id LEFT JOIN employee rt ON rt.id=x.replacement_teacher_id WHERE x.id=? AND x.school_id=?",(rs,n)->new SubstitutionView(rs.getObject("id",UUID.class),rs.getObject("academic_session_id",UUID.class),rs.getObject("timetable_version_id",UUID.class),rs.getObject("occurrence_date",LocalDate.class),rs.getObject("class_id",UUID.class),rs.getString("name"),rs.getString("subject_code"),rs.getInt("day_idx"),rs.getInt("slot_idx"),rs.getObject("original_teacher_id",UUID.class),rs.getString("original_name"),rs.getObject("replacement_teacher_id",UUID.class),rs.getString("replacement_name"),rs.getString("action"),rs.getString("reason"),rs.getString("status"),rs.getLong("version")),id,TenantContext.get()); }
+
+    private boolean substitutionVisible(SubstitutionView value) {
+        return policy.decide("TIMETABLE_SUBSTITUTION_VIEW", substitutionContext(value)).allowed();
+    }
+
+    private boolean substitutionVisible(SubstitutionScopeRow value) {
+        return policy.decide("TIMETABLE_SUBSTITUTION_VIEW", substitutionContext(value)).allowed();
+    }
+
+    private PolicyResourceContext substitutionContext(SubstitutionUpsert value) {
+        UUID occurrenceId = publishedOccurrence(value.academicSessionId(), value.timetableVersionId(),
+                value.occurrenceDate(), value.classId(), value.subjectCode(), value.dayIdx(), value.slotIdx());
+        return new PolicyResourceContext(TenantContext.get(), value.academicSessionId(), value.occurrenceDate(),
+                ParcoursContext.get(), value.classId(), clean(value.subjectCode()), null, occurrenceId, null,
+                null, "P" + (value.slotIdx() + 1), null);
+    }
+
+    private PolicyResourceContext substitutionContext(SubstitutionView value) {
+        UUID occurrenceId = publishedOccurrence(value.academicSessionId(), value.timetableVersionId(),
+                value.occurrenceDate(), value.classId(), value.subjectCode(), value.dayIdx(), value.slotIdx());
+        return new PolicyResourceContext(TenantContext.get(), value.academicSessionId(), value.occurrenceDate(),
+                ParcoursContext.get(), value.classId(), clean(value.subjectCode()), null, occurrenceId, null,
+                null, "P" + (value.slotIdx() + 1), null);
+    }
+
+    private PolicyResourceContext substitutionContext(SubstitutionScopeRow value) {
+        UUID occurrenceId = publishedOccurrence(value.academicSessionId(), value.timetableVersionId(),
+                value.occurrenceDate(), value.classId(), value.subjectCode(), value.dayIdx(), value.slotIdx());
+        return new PolicyResourceContext(TenantContext.get(), value.academicSessionId(), value.occurrenceDate(),
+                ParcoursContext.get(), value.classId(), clean(value.subjectCode()), null, occurrenceId, null,
+                null, "P" + (value.slotIdx() + 1), null);
+    }
+
+    /** Resolve the exact published occurrence represented by a substitution. */
+    private UUID publishedOccurrence(UUID academicSessionId, UUID timetableVersionId, LocalDate date,
+                                     UUID classId, String subjectCode, int dayIdx, int slotIdx) {
+        return jdbc.query("""
+                SELECT s.id
+                  FROM timetable_slot s
+                  JOIN timetable_version v ON v.id=s.timetable_version_id
+                   AND v.school_id=s.school_id AND v.academic_session_id=s.academic_session_id
+                   AND v.status='PUBLISHED' AND v.effective_from<=?
+                   AND (v.effective_to IS NULL OR v.effective_to>=?)
+                 WHERE s.school_id=? AND s.academic_session_id=? AND s.class_id=?
+                   AND s.day_idx=? AND s.slot_idx=?
+                   AND (? IS NULL OR s.timetable_version_id=?)
+                   AND (? IS NULL OR upper(coalesce(s.subject_code,''))=upper(?))
+                 ORDER BY v.version_no DESC, s.id
+                 LIMIT 1
+                """, rs -> rs.next() ? rs.getObject(1, UUID.class) : null,
+                date, date, TenantContext.get(), academicSessionId, classId, dayIdx, slotIdx,
+                timetableVersionId, timetableVersionId, subjectCode, subjectCode);
+    }
+
+    private PolicyResourceContext schoolContext() {
+        return new PolicyResourceContext(TenantContext.get(), null, LocalDate.now(), ParcoursContext.get(),
+                null, null, null, null, null, null, null, null);
+    }
+
+    /** Header-only server context for exports; slot rows are not read before authorization. */
+    private PolicyResourceContext versionContext(UUID versionId) {
+        Map<String, Object> row = jdbc.queryForMap(
+                "SELECT academic_session_id,effective_from FROM timetable_version WHERE id=? AND school_id=?",
+                versionId, TenantContext.get());
+        LocalDate effectiveDate = localDate(row.get("effective_from"));
+        return new PolicyResourceContext(TenantContext.get(),
+                (UUID) row.get("academic_session_id"),
+                effectiveDate == null ? LocalDate.now() : effectiveDate,
+                ParcoursContext.get(), null, null, null, null, null, null, null, null);
+    }
     private void requireSession(UUID id){Integer n=jdbc.queryForObject("SELECT count(*) FROM academic_session WHERE id=? AND school_id=?",Integer.class,id,TenantContext.get());if(n==null||n==0)throw ApiException.notFound("Session académique");}
     private void ensureOwned(UUID id){Integer n=jdbc.queryForObject("SELECT count(*) FROM timetable_version WHERE id=? AND school_id=?",Integer.class,id,TenantContext.get());if(n==null||n==0)throw ApiException.notFound("Version du planning");}
     private void ensureRoom(UUID id){Integer n=jdbc.queryForObject("SELECT count(*) FROM timetable_room WHERE id=? AND school_id=?",Integer.class,id,TenantContext.get());if(n==null||n==0)throw ApiException.notFound("Salle");}

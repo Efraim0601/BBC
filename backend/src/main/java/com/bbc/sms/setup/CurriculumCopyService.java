@@ -2,6 +2,8 @@ package com.bbc.sms.setup;
 
 import com.bbc.sms.foundation.audit.AuditService;
 import com.bbc.sms.platform.common.ApiException;
+import com.bbc.sms.platform.security.AuthorizationPolicyService;
+import com.bbc.sms.platform.security.PolicyResourceContext;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.setup.dto.SetupDtos;
 import com.bbc.sms.setup.dto.SetupDtos.*;
@@ -24,15 +26,23 @@ public class CurriculumCopyService {
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
     private final AuditService audit;
+    private final AuthorizationPolicyService policy;
 
-    public CurriculumCopyService(JdbcTemplate jdbc, ObjectMapper mapper, AuditService audit) {
+    public CurriculumCopyService(JdbcTemplate jdbc, ObjectMapper mapper, AuditService audit,
+                                 AuthorizationPolicyService policy) {
         this.jdbc = jdbc;
         this.mapper = mapper;
         this.audit = audit;
+        this.policy = policy;
     }
 
     @Transactional(readOnly = true)
     public CurriculumCopyPreview preview(CurriculumCopyPreviewRequest request) {
+        require("ACADEMIC_STRUCTURE_VIEW");
+        return previewInternal(request);
+    }
+
+    private CurriculumCopyPreview previewInternal(CurriculumCopyPreviewRequest request) {
         UUID targetId = request.targetSessionId();
         if (targetId == null) throw ApiException.badRequest("La session cible est obligatoire.");
         SessionData source = session(request.sourceSessionId());
@@ -70,6 +80,7 @@ public class CurriculumCopyService {
 
     @Transactional
     public CurriculumCopyPreview apply(CurriculumCopyApplyRequest request, String idempotencyKey) {
+        require("CURRICULUM_CATALOG_MANAGE");
         UUID targetId = request.targetSessionId();
         UUID schoolId = TenantContext.get();
         lockSessions(request.sourceSessionId(), targetId, schoolId);
@@ -78,7 +89,7 @@ public class CurriculumCopyService {
         CurriculumCopyPreviewRequest previewRequest = new CurriculumCopyPreviewRequest(
                 request.sourceSessionId(), targetId, request.classIds(), request.allMatchingClasses(),
                 request.includeGroups(), request.includeTeachers(), request.mergeMode(), request.selectedKeys(), request.edits());
-        CurriculumCopyPreview preview = preview(previewRequest);
+        CurriculumCopyPreview preview = previewInternal(previewRequest);
         if (!Objects.equals(request.previewFingerprint(), preview.fingerprint())) {
             throw ApiException.staleVersion("La proposition de curriculum a changé depuis l'aperçu. Rechargez-la avant de l'appliquer.", 0, 0);
         }
@@ -125,6 +136,10 @@ public class CurriculumCopyService {
                  FOR UPDATE
                 """, rs -> { while (rs.next()) { /* consume both locked rows */ } return null; },
                 schoolId, sourceSessionId, targetSessionId);
+    }
+
+    private void require(String action) {
+        policy.require(action, PolicyResourceContext.empty().forSchool(TenantContext.get()));
     }
 
     private List<CurriculumCopyRow> curriculumRows(SessionData source, SessionData target, Set<UUID> classIds,

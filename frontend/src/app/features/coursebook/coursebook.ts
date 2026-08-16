@@ -1,7 +1,7 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { CoursebookApi, EntryView, EntryUpsert } from './coursebook.api';
-import { SetupApi, ClassView, SubjectView } from '../../core/setup.api';
+import { CoursebookApi, ClassRef, EntryView, EntryUpsert } from './coursebook.api';
+import { SubjectView } from '../../core/setup.api';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
 import {
@@ -173,11 +173,10 @@ interface DayGroup { date: string; entries: EntryView[]; }
 export class CoursebookComponent {
   protected i18n = inject(I18nService);
   private api = inject(CoursebookApi);
-  private setupApi = inject(SetupApi);
   private auth = inject(AuthService);
 
   protected subjects = signal<SubjectView[]>([]);
-  protected classes = signal<ClassView[]>([]);
+  protected classes = signal<ClassRef[]>([]);
   protected selectedClass = signal<string>('');
   protected entries = signal<EntryView[]>([]);
 
@@ -212,8 +211,7 @@ export class CoursebookComponent {
   });
 
   constructor() {
-    this.setupApi.listClasses().subscribe({ next: (c) => this.classes.set(c), error: () => {} });
-    this.setupApi.listSubjects().subscribe({ next: (s) => this.subjects.set(s), error: () => {} });
+    this.api.classes().subscribe({ next: (c) => this.classes.set(c), error: () => {} });
   }
 
   protected subjectLabel(s: SubjectView): string {
@@ -226,8 +224,16 @@ export class CoursebookComponent {
     this.cancel();
     if (!name) {
       this.entries.set([]);
+      this.subjects.set([]);
       return;
     }
+    this.api.subjects(name).subscribe({
+      next: (s) => {
+        this.subjects.set(s);
+        this.draft = { ...this.draft, subjectCode: s[0]?.code ?? '' };
+      },
+      error: () => this.subjects.set([]),
+    });
     this.reload();
   }
 

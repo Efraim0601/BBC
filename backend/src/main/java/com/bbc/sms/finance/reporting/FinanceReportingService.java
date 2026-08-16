@@ -1,5 +1,6 @@
 package com.bbc.sms.finance.reporting;
 
+import com.bbc.sms.finance.FinancePolicyService;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.reports.dto.ReportDtos;
@@ -39,12 +40,15 @@ import static com.bbc.sms.finance.reporting.FinanceReportingDtos.*;
 @Transactional(readOnly = true)
 public class FinanceReportingService {
     private final JdbcTemplate jdbc;
+    private final FinancePolicyService financePolicy;
 
-    public FinanceReportingService(JdbcTemplate jdbc) {
+    public FinanceReportingService(JdbcTemplate jdbc, FinancePolicyService financePolicy) {
         this.jdbc = jdbc;
+        this.financePolicy = financePolicy;
     }
 
     public ReportContextView contextOptions() {
+        financePolicy.requireSchool("FINANCE_REPORT_VIEW");
         UUID schoolId = TenantContext.get();
         List<SessionOption> sessions = jdbc.query("""
                 SELECT id, code, label, start_date, end_date, status, is_current
@@ -71,6 +75,7 @@ public class FinanceReportingService {
     }
 
     public ReportEnvelope<ReceivablesReport> receivables(ReportFilters filters) {
+        financePolicy.requireSchool("FINANCE_REPORT_VIEW");
         Context c = context(filters, true, false);
         List<Object> args = new ArrayList<>(chargeSnapshotArgs(c));
         // Keep all aggregate aliases explicit so the JSON contract and reconciliation diagnostics are stable.
@@ -109,6 +114,7 @@ public class FinanceReportingService {
     }
 
     public ReportEnvelope<CollectionsReport> collections(ReportFilters filters) {
+        financePolicy.requireSchool("FINANCE_REPORT_VIEW");
         Context c = context(filters, true, false);
         StringBuilder sql = new StringBuilder("""
                 WITH allocations AS (
@@ -177,6 +183,7 @@ public class FinanceReportingService {
     }
 
     public ReportEnvelope<DocumentsReport> documents(ReportFilters filters) {
+        financePolicy.requireSchool("FINANCE_REPORT_VIEW");
         Context c = context(filters, true, false);
         List<DocumentRow> rows = new ArrayList<>();
         List<DocumentStatusRow> statuses = new ArrayList<>();
@@ -225,6 +232,7 @@ public class FinanceReportingService {
     }
 
     public ReportEnvelope<ExpensesReport> expenses(ReportFilters filters) {
+        financePolicy.requireSchool("FINANCE_REPORT_VIEW");
         Context c = context(filters, true, false);
         StringBuilder sql = new StringBuilder("""
                 SELECT id, category, label, spent_on, amount
@@ -252,6 +260,7 @@ public class FinanceReportingService {
     }
 
     public ReportEnvelope<PayrollReport> payroll(ReportFilters filters) {
+        financePolicy.requireSchool("FINANCE_REPORT_VIEW");
         Context c = context(filters, true, true);
         StringBuilder sql = new StringBuilder("""
                 SELECT r.id, pp.code, r.status, pp.start_date, pp.end_date,
@@ -291,6 +300,7 @@ public class FinanceReportingService {
     }
 
     public ReportEnvelope<AccountingReport> accounting(ReportFilters filters) {
+        financePolicy.requireSchool("FINANCE_REPORT_VIEW");
         Context c = context(filters, true, true);
         LocalDate asOf = c.asOf();
         StringBuilder trialSql = new StringBuilder("""
@@ -369,6 +379,7 @@ public class FinanceReportingService {
     }
 
     public ReportEnvelope<ReconciliationReport> reconciliation(ReportFilters filters) {
+        financePolicy.requireSchool("FINANCE_REPORT_VIEW");
         Context c = context(filters, true, false);
         StringBuilder sql = new StringBuilder("""
                 SELECT id, source_type, source_id, expected_amount, posted_amount, currency, state, reason
@@ -390,6 +401,7 @@ public class FinanceReportingService {
 
     /** Backward-compatible adapter for /api/reports/finance, derived from the new finance tables. */
     public ReportDtos.FinanceReport legacyFinance() {
+        financePolicy.requireSchool("FINANCE_REPORT_VIEW");
         UUID schoolId = TenantContext.get();
         long revenue = scalarLong("SELECT COALESCE(SUM(amount_minor),0) FROM finance_payment WHERE school_id=? AND status IN ('POSTED','PARTIALLY_REFUNDED','REFUNDED')", schoolId);
         if (revenue == 0) revenue = scalarLong("SELECT COALESCE(SUM(amount),0) FROM payment WHERE school_id=?", schoolId);
@@ -409,6 +421,7 @@ public class FinanceReportingService {
     }
 
     public ExportPayload export(String report, ReportFilters filters, String format) {
+        financePolicy.requireSchool("FINANCE_EXPORT");
         String normalized = report == null ? "" : report.trim().toLowerCase(Locale.ROOT);
         String type = format == null ? "csv" : format.trim().toLowerCase(Locale.ROOT);
         ReportFilters effective = filters == null ? new ReportFilters(null, null, null, null, null, null, null, null, null, 2_000, 0) : filters;

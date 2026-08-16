@@ -29,6 +29,7 @@ public class StaffDtos {
             Set<String> roles,
             boolean active,
             boolean hasLogin,
+            UUID accountUserId,
             String username) {}
 
     public record EmployeeUpsert(

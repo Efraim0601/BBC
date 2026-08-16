@@ -17,8 +17,11 @@ import java.util.UUID;
 @RequestMapping("/api/classkit/{kind}")
 public class ClassKitController {
 
-    private static final String READ = "@parcours.allows() and @perm.can('classkit','read')";
-    private static final String WRITE = "@parcours.allows() and @perm.can('classkit','write')";
+    // ClassKitService resolves the class and evaluates the contextual V2
+    // CLASSKIT_* grant (including teacher class scope). Keep only the parcours
+    // and staff envelopes at the controller boundary.
+    private static final String READ = "@parcours.allows() and @perm.staffOnly()";
+    private static final String WRITE = "@parcours.allows() and @perm.staffOnly()";
 
     private final ClassKitService service;
 

@@ -3,6 +3,8 @@ package com.bbc.sms.settings;
 import com.bbc.sms.identity.School;
 import com.bbc.sms.identity.SchoolRepository;
 import com.bbc.sms.platform.common.ApiException;
+import com.bbc.sms.platform.security.AuthorizationPolicyService;
+import com.bbc.sms.platform.security.PolicyResourceContext;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.settings.dto.SettingsDtos.*;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -20,19 +22,24 @@ public class SchoolProfileService {
 
     private final SchoolRepository schools;
     private final JdbcTemplate jdbc;
+    private final AuthorizationPolicyService policy;
 
-    public SchoolProfileService(SchoolRepository schools, JdbcTemplate jdbc) {
+    public SchoolProfileService(SchoolRepository schools, JdbcTemplate jdbc,
+                                AuthorizationPolicyService policy) {
         this.schools = schools;
         this.jdbc = jdbc;
+        this.policy = policy;
     }
 
     @Transactional(readOnly = true)
     public SchoolProfileView get() {
+        require("SCHOOL_PROFILE_VIEW");
         return toView(current());
     }
 
     @Transactional
     public SchoolProfileView update(SchoolProfileUpdate in) {
+        require("SCHOOL_PROFILE_MANAGE");
         School s = current();
         s.setName(in.name().trim());
         s.setMotto(trimToNull(in.motto()));
@@ -74,6 +81,7 @@ public class SchoolProfileService {
 
     @Transactional(readOnly = true)
     public List<HolidayView> listHolidays() {
+        require("CALENDAR_VIEW");
         return jdbc.query(
                 "SELECT id, holiday_date, label FROM school_holiday WHERE school_id = ? ORDER BY holiday_date",
                 (rs, i) -> new HolidayView(
@@ -85,6 +93,7 @@ public class SchoolProfileService {
 
     @Transactional
     public HolidayView addHoliday(HolidayUpsert in) {
+        require("CALENDAR_MANAGE");
         UUID schoolId = TenantContext.get();
         UUID id = UUID.randomUUID();
         try {
@@ -99,6 +108,7 @@ public class SchoolProfileService {
 
     @Transactional
     public void deleteHoliday(UUID id) {
+        require("CALENDAR_MANAGE");
         int n = jdbc.update("DELETE FROM school_holiday WHERE id = ? AND school_id = ?",
                 id, TenantContext.get());
         if (n == 0) throw ApiException.notFound("Jour férié");
@@ -108,6 +118,10 @@ public class SchoolProfileService {
         UUID schoolId = TenantContext.get();
         return schools.findById(schoolId)
                 .orElseThrow(() -> ApiException.badRequest("Établissement introuvable"));
+    }
+
+    private void require(String action) {
+        policy.require(action, PolicyResourceContext.empty().forSchool(TenantContext.get()));
     }
 
     private String academicYear(UUID schoolId) {

@@ -72,7 +72,8 @@ public class FeeDtos {
             Boolean requiresReference,
             Boolean enabled,
             Boolean visibleToParents,
-            Integer sortOrder) {}
+            Integer sortOrder,
+            UUID debitAccountId) {}
 
     // ------------------------------------------------- situation détaillée d'un élève
 

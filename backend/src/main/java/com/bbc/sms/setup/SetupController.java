@@ -19,11 +19,23 @@ import java.util.UUID;
 @RequestMapping("/api/setup")
 public class SetupController {
 
-    private static final String READ =
-        "@parcours.allows() and ("
-      + "@perm.can('settings','read') or @perm.can('students','read') "
-      + "or @perm.can('academic','read') or @perm.can('timetable','read'))";
-    private static final String WRITE = "@parcours.allows() and @perm.can('settings','write')";
+    /**
+     * Keep reads behind the staff envelope so the service can evaluate the V2
+     * user/role rules with the resource context (class, subject and session)
+     * where required.  A missing parcours is valid for an all-parcours read;
+     * writes still require an explicitly selected parcours in addition to the
+     * staff envelope.  Calling a legacy @perm.canAction gate here would reject
+     * a V2 user exception before the service check could run.
+     */
+    private static final String READ = "@perm.staffOnly()";
+    private static final String WRITE = "@parcours.allows() and @perm.staffOnly()";
+    private static final String CLASS_WRITE = WRITE;
+    private static final String CLASS_ASSIGNMENT_WRITE = WRITE;
+    private static final String SUBJECT_WRITE = WRITE;
+    private static final String CURRICULUM_WRITE = WRITE;
+    private static final String CURRICULUM_CLASS_WRITE = WRITE;
+    private static final String CURRICULUM_CATALOG_WRITE = WRITE;
+    private static final String ASSIGNMENT_WRITE = WRITE;
 
     private final SetupService service;
     private final CurriculumCopyService curriculumCopy;
@@ -40,18 +52,18 @@ public class SetupController {
 
     @PostMapping("/sections")
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize(WRITE)
+    @PreAuthorize(CLASS_WRITE)
     public SectionView createSection(@Valid @RequestBody SectionUpsert in) { return service.createSection(in); }
 
     @PutMapping("/sections/{id}")
-    @PreAuthorize(WRITE)
+    @PreAuthorize(CLASS_WRITE)
     public SectionView updateSection(@PathVariable String id, @Valid @RequestBody SectionUpsert in) {
         return service.updateSection(id, in);
     }
 
     @DeleteMapping("/sections/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize(WRITE)
+    @PreAuthorize(CLASS_WRITE)
     public void deleteSection(@PathVariable String id) { service.deleteSection(id); }
 
     // ---- Classes ------------------------------------------------------------
@@ -61,18 +73,18 @@ public class SetupController {
 
     @PostMapping("/classes")
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize(WRITE)
+    @PreAuthorize(CLASS_WRITE)
     public ClassView createClass(@Valid @RequestBody ClassUpsert in) { return service.createClass(in); }
 
     @PutMapping("/classes/{id}")
-    @PreAuthorize(WRITE)
+    @PreAuthorize(CLASS_WRITE)
     public ClassView updateClass(@PathVariable UUID id, @Valid @RequestBody ClassUpsert in) {
         return service.updateClass(id, in);
     }
 
     @DeleteMapping("/classes/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize(WRITE)
+    @PreAuthorize(CLASS_WRITE)
     public void deleteClass(@PathVariable UUID id) { service.deleteClass(id); }
 
     // ---- Class ↔ teachers ---------------------------------------------------
@@ -87,7 +99,7 @@ public class SetupController {
     public List<TeacherOption> classTeachers(@PathVariable UUID id) { return service.classTeachers(id); }
 
     @PutMapping("/classes/{id}/teachers")
-    @PreAuthorize(WRITE)
+    @PreAuthorize(CLASS_ASSIGNMENT_WRITE)
     public List<TeacherOption> setClassTeachers(@PathVariable UUID id, @RequestBody SetClassTeachers in) {
         return service.setClassTeachers(id, in.employeeIds());
     }
@@ -99,18 +111,18 @@ public class SetupController {
 
     @PostMapping("/subjects")
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize(WRITE)
+    @PreAuthorize(SUBJECT_WRITE)
     public SubjectView createSubject(@Valid @RequestBody SubjectUpsert in) { return service.createSubject(in); }
 
     @PutMapping("/subjects/{id}")
-    @PreAuthorize(WRITE)
+    @PreAuthorize(SUBJECT_WRITE)
     public SubjectView updateSubject(@PathVariable UUID id, @Valid @RequestBody SubjectUpsert in) {
         return service.updateSubject(id, in);
     }
 
     @DeleteMapping("/subjects/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize(WRITE)
+    @PreAuthorize(SUBJECT_WRITE)
     public void deleteSubject(@PathVariable UUID id) { service.deleteSubject(id); }
 
     // ---- Per-class coefficients ---------------------------------------------
@@ -119,20 +131,20 @@ public class SetupController {
     public List<ClassCoefView> coefficients() { return service.listCoefficients(); }
 
     @PostMapping("/subjects/coefficients")
-    @PreAuthorize(WRITE)
+    @PreAuthorize(CURRICULUM_CLASS_WRITE)
     public ClassCoefView upsertCoefficient(@Valid @RequestBody ClassCoefUpsert in) {
         return service.upsertCoefficient(in);
     }
 
     @DeleteMapping("/subjects/coefficients")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize(WRITE)
+    @PreAuthorize(CURRICULUM_CLASS_WRITE)
     public void deleteCoefficient(@RequestParam UUID classId, @RequestParam UUID subjectId) {
         service.deleteCoefficient(classId, subjectId);
     }
 
     @PostMapping("/subjects/coefficients/import")
-    @PreAuthorize(WRITE)
+    @PreAuthorize(CURRICULUM_CATALOG_WRITE)
     public CoefImportResult importCoefficients(@Valid @RequestBody CoefImportRequest in) {
         return service.importCoefficients(in);
     }
@@ -153,7 +165,7 @@ public class SetupController {
     }
 
     @PostMapping("/curriculum/copy/apply")
-    @PreAuthorize(WRITE)
+    @PreAuthorize(CURRICULUM_CATALOG_WRITE)
     public CurriculumCopyPreview applyCurriculumCopy(
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody CurriculumCopyApplyRequest in) {
@@ -163,13 +175,13 @@ public class SetupController {
 
     @PostMapping("/curriculum/groups")
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize(WRITE)
+    @PreAuthorize(CURRICULUM_CATALOG_WRITE)
     public SubjectGroupView createCurriculumGroup(@Valid @RequestBody SubjectGroupUpsert in) {
         return service.upsertCurriculumGroup(null, in);
     }
 
     @PutMapping("/curriculum/groups/{id}")
-    @PreAuthorize(WRITE)
+    @PreAuthorize(CURRICULUM_CATALOG_WRITE)
     public SubjectGroupView updateCurriculumGroup(@PathVariable UUID id,
                                                   @Valid @RequestBody SubjectGroupUpsert in) {
         return service.upsertCurriculumGroup(id, in);
@@ -177,18 +189,18 @@ public class SetupController {
 
     @DeleteMapping("/curriculum/groups/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize(WRITE)
+    @PreAuthorize(CURRICULUM_CATALOG_WRITE)
     public void deleteCurriculumGroup(@PathVariable UUID id) { service.deleteCurriculumGroup(id); }
 
     @PostMapping("/curriculum/subjects")
-    @PreAuthorize(WRITE)
+    @PreAuthorize(CURRICULUM_WRITE)
     public CurriculumSubjectView upsertCurriculumSubject(@Valid @RequestBody CurriculumSubjectUpsert in) {
         return service.upsertCurriculumSubject(in);
     }
 
     @DeleteMapping("/curriculum/subjects")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize(WRITE)
+    @PreAuthorize(CURRICULUM_WRITE)
     public void deleteCurriculumSubject(@RequestParam UUID academicSessionId,
                                         @RequestParam UUID classId,
                                         @RequestParam UUID subjectId) {
@@ -196,13 +208,13 @@ public class SetupController {
     }
 
     @PostMapping("/curriculum/teachers")
-    @PreAuthorize(WRITE)
+    @PreAuthorize(ASSIGNMENT_WRITE)
     public CurriculumTeacherView upsertCurriculumTeacher(@Valid @RequestBody CurriculumTeacherUpsert in) {
         return service.upsertCurriculumTeacher(in);
     }
 
     @PostMapping("/curriculum/homeroom")
-    @PreAuthorize(WRITE)
+    @PreAuthorize(ASSIGNMENT_WRITE)
     public CurriculumTeacherView upsertHomeroom(@Valid @RequestBody HomeroomAssignmentUpsert in) {
         return service.upsertHomeroom(in);
     }
@@ -215,6 +227,6 @@ public class SetupController {
 
     @DeleteMapping("/curriculum/teachers/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize(WRITE)
+    @PreAuthorize(ASSIGNMENT_WRITE)
     public void deleteCurriculumTeacher(@PathVariable UUID id) { service.deleteCurriculumTeacher(id); }
 }

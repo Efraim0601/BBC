@@ -41,7 +41,7 @@ public class AcademicAccessDelegationService {
 
     @Transactional(readOnly = true)
     public DelegationPreview preview(DelegationRequest request) {
-        policy.requireDelegationManager();
+        policy.requireDelegationViewer();
         ValidatedGrant grant = validate(request);
         List<String> capabilities = new ArrayList<>();
         capabilities.add(grant.capability().name());
@@ -71,11 +71,16 @@ public class AcademicAccessDelegationService {
                     VALUES (?,?,?,?,?,?,?,?,?,?, 'ACTIVE',?,?,?,now(),?)
                     """, id, TenantContext.get(), request.academicSessionId(), request.employeeId(),
                     request.classId(), grant.subjectId(), grant.subjectCode(), grant.capability().name(),
-                    grant.from(), grant.to(), request.reason().trim(), actor,
+                    grant.from(), grant.to(), request.reason().trim(), actor, actor,
                     normalizeSource(request.source()));
         } catch (DataIntegrityViolationException ex) {
-            throw ApiException.coded(HttpStatus.CONFLICT, "DELEGATION_OVERLAP",
-                    "Une délégation active équivalente couvre déjà cette période.");
+            String detail = ex.getMostSpecificCause() == null ? "" : ex.getMostSpecificCause().getMessage();
+            if (detail != null && detail.contains("Equivalent active academic access delegations may not overlap")) {
+                throw ApiException.coded(HttpStatus.CONFLICT, "DELEGATION_OVERLAP",
+                        "Une délégation active équivalente couvre déjà cette période.");
+            }
+            throw ApiException.coded(HttpStatus.CONFLICT, "DELEGATION_PERSISTENCE_CONFLICT",
+                    "La délégation n'a pas pu être enregistrée.");
         }
         DelegationView view = find(id);
         audit.record("ACADEMIC_ACCESS_DELEGATION_CREATED", "ACADEMIC_ACCESS_DELEGATION", id.toString(),
@@ -86,7 +91,7 @@ public class AcademicAccessDelegationService {
     @Transactional(readOnly = true)
     public List<DelegationView> list(UUID sessionId, UUID classId, UUID employeeId,
                                      String status) {
-        policy.requireDelegationManager();
+        policy.requireDelegationViewer();
         String normalizedStatus = status == null || status.isBlank() ? null : status.trim().toUpperCase(Locale.ROOT);
         return jdbc.query("""
                 SELECT d.id,d.academic_session_id,d.employee_id,e.name,e.code,
@@ -106,7 +111,7 @@ public class AcademicAccessDelegationService {
                    AND (CAST(? AS uuid) IS NULL OR d.academic_session_id=CAST(? AS uuid))
                    AND (CAST(? AS uuid) IS NULL OR d.class_id=CAST(? AS uuid))
                    AND (CAST(? AS uuid) IS NULL OR d.employee_id=CAST(? AS uuid))
-                   AND (? IS NULL OR d.status=?)
+                   AND (CAST(? AS text) IS NULL OR d.status=CAST(? AS text))
                  ORDER BY d.effective_from DESC,d.created_at DESC
                 """, (rs, n) -> delegation(rs), TenantContext.get(), sessionId, sessionId,
                 classId, classId, employeeId, employeeId, normalizedStatus, normalizedStatus);
@@ -142,7 +147,7 @@ public class AcademicAccessDelegationService {
 
     @Transactional(readOnly = true)
     public ReadinessView readiness(UUID requestedSessionId) {
-        policy.requireDelegationManager();
+        policy.requireDelegationViewer();
         UUID sessionId = requestedSessionId == null ? policy.currentSessionId() : requestedSessionId;
         Map<String, Object> session = jdbc.query("SELECT code,label FROM academic_session WHERE id=? AND school_id=?",
                 rs -> rs.next() ? Map.of("code", rs.getString(1), "label", rs.getString(2)) : null,
@@ -172,7 +177,7 @@ public class AcademicAccessDelegationService {
 
     @Transactional(readOnly = true)
     public List<ScopeSubject> teacherPreview(UUID employeeId, UUID sessionId, LocalDate date) {
-        policy.requireDelegationManager();
+        policy.requireDelegationViewer();
         employee(employeeId);
         return jdbc.query("""
                 SELECT c.id,c.name,c.level,s.code,COALESCE(s.label->>'fr',s.label->>'en',s.code),cur.remark_required

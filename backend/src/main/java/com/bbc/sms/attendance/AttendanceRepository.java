@@ -10,5 +10,5 @@ import java.util.UUID;
 public interface AttendanceRepository extends JpaRepository<AttendanceRecord, UUID> {
     List<AttendanceRecord> findBySchoolIdAndDate(UUID schoolId, LocalDate date);
     Optional<AttendanceRecord> findBySchoolIdAndStudentIdAndDate(UUID schoolId, UUID studentId, LocalDate date);
-    boolean existsByDedupKey(String dedupKey);
+    boolean existsBySchoolIdAndDedupKey(UUID schoolId, String dedupKey);
 }

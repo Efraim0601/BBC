@@ -3,6 +3,8 @@ package com.bbc.sms.events;
 import com.bbc.sms.events.dto.EventDtos.*;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.realtime.RealtimeService;
+import com.bbc.sms.platform.security.AuthorizationPolicyService;
+import com.bbc.sms.platform.security.PolicyResourceContext;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.student.Student;
 import com.bbc.sms.student.StudentRepository;
@@ -19,21 +21,26 @@ public class EventService {
     private final EventRepository repo;
     private final StudentRepository students;
     private final RealtimeService realtime;
+    private final AuthorizationPolicyService policy;
 
-    public EventService(EventRepository repo, StudentRepository students, RealtimeService realtime) {
+    public EventService(EventRepository repo, StudentRepository students, RealtimeService realtime,
+                        AuthorizationPolicyService policy) {
         this.repo = repo;
         this.students = students;
         this.realtime = realtime;
+        this.policy = policy;
     }
 
     @Transactional(readOnly = true)
     public List<EventView> list() {
+        requireSchool("EVENTS_VIEW");
         return repo.findBySchoolIdOrderByEventDateDesc(TenantContext.get())
                 .stream().map(this::toView).toList();
     }
 
     @Transactional
     public EventView create(EventUpsert in) {
+        requireSchool("EVENTS_MANAGE");
         SchoolEvent e = new SchoolEvent();
         e.setSchoolId(TenantContext.get());
         apply(e, in);
@@ -42,6 +49,7 @@ public class EventService {
 
     @Transactional
     public EventView update(UUID id, EventUpsert in) {
+        requireSchool("EVENTS_MANAGE");
         SchoolEvent e = find(id);
         apply(e, in);
         return toView(repo.save(e));
@@ -49,6 +57,7 @@ public class EventService {
 
     @Transactional
     public void delete(UUID id) {
+        requireSchool("EVENTS_MANAGE");
         repo.delete(find(id));
     }
 
@@ -59,6 +68,7 @@ public class EventService {
      */
     @Transactional
     public NotifyResult notify(UUID id) {
+        requireSchool("EVENTS_MANAGE");
         SchoolEvent e = find(id);
         int count = countRecipients(e);
         e.setNotified(true);
@@ -94,5 +104,10 @@ public class EventService {
         return new EventView(e.getId(), e.getTitle(), e.getType(), e.getEventDate(),
                 e.getDescription(), e.getAudience(), e.getTargetClasses(),
                 e.isNotified(), e.getNotifiedAt());
+    }
+
+    private void requireSchool(String action) {
+        policy.require(action, new PolicyResourceContext(TenantContext.get(), null, LocalDate.now(),
+                null, null, null, null, null, null, null, null, null));
     }
 }

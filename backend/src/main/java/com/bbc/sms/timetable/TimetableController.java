@@ -21,63 +21,63 @@ public class TimetableController {
     }
 
     @GetMapping("/versions")
-    @PreAuthorize("@perm.can('timetable','read')")
+    @PreAuthorize("@policy.canAction('TIMETABLE_MASTER_VIEW')")
     public List<TimetableVersionView> versions(@RequestParam java.util.UUID academicSessionId) {
         return versions.list(academicSessionId);
     }
 
     @GetMapping("/versions/{id}")
-    @PreAuthorize("@perm.can('timetable','read')")
+    @PreAuthorize("@policy.canAction('TIMETABLE_MASTER_VIEW')")
     public TimetableVersionView version(@PathVariable java.util.UUID id) { return versions.view(id); }
 
     @PostMapping("/versions")
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("@perm.can('timetable','write')")
+    @PreAuthorize("@policy.canAction('TIMETABLE_DRAFT')")
     public TimetableVersionView createVersion(@Valid @RequestBody TimetableVersionUpsert in) { return versions.create(in); }
 
     @PostMapping("/versions/{id}/publish")
-    @PreAuthorize("@perm.can('timetable','write')")
+    @PreAuthorize("@policy.canAction('TIMETABLE_PUBLISH')")
     public TimetableVersionView publishVersion(@PathVariable java.util.UUID id, @Valid @RequestBody TimetableVersionActionRequest in) { return versions.publish(id, in); }
 
     @PostMapping("/versions/{id}/reopen")
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("@perm.can('timetable','write')")
+    @PreAuthorize("@policy.canAction('TIMETABLE_REOPEN')")
     public TimetableVersionView reopenVersion(@PathVariable java.util.UUID id, @Valid @RequestBody TimetableVersionActionRequest in) { return versions.reopenAsNew(id, in); }
 
     @PostMapping("/versions/{id}/archive")
-    @PreAuthorize("@perm.can('timetable','write')")
+    @PreAuthorize("@policy.canAction('TIMETABLE_ARCHIVE')")
     public TimetableVersionView archiveVersion(@PathVariable java.util.UUID id, @Valid @RequestBody TimetableVersionActionRequest in) { return versions.archive(id, in); }
 
     @GetMapping("/versions/diff")
-    @PreAuthorize("@perm.can('timetable','read')")
+    @PreAuthorize("@policy.canAction('TIMETABLE_MASTER_VIEW')")
     public TimetableVersionDiff diff(@RequestParam java.util.UUID fromVersionId, @RequestParam java.util.UUID toVersionId) { return versions.diff(fromVersionId, toVersionId); }
 
     @GetMapping("/versions/{id}/drift")
-    @PreAuthorize("@perm.can('timetable','read')")
+    @PreAuthorize("@policy.canAction('TIMETABLE_MASTER_VIEW')")
     public List<TimetableDriftView> drift(@PathVariable java.util.UUID id) { return versions.drift(id); }
 
     @GetMapping("/versions/{id}/master")
-    @PreAuthorize("@perm.can('timetable','read')")
+    @PreAuthorize("@policy.canAction('TIMETABLE_MASTER_VIEW')")
     public List<TimetableProjectionSlotView> master(@PathVariable java.util.UUID id,
                                                      @RequestParam(required = false) java.time.LocalDate occurrenceDate) {
         return versions.master(id, occurrenceDate);
     }
 
     @GetMapping("/versions/{id}/export.csv")
-    @PreAuthorize("@perm.can('timetable','read')")
+    @PreAuthorize("@policy.canAction('TIMETABLE_EXPORT')")
     public org.springframework.http.ResponseEntity<String> exportCsv(@PathVariable java.util.UUID id) {
         return org.springframework.http.ResponseEntity.ok().header("Content-Disposition", "attachment; filename=timetable-"+id+".csv").header("X-Timetable-Version", id.toString()).body(versions.exportCsv(id));
     }
 
     @GetMapping("/versions/{id}/export.ics")
-    @PreAuthorize("@perm.can('timetable','read')")
+    @PreAuthorize("@policy.canAction('TIMETABLE_EXPORT')")
     public org.springframework.http.ResponseEntity<String> exportIcal(@PathVariable java.util.UUID id) {
         return org.springframework.http.ResponseEntity.ok().header("Content-Type", "text/calendar; charset=utf-8")
                 .header("Content-Disposition", "attachment; filename=timetable-"+id+".ics").body(versions.exportIcal(id));
     }
 
     @GetMapping("/versions/{id}/export.xlsx")
-    @PreAuthorize("@perm.can('timetable','read')")
+    @PreAuthorize("@policy.canAction('TIMETABLE_EXPORT')")
     public org.springframework.http.ResponseEntity<byte[]> exportXlsx(@PathVariable java.util.UUID id) {
         byte[] content = versions.exportXlsx(id);
         return org.springframework.http.ResponseEntity.ok().header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -86,7 +86,7 @@ public class TimetableController {
     }
 
     @GetMapping("/versions/{id}/export.pdf")
-    @PreAuthorize("@perm.can('timetable','read')")
+    @PreAuthorize("@policy.canAction('TIMETABLE_EXPORT')")
     public org.springframework.http.ResponseEntity<byte[]> exportPdf(@PathVariable java.util.UUID id) {
         byte[] content = versions.exportPdf(id);
         return org.springframework.http.ResponseEntity.ok().header("Content-Type", "application/pdf")
@@ -95,130 +95,132 @@ public class TimetableController {
     }
 
     @GetMapping("/resources/rooms")
-    @PreAuthorize("@perm.can('timetable','read')")
+    @PreAuthorize("@policy.canAction('TIMETABLE_RESOURCE_VIEW')")
     public List<RoomView> roomsV2() { return versions.rooms(); }
 
     @PostMapping("/resources/rooms")
-    @PreAuthorize("@perm.can('timetable','write')")
+    @PreAuthorize("@policy.canAction('TIMETABLE_DRAFT')")
     public RoomView saveRoom(@RequestParam(required=false) java.util.UUID id, @Valid @RequestBody RoomUpsert in) { return versions.saveRoom(id, in); }
 
     @GetMapping("/resources/rooms/{roomId}/availability")
-    @PreAuthorize("@perm.can('timetable','read')")
+    @PreAuthorize("@policy.canAction('TIMETABLE_RESOURCE_VIEW')")
     public List<RoomAvailabilityView> roomAvailability(@PathVariable java.util.UUID roomId) { return versions.roomAvailability(roomId); }
 
     @PutMapping("/resources/rooms/{roomId}/availability")
-    @PreAuthorize("@perm.can('timetable','write')")
+    @PreAuthorize("@policy.canAction('TIMETABLE_DRAFT')")
     public RoomAvailabilityView saveRoomAvailability(@PathVariable java.util.UUID roomId,
                                                       @Valid @RequestBody RoomAvailabilityUpsert in) { return versions.saveRoomAvailability(roomId, in); }
 
     @GetMapping("/resources/teachers/{teacherId}/availability")
-    @PreAuthorize("@perm.can('timetable','read')")
+    @PreAuthorize("@policy.canAction('TIMETABLE_RESOURCE_VIEW')")
     public List<TeacherAvailabilityView> teacherAvailability(@PathVariable java.util.UUID teacherId) { return versions.teacherAvailability(teacherId); }
 
     @PutMapping("/resources/teachers/{teacherId}/availability")
-    @PreAuthorize("@perm.can('timetable','write')")
+    @PreAuthorize("@policy.canAction('TIMETABLE_DRAFT')")
     public TeacherAvailabilityView saveTeacherAvailability(@PathVariable java.util.UUID teacherId,
                                                             @Valid @RequestBody TeacherAvailabilityUpsert in) { return versions.saveTeacherAvailability(teacherId, in); }
 
     @GetMapping("/resources/teachers/{teacherId}/workload")
-    @PreAuthorize("@perm.can('timetable','read')")
+    @PreAuthorize("@policy.canAction('TIMETABLE_RESOURCE_VIEW')")
     public List<TeacherWorkloadView> teacherWorkload(@PathVariable java.util.UUID teacherId) { return versions.teacherWorkload(teacherId); }
 
     @PutMapping("/resources/teachers/{teacherId}/workload")
-    @PreAuthorize("@perm.can('timetable','write')")
+    @PreAuthorize("@policy.canAction('TIMETABLE_DRAFT')")
     public TeacherWorkloadView saveTeacherWorkload(@PathVariable java.util.UUID teacherId,
                                                     @Valid @RequestBody TeacherWorkloadUpsert in) { return versions.saveTeacherWorkload(teacherId, in); }
 
     @GetMapping("/resources/teachers/{teacherId}/qualifications")
-    @PreAuthorize("@perm.can('timetable','read')")
+    @PreAuthorize("@policy.canAction('TIMETABLE_RESOURCE_VIEW')")
     public List<TeacherQualificationView> teacherQualifications(@PathVariable java.util.UUID teacherId) { return versions.teacherQualifications(teacherId); }
 
     @PostMapping("/resources/teachers/{teacherId}/qualifications")
-    @PreAuthorize("@perm.can('timetable','write')")
+    @PreAuthorize("@policy.canAction('TIMETABLE_DRAFT')")
     public TeacherQualificationView saveTeacherQualification(@PathVariable java.util.UUID teacherId,
                                                               @Valid @RequestBody TeacherQualificationUpsert in) { return versions.saveTeacherQualification(teacherId, in); }
 
     @GetMapping("/resources/subjects/qualification-requirements")
-    @PreAuthorize("@perm.can('timetable','read')")
+    @PreAuthorize("@policy.canAction('TIMETABLE_RESOURCE_VIEW')")
     public List<SubjectQualificationRequirementView> subjectQualificationRequirements(@RequestParam java.util.UUID academicSessionId) { return versions.subjectQualificationRequirements(academicSessionId); }
 
     @PutMapping("/resources/subjects/qualification-requirements")
-    @PreAuthorize("@perm.can('timetable','write')")
+    @PreAuthorize("@policy.canAction('TIMETABLE_DRAFT')")
     public SubjectQualificationRequirementView saveSubjectQualificationRequirement(@Valid @RequestBody SubjectQualificationRequirementUpsert in) { return versions.saveSubjectQualificationRequirement(in); }
 
     @GetMapping("/substitutions")
-    @PreAuthorize("@perm.can('timetable','read')")
+    @PreAuthorize("@perm.staffOnly()")
     public List<SubstitutionView> substitutions(@RequestParam java.util.UUID academicSessionId, @RequestParam(required=false) java.time.LocalDate occurrenceDate) { return versions.substitutions(academicSessionId, occurrenceDate); }
 
     @PostMapping("/substitutions")
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("@perm.can('timetable','write')")
+    @PreAuthorize("@perm.staffOnly()")
     public SubstitutionView createSubstitution(@Valid @RequestBody SubstitutionUpsert in) { return versions.createSubstitution(in); }
 
     @PostMapping("/substitutions/{id}/approve")
-    @PreAuthorize("@perm.can('timetable','write')")
+    @PreAuthorize("@perm.staffOnly()")
     public SubstitutionView approveSubstitution(@PathVariable java.util.UUID id, @Valid @RequestBody SubstitutionActionRequest in) { return versions.approveSubstitution(id, in); }
 
     @PostMapping("/substitutions/{id}/cancel")
-    @PreAuthorize("@perm.can('timetable','write')")
+    @PreAuthorize("@perm.staffOnly()")
     public SubstitutionView cancelSubstitution(@PathVariable java.util.UUID id, @Valid @RequestBody SubstitutionActionRequest in) { return versions.cancelSubstitution(id, in); }
 
     @GetMapping("/classes")
-    @PreAuthorize("@perm.can('timetable','read')")
+    // Class/subject scope is resolved by TimetableService after the staff envelope.
+    @PreAuthorize("@perm.staffOnly()")
     public List<ClassRef> classes() {
         return service.classes();
     }
 
     @GetMapping("/classes/{classId}/subject-teachers")
-    @PreAuthorize("@perm.can('timetable','read')")
+    @PreAuthorize("@perm.staffOnly()")
     public List<SubjectTeacherView> subjectTeachers(@PathVariable java.util.UUID classId) {
         return service.subjectTeachers(classId);
     }
 
     /** Distinct room labels already used in this school (suggestions for the slot editor). */
     @GetMapping("/rooms")
-    @PreAuthorize("@perm.can('timetable','read')")
+    @PreAuthorize("@policy.canAction('TIMETABLE_ROOM_VIEW')")
     public List<String> rooms() {
         return service.rooms();
     }
 
     @GetMapping("/periods")
-    @PreAuthorize("@perm.can('timetable','read')")
+    @PreAuthorize("@policy.canAction('TIMETABLE_MASTER_VIEW')")
     public List<PeriodView> periods() { return service.periods(); }
 
     @PutMapping("/periods/{slotIdx}")
-    @PreAuthorize("@perm.can('timetable','write')")
+    @PreAuthorize("@policy.canAction('TIMETABLE_DRAFT')")
     public PeriodView updatePeriod(@PathVariable int slotIdx, @Valid @RequestBody PeriodRequest in) {
         return service.updatePeriod(slotIdx, in);
     }
 
     @GetMapping
-    @PreAuthorize("@perm.can('timetable','read')")
+    @PreAuthorize("@perm.staffOnly()")
     public List<SlotView> grid(@RequestParam String className, @RequestParam(required = false) java.util.UUID versionId) {
         return service.grid(className, versionId);
     }
 
     /** Chevauchements d'enseignant sur toute la grille : un professeur, deux classes, la même heure. */
     @GetMapping("/conflicts")
-    @PreAuthorize("@perm.can('timetable','read')")
+    @PreAuthorize("@policy.canAction('TIMETABLE_MASTER_VIEW')")
     public List<TeacherConflict> conflicts() {
         return service.conflicts();
     }
 
     @PutMapping("/slot")
-    @PreAuthorize("@perm.can('timetable','write')")
+    // The body carries the class/resource; TimetableService performs the V2 check.
+    @PreAuthorize("@perm.staffOnly()")
     public SlotSaveResult upsertSlot(@Valid @RequestBody SlotUpsert in) {
         return service.upsertSlot(in);
     }
 
     @PutMapping("/classes/{classId}/config")
-    @PreAuthorize("@perm.can('timetable','write')")
+    @PreAuthorize("@perm.staffOnly()")
     public ClassRef configure(@PathVariable java.util.UUID classId, @Valid @RequestBody ClassConfigRequest in) {
         return service.configure(classId, in);
     }
 
     @PutMapping("/classes/{classId}/teachers/{teacherId}")
-    @PreAuthorize("@perm.can('timetable','write')")
+    @PreAuthorize("@perm.staffOnly()")
     public void assignTeacher(@PathVariable java.util.UUID classId,
                               @PathVariable java.util.UUID teacherId,
                               @RequestBody TeacherAssignmentRequest in) {
@@ -226,30 +228,30 @@ public class TimetableController {
     }
 
     @PostMapping("/classes/{classId}/publish")
-    @PreAuthorize("@perm.can('timetable','write')")
+    @PreAuthorize("@perm.staffOnly()")
     public ClassRef publish(@PathVariable java.util.UUID classId, @Valid @RequestBody PlanActionRequest in) {
         return service.publish(classId, in);
     }
 
     @PostMapping("/classes/{classId}/reopen")
-    @PreAuthorize("@perm.can('timetable','write')")
+    @PreAuthorize("@perm.staffOnly()")
     public ClassRef reopen(@PathVariable java.util.UUID classId, @Valid @RequestBody PlanActionRequest in) {
         return service.reopen(classId, in);
     }
 
     @GetMapping("/teachers/me")
-    @PreAuthorize("@perm.can('timetable','read')")
+    @PreAuthorize("@perm.staffOnly()")
     public TeacherSchedule mySchedule() { return service.mySchedule(); }
 
     @GetMapping("/teachers/{teacherId}")
-    @PreAuthorize("@perm.can('timetable','write')")
+    @PreAuthorize("@policy.canAction('TIMETABLE_TEACHER_SCHEDULE_VIEW_ALL')")
     public TeacherSchedule teacherSchedule(@PathVariable java.util.UUID teacherId) {
         return service.teacherSchedule(teacherId);
     }
 
     @DeleteMapping
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize("@perm.can('timetable','write')")
+    @PreAuthorize("@perm.staffOnly()")
     public void deleteSlot(@RequestParam String className,
                            @RequestParam int dayIdx,
                            @RequestParam int slotIdx) {

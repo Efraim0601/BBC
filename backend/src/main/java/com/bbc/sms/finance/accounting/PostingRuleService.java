@@ -1,5 +1,6 @@
 package com.bbc.sms.finance.accounting;
 
+import com.bbc.sms.finance.FinancePolicyService;
 import com.bbc.sms.foundation.audit.AuditService;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.tenant.TenantContext;
@@ -22,23 +23,28 @@ public class PostingRuleService {
     private final AccountService accountService;
     private final ChartOfAccountRepository accounts;
     private final AuditService audit;
+    private final FinancePolicyService financePolicy;
 
     public PostingRuleService(PostingRuleRepository rules, AccountService accountService,
-                              ChartOfAccountRepository accounts, AuditService audit) {
+                              ChartOfAccountRepository accounts, AuditService audit,
+                              FinancePolicyService financePolicy) {
         this.rules = rules;
         this.accountService = accountService;
         this.accounts = accounts;
         this.audit = audit;
+        this.financePolicy = financePolicy;
     }
 
     @Transactional(readOnly = true)
     public List<PostingRuleView> list() {
+        financePolicy.requireSchool("FINANCE_OVERVIEW_VIEW");
         return rules.findBySchoolIdOrderByEventTypeAscSideAscPriorityDesc(TenantContext.get())
                 .stream().map(this::view).toList();
     }
 
     @Transactional
     public PostingRuleView create(PostingRuleUpsert in) {
+        financePolicy.requireSchool("POSTING_RULE_MANAGE");
         PostingRule rule = new PostingRule();
         rule.setSchoolId(TenantContext.get());
         apply(rule, in);
@@ -50,6 +56,7 @@ public class PostingRuleService {
 
     @Transactional
     public PostingRuleView update(UUID id, PostingRuleUpsert in) {
+        financePolicy.requireSchool("POSTING_RULE_MANAGE");
         PostingRule rule = rules.findByIdAndSchoolId(id, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Règle de comptabilisation"));
         AccountService.requireVersion(in.version(), rule.getVersion(), "règle de comptabilisation");

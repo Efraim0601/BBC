@@ -43,6 +43,19 @@ export interface ExpenseRequest {
   amount: number;
 }
 
+export interface FinanceContextClassOption {
+  id: string;
+  code: string;
+  name: string;
+  level: string;
+  subsystem: string;
+}
+
+export interface FinanceContextView {
+  sessions: { id: string; code: string; label: string; startDate: string; endDate: string; status: string }[];
+  classes: FinanceContextClassOption[];
+}
+
 /** Une tranche de la grille : libellé, montant et échéance facultative. */
 export interface TrancheView {
   label: string;
@@ -146,6 +159,10 @@ export class FinanceApi {
 
   summary(): Observable<FinanceSummary> {
     return this.http.get<FinanceSummary>(`${this.base}/summary`);
+  }
+  /** Finance-scoped class/session options; never call academic-setup for finance filters. */
+  context(): Observable<FinanceContextView> {
+    return this.http.get<FinanceContextView>(`${environment.apiUrl}/finance/v2/charges/context`);
   }
   payments(): Observable<PaymentView[]> {
     return this.http.get<PaymentView[]>(`${this.base}/payments`);

@@ -2,6 +2,7 @@ package com.bbc.sms.finance.collections;
 
 import com.bbc.sms.finance.PaymentChannel;
 import com.bbc.sms.finance.PaymentChannelRepository;
+import com.bbc.sms.finance.FinancePolicyService;
 import com.bbc.sms.finance.accounting.AccountingPeriod;
 import com.bbc.sms.finance.accounting.AccountingPeriodService;
 import com.bbc.sms.finance.accounting.ChartOfAccount;
@@ -50,6 +51,9 @@ import static com.bbc.sms.finance.collections.CollectionDtos.*;
 @Service
 public class CollectionService {
     private static final String CURRENCY = "XAF";
+    private record FinancePayer(UUID studentId, String studentName, String matricule,
+                                UUID enrollmentId, UUID academicSessionId, String className,
+                                LocalDate enrolledOn, LocalDate exitedOn) {}
 
     private final FinancePaymentRepository payments;
     private final PaymentAllocationRepository allocations;
@@ -70,6 +74,7 @@ public class CollectionService {
     private final JdbcTemplate jdbc;
     private final FinanceReceiptRepository receipts;
     private final FinanceDocumentService financeDocuments;
+    private final FinancePolicyService financePolicy;
 
     public CollectionService(FinancePaymentRepository payments,
                              PaymentAllocationRepository allocations,
@@ -89,7 +94,8 @@ public class CollectionService {
                               AuditService audit,
                               JdbcTemplate jdbc,
                               FinanceReceiptRepository receipts,
-                              FinanceDocumentService financeDocuments) {
+                              FinanceDocumentService financeDocuments,
+                              FinancePolicyService financePolicy) {
         this.payments = payments;
         this.allocations = allocations;
         this.credits = credits;
@@ -109,28 +115,44 @@ public class CollectionService {
         this.jdbc = jdbc;
         this.receipts = receipts;
         this.financeDocuments = financeDocuments;
+        this.financePolicy = financePolicy;
     }
 
     @Transactional(readOnly = true)
     public List<StudentSearchView> search(String query, UUID sessionId) {
+        financePolicy.requireSchool("FINANCE_OVERVIEW_VIEW");
         UUID schoolId = TenantContext.get();
         String needle = lower(query);
-        List<StudentEnrollment> source = sessionId == null
-                ? enrollments.findBySchoolIdAndStatusOrderByClassNameSnapshotAsc(schoolId, "ACTIVE")
-                : enrollments.findBySchoolIdAndAcademicSessionIdAndStatusOrderByClassNameSnapshotAsc(
-                        schoolId, sessionId, "ACTIVE");
-        return source.stream().map(e -> {
-                    Student student = students.findByIdAndSchoolId(e.getStudentId(), schoolId).orElse(null);
-                    return searchView(e, student, schoolId);
-                })
+        return financePayers(schoolId, sessionId).stream().map(p -> searchView(p, schoolId))
                 .filter(v -> needle.isBlank() || contains(v, needle))
                 .limit(100)
                 .toList();
     }
 
+    /** Minimal payer projection; guardian credentials/contact never enter finance DTO construction. */
+    private List<FinancePayer> financePayers(UUID schoolId, UUID sessionId) {
+        return jdbc.query("""
+                SELECT s.id,s.first_name,s.last_name,s.matricule,e.id,e.academic_session_id,
+                       COALESCE(c.name,e.class_name_snapshot),e.enrolled_on,e.exited_on
+                  FROM student_enrollment e
+                  JOIN student s ON s.id=e.student_id AND s.school_id=e.school_id AND s.active=true
+                  LEFT JOIN school_class c ON c.id=e.school_class_id AND c.school_id=e.school_id
+                 WHERE e.school_id=? AND e.status='ACTIVE'
+                   AND (CAST(? AS uuid) IS NULL OR e.academic_session_id=?)
+                   AND e.enrolled_on<=CURRENT_DATE
+                   AND (e.exited_on IS NULL OR e.exited_on>=CURRENT_DATE)
+                 ORDER BY COALESCE(c.name,e.class_name_snapshot),s.last_name,s.first_name
+                """, (rs, n) -> new FinancePayer(rs.getObject(1, UUID.class),
+                        (rs.getString(3) + " " + rs.getString(2)).trim(), rs.getString(4),
+                        rs.getObject(5, UUID.class), rs.getObject(6, UUID.class), rs.getString(7),
+                        rs.getObject(8, LocalDate.class), rs.getObject(9, LocalDate.class)),
+                schoolId, sessionId, sessionId);
+    }
+
     @Transactional(readOnly = true)
     public PaymentQuoteView quote(QuoteRequest request) {
         StudentEnrollment enrollment = requireEnrollment(request.enrollmentId());
+        financePolicy.requireEnrollment("PAYMENT_VIEW", request.enrollmentId(), request.paymentDate());
         Student student = requireStudent(enrollment.getStudentId());
         AcademicSession session = sessions.findByIdAndSchoolId(enrollment.getAcademicSessionId(), TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Session académique"));
@@ -148,11 +170,12 @@ public class CollectionService {
                     item.installment().getOutstandingMinor(), amount, item.installment().getStatus()));
         }
         List<BlockerView> blockers = new ArrayList<>();
-        String periodCode = null;
-        try {
-            periodCode = periods.requireOpenForDate(request.paymentDate(), session.getId()).getCode();
-        } catch (ApiException ex) {
-            blockers.add(new BlockerView("POSTING_PERIOD_CLOSED", ex.getMessage(), "OPEN_ACCOUNTING_PERIOD"));
+        String periodCode = periods.findOpenForDate(request.paymentDate(), session.getId())
+                .map(AccountingPeriod::getCode).orElse(null);
+        if (periodCode == null) {
+            blockers.add(new BlockerView("POSTING_PERIOD_CLOSED",
+                    "Aucune période comptable ouverte de la session sélectionnée ne couvre cette date.",
+                    "OPEN_ACCOUNTING_PERIOD"));
         }
         if (request.paymentDate().isBefore(enrollment.getEnrolledOn())
                 || (enrollment.getExitedOn() != null && request.paymentDate().isAfter(enrollment.getExitedOn()))) {
@@ -191,6 +214,7 @@ public class CollectionService {
     public PaymentView postNow(PaymentRequest request, String idempotencyKey) {
         UUID schoolId = TenantContext.get();
         StudentEnrollment enrollment = requireEnrollment(request.enrollmentId());
+        financePolicy.requireEnrollment("PAYMENT_COLLECT", request.enrollmentId(), request.paymentDate());
         Student student = requireStudent(enrollment.getStudentId());
         AcademicSession session = sessions.findByIdAndSchoolId(enrollment.getAcademicSessionId(), schoolId)
                 .orElseThrow(() -> ApiException.notFound("Session académique"));
@@ -311,10 +335,10 @@ public class CollectionService {
         if (creditMinor > 0) lines.add(new JournalLineInput(creditAccount.getId(), 0, creditMinor,
                 student.getId(), enrollment.getId(), null, enrollment.getSchoolClassId(), null,
                 "Crédit élève " + receiptNo));
-        var journal = ledger.createDraft(new JournalUpsert(request.paymentDate(),
+        var journal = ledger.createDraftInternal(new JournalUpsert(request.paymentDate(),
                 "Encaissement " + receiptNo + " — " + studentName(student), CURRENCY, period.getId(),
                 "PAYMENT", payment.getId().toString(), "PAYMENT:" + payment.getId(), lines, null));
-        var postedJournal = ledger.postNow(journal.id());
+        var postedJournal = ledger.postNowInternal(journal.id());
         if (creditMinor > 0) {
             StudentCreditLedger credit = new StudentCreditLedger();
             credit.setSchoolId(schoolId);
@@ -344,6 +368,7 @@ public class CollectionService {
 
     @Transactional(readOnly = true)
     public List<PaymentView> list(PaymentListFilters filters) {
+        financePolicy.requireSchool("FINANCE_OVERVIEW_VIEW");
         UUID schoolId = TenantContext.get();
         List<FinancePayment> source = filters != null && filters.studentId() != null
                 ? payments.findBySchoolIdAndStudentIdOrderByPaymentDateDesc(schoolId, filters.studentId())
@@ -371,6 +396,7 @@ public class CollectionService {
     public PaymentView detail(UUID id) {
         UUID schoolId = TenantContext.get();
         FinancePayment payment = payments.findByIdAndSchoolId(id, schoolId).orElseThrow(() -> ApiException.notFound("Encaissement"));
+        financePolicy.requirePayment("PAYMENT_VIEW", id, payment.getPaymentDate());
         List<PaymentAllocation> rows = allocations.findBySchoolIdAndPaymentIdOrderByCreatedAtAsc(schoolId, id);
         long allocated = rows.stream().mapToLong(PaymentAllocation::getAllocatedMinor).sum();
         return view(payment, rows, allocated, creditForPayment(id));
@@ -424,26 +450,22 @@ public class CollectionService {
                 account == null ? null : account.getNameFr(), CURRENCY);
     }
 
-    private StudentSearchView searchView(StudentEnrollment enrollment, Student student, UUID schoolId) {
+    private StudentSearchView searchView(FinancePayer payer, UUID schoolId) {
         long outstanding = 0, overdue = 0;
         LocalDate today = LocalDate.now();
-        for (OpenInstallment item : openInstallments(enrollment.getId())) {
+        for (OpenInstallment item : openInstallments(payer.enrollmentId())) {
             outstanding += item.installment().getOutstandingMinor();
             if (item.installment().getDueDate().isBefore(today)) overdue += item.installment().getOutstandingMinor();
         }
-        return new StudentSearchView(enrollment.getStudentId(), studentName(student), student == null ? null : student.getMatricule(),
-                enrollment.getId(), enrollment.getAcademicSessionId(), enrollment.getClassNameSnapshot(),
-                student == null ? null : firstNonBlank(student.getGuardianName(), student.getParentName()),
-                student == null ? null : firstNonBlank(student.getGuardianPhone(), student.getParentPhone()),
-                student == null ? null : firstNonBlank(student.getGuardianEmail(), student.getFatherEmail(), student.getMotherEmail()),
-                enrollment.getEnrolledOn(), enrollment.getExitedOn(),
+        return new StudentSearchView(payer.studentId(), payer.studentName(), payer.matricule(),
+                payer.enrollmentId(), payer.academicSessionId(), payer.className(),
+                payer.enrolledOn(), payer.exitedOn(),
                 outstanding, overdue);
     }
 
     private boolean contains(StudentSearchView v, String needle) {
         return contains(v.studentName(), needle) || contains(v.matricule(), needle)
-                || contains(v.className(), needle) || contains(v.guardianName(), needle)
-                || contains(v.guardianPhone(), needle) || contains(v.guardianEmail(), needle);
+                || contains(v.className(), needle);
     }
 
     private boolean contains(String value, String needle) { return value != null && value.toLowerCase(Locale.ROOT).contains(needle); }
@@ -539,12 +561,20 @@ public class CollectionService {
 
     private void refreshCashierExpected(CashierSession cashier) {
         UUID schoolId = TenantContext.get();
+        // Payment posting can run concurrently for one open drawer. Lock the
+        // row before recomputing its denormalized expected cash, then update it
+        // through JDBC so a stale managed @Version entity cannot leak a 500.
+        jdbc.queryForObject("SELECT id FROM cashier_session WHERE school_id=? AND id=? FOR UPDATE",
+                UUID.class, schoolId, cashier.getId());
         Long incoming = jdbc.queryForObject("SELECT coalesce(sum(amount_minor),0) FROM finance_payment WHERE school_id=? AND cashier_session_id=? AND status='POSTED' AND channel_code_snapshot='CASH'",
                 Long.class, schoolId, cashier.getId());
         Long outgoing = jdbc.queryForObject("SELECT coalesce(sum(rt.amount_minor),0) FROM refund_transaction rt JOIN finance_payment p ON p.school_id=rt.school_id AND p.id=rt.payment_id WHERE rt.school_id=? AND p.cashier_session_id=? AND rt.channel_code='CASH'",
                 Long.class, schoolId, cashier.getId());
-        cashier.setExpectedCashMinor(cashier.getOpeningCashMinor() + (incoming == null ? 0 : incoming) - (outgoing == null ? 0 : outgoing));
-        cashiers.saveAndFlush(cashier);
+        Long opening = jdbc.queryForObject("SELECT opening_cash_minor FROM cashier_session WHERE school_id=? AND id=?",
+                Long.class, schoolId, cashier.getId());
+        long expected = (opening == null ? 0 : opening) + (incoming == null ? 0 : incoming) - (outgoing == null ? 0 : outgoing);
+        jdbc.update("UPDATE cashier_session SET expected_cash_minor=?, version=version+1, updated_at=now() WHERE school_id=? AND id=?",
+                expected, schoolId, cashier.getId());
     }
 
     private static ApiException fieldError(String field, String message) {

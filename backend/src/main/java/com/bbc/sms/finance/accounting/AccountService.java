@@ -1,5 +1,6 @@
 package com.bbc.sms.finance.accounting;
 
+import com.bbc.sms.finance.FinancePolicyService;
 import com.bbc.sms.foundation.audit.AuditService;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.tenant.TenantContext;
@@ -23,15 +24,19 @@ public class AccountService {
     private final ChartOfAccountRepository accounts;
     private final JdbcTemplate jdbc;
     private final AuditService audit;
+    private final FinancePolicyService financePolicy;
 
-    public AccountService(ChartOfAccountRepository accounts, JdbcTemplate jdbc, AuditService audit) {
+    public AccountService(ChartOfAccountRepository accounts, JdbcTemplate jdbc, AuditService audit,
+                          FinancePolicyService financePolicy) {
         this.accounts = accounts;
         this.jdbc = jdbc;
         this.audit = audit;
+        this.financePolicy = financePolicy;
     }
 
     @Transactional(readOnly = true)
     public List<AccountView> list(String query, boolean activeOnly) {
+        financePolicy.requireSchool("FINANCE_OVERVIEW_VIEW");
         UUID schoolId = TenantContext.get();
         String needle = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
         return (activeOnly ? accounts.findBySchoolIdAndActiveTrueOrderByCodeAsc(schoolId)
@@ -46,6 +51,7 @@ public class AccountService {
 
     @Transactional
     public AccountView create(AccountUpsert in) {
+        financePolicy.requireSchool("ACCOUNT_MANAGE");
         UUID schoolId = TenantContext.get();
         String code = normalizeCode(in.code());
         validateIdentity(code, in.accountType(), in.normalSide(), in.currency(), in.effectiveFrom(), in.effectiveTo());
@@ -66,6 +72,7 @@ public class AccountService {
 
     @Transactional
     public AccountView update(UUID id, AccountUpsert in) {
+        financePolicy.requireSchool("ACCOUNT_MANAGE");
         UUID schoolId = TenantContext.get();
         ChartOfAccount a = require(id);
         requireVersion(in.version(), a.getVersion(), "compte");

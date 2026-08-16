@@ -134,6 +134,12 @@ class ComputedReportingResultsIntegrationTest {
                 ON CONFLICT (school_id,role_code,action_code) DO UPDATE SET allowed=true
                 """, schoolId);
         jdbc.update("""
+                INSERT INTO permission_role_action(school_id,role_code,action_code,effect,scope_mode,is_permanent,reason)
+                VALUES (?, 'principal', 'ACADEMIC_REPORT_CARD_VIEW', 'ALLOW', 'SCHOOL_ALL', true,
+                        'Computed reporting integration fixture')
+                ON CONFLICT DO NOTHING
+                """, schoolId);
+        jdbc.update("""
                 INSERT INTO app_user(id,school_id,username,password_hash,display_name,initials,role_code,active)
                 VALUES (?,?,'computed-test','test','Computed test','CT','principal',true)
                 """, testUserId, schoolId);

@@ -25,7 +25,7 @@ public class CollectionController {
     public CollectionController(CollectionService collections) { this.collections = collections; }
 
     @GetMapping("/search")
-    @PreAuthorize("@perm.canAction('PAYMENT_VIEW')")
+    @PreAuthorize("@perm.canAction('FINANCE_OVERVIEW_VIEW')")
     public List<StudentSearchView> search(@RequestParam(defaultValue = "") String q,
                                           @RequestParam(required = false) UUID sessionId) {
         return collections.search(q, sessionId);
@@ -43,7 +43,7 @@ public class CollectionController {
     }
 
     @GetMapping
-    @PreAuthorize("@perm.canAction('PAYMENT_VIEW')")
+    @PreAuthorize("@perm.canAction('FINANCE_OVERVIEW_VIEW')")
     public List<PaymentView> list(@RequestParam(required = false) UUID academicSessionId,
                                   @RequestParam(required = false) String status,
                                   @RequestParam(required = false) String channelCode,

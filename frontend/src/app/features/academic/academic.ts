@@ -13,6 +13,7 @@ import { ScopeService } from '../../core/scope.service';
 import { I18nService } from '../../core/i18n.service';
 import { Student } from '../../core/models';
 import { ApcBulletinComponent } from './apc-bulletin';
+import { SecondaryBulletinComponent } from './secondary-bulletin';
 import { PhotoApi } from '../../core/photo.api';
 import {
   IconComponent, CardComponent, PageHeaderComponent, EmptyComponent,
@@ -71,6 +72,15 @@ export const academicBulletinTitle = (b: Pick<BulletinView, 'product' | 'reporti
   return `${fr ? 'BULLETIN' : 'REPORT CARD'} — ${fr ? 'SÉQUENCE' : 'SEQUENCE'} ${code.replace(/^S/i, '') || b.sequence}`;
 };
 
+/**
+ * Grade-packet review is resource-scoped by the backend (session, class and
+ * subject).  Never infer it from a broad role name in the UI: Access Control
+ * may deliberately delegate this action to another role for a limited scope.
+ */
+export const canReviewGradePacket = (
+  entry: Pick<GradeEntryView, 'packetStatus' | 'capabilities'>,
+): boolean => entry.packetStatus === 'SUBMITTED' && entry.capabilities?.canReview === true;
+
 export const computedPeriodCodes = (lines: BulletinView['lines']): string[] => {
   const seen = new Set<string>();
   for (const line of lines) for (const mark of line.periodMarks ?? []) if (mark.periodCode) seen.add(mark.periodCode);
@@ -92,7 +102,7 @@ const appreciation = (avg: number, fr: boolean): string => {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     FormsModule, DatePipe, IconComponent, CardComponent, PageHeaderComponent,
-    EmptyComponent, AvatarComponent, TabsComponent, ApcBulletinComponent,
+    EmptyComponent, AvatarComponent, TabsComponent, ApcBulletinComponent, SecondaryBulletinComponent,
   ],
   template: `
     <div class="fade-in max-w-6xl mx-auto">
@@ -370,7 +380,7 @@ const appreciation = (avg: number, fr: boolean): string => {
                   <button type="button" (click)="saveGradeEntry()" [disabled]="gradeBusy() || entry.capabilities?.canEditDraft === false" class="h-10 px-4 rounded-lg border border-slate-300 text-sm font-semibold text-ink hover:bg-slate-50 disabled:opacity-50">{{ gradeBusy() ? '…' : (fr() ? 'Enregistrer sans envoyer' : 'Save without sending') }}</button>
                   <button type="button" (click)="submitGradeEntry()" [disabled]="gradeBusy() || entry.blockers.length > 0 || !entry.assessments.length || !canSubmitGrade(entry)" [title]="entry.submissionBlockers?.length ? (fr() ? 'Réparez l’affectation et complétez les champs indiqués avant l’envoi.' : 'Repair the assignment and complete the highlighted fields before sending.') : ''" class="h-10 px-4 rounded-lg bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700 disabled:opacity-50">{{ fr() ? 'Envoyer à la direction' : 'Send to management' }}</button>
                 }
-                @if (canReview() && entry.packetStatus === 'SUBMITTED') {
+                @if (canReviewGradePacket(entry)) {
                   <button type="button" (click)="reviewGradeEntry('RETURN')" [disabled]="gradeBusy()" class="h-10 px-4 rounded-lg border border-rose-200 text-rose-700 text-sm font-semibold hover:bg-rose-50 disabled:opacity-50">{{ fr() ? 'Retourner pour correction' : 'Return for correction' }}</button>
                   <button type="button" (click)="reviewGradeEntry('ACCEPT')" [disabled]="gradeBusy()" class="h-10 px-4 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50">{{ fr() ? 'Accepter la feuille' : 'Accept the sheet' }}</button>
                 }
@@ -473,7 +483,7 @@ const appreciation = (avg: number, fr: boolean): string => {
         } @else {
           <div class="grid grid-cols-12 gap-4">
             <!-- Class roster -->
-            <bbc-card className="col-span-12 lg:col-span-4 print:hidden"
+            <bbc-card className="col-span-12 lg:col-span-3 print:hidden"
               [title]="selectedClass()"
               [subtitle]="classStudents().length + (fr() ? ' élèves' : ' students')">
               <input [ngModel]="studentQuery()" (ngModelChange)="studentQuery.set($event)"
@@ -497,10 +507,12 @@ const appreciation = (avg: number, fr: boolean): string => {
             </bbc-card>
 
             <!-- Single bulletin -->
-            <div class="col-span-12 lg:col-span-8">
+            <div class="col-span-12 lg:col-span-9">
               @if (bulletin(); as b) {
                 @if (isApc()) {
                   <bbc-card className="overflow-x-auto"><bbc-apc-bulletin [view]="b" /></bbc-card>
+                } @else if (isSecondary()) {
+                  <bbc-card className="overflow-x-auto"><bbc-secondary-bulletin [view]="b" /></bbc-card>
                 } @else {
                   <bbc-card className="overflow-hidden">
                     <div class="bg-white rounded-xl2 overflow-hidden -m-5 print:m-0">
@@ -688,11 +700,11 @@ const appreciation = (avg: number, fr: boolean): string => {
                               <div class="text-[10px] uppercase tracking-wider text-mute font-semibold">
                                 {{ fr() ? 'Appréciation générale' : 'General appreciation' }}
                               </div>
-                              @if (canWrite && b.state !== 'PREVIEW' && !b.validated && !b.financiallyBlocked) {
+                              @if (canValidateReportCards() && b.state !== 'PREVIEW' && !b.validated && !b.financiallyBlocked) {
                                 <bbc-icon name="edit" [s]="12" />
                               }
                             </div>
-                            @if (canWrite && b.state !== 'PREVIEW' && !b.validated && !b.financiallyBlocked) {
+                            @if (canValidateReportCards() && b.state !== 'PREVIEW' && !b.validated && !b.financiallyBlocked) {
                               <textarea [ngModel]="appreciationDraft()" (ngModelChange)="appreciationDraft.set($event)"
                                 rows="3" [placeholder]="fr() ? 'Saisissez l’appréciation générale…' : 'Enter overall appreciation…'"
                                 class="w-full p-2 text-sm rounded border border-slate-200 italic resize-none focus:outline-none focus:border-brand-400 print:hidden"></textarea>
@@ -713,54 +725,58 @@ const appreciation = (avg: number, fr: boolean): string => {
                           </div>
                         </div>
 
-                        <div class="mt-5 flex items-center gap-2 pt-4 border-t border-slate-100 print:hidden">
-                          @if (b.financiallyBlocked) {
-                            <div class="flex-1 flex items-center gap-2 text-xs text-rose-700">
-                              <bbc-icon name="alertTri" [s]="16" />
-                              {{ fr() ? 'Bulletin bloqué — frais impayés' : 'Blocked — outstanding fees' }}
-                            </div>
-                          } @else {
-                            <div class="flex-1"></div>
-                          }
-                          @if (canWrite && (b.workflowMeta?.capabilities?.canCreateDraft ?? (b.state === 'PREVIEW')) && !b.financiallyBlocked) {
-                            <button (click)="createBulletinDraft(b)" [disabled]="bulletinBusy()"
-                              class="inline-flex items-center gap-2 h-10 px-4 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-semibold disabled:opacity-50">
-                              <bbc-icon name="doc" [s]="16" /> {{ bulletinBusy() ? '…' : (fr() ? 'Créer le brouillon' : 'Create draft') }}
-                            </button>
-                          }
-                          @if (canWrite && (b.workflowMeta?.capabilities?.canValidate ?? (!!b.id && b.state !== 'PREVIEW' && !b.validated)) && !b.financiallyBlocked) {
-                            <button (click)="validate(b)"
-                              class="inline-flex items-center gap-2 h-10 px-4 bg-gold-500 hover:bg-gold-600 text-white rounded-lg text-sm font-semibold">
-                              <bbc-icon name="check" [s]="16" [sw]="2.5" /> {{ fr() ? 'Valider le bulletin' : 'Validate report card' }}
-                            </button>
-                          }
-                          @if (canWrite && (b.workflowMeta?.capabilities?.canRefreshDraft ?? false)) {
-                            <button (click)="requestRefresh(b)"
-                              class="inline-flex items-center gap-2 h-10 px-4 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-semibold">
-                              <bbc-icon name="edit" [s]="16" /> {{ fr() ? 'Actualiser le brouillon' : 'Refresh draft' }}
-                            </button>
-                          }
-                          @if (canWrite && (b.workflowMeta?.capabilities?.canPublish ?? (b.state === 'VALIDATED')) && !b.financiallyBlocked) {
-                            <button (click)="requestPublication(b)"
-                              class="inline-flex items-center gap-2 h-10 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-semibold">
-                              <bbc-icon name="eye" [s]="16" /> {{ fr() ? 'Publier aux parents' : 'Publish to parents' }}
-                            </button>
-                          }
-                          @if (canWrite && (b.state === 'VALIDATED' || b.state === 'PUBLISHED') && !b.financiallyBlocked) {
-                            <button (click)="generateOfficialDocument(b)" [disabled]="officialDocumentBusy()"
-                              class="inline-flex items-center gap-2 h-10 px-4 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-semibold disabled:opacity-50">
-                              <bbc-icon name="download" [s]="16" /> {{ officialDocumentBusy() ? '…' : (fr() ? 'Générer le PDF officiel' : 'Generate official PDF') }}
-                            </button>
-                          }
-                          <button (click)="print()" [disabled]="b.financiallyBlocked"
-                            class="inline-flex items-center gap-2 h-10 px-4 bg-white border border-slate-200 text-ink hover:bg-slate-50 rounded-lg text-sm font-semibold disabled:opacity-40">
-                            <bbc-icon name="printer" [s]="16" /> {{ fr() ? 'Imprimer' : 'Print' }}
-                          </button>
-                        </div>
                       </div>
                     </div>
                   </bbc-card>
                 }
+                <bbc-card className="mt-3 print:hidden">
+                  <div class="flex items-center justify-end gap-2 flex-wrap">
+                    @if (b.financiallyBlocked) {
+                      <div class="mr-auto flex items-center gap-2 text-xs text-rose-700">
+                        <bbc-icon name="alertTri" [s]="16" />
+                        {{ fr() ? 'Bulletin bloqué — frais impayés' : 'Blocked — outstanding fees' }}
+                      </div>
+                    } @else {
+                      <div class="mr-auto text-xs text-mute">
+                        {{ b.state === 'PREVIEW' ? (fr() ? 'Aperçu calculé — créez un brouillon pour démarrer la validation.' : 'Calculated preview — create a draft to begin validation.') : '' }}
+                      </div>
+                    }
+                    @if (canValidateReportCards() && (b.workflowMeta?.capabilities?.canCreateDraft ?? (b.state === 'PREVIEW')) && !b.financiallyBlocked) {
+                      <button (click)="createBulletinDraft(b)" [disabled]="bulletinBusy()"
+                        class="inline-flex items-center gap-2 h-10 px-4 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-semibold disabled:opacity-50">
+                        <bbc-icon name="doc" [s]="16" /> {{ bulletinBusy() ? '…' : (fr() ? 'Créer le brouillon' : 'Create draft') }}
+                      </button>
+                    }
+                    @if (canValidateReportCards() && (b.workflowMeta?.capabilities?.canValidate ?? (!!b.id && b.state !== 'PREVIEW' && !b.validated)) && !b.financiallyBlocked) {
+                      <button (click)="validate(b)"
+                        class="inline-flex items-center gap-2 h-10 px-4 bg-gold-500 hover:bg-gold-600 text-white rounded-lg text-sm font-semibold">
+                        <bbc-icon name="check" [s]="16" [sw]="2.5" /> {{ fr() ? 'Valider le bulletin' : 'Validate report card' }}
+                      </button>
+                    }
+                    @if (canValidateReportCards() && (b.workflowMeta?.capabilities?.canRefreshDraft ?? false)) {
+                      <button (click)="requestRefresh(b)"
+                        class="inline-flex items-center gap-2 h-10 px-4 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-semibold">
+                        <bbc-icon name="edit" [s]="16" /> {{ fr() ? 'Actualiser le brouillon' : 'Refresh draft' }}
+                      </button>
+                    }
+                    @if (canPublishReportCards() && (b.workflowMeta?.capabilities?.canPublish ?? (b.state === 'VALIDATED')) && !b.financiallyBlocked) {
+                      <button (click)="requestPublication(b)"
+                        class="inline-flex items-center gap-2 h-10 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-semibold">
+                        <bbc-icon name="eye" [s]="16" /> {{ fr() ? 'Publier aux parents' : 'Publish to parents' }}
+                      </button>
+                    }
+                    @if (canGenerateReportCards() && (b.state === 'VALIDATED' || b.state === 'PUBLISHED') && !b.financiallyBlocked) {
+                      <button (click)="generateOfficialDocument(b)" [disabled]="officialDocumentBusy()"
+                        class="inline-flex items-center gap-2 h-10 px-4 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-semibold disabled:opacity-50">
+                        <bbc-icon name="download" [s]="16" /> {{ officialDocumentBusy() ? '…' : (fr() ? 'Générer le PDF officiel' : 'Generate official PDF') }}
+                      </button>
+                    }
+                    <button (click)="print()" [disabled]="b.financiallyBlocked"
+                      class="inline-flex items-center gap-2 h-10 px-4 bg-white border border-slate-200 text-ink hover:bg-slate-50 rounded-lg text-sm font-semibold disabled:opacity-40">
+                      <bbc-icon name="printer" [s]="16" /> {{ fr() ? 'Imprimer' : 'Print' }}
+                    </button>
+                  </div>
+                </bbc-card>
               } @else {
                 <bbc-card>
                   <bbc-empty icon="doc"
@@ -971,9 +987,12 @@ export class AcademicComponent {
   private router = inject(Router);
 
   protected canWrite = this.auth.can('academic', 'write');
+  protected canValidateReportCards = computed(() => this.auth.canModuleOrAction('academic', 'ACADEMIC_REPORT_CARD_VALIDATE', 'write'));
+  protected canPublishReportCards = computed(() => this.auth.canModuleOrAction('academic', 'ACADEMIC_REPORT_CARD_PUBLISH', 'write'));
+  protected canGenerateReportCards = computed(() => this.auth.canModuleOrAction('academic', 'DOCUMENT_GENERATE', 'write'));
 
   protected isApc = computed(() => {
-    const lvl = this.scope.scope()?.level;
+    const lvl = (this.bulletin()?.educationalLevel ?? this.scope.scope()?.level ?? '').toLowerCase();
     return lvl === 'maternelle' || lvl === 'primary';
   });
 
@@ -981,9 +1000,11 @@ export class AcademicComponent {
   protected selectedClass = signal('');
   protected selectedClassId = signal('');
   protected classStudents = signal<Student[]>([]);
+  protected classMasterName = signal('');
   protected studentQuery = signal('');
   protected selectedStudentId = signal('');
   protected academicSessionId = signal('');
+  protected academicSessionCode = signal('');
   protected sequence = signal(1);
   protected reportingPeriods = signal<AcademicReportingPeriodView[]>([]);
   protected selectedReportingPeriodId = signal('');
@@ -1045,6 +1066,7 @@ export class AcademicComponent {
   ]);
 
   protected canReview = computed(() => ['admin', 'principal', 'dean_of_studies', 'censor'].includes(this.auth.user()?.role ?? ''));
+  protected readonly canReviewGradePacket = canReviewGradePacket;
 
   protected filteredClassStudents = computed(() => {
     const q = this.studentQuery().trim().toLowerCase();
@@ -1054,23 +1076,77 @@ export class AcademicComponent {
       s.name.toLowerCase().includes(q) || s.matricule.toLowerCase().includes(q));
   });
 
+  protected isSecondary = computed(() => {
+    const level = (this.bulletin()?.educationalLevel ?? this.scope.scope()?.level ?? '').toLowerCase();
+    return level === 'secondary';
+  });
+
+  /** Teacher grade-entry must use the server-filtered academic scope model.
+   * The setup class catalogue is intentionally reserved for administration
+   * and returns 403 for ordinary teachers. */
+  private loadClasses(sessionId?: string, reportingPeriodId?: string, afterLoad?: () => void): void {
+    const role = this.auth.user()?.role;
+    if (role === 'teacher' || role === 'form_teacher') {
+      this.api.academicMyScope(sessionId, reportingPeriodId).subscribe({
+        next: (scope) => {
+          const seen = new Set<string>();
+          const classes = [...scope.subjects, ...scope.classOverviews]
+            .filter((item) => {
+              if (seen.has(item.classId)) return false;
+              seen.add(item.classId);
+              return true;
+            })
+            .map((item) => ({
+              id: item.classId,
+              name: item.className,
+              sectionId: '',
+              sectionLabel: '',
+              subsystem: '',
+              level: item.level,
+              studentCount: 0,
+              teacherCount: 0,
+            }));
+          this.classes.set(classes);
+          afterLoad?.();
+        },
+        error: () => { this.classes.set([]); afterLoad?.(); },
+      });
+      return;
+    }
+    this.setupApi.listClasses().subscribe({
+      next: (classes) => { this.classes.set(classes); afterLoad?.(); },
+      error: () => { this.classes.set([]); afterLoad?.(); },
+    });
+  }
+
   constructor() {
     const requestedMode = this.route.snapshot.queryParamMap.get('mode') as Mode | null;
     const requestedClassId = this.route.snapshot.queryParamMap.get('classId');
     const requestedPeriodId = this.route.snapshot.queryParamMap.get('periodId');
     const requestedSubjectCode = this.route.snapshot.queryParamMap.get('subjectCode');
+    const teacherScoped = ['teacher', 'form_teacher'].includes(this.auth.user()?.role ?? '');
     if (requestedSubjectCode) this.selectedGradeSubjectCode.set(requestedSubjectCode.toUpperCase());
     if (requestedMode && ['bulletin', 'grade-entry', 'inputs', 'pv', 'overview', 'batch'].includes(requestedMode)) this.mode.set(requestedMode);
-    this.setupApi.listClasses().subscribe({
-      next: (c) => { this.classes.set(c); const klass = c.find((item) => item.id === requestedClassId); if (klass && this.academicSessionId()) this.onClassChange(klass.name, !!requestedSubjectCode); },
-      error: () => this.classes.set([]),
-    });
+    if (!teacherScoped) this.loadClasses();
     this.foundationApi.currentSession().subscribe({
       next: (s) => {
         this.academicSessionId.set(s.id);
+        this.academicSessionCode.set(s.code || s.label);
         this.foundationApi.reportingDependencies(s.id).subscribe({ next: (rows) => this.reportingDependencies.set(rows), error: () => this.reportingDependencies.set([]) });
         this.foundationApi.reportingPeriods(s.id).subscribe({
-        next: (periods) => { const readablePeriods = periods.map((p) => ({ ...p, label: cleanDisplay(p.label) })); this.reportingPeriods.set(readablePeriods); const first = readablePeriods.find((p) => p.id === requestedPeriodId && (this.mode() !== 'grade-entry' || p.periodType === 'SEQUENCE')) ?? readablePeriods.find((p) => p.code === 'S1') ?? readablePeriods[0]; if (first) { this.selectedReportingPeriodId.set(first.id); this.sequence.set(this.periodSequence(first)); } const klass = this.classes().find((c) => c.id === requestedClassId); if (klass) this.onClassChange(klass.name, !!requestedSubjectCode); },
+        next: (periods) => {
+          const readablePeriods = periods.map((p) => ({ ...p, label: cleanDisplay(p.label) }));
+          this.reportingPeriods.set(readablePeriods);
+          const first = readablePeriods.find((p) => p.id === requestedPeriodId && (this.mode() !== 'grade-entry' || p.periodType === 'SEQUENCE'))
+            ?? readablePeriods.find((p) => p.code === 'S1') ?? readablePeriods[0];
+          if (first) { this.selectedReportingPeriodId.set(first.id); this.sequence.set(this.periodSequence(first)); }
+          const openRequestedClass = () => {
+            const klass = this.classes().find((c) => c.id === requestedClassId);
+            if (klass) this.onClassChange(klass.name, !!requestedSubjectCode);
+          };
+          if (teacherScoped) this.loadClasses(s.id, first?.id, openRequestedClass);
+          else openRequestedClass();
+        },
         error: () => this.reportingPeriods.set([]),
         });
       },
@@ -1138,6 +1214,7 @@ export class AcademicComponent {
     if (!preserveSubjectCode) this.selectedGradeSubjectCode.set('');
     this.studentQuery.set('');
     this.classStudents.set([]);
+    this.classMasterName.set('');
     this.batchJob.set(null); this.batchJobs.set([]); this.batchItems.set([]);
     if (!name) return;
     const sessionId = this.academicSessionId();
@@ -1157,6 +1234,13 @@ export class AcademicComponent {
           this.notice.set({ ok: false, text: this.explainError(e) });
         }
       },
+    });
+    this.setupApi.curriculum(sessionId, classId).subscribe({
+      next: (curriculum) => {
+        if (this.academicSessionId() === sessionId && this.selectedClassId() === classId)
+          this.classMasterName.set(curriculum.homeroomTeacher?.employeeName ?? '');
+      },
+      error: () => this.classMasterName.set(''),
     });
     if (this.mode() === 'pv' || this.mode() === 'overview') this.loadPv();
     if (this.mode() === 'grade-entry') this.loadGradeEntry();
@@ -1703,11 +1787,22 @@ export class AcademicComponent {
 
   private mapSnapshot(snapshot: BulletinSnapshotView): BulletinView {
     const period = this.reportingPeriods().find((p) => p.id === snapshot.reportingPeriodId);
+    const student = this.classStudents().find((value) => value.id === snapshot.studentId);
     return {
       id: snapshot.id,
       studentId: snapshot.studentId,
       studentName: snapshot.studentName,
+      matricule: snapshot.matricule,
+      schoolYear: this.academicSessionCode(),
+      birthDate: student?.dob,
+      birthPlace: student?.birthplace,
+      sex: student?.sex,
+      repeater: student?.repeats,
+      parentContact: [student?.parentName, student?.parentPhone].filter(Boolean).join(' / ') || null,
+      classMasterName: this.classMasterName() || null,
       className: snapshot.className ?? '',
+      educationalLevel: snapshot.educationalLevel,
+      subsystem: snapshot.subsystem,
       sequence: this.periodSequence(period!),
       reportingPeriodType: snapshot.reportingPeriodType ?? period?.periodType,
       product: snapshot.product,
@@ -1722,11 +1817,16 @@ export class AcademicComponent {
         teacherName: line.teacherName,
         subjectGroupCode: line.subjectGroupCode,
         subjectGroupLabel: line.subjectGroupLabel,
+        assessments: line.assessments ?? undefined,
       })),
       average: snapshot.average,
       rank: snapshot.rank,
       classSize: snapshot.classSize,
       classAverage: snapshot.classStats?.average ?? snapshot.average,
+      classMinimum: snapshot.classStats?.minimum ?? null,
+      classMaximum: snapshot.classStats?.maximum ?? null,
+      successCount: snapshot.classStats?.successCount ?? null,
+      successRate: snapshot.classStats?.successRate ?? null,
       validated: snapshot.state === 'VALIDATED' || snapshot.state === 'PUBLISHED',
       generalAppreciation: snapshot.generalAppreciation,
       financiallyBlocked: false,

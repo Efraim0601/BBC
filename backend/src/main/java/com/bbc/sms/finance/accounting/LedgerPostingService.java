@@ -1,5 +1,6 @@
 package com.bbc.sms.finance.accounting;
 
+import com.bbc.sms.finance.FinancePolicyService;
 import com.bbc.sms.foundation.audit.AuditService;
 import com.bbc.sms.foundation.idempotency.IdempotencyService;
 import com.bbc.sms.platform.common.ApiException;
@@ -32,11 +33,13 @@ public class LedgerPostingService {
     private final IdempotencyService idempotency;
     private final AuditService audit;
     private final JdbcTemplate jdbc;
+    private final FinancePolicyService financePolicy;
 
     public LedgerPostingService(JournalEntryRepository journals, JournalLineRepository lines,
                                 ChartOfAccountRepository accounts, AccountingPeriodService periods,
                                 JournalValidationService validation, DocumentSequenceService sequences,
-                                IdempotencyService idempotency, AuditService audit, JdbcTemplate jdbc) {
+                                IdempotencyService idempotency, AuditService audit, JdbcTemplate jdbc,
+                                FinancePolicyService financePolicy) {
         this.journals = journals;
         this.lines = lines;
         this.accounts = accounts;
@@ -46,10 +49,18 @@ public class LedgerPostingService {
         this.idempotency = idempotency;
         this.audit = audit;
         this.jdbc = jdbc;
+        this.financePolicy = financePolicy;
     }
 
     @Transactional
     public JournalView createDraft(JournalUpsert in) {
+        financePolicy.requireSchool("LEDGER_POST");
+        return createDraftInternal(in);
+    }
+
+    /** Internal journal creation after the owning finance workflow has authorized its operation. */
+    @Transactional
+    public JournalView createDraftInternal(JournalUpsert in) {
         validation.validateDraftLines(in.lines());
         AccountingPeriod period = periods.require(in.accountingPeriodId());
         if (!"OPEN".equals(period.getStatus())) {
@@ -76,6 +87,12 @@ public class LedgerPostingService {
 
     @Transactional
     public JournalView updateDraft(UUID id, JournalUpsert in) {
+        financePolicy.requireSchool("LEDGER_POST");
+        return updateDraftInternal(id, in);
+    }
+
+    @Transactional
+    public JournalView updateDraftInternal(UUID id, JournalUpsert in) {
         validation.validateDraftLines(in.lines());
         JournalEntry entry = journals.findForUpdate(id, TenantContext.get()).orElseThrow(() -> ApiException.notFound("Journal"));
         AccountService.requireVersion(in.version(), entry.getVersion(), "journal");
@@ -105,12 +122,13 @@ public class LedgerPostingService {
 
     @Transactional
     public JournalView post(UUID id, String idempotencyKey) {
+        financePolicy.requireSchool("LEDGER_POST");
         return idempotency.execute("finance-v2/journals/post", idempotencyKey,
-                new CommandKey(id), JournalView.class, () -> postNow(id));
+                new CommandKey(id), JournalView.class, () -> postNowInternal(id));
     }
 
     @Transactional
-    public JournalView postNow(UUID id) {
+    public JournalView postNowInternal(UUID id) {
         JournalEntry entry = journals.findForUpdate(id, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Journal"));
         if ("POSTED".equals(entry.getStatus())) return view(entry);
@@ -142,13 +160,14 @@ public class LedgerPostingService {
 
     @Transactional
     public JournalView reverse(UUID id, ReverseRequest request, String idempotencyKey) {
+        financePolicy.requireSchool("LEDGER_REVERSE");
         return idempotency.execute("finance-v2/journals/reverse", idempotencyKey,
                 new ReverseCommand(id, request.entryDate(), request.reason(), request.version()),
-                JournalView.class, () -> reverseNow(id, request));
+                JournalView.class, () -> reverseNowInternal(id, request));
     }
 
     @Transactional
-    public JournalView reverseNow(UUID id, ReverseRequest request) {
+    public JournalView reverseNowInternal(UUID id, ReverseRequest request) {
         JournalEntry original = journals.findForUpdate(id, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Journal"));
         AccountService.requireVersion(request.version(), original.getVersion(), "journal");
@@ -214,6 +233,7 @@ public class LedgerPostingService {
 
     @Transactional(readOnly = true)
     public PageView<JournalView> list(int page, int size, String status, LocalDate from, LocalDate to) {
+        financePolicy.requireSchool("FINANCE_REPORT_VIEW");
         int safeSize = Math.max(1, Math.min(size, 100));
         List<JournalView> all = (from != null && to != null
                 ? journals.findBySchoolIdAndEntryDateBetweenOrderByEntryDateAscNumberAsc(TenantContext.get(), from, to)
@@ -229,12 +249,25 @@ public class LedgerPostingService {
 
     @Transactional(readOnly = true)
     public JournalView detail(UUID id) {
+        financePolicy.requireSchool("FINANCE_REPORT_VIEW");
+        return detailInternal(id);
+    }
+
+    /** Internal read for a workflow that already authorized the owning operation. */
+    @Transactional(readOnly = true)
+    public JournalView detailInternal(UUID id) {
         return view(journals.findByIdAndSchoolId(id, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Journal")));
     }
 
     @Transactional(readOnly = true)
     public TrialBalanceView trialBalance(LocalDate asOfDate, boolean includeZero) {
+        financePolicy.requireSchool("FINANCE_REPORT_VIEW");
+        return trialBalanceInternal(asOfDate, includeZero);
+    }
+
+    @Transactional(readOnly = true)
+    public TrialBalanceView trialBalanceInternal(LocalDate asOfDate, boolean includeZero) {
         LocalDate date = asOfDate == null ? LocalDate.now() : asOfDate;
         List<TrialBalanceRow> rows = jdbc.query("""
                 SELECT a.id, a.code, a.name_fr, a.account_type, COALESCE(a.currency,'XAF'),
@@ -261,6 +294,7 @@ public class LedgerPostingService {
 
     @Transactional(readOnly = true)
     public GeneralLedgerView generalLedger(UUID accountId, LocalDate from, LocalDate to) {
+        financePolicy.requireSchool("FINANCE_REPORT_VIEW");
         ChartOfAccount account = accounts.findByIdAndSchoolId(accountId, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Compte comptable"));
         LocalDate start = from == null ? LocalDate.of(1900, 1, 1) : from;

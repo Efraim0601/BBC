@@ -1,5 +1,6 @@
 package com.bbc.sms.finance.accounting;
 
+import com.bbc.sms.finance.FinancePolicyService;
 import com.bbc.sms.platform.tenant.TenantContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -16,11 +17,16 @@ import static com.bbc.sms.finance.accounting.AccountingDtos.*;
 @Service
 public class FinanceReadinessService {
     private final JdbcTemplate jdbc;
+    private final FinancePolicyService financePolicy;
 
-    public FinanceReadinessService(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+    public FinanceReadinessService(JdbcTemplate jdbc, FinancePolicyService financePolicy) {
+        this.jdbc = jdbc;
+        this.financePolicy = financePolicy;
+    }
 
     @Transactional(readOnly = true)
     public ReadinessView check() {
+        financePolicy.requireSchool("FINANCE_OVERVIEW_VIEW");
         var schoolId = TenantContext.get();
         LocalDate today = LocalDate.now();
         List<ReadinessCheck> checks = new ArrayList<>();

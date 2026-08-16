@@ -17,28 +17,44 @@ public class CoursebookController {
 
     public CoursebookController(CoursebookService service) { this.service = service; }
 
+    /** Read-only class options for the coursebook's assigned-class selector. */
+    @GetMapping("/classes")
+    @PreAuthorize("@perm.staffOnly()")
+    public List<ClassRef> classes() {
+        return service.classes();
+    }
+
+    /** Read-only curriculum subjects for one already scoped coursebook class. */
+    @GetMapping("/subjects")
+    @PreAuthorize("@perm.staffOnly()")
+    public List<com.bbc.sms.setup.dto.SetupDtos.SubjectView> subjects(@RequestParam String className) {
+        return service.subjects(className);
+    }
+
     @GetMapping
-    @PreAuthorize("@perm.can('coursebook','read')")
+    // CoursebookService resolves the class and applies the contextual V2
+    // teacher/class decision; retain only the staff envelope here.
+    @PreAuthorize("@perm.staffOnly()")
     public List<EntryView> forClass(@RequestParam(required = false) String className) {
         return service.forClass(className);
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("@perm.can('coursebook','write')")
+    @PreAuthorize("@perm.staffOnly()")
     public EntryView create(@Valid @RequestBody EntryUpsert in) {
         return service.create(in);
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("@perm.can('coursebook','write')")
+    @PreAuthorize("@perm.staffOnly()")
     public EntryView update(@PathVariable UUID id, @Valid @RequestBody EntryUpsert in) {
         return service.update(id, in);
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize("@perm.can('coursebook','write')")
+    @PreAuthorize("@perm.staffOnly()")
     public void delete(@PathVariable UUID id) {
         service.delete(id);
     }

@@ -3,6 +3,8 @@ package com.bbc.sms.alerts;
 import com.bbc.sms.alerts.dto.AlertDtos.*;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AppUserPrincipal;
+import com.bbc.sms.platform.security.AuthorizationPolicyService;
+import com.bbc.sms.platform.security.PolicyResourceContext;
 import com.bbc.sms.platform.tenant.TenantContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
@@ -11,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -27,14 +30,17 @@ public class AlertService {
 
     private final AlertRepository repo;
     private final JdbcTemplate jdbc;
+    private final AuthorizationPolicyService policy;
 
-    public AlertService(AlertRepository repo, JdbcTemplate jdbc) {
+    public AlertService(AlertRepository repo, JdbcTemplate jdbc, AuthorizationPolicyService policy) {
         this.repo = repo;
         this.jdbc = jdbc;
+        this.policy = policy;
     }
 
     @Transactional(readOnly = true)
     public List<AlertView> list() {
+        requireSchool("ALERTS_VIEW");
         UUID schoolId = TenantContext.get();
         return jdbc.query("""
                 SELECT a.id, a.student_id, a.type, a.severity, a.title, a.detail,
@@ -62,6 +68,7 @@ public class AlertService {
 
     @Transactional
     public ScanResult scan() {
+        requireSchool("ALERTS_MANAGE");
         UUID schoolId = TenantContext.get();
         int created = 0;
         created += scanAbsences(schoolId);
@@ -73,6 +80,7 @@ public class AlertService {
 
     @Transactional
     public void ack(UUID id) {
+        requireSchool("ALERTS_MANAGE");
         UUID schoolId = TenantContext.get();
         Alert a = repo.findByIdAndSchoolId(id, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Alerte"));
@@ -84,6 +92,7 @@ public class AlertService {
 
     @Transactional
     public void resolve(UUID id) {
+        requireSchool("ALERTS_MANAGE");
         UUID schoolId = TenantContext.get();
         Alert a = repo.findByIdAndSchoolId(id, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Alerte"));
@@ -219,5 +228,10 @@ public class AlertService {
     private UUID currentUserId() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         return auth != null && auth.getPrincipal() instanceof AppUserPrincipal p ? p.userId() : null;
+    }
+
+    private void requireSchool(String action) {
+        policy.require(action, new PolicyResourceContext(TenantContext.get(), null, LocalDate.now(),
+                null, null, null, null, null, null, null, null, null));
     }
 }

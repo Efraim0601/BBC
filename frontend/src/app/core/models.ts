@@ -18,6 +18,8 @@ export interface UserView {
   locale: string;
   permissions: Record<string, Level>;
   modules: string[];
+  /** Server-authoritative parcours scope mode. GLOBAL means the user may browse all parcours. */
+  parcoursScopeMode?: 'GLOBAL' | 'EXPLICIT' | 'ASSIGNMENT_DERIVED' | 'CHILD_DERIVED' | 'NONE' | string;
   allowedParcours: Parcours[]; // empty = all parcours (admin)
 }
 
@@ -26,6 +28,26 @@ export interface TokenResponse {
   refreshToken: string;
   expiresInMs: number;
   user: UserView;
+}
+
+export type ActionEffect = 'ALLOW' | 'DENY' | 'CONTEXT_REQUIRED' | 'INHERIT' | 'LOADING';
+
+export interface ActionCapability {
+  actionCode: string;
+  labelFr: string;
+  labelEn: string;
+  effect: ActionEffect | string;
+  scopeMode: string;
+  source: string;
+  requiresContext: boolean;
+  riskLevel: string;
+}
+
+export interface CapabilityView {
+  policyVersion: number;
+  parcoursScopeMode: string;
+  allowedParcours: string[];
+  actions: ActionCapability[];
 }
 
 export interface Student {

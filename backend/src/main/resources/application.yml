@@ -49,6 +49,11 @@ bbc:
     year-label: ${BBC_YEAR_LABEL:2025-2026}
   documents:
     storage-path: ${BBC_DOCUMENT_STORAGE:/data/documents}
+  # Never enable this in a production profile. The isolated acceptance
+  # compose file activates both the e2e profile and this explicit switch.
+  e2e:
+    fixtures:
+      enabled: ${BBC_E2E_FIXTURES_ENABLED:false}
 
 springdoc:
   swagger-ui:

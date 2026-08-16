@@ -2,6 +2,8 @@ package com.bbc.sms.settings;
 
 import com.bbc.sms.platform.mail.MailConfig;
 import com.bbc.sms.platform.mail.MailConfigRepository;
+import com.bbc.sms.platform.security.AuthorizationPolicyService;
+import com.bbc.sms.platform.security.PolicyResourceContext;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.settings.dto.SettingsDtos.MailConfigUpdate;
 import com.bbc.sms.settings.dto.SettingsDtos.MailConfigView;
@@ -16,14 +18,20 @@ import java.util.UUID;
 public class MailAdminService {
 
     private final MailConfigRepository repo;
+    private final AuthorizationPolicyService policy;
 
-    public MailAdminService(MailConfigRepository repo) {
+    public MailAdminService(MailConfigRepository repo, AuthorizationPolicyService policy) {
         this.repo = repo;
+        this.policy = policy;
     }
 
     @Transactional(readOnly = true)
     public MailConfigView get() {
-        MailConfig c = repo.findById(TenantContext.get()).orElse(null);
+        require("MAIL_CONFIG_VIEW");
+        return view(repo.findById(TenantContext.get()).orElse(null));
+    }
+
+    private MailConfigView view(MailConfig c) {
         if (c == null) {
             return new MailConfigView(false, null, 587, null, false, null, null, true, true);
         }
@@ -34,6 +42,7 @@ public class MailAdminService {
 
     @Transactional
     public MailConfigView update(MailConfigUpdate in) {
+        require("MAIL_CONFIG_MANAGE");
         UUID schoolId = TenantContext.get();
         MailConfig c = repo.findById(schoolId).orElseGet(() -> {
             MailConfig n = new MailConfig();
@@ -52,7 +61,11 @@ public class MailAdminService {
         if (in.notifyOnUserCreate() != null) c.setNotifyOnUserCreate(in.notifyOnUserCreate());
         c.setUpdatedAt(OffsetDateTime.now());
         repo.save(c);
-        return get();
+        return view(c);
+    }
+
+    private void require(String action) {
+        policy.require(action, PolicyResourceContext.empty().forSchool(TenantContext.get()));
     }
 
     private static String blankToNull(String s) {

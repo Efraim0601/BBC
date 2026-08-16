@@ -204,8 +204,8 @@ export class FinanceAccountingComponent {
 
   constructor() { this.reload(); }
 
-  protected canAction(action: string): boolean { return this.actions()[action] ?? this.auth.can('finance', 'write'); }
-  protected canRead(): boolean { return this.actions()['FINANCE_OVERVIEW_VIEW'] ?? this.auth.can('finance', 'read'); }
+  protected canAction(action: string): boolean { return this.actions()[action] === true; }
+  protected canRead(): boolean { return this.actions()['FINANCE_OVERVIEW_VIEW'] === true; }
   protected money(amount: number): string { return `${Math.round(Number(amount) || 0).toLocaleString('fr-FR')} XAF`; }
   protected openPeriods(): PeriodView[] { return this.periods().filter(p => p.status === 'OPEN'); }
   protected postingAccounts(): AccountView[] { return this.accounts().filter(a => a.active && a.postingAllowed); }

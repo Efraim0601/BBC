@@ -15,8 +15,11 @@ import static com.bbc.sms.academic.security.AcademicAccessDtos.*;
 @RestController
 @RequestMapping("/api/academic-access")
 public class AcademicAccessController {
-    private static final String ADMIN_READ = "@perm.can('settings','read') and @perm.staffOnly()";
-    private static final String ADMIN_WRITE = "@perm.can('settings','write') and @perm.staffOnly()";
+    // These actions are CLASS_SUBJECT scoped. The delegation service must
+    // resolve the request resource before applying the V2 policy; a
+    // context-free controller action check rejects valid management requests.
+    private static final String ADMIN_READ = "@perm.staffOnly()";
+    private static final String ADMIN_WRITE = "@perm.staffOnly()";
 
     private final AcademicAccessDelegationService delegations;
 

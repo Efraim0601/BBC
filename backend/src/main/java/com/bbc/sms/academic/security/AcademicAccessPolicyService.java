@@ -2,9 +2,14 @@ package com.bbc.sms.academic.security;
 
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AppUserPrincipal;
+import com.bbc.sms.platform.security.AuthorizationPolicyService;
+import com.bbc.sms.platform.security.PolicyResourceContext;
 import com.bbc.sms.platform.security.PermissionService;
+import com.bbc.sms.platform.tenant.ParcoursContext;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.timetable.TeachingAssignmentResolver;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -36,6 +41,7 @@ public class AcademicAccessPolicyService {
         ASSESSMENT_MANAGE,
         SUBJECT_GRADE_VIEW,
         SUBJECT_GRADE_EDIT,
+        TITULAIRE_ANY_SUBJECT_GRADE_EDIT,
         SUBJECT_GRADE_SUBMIT,
         CLASS_RESULTS_VIEW,
         CLASS_REPORT_CARD_VIEW,
@@ -68,12 +74,22 @@ public class AcademicAccessPolicyService {
     private final JdbcTemplate jdbc;
     private final PermissionService permissions;
     private final TeachingAssignmentResolver assignments;
+    private final AuthorizationPolicyService centralPolicy;
 
+    @Autowired
     public AcademicAccessPolicyService(JdbcTemplate jdbc, PermissionService permissions,
-                                       TeachingAssignmentResolver assignments) {
+                                       TeachingAssignmentResolver assignments,
+                                       @Lazy AuthorizationPolicyService centralPolicy) {
         this.jdbc = jdbc;
         this.permissions = permissions;
         this.assignments = assignments;
+        this.centralPolicy = centralPolicy;
+    }
+
+    /** Constructor retained for focused domain-unit tests without the policy schema. */
+    public AcademicAccessPolicyService(JdbcTemplate jdbc, PermissionService permissions,
+                                       TeachingAssignmentResolver assignments) {
+        this(jdbc, permissions, assignments, null);
     }
 
     /** Fail closed for a direct academic resource request. */
@@ -89,10 +105,37 @@ public class AcademicAccessPolicyService {
         return decision;
     }
 
+    /** Domain-only require used by the central evaluator's invariant adapter. */
+    public AccessDecision requireDomain(Capability capability, UUID academicSessionId,
+                                        UUID classId, String rawSubjectCode, UUID studentId,
+                                        LocalDate requestedDate) {
+        AccessDecision decision = resolveDomain(capability, academicSessionId, classId,
+                rawSubjectCode, studentId, requestedDate);
+        if (!decision.allowed()) {
+            throw ApiException.coded(HttpStatus.FORBIDDEN, decision.code(), decision.messageFr());
+        }
+        return decision;
+    }
+
     @Transactional(readOnly = true)
     public boolean can(Capability capability, UUID academicSessionId, UUID classId,
                        String rawSubjectCode, UUID studentId, LocalDate requestedDate) {
-        return resolve(capability, academicSessionId, classId, rawSubjectCode,
+        // Collection filters use this boolean form to test many candidate
+        // resources.  A denied central V2 decision is expected for candidates
+        // outside the teacher's assignment and must not abort the whole list
+        // with a 403; direct resource callers continue to use require(...).
+        try {
+            return resolve(capability, academicSessionId, classId, rawSubjectCode,
+                    studentId, requestedDate).allowed();
+        } catch (ApiException denied) {
+            return false;
+        }
+    }
+
+    /** Domain-only check used by AuthorizationPolicyService without recursion. */
+    public boolean canForCentral(Capability capability, UUID academicSessionId, UUID classId,
+                                 String rawSubjectCode, UUID studentId, LocalDate requestedDate) {
+        return resolveDomain(capability, academicSessionId, classId, rawSubjectCode,
                 studentId, requestedDate).allowed();
     }
 
@@ -139,6 +182,23 @@ public class AcademicAccessPolicyService {
     public AccessDecision resolve(Capability capability, UUID academicSessionId,
                                   UUID classId, String rawSubjectCode, UUID studentId,
                                   LocalDate requestedDate) {
+        boolean centralAllowed = requireCentralAction(capability, academicSessionId, classId,
+                rawSubjectCode, studentId, requestedDate);
+        return resolveDomain(capability, academicSessionId, classId, rawSubjectCode,
+                studentId, requestedDate, centralAllowed);
+    }
+
+    /** Domain-only path used by AcademicScopeResolver from the central evaluator. */
+    public AccessDecision resolveDomain(Capability capability, UUID academicSessionId,
+                                        UUID classId, String rawSubjectCode, UUID studentId,
+                                        LocalDate requestedDate) {
+        return resolveDomain(capability, academicSessionId, classId, rawSubjectCode,
+                studentId, requestedDate, false);
+    }
+
+    private AccessDecision resolveDomain(Capability capability, UUID academicSessionId,
+                                         UUID classId, String rawSubjectCode, UUID studentId,
+                                         LocalDate requestedDate, boolean centralAllowed) {
         String subjectCode = normalize(rawSubjectCode);
         LocalDate effectiveDate = requestedDate;
         Actor actor = actor();
@@ -180,13 +240,32 @@ public class AcademicAccessPolicyService {
 
         // Management actions are explicit and are checked after the tenant and
         // enrollment scope, so a broad action never becomes a cross-tenant leak.
-        if (managementAllowed(actor, capability)) {
+        if (managementAllowed(actor, capability, centralAllowed)) {
             return allow(actor.employeeId(), "MANAGEMENT_ACTION", null, 0, null,
                     classId, subjectCode, "ACADEMIC_ACCESS_ALLOWED", effectiveDate);
         }
 
         if (!actor.teacherRole()) {
             return deny(denialCode(capability), denialFr(capability), denialEn(capability), effectiveDate);
+        }
+
+        if (capability == Capability.TITULAIRE_ANY_SUBJECT_GRADE_EDIT) {
+            if (subjectCode.isBlank() || !subjectInCurriculum(academicSessionId, classId,
+                    subjectCode, effectiveDate)) {
+                return deny("ACADEMIC_SUBJECT_ACCESS_DENIED",
+                        "Cette matière ne fait pas partie du curriculum actif de votre classe titulaire.",
+                        "This subject is not in the active curriculum of your homeroom class.", effectiveDate);
+            }
+            TeachingAssignmentResolver.Resolution homeroom = assignments.resolveHomeroom(
+                    academicSessionId, classId, effectiveDate);
+            if (actor.employeeId().equals(homeroom.teacherId())) {
+                return allow(actor.employeeId(), "TITULAIRE_ANY_SUBJECT",
+                        homeroom.assignmentId(), homeroom.assignmentVersion(), null,
+                        classId, subjectCode, "TITULAIRE_ANY_SUBJECT_EDIT_ALLOWED", effectiveDate);
+            }
+            return deny("ACADEMIC_TITULAIRE_SCOPE_DENIED",
+                    "Cette classe ne vous est pas attribuée comme titulaire à cette date.",
+                    "You are not the dated homeroom teacher for this class.", effectiveDate);
         }
 
         if (capability == Capability.ACADEMIC_ROSTER_VIEW) {
@@ -389,9 +468,18 @@ public class AcademicAccessPolicyService {
 
     public void requireDelegationManager() {
         Actor actor = actor();
-        if (actor == null || actor.teacherRole() || !permissions.canAction("ACADEMIC_ACCESS_DELEGATE")) {
+        if (actor == null || actor.teacherRole() || !centralPolicy.canAction("PERMISSION_MANAGE")) {
             throw ApiException.coded(HttpStatus.FORBIDDEN, "ACADEMIC_ACCESS_DELEGATE_DENIED",
                     "Vous n'êtes pas autorisé à gérer les délégations académiques.");
+        }
+    }
+
+    /** Read-only access to the delegation workspace is a settings permission. */
+    public void requireDelegationViewer() {
+        Actor actor = actor();
+        if (actor == null || actor.teacherRole() || !centralPolicy.canAction("PERMISSION_VIEW")) {
+            throw ApiException.coded(HttpStatus.FORBIDDEN, "ACADEMIC_ACCESS_AUDIT_DENIED",
+                    "Academic delegation viewing is not authorized.");
         }
     }
 
@@ -400,12 +488,15 @@ public class AcademicAccessPolicyService {
         return actor != null && !actor.teacherRole() && permissions.canAction(action);
     }
 
-    private boolean managementAllowed(Actor actor, Capability capability) {
+    private boolean managementAllowed(Actor actor, Capability capability, boolean centralAllowed) {
         if (actor.teacherRole()) return false;
+        if (capability == Capability.TITULAIRE_ANY_SUBJECT_GRADE_EDIT) return false;
+        if (centralAllowed) return true;
         String action = switch (capability) {
             case CLASS_RESULTS_VIEW -> "ACADEMIC_CLASS_RESULTS_VIEW";
             case CLASS_REPORT_CARD_VIEW -> "ACADEMIC_REPORT_CARD_VIEW";
             case SUBJECT_GRADE_EDIT -> "ACADEMIC_SUBJECT_GRADE_EDIT";
+            case TITULAIRE_ANY_SUBJECT_GRADE_EDIT -> "GRADE_EDIT_ANY_SUBJECT_IN_TITULAIRE_CLASS";
             case ASSESSMENT_MANAGE -> "ACADEMIC_ASSESSMENT_MANAGE";
             case GRADE_PACKET_REVIEW -> "ACADEMIC_GRADE_PACKET_REVIEW";
             case REPORT_CARD_VALIDATE -> "ACADEMIC_REPORT_CARD_VALIDATE";
@@ -492,6 +583,65 @@ public class AcademicAccessPolicyService {
         return count != null && count > 0;
     }
 
+    private boolean requireCentralAction(Capability capability, UUID academicSessionId,
+                                         UUID classId, String rawSubjectCode, UUID studentId,
+                                         LocalDate requestedDate) {
+        if (centralPolicy == null) return false;
+        String action = actionCode(capability);
+        LocalDate effectiveDate = requestedDate != null
+                ? requestedDate
+                : sessionStart(academicSessionId);
+        PolicyResourceContext context = new PolicyResourceContext(
+                TenantContext.get(), academicSessionId,
+                effectiveDate, resourceParcours(classId), classId,
+                normalize(rawSubjectCode), studentId, null, null, null, null,
+                resourceLevel(classId));
+        var decision = centralPolicy.decide(action, context);
+        if (!decision.allowed()) {
+            throw ApiException.coded(HttpStatus.FORBIDDEN, decision.denialCode(), decision.messageFr());
+        }
+        return true;
+    }
+
+    private String resourceLevel(UUID classId) {
+        if (classId == null) return null;
+        return jdbc.query("SELECT lower(level) FROM school_class WHERE school_id=? AND id=?",
+                rs -> rs.next() ? rs.getString(1) : null, TenantContext.get(), classId);
+    }
+
+    private LocalDate sessionStart(UUID academicSessionId) {
+        if (academicSessionId == null) return currentSessionStart();
+        return jdbc.query("SELECT start_date FROM academic_session WHERE id=? AND school_id=?",
+                rs -> rs.next() ? rs.getObject(1, LocalDate.class) : null,
+                academicSessionId, TenantContext.get());
+    }
+
+    private ParcoursContext.Scope resourceParcours(UUID classId) {
+        if (classId == null) return null;
+        return jdbc.query("SELECT level,subsystem FROM school_class WHERE school_id=? AND id=?",
+                rs -> rs.next() ? new ParcoursContext.Scope(rs.getString(1), rs.getString(2)) : null,
+                TenantContext.get(), classId);
+    }
+
+    private static String actionCode(Capability capability) {
+        return switch (capability) {
+            case ACADEMIC_ROSTER_VIEW -> "ACADEMIC_ROSTER_VIEW";
+            case ASSESSMENT_VIEW -> "ACADEMIC_ASSESSMENT_VIEW";
+            case ASSESSMENT_MANAGE -> "ACADEMIC_ASSESSMENT_MANAGE";
+            case SUBJECT_GRADE_VIEW -> "ACADEMIC_SUBJECT_GRADE_VIEW";
+            case SUBJECT_GRADE_EDIT -> "ACADEMIC_SUBJECT_GRADE_EDIT";
+            case TITULAIRE_ANY_SUBJECT_GRADE_EDIT -> "GRADE_EDIT_ANY_SUBJECT_IN_TITULAIRE_CLASS";
+            case SUBJECT_GRADE_SUBMIT -> "GRADE_SUBMIT";
+            case CLASS_RESULTS_VIEW -> "ACADEMIC_CLASS_RESULTS_VIEW";
+            case CLASS_REPORT_CARD_VIEW -> "ACADEMIC_REPORT_CARD_VIEW";
+            case GRADE_PACKET_REVIEW -> "ACADEMIC_GRADE_PACKET_REVIEW";
+            case REPORT_CARD_VALIDATE -> "ACADEMIC_REPORT_CARD_VALIDATE";
+            case REPORT_CARD_PUBLISH -> "ACADEMIC_REPORT_CARD_PUBLISH";
+            case COUNCIL_INPUT_VIEW -> "ACADEMIC_COUNCIL_INPUT_VIEW";
+            case COUNCIL_INPUT_EDIT -> "ACADEMIC_COUNCIL_INPUT_EDIT";
+        };
+    }
+
     private Actor actor() {
         var authentication = SecurityContextHolder.getContext().getAuthentication();
         Object principal = authentication == null ? null : authentication.getPrincipal();
@@ -563,7 +713,8 @@ public class AcademicAccessPolicyService {
     private static String denialCode(Capability capability) {
         return switch (capability) {
             case CLASS_RESULTS_VIEW, CLASS_REPORT_CARD_VIEW -> "CLASS_RESULTS_ACCESS_DENIED";
-            case SUBJECT_GRADE_VIEW, SUBJECT_GRADE_EDIT, SUBJECT_GRADE_SUBMIT,
+            case SUBJECT_GRADE_VIEW, SUBJECT_GRADE_EDIT, TITULAIRE_ANY_SUBJECT_GRADE_EDIT,
+                    SUBJECT_GRADE_SUBMIT,
                     ASSESSMENT_VIEW, ASSESSMENT_MANAGE -> "ACADEMIC_SUBJECT_ACCESS_DENIED";
             case GRADE_PACKET_REVIEW -> "ACADEMIC_PACKET_ACCESS_DENIED";
             case REPORT_CARD_VALIDATE, REPORT_CARD_PUBLISH -> "CLASS_RESULTS_ACCESS_DENIED";

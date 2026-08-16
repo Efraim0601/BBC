@@ -15,13 +15,33 @@ export interface BulletinLine {
   teacherName?: string | null;
   subjectGroupCode?: string | null;
   subjectGroupLabel?: string | null;
+  assessments?: AssessmentEvidence[];
+}
+
+export interface AssessmentEvidence {
+  code: string;
+  label: string;
+  mark: number | null;
+  maxScore: number;
+  weight: number;
+  status: string;
 }
 
 export interface BulletinView {
   id?: string;
   studentId: string;
   studentName: string;
+  matricule?: string;
+  schoolYear?: string;
+  birthDate?: string | null;
+  birthPlace?: string | null;
+  sex?: string | null;
+  repeater?: boolean;
+  parentContact?: string | null;
+  classMasterName?: string | null;
   className: string;
+  educationalLevel?: string | null;
+  subsystem?: string | null;
   sequence: number;
   reportingPeriodType?: string;
   product?: string;
@@ -30,6 +50,10 @@ export interface BulletinView {
   rank: number | null;
   classSize: number;
   classAverage: number | null;
+  classMinimum?: number | null;
+  classMaximum?: number | null;
+  successCount?: number | null;
+  successRate?: number | null;
   validated: boolean;
   generalAppreciation: string | null;
   financiallyBlocked: boolean;
@@ -75,7 +99,7 @@ export interface BulletinSnapshotView {
   id?: string; academicSessionId: string; reportingPeriodId: string;
   reportingPeriodCode: string; reportingPeriodLabel: string; studentId: string;
   studentName: string; matricule: string; educationalLevel?: string | null; subsystem?: string | null; className: string | null;
-  lines: Array<{ subjectCode: string; subjectLabel: string; coefficient: number; mark: number | null; weighted: number | null; teacherRemark: string | null; appreciation: string; assessments: unknown[]; periodMarks?: Array<{ periodCode: string; mark: number | null }> | null; teacherName?: string | null; subjectGroupCode?: string | null; subjectGroupLabel?: string | null }>;
+  lines: Array<{ subjectCode: string; subjectLabel: string; coefficient: number; mark: number | null; weighted: number | null; teacherRemark: string | null; appreciation: string; assessments: AssessmentEvidence[]; periodMarks?: Array<{ periodCode: string; mark: number | null }> | null; teacherName?: string | null; subjectGroupCode?: string | null; subjectGroupLabel?: string | null }>;
   average: number | null; rank: number | null; classSize: number; state: string; complete: boolean;
   blockers: string[]; snapshotHash: string; calculationPolicy: string; generalAppreciation: string | null; version: number;
   attendance: BulletinView['attendance']; conduct: BulletinView['conduct'];

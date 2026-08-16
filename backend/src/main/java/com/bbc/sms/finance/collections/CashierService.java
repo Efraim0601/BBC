@@ -1,6 +1,7 @@
 package com.bbc.sms.finance.collections;
 
 import com.bbc.sms.foundation.audit.AuditService;
+import com.bbc.sms.finance.FinancePolicyService;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AppUserPrincipal;
 import com.bbc.sms.platform.tenant.TenantContext;
@@ -22,15 +23,19 @@ public class CashierService {
     private final CashierSessionRepository sessions;
     private final JdbcTemplate jdbc;
     private final AuditService audit;
+    private final FinancePolicyService financePolicy;
 
-    public CashierService(CashierSessionRepository sessions, JdbcTemplate jdbc, AuditService audit) {
+    public CashierService(CashierSessionRepository sessions, JdbcTemplate jdbc, AuditService audit,
+                          FinancePolicyService financePolicy) {
         this.sessions = sessions;
         this.jdbc = jdbc;
         this.audit = audit;
+        this.financePolicy = financePolicy;
     }
 
     @Transactional
     public CashierSessionView open(CashierOpenRequest request) {
+        financePolicy.requireSchool("CASHIER_SESSION_OPEN");
         UUID schoolId = TenantContext.get();
         UUID userId = currentUserId();
         if (userId == null) throw ApiException.forbidden("Un utilisateur authentifié est requis pour ouvrir une caisse.");
@@ -51,6 +56,7 @@ public class CashierService {
 
     @Transactional(readOnly = true)
     public CashierSessionView current() {
+        financePolicy.requireSchool("FINANCE_OVERVIEW_VIEW");
         UUID userId = currentUserId();
         if (userId == null) return null;
         return sessions.findBySchoolIdAndCashierUserIdAndStatus(TenantContext.get(), userId, "OPEN")
@@ -59,11 +65,13 @@ public class CashierService {
 
     @Transactional(readOnly = true)
     public List<CashierSessionView> list() {
+        financePolicy.requireSchool("FINANCE_OVERVIEW_VIEW");
         return sessions.findBySchoolIdOrderByOpenedAtDesc(TenantContext.get()).stream().map(this::view).toList();
     }
 
     @Transactional
     public CashierSessionView close(UUID id, CashierCloseRequest request) {
+        financePolicy.requireSchool("CASHIER_SESSION_CLOSE");
         CashierSession session = require(id);
         if (!"OPEN".equals(session.getStatus())) throw ApiException.conflict("Cette session de caisse est déjà fermée.");
         if (!currentUserId().equals(session.getCashierUserId())) throw ApiException.forbidden("Seul le caissier peut fermer sa session.");
@@ -81,6 +89,7 @@ public class CashierService {
 
     @Transactional
     public CashierSessionView approveClose(UUID id, CashierCloseRequest request) {
+        financePolicy.requireSchool("CASHIER_SESSION_APPROVE");
         CashierSession session = require(id);
         if (!"OPEN".equals(session.getStatus())) throw ApiException.conflict("Cette session de caisse est déjà fermée.");
         UUID manager = currentUserId();

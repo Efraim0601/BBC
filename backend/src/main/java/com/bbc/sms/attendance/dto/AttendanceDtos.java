@@ -57,6 +57,23 @@ public class AttendanceDtos {
             OffsetDateTime lastSeenAt,
             Long minutesSinceLastSeen) {}
 
+    /**
+     * Device registration is a staff setup operation.  The generated API key
+     * is returned only in the registration response and is never included in
+     * the reader-health view.
+     */
+    public record DeviceRegistrationRequest(
+            @NotBlank String label,
+            String location,
+            String model) {}
+
+    public record DeviceRegistrationView(
+            UUID id,
+            String label,
+            String location,
+            String model,
+            String apiKey) {}
+
     public record PolicyView(UUID id, String level, String model, int lateAfterMinutes,
                              BigDecimal chronicAbsencePercent, boolean requireAbsenceReason) {}
     public record PolicyRequest(@NotBlank String model, int lateAfterMinutes,

@@ -19,6 +19,11 @@ import {
   PaymentChannelView,
   PublishedBulletinView,
   ParentJourneyEventView,
+  ParentAttendanceView,
+  ParentDisciplineView,
+  ParentHealthView,
+  ParentEventView,
+  ParentNoticeView,
 } from './parent.api';
 
 interface CategoryOption {
@@ -97,7 +102,11 @@ const fmtMoney = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} FCFA`;
               <div class="text-lg font-bold text-ink">{{ sel.name }}</div>
               <div class="text-sm text-mute">{{ sel.matricule }} · {{ sel.className }}</div>
             </div>
-            <bbc-status-pill [status]="pillStatus(sel.feeStatus)" [label]="feeStatusLabel(sel.feeStatus)" />
+            @if (sel.financeVisible) {
+              <bbc-status-pill [status]="pillStatus(sel.feeStatus ?? '')" [label]="feeStatusLabel(sel.feeStatus ?? '')" />
+            } @else {
+              <span class="text-xs text-white/70">{{ fr() ? 'Frais non partagés' : 'Fees not shared' }}</span>
+            }
           </div>
         </bbc-card>
 
@@ -108,14 +117,14 @@ const fmtMoney = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} FCFA`;
             <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
               <bbc-kpi tone="ok" icon="fingerprint"
                 [label]="fr() ? 'Taux de présence' : 'Attendance rate'"
-                [value]="sel.attendanceRate + ' %'" />
-              <bbc-kpi [tone]="sel.balance > 0 ? 'warn' : 'ok'" icon="wallet"
+                [value]="sel.attendanceVisible ? (sel.attendanceRate + ' %') : (fr() ? 'Non partagé' : 'Not shared')" />
+              <bbc-kpi [tone]="sel.financeVisible && sel.balance > 0 ? 'warn' : 'ok'" icon="wallet"
                 [label]="fr() ? 'Solde de frais' : 'Fee balance'"
-                [value]="money(sel.balance)"
-                [sub]="sel.balance > 0 ? (fr() ? 'à régler' : 'outstanding') : (fr() ? 'à jour' : 'up to date')" />
+                [value]="sel.financeVisible ? money(sel.balance) : (fr() ? 'Non partagé' : 'Not shared')"
+                [sub]="sel.financeVisible ? (sel.balance > 0 ? (fr() ? 'à régler' : 'outstanding') : (fr() ? 'à jour' : 'up to date')) : ''" />
               <bbc-kpi tone="neutral" icon="cash"
                 [label]="fr() ? 'Statut frais' : 'Fee status'"
-                [value]="sel.feeStatus" />
+                [value]="sel.financeVisible ? (sel.feeStatus ?? '') : (fr() ? 'Non partagé' : 'Not shared')" />
               <bbc-kpi tone="gold" icon="book"
                 [label]="fr() ? 'Notes' : 'Grades'"
                 [value]="publishedBulletin()?.lines?.length ?? 0"
@@ -147,6 +156,51 @@ const fmtMoney = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} FCFA`;
               @if (journeyEvents().length === 0) { <bbc-empty icon="route" [label]="fr() ? 'Aucun événement officiel publié.' : 'No published official event yet.'" /> }
               @else { <div class="space-y-2">@for (event of journeyEvents(); track event.id) { <div class="rounded-lg border border-slate-200 p-3"><div class="flex items-center justify-between gap-2"><span class="font-semibold text-ink">{{ eventLabel(event.eventType) }}</span><span class="text-xs text-mute">{{ event.occurredAt ? fmtDate(event.occurredAt) : '—' }}</span></div><div class="text-xs text-mute mt-1">{{ event.sessionLabel || '—' }} @if (event.className) { · {{ event.className }} }</div>@if (event.average != null) { <div class="text-sm font-bold text-brand-700 mt-1">{{ event.average }}/20</div> } @if (event.decision) { <div class="text-sm text-ink mt-1">{{ event.decision }}</div> }</div> } </div> }
             </bbc-card>
+          }
+
+          @case ('school') {
+            <div class="grid grid-cols-12 gap-4">
+              <bbc-card className="col-span-12 lg:col-span-6"
+                [title]="fr() ? 'Presence' : 'Attendance'"
+                [subtitle]="attendance() ? (attendance()!.attendanceRate + '%') : 'Loading...'">
+                @if (attendance(); as a) {
+                  <div class="grid grid-cols-4 gap-2 mb-4 text-center">
+                    <div class="rounded-lg bg-emerald-50 p-2"><div class="text-lg font-bold text-emerald-700">{{ a.present }}</div><div class="text-[10px] text-mute">Present</div></div>
+                    <div class="rounded-lg bg-rose-50 p-2"><div class="text-lg font-bold text-rose-700">{{ a.absent }}</div><div class="text-[10px] text-mute">Absent</div></div>
+                    <div class="rounded-lg bg-amber-50 p-2"><div class="text-lg font-bold text-amber-700">{{ a.late }}</div><div class="text-[10px] text-mute">Late</div></div>
+                    <div class="rounded-lg bg-slate-50 p-2"><div class="text-lg font-bold text-ink">{{ a.excused }}</div><div class="text-[10px] text-mute">Excused</div></div>
+                  </div>
+                  @if (a.records.length === 0) { <bbc-empty icon="check" label="No finalized attendance to show." /> }
+                  @else { <div class="space-y-2">@for (r of a.records; track r.id) { <div class="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2 text-sm"><span class="font-semibold text-ink">{{ r.date }}</span><span class="text-mute">{{ r.status }} @if (r.lateMinutes) { · {{ r.lateMinutes }} min }</span></div> }</div> }
+                }
+              </bbc-card>
+
+              <bbc-card className="col-span-12 lg:col-span-6" title="Discipline"
+                [subtitle]="discipline().length + ' visible incident(s)'">
+                @if (discipline().length === 0) { <bbc-empty icon="shield" label="No parent-visible incident." /> }
+                @else { <div class="space-y-2">@for (d of discipline(); track d.id) { <div class="rounded-lg border border-slate-100 p-3"><div class="flex justify-between gap-2"><b class="text-ink">{{ d.type }}</b><span class="text-xs text-mute">{{ d.incidentDate }}</span></div><div class="text-sm text-mute mt-1">{{ d.description }}</div>@if (d.sanction) { <div class="text-xs text-brand-700 mt-1">{{ d.sanction }}</div> }</div> }</div> }
+              </bbc-card>
+
+              <bbc-card className="col-span-12 lg:col-span-6" title="Health — parent-safe visits"
+                subtitle="Confidential records are never exposed.">
+                @if (health(); as h) {
+                  @if (h.visits.length === 0) { <bbc-empty icon="heart" label="No visit to show." /> }
+                  @else { <div class="space-y-2">@for (v of h.visits; track v.id) { <div class="rounded-lg border border-slate-100 p-3"><div class="flex justify-between gap-2"><b class="text-ink">{{ v.reason }}</b><span class="text-xs text-mute">{{ v.visitDate }}</span></div><div class="text-sm text-mute mt-1">{{ v.treatment }}</div></div> }</div> }
+                }
+              </bbc-card>
+
+              <bbc-card className="col-span-12 lg:col-span-6" title="School life"
+                [subtitle]="events().length + ' event(s)'">
+                @if (events().length === 0) { <bbc-empty icon="calendar" label="No event for this child." /> }
+                @else { <div class="space-y-2">@for (e of events(); track e.id) { <div class="rounded-lg border border-slate-100 p-3"><div class="flex justify-between gap-2"><b class="text-ink">{{ e.title }}</b><span class="text-xs text-mute">{{ e.eventDate }}</span></div><div class="text-xs text-mute mt-1">{{ e.type }}</div><div class="text-sm text-mute mt-1">{{ e.description }}</div></div> }</div> }
+              </bbc-card>
+
+              <bbc-card className="col-span-12" title="Correspondence"
+                [subtitle]="notices().length + ' notice(s)'">
+                @if (notices().length === 0) { <bbc-empty icon="mail" label="No correspondence." /> }
+                @else { <div class="space-y-2">@for (n of notices(); track n.id) { <div class="rounded-lg border border-slate-100 p-3"><div class="flex flex-wrap items-center justify-between gap-2"><b class="text-ink">{{ n.subject }}</b><span class="text-xs text-mute">{{ fmtDate(n.createdAt) }}</span></div><div class="text-sm text-mute mt-1">{{ n.body }}</div><div class="flex items-center justify-between gap-2 mt-2"><span class="text-xs text-mute">{{ n.senderName }}</span>@if (n.requiresAck) { <button type="button" (click)="ackNotice(n)" [disabled]="n.acknowledged" class="rounded-lg px-3 py-1.5 text-xs font-semibold" [class]="n.acknowledged ? 'bg-emerald-50 text-emerald-700' : 'bg-brand-600 text-white hover:bg-brand-700'">{{ n.acknowledged ? 'Acknowledged' : 'Acknowledge' }}</button> }</div></div> }</div> }
+              </bbc-card>
+            </div>
           }
 
           @case ('fees') {
@@ -495,11 +549,16 @@ export class ParentComponent {
   protected suggestions = signal<SuggestionView[]>([]);
   protected supplies = signal<ClassResourceView | null>(null);
   protected books = signal<ClassResourceView | null>(null);
-  protected tab = signal<'overview' | 'journey' | 'fees' | 'grades' | 'resources' | 'suggest'>('overview');
+  protected tab = signal<'overview' | 'journey' | 'school' | 'fees' | 'grades' | 'resources' | 'suggest'>('overview');
   /** Situation de scolarité de l'enfant sélectionné (grille de sa classe). */
   protected statement = signal<StudentFeeStatementView | null>(null);
   protected channels = signal<PaymentChannelView[]>([]);
   protected journeyEvents = signal<ParentJourneyEventView[]>([]);
+  protected attendance = signal<ParentAttendanceView | null>(null);
+  protected discipline = signal<ParentDisciplineView[]>([]);
+  protected health = signal<ParentHealthView | null>(null);
+  protected events = signal<ParentEventView[]>([]);
+  protected notices = signal<ParentNoticeView[]>([]);
 
   protected fr = () => this.i18n.lang() === 'fr';
   protected money = fmtMoney;
@@ -507,6 +566,7 @@ export class ParentComponent {
   protected tabs = computed(() => [
     { id: 'overview', label: this.fr() ? 'Vue d’ensemble' : 'Overview' },
     { id: 'journey', label: this.fr() ? 'Parcours officiel' : 'Official journey' },
+    { id: 'school', label: 'School life' },
     { id: 'fees', label: this.fr() ? 'Frais & paiements' : 'Fees & payments' },
     { id: 'grades', label: this.fr() ? 'Notes' : 'Grades' },
     { id: 'resources', label: this.fr() ? 'Fournitures & manuels' : 'Supplies & textbooks' },
@@ -627,14 +687,19 @@ export class ParentComponent {
   protected draft: SuggestionRequest = this.blank();
 
   constructor() {
-    this.school.ensureLoaded();
+    // School profile is a staff/settings capability. Parents still get the
+    // portal without probing an endpoint they are not authorized to read.
+    if (this.auth.canAction('SCHOOL_PROFILE_VIEW')) this.school.ensureLoaded();
     this.api.paymentChannels().subscribe({ next: (c) => this.channels.set(c), error: () => this.channels.set([]) });
-    this.api.children().subscribe((cs) => {
-      this.children.set(cs);
-      const first = cs[0];
-      if (first) {
-        this.select(first);
-      }
+    this.api.children().subscribe({
+      next: (cs) => {
+        this.children.set(cs);
+        const first = cs[0];
+        if (first) {
+          this.select(first);
+        }
+      },
+      error: () => this.children.set([]),
     });
     this.reloadSuggestions();
   }
@@ -647,6 +712,11 @@ export class ParentComponent {
     this.books.set(null);
     this.statement.set(null);
     this.journeyEvents.set([]);
+    this.attendance.set(null);
+    this.discipline.set([]);
+    this.health.set(null);
+    this.events.set([]);
+    this.notices.set([]);
     this.api.latestPublishedBulletin(child.studentId).subscribe({
       next: (b) => {
         this.publishedBulletin.set(b);
@@ -659,10 +729,52 @@ export class ParentComponent {
       },
       error: () => { this.publishedBulletin.set(null); this.grades.set([]); },
     });
-    this.api.fees(child.studentId).subscribe((st) => this.statement.set(st));
-    this.api.resources(child.studentId, 'supplies').subscribe((r) => this.supplies.set(r));
-    this.api.resources(child.studentId, 'books').subscribe((r) => this.books.set(r));
-    this.api.journey(child.studentId).subscribe((events) => this.journeyEvents.set(events));
+    if (child.financeVisible) {
+      this.api.fees(child.studentId).subscribe({
+        next: (st) => this.statement.set(st),
+        error: () => this.statement.set(null),
+      });
+    }
+    this.api.resources(child.studentId, 'supplies').subscribe({
+      next: (r) => this.supplies.set(r),
+      error: () => this.supplies.set(null),
+    });
+    this.api.resources(child.studentId, 'books').subscribe({
+      next: (r) => this.books.set(r),
+      error: () => this.books.set(null),
+    });
+    this.api.journey(child.studentId).subscribe({
+      next: (events) => this.journeyEvents.set(events),
+      error: () => this.journeyEvents.set([]),
+    });
+    this.api.attendance(child.studentId).subscribe({
+      next: (a) => this.attendance.set(a),
+      error: () => this.attendance.set(null),
+    });
+    this.api.discipline(child.studentId).subscribe({
+      next: (d) => this.discipline.set(d),
+      error: () => this.discipline.set([]),
+    });
+    this.api.health(child.studentId).subscribe({
+      next: (h) => this.health.set(h),
+      error: () => this.health.set(null),
+    });
+    this.api.events(child.studentId).subscribe({
+      next: (events) => this.events.set(events),
+      error: () => this.events.set([]),
+    });
+    this.api.messages(child.studentId).subscribe({
+      next: (messages) => this.notices.set(messages),
+      error: () => this.notices.set([]),
+    });
+  }
+
+  protected ackNotice(notice: ParentNoticeView): void {
+    const child = this.selected();
+    if (!child || notice.acknowledged) return;
+    this.api.acknowledgeMessage(child.studentId, notice.id, this.parentName() || 'Parent').subscribe((updated) => {
+      this.notices.update((items) => items.map((item) => item.id === updated.id ? updated : item));
+    });
   }
 
   protected send(): void {
@@ -674,7 +786,10 @@ export class ParentComponent {
   }
 
   private reloadSuggestions(): void {
-    this.api.mySuggestions().subscribe((s) => this.suggestions.set(s));
+    this.api.mySuggestions().subscribe({
+      next: (s) => this.suggestions.set(s),
+      error: () => this.suggestions.set([]),
+    });
   }
 
   protected categoryLabel(value: string): string {

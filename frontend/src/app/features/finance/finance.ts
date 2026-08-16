@@ -6,7 +6,7 @@ import {
   StudentFeeStatementView, TrancheStatusView,
 } from './finance.api';
 import { StudentApi } from '../students/students.api';
-import { SetupApi, ClassView } from '../../core/setup.api';
+import { ClassView } from '../../core/setup.api';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
 import { FinanceSummary, PaymentView, Student } from '../../core/models';
@@ -147,30 +147,71 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
         }
 
         @case ('debtors') {
+          <div class="mb-5 flex flex-col gap-3 rounded-xl2 border border-brand-100 bg-brand-50/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div class="text-sm font-bold text-brand-800">{{ fr() ? 'Comprendre cette vue' : 'Understanding this view' }}</div>
+              <p class="mt-0.5 text-xs leading-relaxed text-brand-700">
+                {{ fr()
+                  ? 'Les montants attendus viennent des grilles de frais applicables aux élèves actifs. La liste affiche uniquement les soldes non réglés; les élèves soldés restent inclus dans le taux de recouvrement.'
+                  : 'Expected amounts come from fee grids covering active students. The list shows outstanding balances only; fully paid students remain included in the recovery rate.' }}
+              </p>
+            </div>
+            <button (click)="reloadDebtors()" [disabled]="debtorsLoading()"
+              class="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-lg border border-brand-200 bg-white px-3.5 text-sm font-semibold text-brand-700 hover:bg-brand-50 disabled:opacity-50">
+              <bbc-icon name="refresh" [s]="15" /> {{ debtorsLoading() ? (fr() ? 'Actualisation…' : 'Refreshing…') : (fr() ? 'Actualiser' : 'Refresh') }}
+            </button>
+          </div>
+
           <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
             <bbc-kpi tone="bad" icon="wallet" [label]="fr() ? 'Total impayé' : 'Total outstanding'"
               [value]="money(debtTotal())"
-              [sub]="debtors().length + (fr() ? ' élèves concernés' : ' students concerned')" />
-            <bbc-kpi tone="ok" icon="cash" [label]="fr() ? 'Déjà encaissé' : 'Collected'"
+              [sub]="debtors().length + (fr() ? ' débiteurs sur ' : ' debtors out of ') + situation().length" />
+            <bbc-kpi tone="ok" icon="cash" [label]="fr() ? 'Affecté aux frais' : 'Applied to fees'"
               [value]="money(paidTotal())"
-              [sub]="fr() ? 'toutes classes confondues' : 'across all classes'" />
+              [sub]="settledCount() + (fr()
+                ? (settledCount() === 1 ? ' élève entièrement soldé' : ' élèves entièrement soldés')
+                : (settledCount() === 1 ? ' student fully settled' : ' students fully settled'))" />
             <bbc-kpi tone="gold" icon="chart" [label]="fr() ? 'Taux de recouvrement' : 'Recovery rate'"
               [value]="recoveryPct() + '%'"
-              [sub]="situation().length + (fr() ? ' élèves au total' : ' students in total')" />
+              [sub]="fr() ? 'payé ÷ frais attendus' : 'paid ÷ expected fees'" />
           </div>
 
           <bbc-card [title]="fr() ? 'Liste des débiteurs' : 'Debtors list'"
             [subtitle]="filteredDebtors().length + (fr() ? ' élèves avec un solde' : ' students with a balance')">
-            <div action class="flex flex-col sm:flex-row sm:items-center gap-2">
-              <bbc-chip-filter [allLabel]="fr() ? 'Toutes les classes' : 'All classes'" [value]="debtorClassFilter()"
-                (change)="debtorClassFilter.set($event)"
-                [options]="setupClasses().map(c => ({ value: c.name, label: c.name }))" />
-              <input [ngModel]="debtorQuery()" (ngModelChange)="debtorQuery.set($event)" name="debtorQuery"
-                [placeholder]="fr() ? 'Rechercher un élève…' : 'Search a student…'"
-                class="h-9 w-56 px-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400" />
+            <div action class="flex items-center gap-2">
               <button (click)="exportDebtors()" [disabled]="!filteredDebtors().length"
                 class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed">
                 <bbc-icon name="download" [s]="16" /> {{ fr() ? 'Exporter' : 'Export' }}
+              </button>
+            </div>
+
+            <div class="mb-4 grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3 md:grid-cols-[1fr_1fr_1.4fr_auto] md:items-end">
+              <label class="block">
+                <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Classe' : 'Class' }}</span>
+                <select [ngModel]="debtorClassFilter()" (ngModelChange)="debtorClassFilter.set($event || null)"
+                  class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-ink focus:border-brand-400 focus:outline-none">
+                  <option value="">{{ fr() ? 'Toutes les classes couvertes' : 'All covered classes' }}</option>
+                  @for (name of debtorClassOptions(); track name) { <option [value]="name">{{ name }}</option> }
+                </select>
+              </label>
+              <label class="block">
+                <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Situation' : 'Status' }}</span>
+                <select [ngModel]="debtorStatusFilter()" (ngModelChange)="debtorStatusFilter.set($event)"
+                  class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-ink focus:border-brand-400 focus:outline-none">
+                  <option value="all">{{ fr() ? 'Tous les soldes' : 'All outstanding' }}</option>
+                  <option value="unpaid">{{ fr() ? 'Aucun versement' : 'No payment yet' }} ({{ unpaidCount() }})</option>
+                  <option value="partial">{{ fr() ? 'Paiement partiel' : 'Partially paid' }} ({{ partialCount() }})</option>
+                </select>
+              </label>
+              <label class="block">
+                <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Élève' : 'Student' }}</span>
+                <input [ngModel]="debtorQuery()" (ngModelChange)="debtorQuery.set($event)" name="debtorQuery"
+                  [placeholder]="fr() ? 'Nom de l’élève…' : 'Student name…'"
+                  class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-brand-400 focus:outline-none" />
+              </label>
+              <button (click)="clearDebtorFilters()" [disabled]="!hasDebtorFilters()"
+                class="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-mute hover:text-ink disabled:cursor-not-allowed disabled:opacity-40">
+                {{ fr() ? 'Effacer' : 'Clear' }}
               </button>
             </div>
 
@@ -181,9 +222,14 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
                 {{ fr() ? 'Impossible de charger les débiteurs.' : 'Could not load debtors.' }}
                 <button (click)="reloadDebtors()" class="font-bold underline ml-1">{{ fr() ? 'Réessayer' : 'Retry' }}</button>
               </div>
+            } @else if (!situation().length) {
+              <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-5 text-sm text-amber-800">
+                <div class="font-bold">{{ fr() ? 'Aucun élève couvert par une grille de frais' : 'No students are covered by a fee grid' }}</div>
+                <p class="mt-1 text-xs">{{ fr() ? 'Créez une grille dans l’onglet Frais pour le niveau, le sous-système ou la classe concernés.' : 'Create a grid in the Fees tab for the relevant level, subsystem or class.' }}</p>
+              </div>
             } @else if (!filteredDebtors().length) {
               <bbc-empty icon="wallet"
-                [label]="debtorQuery() ? (fr() ? 'Aucun résultat' : 'No results')
+                [label]="hasDebtorFilters() ? (fr() ? 'Aucun débiteur ne correspond aux filtres' : 'No debtor matches these filters')
                                        : (fr() ? 'Aucun débiteur — tous les frais sont réglés' : 'No debtors — all fees are settled')" />
             } @else {
               <div class="overflow-x-auto -mx-5">
@@ -196,7 +242,8 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
                       <th class="text-right font-semibold py-2">{{ fr() ? 'Attendu' : 'Expected' }}</th>
                       <th class="text-right font-semibold py-2">{{ fr() ? 'Payé' : 'Paid' }}</th>
                       <th class="text-right font-semibold py-2">{{ fr() ? 'Solde' : 'Balance' }}</th>
-                      <th class="text-right font-semibold py-2 pr-5">{{ fr() ? 'Statut' : 'Status' }}</th>
+                      <th class="text-right font-semibold py-2">{{ fr() ? 'Statut' : 'Status' }}</th>
+                      <th class="text-right font-semibold py-2 pr-5">{{ fr() ? 'Action' : 'Action' }}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -217,7 +264,16 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
                         <td class="py-2.5 text-right text-mute">{{ money(d.total) }}</td>
                         <td class="py-2.5 text-right text-emerald-700 font-semibold">{{ money(d.paid) }}</td>
                         <td class="py-2.5 text-right font-bold text-rose-600">{{ money(d.balance) }}</td>
-                        <td class="py-2.5 pr-5 text-right"><bbc-status-pill [status]="d.status" /></td>
+                        <td class="py-2.5 text-right"><bbc-status-pill [status]="d.status"
+                          [label]="d.status === 'partial' ? (fr() ? 'Partiel' : 'Partial') : (fr() ? 'Impayé' : 'Unpaid')" /></td>
+                        <td class="py-2.5 pr-5 text-right">
+                          @if (canWrite) {
+                            <button (click)="openPaymentFor(d)"
+                              class="inline-flex h-8 items-center gap-1.5 rounded-lg bg-brand-50 px-2.5 text-xs font-bold text-brand-700 hover:bg-brand-100">
+                              <bbc-icon name="cash" [s]="13" /> {{ fr() ? 'Encaisser' : 'Collect' }}
+                            </button>
+                          }
+                        </td>
                       </tr>
                     }
                   </tbody>
@@ -736,15 +792,20 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
                     <b [class]="st.balance > 0 ? 'text-rose-600' : 'text-emerald-700'">{{ money(st.balance) }}</b>
                   </span>
                 </div>
-                @if (st.tranches.length) {
+                @if (st.balance <= 0) {
+                  <div class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-800">
+                    <div class="font-bold">✓ {{ fr() ? 'Frais entièrement réglés' : 'Fees paid in full' }}</div>
+                    <p class="mt-0.5 text-xs">{{ fr() ? 'Aucun nouveau paiement n’est attendu pour cette grille.' : 'No additional payment is expected for this fee grid.' }}</p>
+                  </div>
+                } @else if (st.tranches.length) {
                   <div class="flex flex-wrap gap-1.5">
                     @for (t of st.tranches; track t.index) {
-                      <button (click)="pickTranche(t)"
+                      <button (click)="pickTranche(t)" [disabled]="t.remaining <= 0"
                         class="text-[11px] px-2 py-1 rounded-lg border font-semibold transition"
                         [class]="draft.tranche === t.index ? 'border-brand-500 bg-brand-50 text-brand-700'
                                  : t.status === 'paid' ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
                                  : t.overdue ? 'border-rose-200 bg-rose-50 text-rose-700'
-                                 : 'border-slate-200 bg-white text-mute hover:border-brand-300'">
+                                 : 'border-slate-200 bg-white text-mute hover:border-brand-300 disabled:cursor-not-allowed'">
                         {{ t.label }} · {{ money(t.remaining || t.amount) }}
                         @if (t.status === 'paid') { ✓ } @else if (t.overdue) { ⚠ }
                       </button>
@@ -767,10 +828,15 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
               <div>
                 <label class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'Montant' : 'Amount' }}</label>
                 <div class="relative">
-                  <input type="number" [(ngModel)]="draft.amount"
-                    class="w-full h-10 px-3 pr-16 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400 font-mono" />
+                  <input type="number" min="1" [max]="statement()?.balance ?? null" [(ngModel)]="draft.amount"
+                    [disabled]="statement()?.balance === 0"
+                    [class.border-rose-400]="!!paymentAmountProblem()"
+                    class="w-full h-10 px-3 pr-16 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400 font-mono disabled:bg-slate-100 disabled:text-mute" />
                   <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-mute font-semibold">FCFA</span>
                 </div>
+                @if (paymentAmountProblem(); as problem) {
+                  <p class="mt-1 text-[11px] font-semibold text-rose-600">{{ problem }}</p>
+                }
               </div>
               <div>
                 <label class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'Date' : 'Date' }}</label>
@@ -924,7 +990,6 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
 export class FinanceComponent {
   protected i18n = inject(I18nService);
   private api = inject(FinanceApi);
-  private setupApi = inject(SetupApi);
   private studentApi = inject(StudentApi);
   private auth = inject(AuthService);
 
@@ -962,6 +1027,7 @@ export class FinanceComponent {
   protected debtorsError = signal(false);
   protected debtorQuery = signal('');
   protected debtorClassFilter = signal<string | null>(null);
+  protected debtorStatusFilter = signal<'all' | 'unpaid' | 'partial'>('all');
   protected debtorsLoaded = false;
 
   // --- expenses ------------------------------------------------------------
@@ -1021,14 +1087,23 @@ export class FinanceComponent {
   protected filteredDebtors = computed(() => {
     const q = this.debtorQuery().trim().toLowerCase();
     const cls = this.debtorClassFilter();
+    const status = this.debtorStatusFilter();
     let list = this.debtors();
     if (cls) list = list.filter((d) => d.className === cls);
-    if (!q) return list;
-    return list.filter((d) => (d.studentName ?? '').toLowerCase().includes(q));
+    if (status !== 'all') list = list.filter((d) => d.status === status);
+    if (q) list = list.filter((d) => (d.studentName ?? '').toLowerCase().includes(q));
+    return list;
   });
+  protected debtorClassOptions = computed(() =>
+    [...new Set(this.situation().map((d) => d.className).filter((name): name is string => !!name))]
+      .sort((a, b) => a.localeCompare(b, this.fr() ? 'fr' : 'en')),
+  );
   protected debtTotal = computed(() => this.debtors().reduce((a, d) => a + d.balance, 0));
   /** School-wide, over every student — matches the Reports module's recovery rate. */
   protected paidTotal = computed(() => this.situation().reduce((a, d) => a + d.paid, 0));
+  protected settledCount = computed(() => this.situation().filter((d) => d.balance === 0).length);
+  protected unpaidCount = computed(() => this.debtors().filter((d) => d.status === 'unpaid').length);
+  protected partialCount = computed(() => this.debtors().filter((d) => d.status === 'partial').length);
   protected recoveryPct = computed(() => {
     const expected = this.situation().reduce((a, d) => a + d.total, 0);
     return expected ? Math.round((this.paidTotal() / expected) * 100) : 0;
@@ -1077,16 +1152,55 @@ export class FinanceComponent {
 
   /** Un canal peut exiger une référence : le bouton reste inactif tant qu'elle manque. */
   protected canSubmitPayment(): boolean {
-    if (!this.draft.studentId || !this.draft.amount) return false;
+    if (!this.draft.studentId || !!this.paymentAmountProblem()) return false;
     const ch = this.selectedChannel();
     if (!ch) return false;
     return !ch.requiresReference || !!this.draft.reference?.trim();
   }
 
+  protected paymentAmountProblem(): string | null {
+    if (!this.draft.studentId) return null;
+    const current = this.statement();
+    if (!current) return this.fr() ? 'Chargement du solde en cours…' : 'Loading the balance…';
+    if (current.balance <= 0) return this.fr()
+      ? 'Les frais de cet élève sont déjà soldés.'
+      : 'This student’s fees are already paid in full.';
+    const amount = Number(this.draft.amount);
+    if (!Number.isFinite(amount) || amount <= 0) return this.fr()
+      ? 'Saisissez un montant supérieur à zéro.'
+      : 'Enter an amount greater than zero.';
+    if (amount > current.balance) return this.fr()
+      ? `Le montant dépasse le solde restant de ${this.money(current.balance)}.`
+      : `The amount exceeds the remaining balance of ${this.money(current.balance)}.`;
+    return null;
+  }
+
+  protected hasDebtorFilters(): boolean {
+    return !!this.debtorClassFilter() || this.debtorStatusFilter() !== 'all' || !!this.debtorQuery().trim();
+  }
+
+  protected clearDebtorFilters(): void {
+    this.debtorClassFilter.set(null);
+    this.debtorStatusFilter.set('all');
+    this.debtorQuery.set('');
+  }
+
   constructor() {
     this.reloadSummary();
     this.reloadPayments();
-    this.setupApi.listClasses().subscribe({ next: (c) => this.setupClasses.set(c), error: () => {} });
+    this.api.context().subscribe({
+      next: (context) => this.setupClasses.set(context.classes.map((c) => ({
+        id: c.id,
+        name: c.name,
+        sectionId: c.code,
+        sectionLabel: `${c.level} / ${c.subsystem}`,
+        subsystem: c.subsystem,
+        level: c.level,
+        studentCount: 0,
+        teacherCount: 0,
+      }))),
+      error: () => {},
+    });
     // Les canaux servent dès l'onglet Encaissements (filtre, libellés, saisie).
     this.reloadChannels();
   }
@@ -1395,6 +1509,24 @@ export class FinanceComponent {
     this.payStudents.set([]);
     this.paymentOpen.set(true);
   }
+
+  protected openPaymentFor(debtor: SituationView): void {
+    this.openPayment();
+    this.payClass.set(debtor.className);
+    this.studentApi.list(debtor.className).subscribe({
+      next: (students) => {
+        this.payStudents.set(students);
+        if (students.some((student) => student.id === debtor.studentId)) this.onPayStudent(debtor.studentId);
+      },
+      error: () => {
+        this.payStudents.set([]);
+        this.payError.set(this.fr()
+          ? 'Impossible de charger les élèves de cette classe.'
+          : 'Could not load students for this class.');
+      },
+    });
+  }
+
   protected closePayment(): void {
     this.paymentOpen.set(false);
   }
@@ -1411,6 +1543,8 @@ export class FinanceComponent {
   /** À la sélection d'un élève, on charge sa situation : grille, tranches et reste dû. */
   protected onPayStudent(studentId: string): void {
     this.draft.studentId = studentId;
+    this.draft.amount = 0;
+    this.draft.tranche = undefined;
     this.statement.set(null);
     this.payError.set(null);
     if (!studentId) return;
@@ -1426,8 +1560,9 @@ export class FinanceComponent {
 
   /** Pré-remplit le montant avec ce qui reste dû sur la tranche choisie. */
   protected pickTranche(t: TrancheStatusView): void {
+    if (t.remaining <= 0) return;
     this.draft.tranche = t.index;
-    this.draft.amount = t.remaining > 0 ? t.remaining : t.amount;
+    this.draft.amount = t.remaining;
   }
 
   protected pickChannel(c: PaymentChannelView): void {
