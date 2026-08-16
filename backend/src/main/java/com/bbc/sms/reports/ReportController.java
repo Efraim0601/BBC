@@ -1,5 +1,6 @@
 package com.bbc.sms.reports;
 
+import com.bbc.sms.finance.reporting.FinanceReportingService;
 import com.bbc.sms.reports.dto.ReportDtos.*;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -11,13 +12,17 @@ import java.util.List;
 public class ReportController {
 
     private final ReportService service;
+    private final FinanceReportingService financeReporting;
 
-    public ReportController(ReportService service) { this.service = service; }
+    public ReportController(ReportService service, FinanceReportingService financeReporting) {
+        this.service = service;
+        this.financeReporting = financeReporting;
+    }
 
     @GetMapping("/finance")
     @PreAuthorize("@perm.can('reports','read')")
     public FinanceReport finance() {
-        return service.finance();
+        return financeReporting.legacyFinance();
     }
 
     @GetMapping("/attendance/monthly")

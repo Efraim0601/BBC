@@ -1,0 +1,19 @@
+:host {
+  display: block;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: .55;
+}
+
+table th,
+table td {
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  :host ::ng-deep .field {
+    min-height: 2.75rem;
+  }
+}

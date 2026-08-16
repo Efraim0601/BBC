@@ -43,3 +43,9 @@ Guide_Utilisateur_BBC_SMS.docx
 # Outils Python (génération du guide)
 __pycache__/
 *.pyc
+
+# Local generated validation and presentation build outputs
+/output/
+/tmp/
+/marble_deck_build/
+*.inspect.ndjson

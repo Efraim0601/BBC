@@ -11,6 +11,9 @@ import com.bbc.sms.classkit.dto.ClassKitDtos.ClassResourceView;
 import com.bbc.sms.finance.FeeService;
 import com.bbc.sms.finance.dto.FeeDtos.PaymentChannelView;
 import com.bbc.sms.finance.dto.FeeDtos.StudentFeeStatementView;
+import com.bbc.sms.finance.documents.FinanceDocumentDtos.ParentInvoiceView;
+import com.bbc.sms.finance.documents.FinanceDocumentDtos.ParentReceiptView;
+import com.bbc.sms.finance.documents.FinanceDocumentService;
 import com.bbc.sms.guardian.GuardianAccessService;
 import com.bbc.sms.parentportal.dto.ParentDtos.*;
 import com.bbc.sms.platform.common.ApiException;
@@ -44,6 +47,7 @@ public class ParentService {
     private final FeeService fees;
     private final GuardianAccessService guardianAccess;
     private final BulletinSnapshotService bulletins;
+    private final FinanceDocumentService financeDocuments;
 
     public ParentService(JdbcTemplate jdbc,
                          StudentRepository students,
@@ -53,7 +57,8 @@ public class ParentService {
                          ClassKitService classKit,
                          FeeService fees,
                          GuardianAccessService guardianAccess,
-                         BulletinSnapshotService bulletins) {
+                         BulletinSnapshotService bulletins,
+                         FinanceDocumentService financeDocuments) {
         this.jdbc = jdbc;
         this.students = students;
         this.grades = grades;
@@ -63,6 +68,7 @@ public class ParentService {
         this.fees = fees;
         this.guardianAccess = guardianAccess;
         this.bulletins = bulletins;
+        this.financeDocuments = financeDocuments;
     }
 
     /** Student ids linked to the given parent account. */
@@ -137,6 +143,33 @@ public class ParentService {
         return bulletins.publishedLatest(studentId);
     }
 
+    public List<ParentJourneyEventView> journey(AppUserPrincipal p, UUID studentId) {
+        assertOwnership(p.schoolId(), p.userId(), studentId);
+        List<ParentJourneyEventView> result = new ArrayList<>();
+        result.addAll(jdbc.query("""
+                SELECT e.id,e.event_type,s.label,e.payload->>'class' AS class_name,
+                       NULL::numeric,e.payload->>'decision',e.created_at,e.id
+                  FROM journey_event e LEFT JOIN academic_session s ON s.id=e.academic_session_id
+                 WHERE e.school_id=? AND e.student_id=? AND e.visibility='PARENT'
+                 ORDER BY e.created_at DESC
+                """, (rs,n) -> new ParentJourneyEventView(rs.getObject(1, UUID.class), rs.getString(2),
+                        rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getString(6),
+                        rs.getTimestamp(7).toInstant(), rs.getObject(8, UUID.class)), p.schoolId(), studentId));
+        result.addAll(jdbc.query("""
+                SELECT v.id,'PUBLISHED_RESULT',s.label,e.class_name_snapshot,v.average,
+                       v.snapshot_json->'conduct'->>'decisionCode',v.published_at,v.id
+                  FROM bulletin_version v
+                  JOIN academic_session s ON s.id=v.academic_session_id
+                  LEFT JOIN student_enrollment e ON e.id=v.enrollment_id
+                 WHERE v.school_id=? AND v.student_id=? AND v.state='PUBLISHED'
+                 ORDER BY v.published_at DESC
+                """, (rs,n) -> new ParentJourneyEventView(rs.getObject(1, UUID.class), rs.getString(2),
+                        rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getString(6),
+                        rs.getTimestamp(7) == null ? null : rs.getTimestamp(7).toInstant(), rs.getObject(8, UUID.class)), p.schoolId(), studentId));
+        return result.stream().sorted(java.util.Comparator.comparing(ParentJourneyEventView::occurredAt,
+                java.util.Comparator.nullsLast(java.util.Comparator.reverseOrder()))).toList();
+    }
+
     /** Published supplies/books list for the class of one of the parent's children. */
     public ClassResourceView resources(AppUserPrincipal p, UUID studentId, String kind) {
         assertOwnership(p.schoolId(), p.userId(), studentId);
@@ -161,6 +194,21 @@ public class ParentService {
     /** Moyens de paiement que l'école accepte et publie aux familles (avec leurs coordonnées). */
     public List<PaymentChannelView> paymentChannels(AppUserPrincipal p) {
         return fees.parentChannels(p.schoolId());
+    }
+
+    public List<ParentInvoiceView> financeInvoices(AppUserPrincipal p, UUID studentId) {
+        guardianAccess.assertAccess(p.schoolId(), p.userId(), studentId, "finance");
+        return financeDocuments.parentInvoices(studentId);
+    }
+
+    public List<ParentReceiptView> financeReceipts(AppUserPrincipal p, UUID studentId) {
+        guardianAccess.assertAccess(p.schoolId(), p.userId(), studentId, "finance");
+        return financeDocuments.parentReceipts(studentId);
+    }
+
+    public UUID financeDocumentId(AppUserPrincipal p, String type, UUID documentId, UUID studentId) {
+        guardianAccess.assertAccess(p.schoolId(), p.userId(), studentId, "finance");
+        return financeDocuments.parentDocumentId(type, documentId, studentId);
     }
 
     private static String labelOr(Map<String, String> label, String lang, String fallback) {

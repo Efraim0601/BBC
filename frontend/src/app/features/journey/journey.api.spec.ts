@@ -14,10 +14,17 @@ describe('JourneyApi promotion workflow', () => {
   it('keeps preview separate from irreversible batch commit', () => {
     const { api, http } = setup();
     api.previewPromotion({ sourceSessionId: 's1', targetSessionId: 's2', name: 'Promotion', idempotencyKey: 'key-1' }).subscribe();
-    const preview = http.expectOne(`${environment.apiUrl}/journey/progression/batches/preview`);
+    const preview = http.expectOne(`${environment.apiUrl}/journey/progression/promotion-previews`);
     expect(preview.request.method).toBe('POST');
     expect(preview.request.body.idempotencyKey).toBe('key-1');
-    preview.flush({ id: 'batch-1' });
+    preview.flush({ previewToken: 'preview-1', fingerprint: 'fp-1', candidateCount: 0, candidates: [] });
+
+    api.saveReviewBatch({ sourceSessionId: 's1', targetSessionId: 's2', name: 'Promotion',
+      idempotencyKey: 'batch-key', previewFingerprint: 'fp-1' }).subscribe();
+    const batch = http.expectOne(`${environment.apiUrl}/journey/progression/batches`);
+    expect(batch.request.method).toBe('POST');
+    expect(batch.request.body.previewFingerprint).toBe('fp-1');
+    batch.flush({ id: 'batch-1' });
 
     api.commitPromotion('batch-1', 'Council approved', 0).subscribe();
     const commit = http.expectOne(`${environment.apiUrl}/journey/progression/batches/batch-1/commit`);

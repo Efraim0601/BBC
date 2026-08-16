@@ -1,5 +1,6 @@
 package com.bbc.sms.documents;
 
+import com.bbc.sms.academic.security.AcademicAccessPolicyService;
 import com.bbc.sms.foundation.audit.AuditService;
 import com.bbc.sms.foundation.idempotency.IdempotencyService;
 import com.bbc.sms.platform.common.ApiException;
@@ -31,19 +32,22 @@ public class OfficialDocumentService {
     private final DocumentStorage storage;
     private final IdempotencyService idempotency;
     private final AuditService audit;
+    private final AcademicAccessPolicyService academicAccess;
 
     public OfficialDocumentService(DocumentTemplateRepository templates,
                                    GeneratedDocumentRepository documents,
                                    DocumentStorage storage, IdempotencyService idempotency,
-                                   AuditService audit) {
+                                   AuditService audit, AcademicAccessPolicyService academicAccess) {
         this.templates = templates; this.documents = documents; this.storage = storage;
-        this.idempotency = idempotency; this.audit = audit;
+        this.idempotency = idempotency; this.audit = audit; this.academicAccess = academicAccess;
     }
 
     @Transactional(readOnly = true)
     public List<TemplateView> templates() {
         return templates.findBySchoolIdAndActiveTrueOrderByTypeAscLocaleAscTemplateVersionDesc(TenantContext.get())
-                .stream().map(t -> new TemplateView(t.getId(), t.getType(), t.getLocale(), t.getName(), t.getTemplateVersion())).toList();
+                .stream().map(t -> new TemplateView(t.getId(), t.getType(), t.getLocale(), t.getName(), t.getTemplateVersion(),
+                        t.getTemplateFamily(), t.getProduct(), t.getSubsystem(), t.getStatus(), t.getReferenceFamily(),
+                        t.getChecksum(), t.getPublishedAt())).toList();
     }
 
     @Transactional
@@ -57,9 +61,18 @@ public class OfficialDocumentService {
     public GeneratedDocumentView registerPdf(String documentType, String aggregateType, String aggregateId,
                                              String aggregateVersion, String locale, String title, String visibility,
                                              byte[] pdf, String idempotencyKey) {
+        return registerPdf(documentType, aggregateType, aggregateId, aggregateVersion, locale, title, visibility,
+                pdf, idempotencyKey, null);
+    }
+
+    /** Register an official PDF with a caller-owned, atomically allocated number. */
+    @Transactional
+    public GeneratedDocumentView registerPdf(String documentType, String aggregateType, String aggregateId,
+                                             String aggregateVersion, String locale, String title, String visibility,
+                                             byte[] pdf, String idempotencyKey, String documentNumber) {
         String normalizedLocale = blank(locale, "fr").toLowerCase(Locale.ROOT);
         PdfRegistration request = new PdfRegistration(documentType, aggregateType, aggregateId,
-                blank(aggregateVersion, "1"), normalizedLocale, title, visibility);
+                blank(aggregateVersion, "1"), normalizedLocale, title, visibility, documentNumber);
         String key = blank(idempotencyKey, "pdf:" + aggregateType + ":" + aggregateId + ":" + request.aggregateVersion() + ":" + normalizedLocale);
         return idempotency.execute("official-documents/pdf", key, request,
                 GeneratedDocumentView.class, () -> registerPdfNow(request, pdf));
@@ -74,14 +87,15 @@ public class OfficialDocumentService {
         String normalizedType = in.documentType().trim().toUpperCase(Locale.ROOT);
         String prefix = normalizedType.replaceAll("[^A-Z0-9]", "");
         prefix = prefix.substring(0, Math.min(8, Math.max(1, prefix.length())));
-        String number = prefix + "-" + DateTimeFormatter.ofPattern("yyyyMMddHHmmss").withZone(ZoneOffset.UTC).format(Instant.now())
-                + "-" + id.toString().substring(0, 6).toUpperCase(Locale.ROOT);
+        String number = blank(in.documentNumber(), prefix + "-" + DateTimeFormatter.ofPattern("yyyyMMddHHmmss")
+                .withZone(ZoneOffset.UTC).format(Instant.now()) + "-" + id.toString().substring(0, 6).toUpperCase(Locale.ROOT));
         GeneratedDocument d = new GeneratedDocument();
         d.setId(id); d.setSchoolId(schoolId); d.setDocumentType(normalizedType);
         d.setAggregateType(in.aggregateType().trim()); d.setAggregateId(in.aggregateId().trim());
         d.setAggregateVersion(in.aggregateVersion()); d.setLocale(in.locale()); d.setDocumentNumber(number);
         d.setTitle(in.title().trim()); d.setStorageKey(storage.store(schoolId.toString(), id.toString(), pdf));
         d.setSha256(sha256(pdf)); d.setSizeBytes(pdf.length); d.setVisibility(normalizeVisibility(in.visibility()));
+        d.setSourceEventKey("DOCUMENT:" + in.aggregateType() + ":" + in.aggregateId() + ":" + in.aggregateVersion());
         d.setGeneratedBy(currentUserId()); d.setIssuedAt(Instant.now());
         d = documents.saveAndFlush(d);
         GeneratedDocumentView result = view(d);
@@ -90,12 +104,14 @@ public class OfficialDocumentService {
     }
 
     private record PdfRegistration(String documentType, String aggregateType, String aggregateId,
-                                   String aggregateVersion, String locale, String title, String visibility) {}
+                                   String aggregateVersion, String locale, String title, String visibility,
+                                   String documentNumber) {}
 
     private GeneratedDocumentView generateNow(GenerateRequest in) {
         UUID schoolId = TenantContext.get();
         String locale = blank(in.locale(), "fr").toLowerCase(Locale.ROOT);
         String type = in.documentType().trim().toUpperCase(Locale.ROOT);
+        requireAcademicDocumentScope(in.aggregateType(), in.aggregateId());
         DocumentTemplate template = in.templateId() == null
                 ? templates.findFirstBySchoolIdAndTypeAndLocaleAndActiveTrueOrderByTemplateVersionDesc(schoolId, type, locale)
                     .orElseGet(() -> templates.findFirstBySchoolIdAndTypeAndLocaleAndActiveTrueOrderByTemplateVersionDesc(schoolId, "GENERIC", locale)
@@ -122,6 +138,7 @@ public class OfficialDocumentService {
 
     @Transactional(readOnly = true)
     public List<GeneratedDocumentView> list(String aggregateType, String aggregateId) {
+        requireAcademicDocumentScope(aggregateType, aggregateId);
         return documents.findBySchoolIdAndAggregateTypeAndAggregateIdOrderByGeneratedAtDesc(
                 TenantContext.get(), aggregateType, aggregateId).stream().map(this::view).toList();
     }
@@ -129,6 +146,7 @@ public class OfficialDocumentService {
     @Transactional
     public byte[] content(UUID id) {
         GeneratedDocument d = find(id);
+        requireAcademicDocumentScope(d.getAggregateType(), d.getAggregateId());
         if ("REVOKED".equals(d.getStatus())) throw ApiException.conflict("Ce document a été révoqué");
         byte[] bytes = storage.read(d.getStorageKey());
         if (!sha256(bytes).equals(d.getSha256())) throw new IllegalStateException("Intégrité du document compromise");
@@ -139,11 +157,48 @@ public class OfficialDocumentService {
     @Transactional
     public GeneratedDocumentView revoke(UUID id, RevokeRequest in) {
         GeneratedDocument d = find(id);
+        requireAcademicDocumentScope(d.getAggregateType(), d.getAggregateId());
         if ("REVOKED".equals(d.getStatus())) return view(d);
         d.setStatus("REVOKED"); d.setRevokedAt(Instant.now()); d.setRevokedBy(currentUserId()); d.setRevokeReason(in.reason().trim());
         d = documents.saveAndFlush(d);
         audit.record("DOCUMENT_REVOKED", "GeneratedDocument", id.toString(), null, view(d), in.reason());
         return view(d);
+    }
+
+    @Transactional
+    public GeneratedDocumentView supersede(UUID id, UUID replacementId, String reason) {
+        GeneratedDocument d = find(id);
+        requireAcademicDocumentScope(d.getAggregateType(), d.getAggregateId());
+        if ("SUPERSEDED".equals(d.getStatus())) return view(d);
+        GeneratedDocument replacement = find(replacementId);
+        requireAcademicDocumentScope(replacement.getAggregateType(), replacement.getAggregateId());
+        if (!d.getDocumentType().equals(replacement.getDocumentType())) {
+            throw ApiException.badRequest("Le document de remplacement doit être du même type.");
+        }
+        d.setStatus("SUPERSEDED"); d.setSupersededById(replacement.getId()); d.setSupersededAt(Instant.now());
+        d.setSupersededBy(currentUserId()); d.setVoidReason(reason == null ? null : reason.trim());
+        d = documents.saveAndFlush(d);
+        audit.record("DOCUMENT_SUPERSEDED", "GeneratedDocument", id.toString(), null, view(d), reason);
+        return view(d);
+    }
+
+    @Transactional(readOnly = true)
+    public GeneratedDocumentView byId(UUID id) {
+        GeneratedDocument document = find(id);
+        requireAcademicDocumentScope(document.getAggregateType(), document.getAggregateId());
+        return view(document);
+    }
+
+    private void requireAcademicDocumentScope(String aggregateType, String aggregateId) {
+        if (!"BulletinVersion".equalsIgnoreCase(aggregateType)) return;
+        UUID snapshotId;
+        try { snapshotId = UUID.fromString(aggregateId); }
+        catch (IllegalArgumentException ex) { throw ApiException.forbidden("Ce document académique n'est pas accessible."); }
+        var authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication != null && authentication.getPrincipal() instanceof AppUserPrincipal principal
+                && "parent".equalsIgnoreCase(principal.roleCode())) return;
+        academicAccess.requireSnapshot(snapshotId,
+                AcademicAccessPolicyService.Capability.CLASS_REPORT_CARD_VIEW);
     }
 
     /** Public verification deliberately returns no tenant, subject, or storage details. */
@@ -160,7 +215,8 @@ public class OfficialDocumentService {
         return new GeneratedDocumentView(d.getId(), d.getDocumentType(), d.getAggregateType(), d.getAggregateId(),
                 d.getAggregateVersion(), d.getLocale(), d.getDocumentNumber(), d.getTitle(), d.getSha256(),
                 d.getMimeType(), d.getSizeBytes(), d.getStatus(), d.getVisibility(), d.getGeneratedAt(),
-                d.getIssuedAt(), d.getRevokedAt(), d.getRevokeReason());
+                d.getIssuedAt(), d.getRevokedAt(), d.getRevokeReason(), d.getSupersededById(),
+                d.getSupersededAt(), d.getVoidReason(), d.getVersion());
     }
 
     private static String render(String template, Map<String, String> values) {

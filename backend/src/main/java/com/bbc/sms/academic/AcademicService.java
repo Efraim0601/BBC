@@ -1,8 +1,8 @@
 package com.bbc.sms.academic;
 
 import com.bbc.sms.academic.dto.AcademicDtos.*;
+import com.bbc.sms.academic.security.AcademicAccessPolicyService;
 import com.bbc.sms.platform.common.ApiException;
-import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.tenant.TenantContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,16 +18,17 @@ public class AcademicService {
     private static final BigDecimal MAX_MARK = new BigDecimal("20");
 
     private final GradeRepository repo;
-    private final TeacherScopeService teacherScope;
+    private final AcademicAccessPolicyService accessPolicy;
 
-    public AcademicService(GradeRepository repo, TeacherScopeService teacherScope) {
+    public AcademicService(GradeRepository repo, AcademicAccessPolicyService accessPolicy) {
         this.repo = repo;
-        this.teacherScope = teacherScope;
+        this.accessPolicy = accessPolicy;
     }
 
     @Transactional(readOnly = true)
     public List<GradeView> listForStudent(UUID studentId) {
-        teacherScope.assertStudent(studentId);
+        accessPolicy.requireCurrentStudent(AcademicAccessPolicyService.Capability.CLASS_RESULTS_VIEW,
+                studentId, null);
         UUID schoolId = TenantContext.get();
         return repo.findBySchoolIdAndStudentId(schoolId, studentId).stream()
                 .map(this::toView)
@@ -36,7 +37,8 @@ public class AcademicService {
 
     @Transactional
     public GradeView upsert(GradeUpsert in) {
-        teacherScope.assertStudent(in.studentId());
+        accessPolicy.requireCurrentStudent(AcademicAccessPolicyService.Capability.SUBJECT_GRADE_EDIT,
+                in.studentId(), in.subjectCode());
         UUID schoolId = TenantContext.get();
         if (in.mark().compareTo(MIN_MARK) < 0 || in.mark().compareTo(MAX_MARK) > 0) {
             throw ApiException.badRequest("La note doit être comprise entre 0 et 20");

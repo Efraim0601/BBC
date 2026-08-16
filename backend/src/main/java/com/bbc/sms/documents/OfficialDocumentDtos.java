@@ -9,7 +9,10 @@ import java.util.UUID;
 
 public final class OfficialDocumentDtos {
     private OfficialDocumentDtos() {}
-    public record TemplateView(UUID id, String type, String locale, String name, int version) {}
+    public record TemplateView(UUID id, String type, String locale, String name, int version,
+                               String templateFamily, String product, String subsystem,
+                               String status, String referenceFamily, String checksum,
+                               Instant publishedAt) {}
     public record GenerateRequest(@NotBlank String documentType, UUID templateId,
                                   @NotBlank String aggregateType, @NotBlank String aggregateId,
                                   String aggregateVersion, String locale, @NotBlank String title,
@@ -19,7 +22,8 @@ public final class OfficialDocumentDtos {
                                         String documentNumber, String title, String sha256,
                                         String mimeType, long sizeBytes, String status, String visibility,
                                         Instant generatedAt, Instant issuedAt, Instant revokedAt,
-                                        String revokeReason) {}
+                                        String revokeReason, UUID supersededById, Instant supersededAt,
+                                        String voidReason, long version) {}
     public record RevokeRequest(@NotBlank String reason) {}
     public record VerificationView(String documentNumber, String documentType, String title,
                                    String status, Instant issuedAt, String sha256, boolean valid) {}

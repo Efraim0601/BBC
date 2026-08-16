@@ -1,11 +1,12 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { ActivatedRoute, Router } from '@angular/router';
 import { forkJoin, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { StudentApi } from '../students/students.api';
 import { SetupApi, ClassView } from '../../core/setup.api';
-import { AcademicApi, BulletinView, PvView, GradeEntryView, ReportCardInputsView, ReportCardInputRow, ReportCardInputUpsert, BulletinBatchJobView, BulletinBatchItemView } from './academic.api';
+import { AcademicApi, BulletinView, BulletinSnapshotView, PvView, GradeEntryView, ReportCardInputsView, ReportCardInputRow, ReportCardInputUpsert, BulletinBatchJobView, BulletinBatchItemView } from './academic.api';
 import { FoundationApi, AcademicReportingPeriodView, GeneratedDocumentView } from '../../core/foundation.api';
 import { AuthService } from '../../core/auth.service';
 import { ScopeService } from '../../core/scope.service';
@@ -15,14 +16,25 @@ import { ApcBulletinComponent } from './apc-bulletin';
 import { PhotoApi } from '../../core/photo.api';
 import {
   IconComponent, CardComponent, PageHeaderComponent, EmptyComponent,
-  AvatarComponent, TabsComponent, ChipFilterComponent,
+  AvatarComponent, TabsComponent,
 } from '../../core/ui';
 
-type Mode = 'bulletin' | 'grade-entry' | 'inputs' | 'pv' | 'batch';
+type Mode = 'bulletin' | 'grade-entry' | 'inputs' | 'pv' | 'overview' | 'batch';
 
 const cleanDisplay = (value: string | null | undefined): string => {
   if (!value) return value ?? '';
   return value
+    .replace(/\u00c3\u0192\u00c2\u00a9/g, '\u00e9')
+    .replace(/\u00c3\u0192\u00c2\u00a8/g, '\u00e8')
+    .replace(/\u00c3\u0192\u00c2\u00aa/g, '\u00ea')
+    .replace(/\u00c3\u0192\u00c2\u00a0/g, '\u00e0')
+    .replace(/\u00c3\u0192\u00c2\u00a2/g, '\u00e2')
+    .replace(/\u00c3\u0192\u00c2\u00a7/g, '\u00e7')
+    .replace(/\u00c3\u0192\u00c2\u00b4/g, '\u00f4')
+    .replace(/\u00c3\u0192\u00c2\u00bb/g, '\u00fb')
+    .replace(/\u00c3\u0192\u00c2\u00af/g, '\u00ef')
+    .replace(/\u00c3\u0192\u00c2\u00b7/g, '\u00b7')
+    .replace(/\u00c3\u0192\u00c2\u00a0/g, ' ')
     .replace(/\u00c3\u0083\u00c2\u2030/g, '\u00c9')
     .replace(/\u00c3\u0083\u00c2\u00a9/g, '\u00e9')
     .replace(/\u00c3\u0083\u00c2\u00a8/g, '\u00e8')
@@ -49,6 +61,22 @@ const cleanDisplay = (value: string | null | undefined): string => {
     .replace(/\u00c2\u00a0/g, ' ');
 };
 
+export const formatAcademicMark = (mark: number | null | undefined): string =>
+  mark == null || !Number.isFinite(mark) ? '—' : mark.toFixed(2);
+
+export const academicBulletinTitle = (b: Pick<BulletinView, 'product' | 'reportingPeriodType' | 'reportingPeriodCode' | 'reportingPeriodLabel' | 'sequence'>, fr: boolean): string => {
+  const code = b.reportingPeriodCode || '';
+  if (b.product === 'ANNUAL' || b.reportingPeriodType === 'ANNUAL_RESULT') return fr ? 'BULLETIN ANNUEL' : 'ANNUAL REPORT CARD';
+  if (b.product === 'TERM' || b.reportingPeriodType === 'TERM_RESULT') return `${fr ? 'BULLETIN' : 'REPORT CARD'} — ${b.reportingPeriodLabel?.trim() || code}`;
+  return `${fr ? 'BULLETIN' : 'REPORT CARD'} — ${fr ? 'SÉQUENCE' : 'SEQUENCE'} ${code.replace(/^S/i, '') || b.sequence}`;
+};
+
+export const computedPeriodCodes = (lines: BulletinView['lines']): string[] => {
+  const seen = new Set<string>();
+  for (const line of lines) for (const mark of line.periodMarks ?? []) if (mark.periodCode) seen.add(mark.periodCode);
+  return [...seen];
+};
+
 const appreciation = (avg: number, fr: boolean): string => {
   if (avg >= 16) return fr ? 'Excellent' : 'Excellent';
   if (avg >= 14) return fr ? 'Très bien' : 'Very good';
@@ -64,7 +92,7 @@ const appreciation = (avg: number, fr: boolean): string => {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     FormsModule, DatePipe, IconComponent, CardComponent, PageHeaderComponent,
-    EmptyComponent, AvatarComponent, TabsComponent, ChipFilterComponent, ApcBulletinComponent,
+    EmptyComponent, AvatarComponent, TabsComponent, ApcBulletinComponent,
   ],
   template: `
     <div class="fade-in max-w-6xl mx-auto">
@@ -84,7 +112,7 @@ const appreciation = (avg: number, fr: boolean): string => {
               <bbc-icon name="printer" [s]="16" /> {{ fr() ? 'Imprimer' : 'Print' }}
             </button>
           }
-          @if (mode() === 'pv' && pv()) {
+          @if ((mode() === 'pv' || mode() === 'overview') && pv()) {
             <button (click)="print()"
               class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
               <bbc-icon name="printer" [s]="16" /> {{ fr() ? 'Imprimer' : 'Print' }}
@@ -94,16 +122,26 @@ const appreciation = (avg: number, fr: boolean): string => {
       </bbc-page-header>
 
       @if (notice(); as n) {
-        <div class="mb-4 rounded-lg border px-4 py-3 text-sm font-semibold" [class]="n.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-800'">{{ n.text }}</div>
+        <div class="mb-4 flex items-start gap-3 rounded-lg border px-4 py-3 text-sm" [class]="n.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-800'" role="status">
+          <div class="flex-1 font-semibold">{{ n.text }}</div>
+          <button type="button" (click)="notice.set(null)" class="shrink-0 text-current opacity-70 hover:opacity-100" [attr.aria-label]="fr() ? 'Fermer le message' : 'Dismiss message'">×</button>
+        </div>
       }
 
       <bbc-tabs [tabs]="tabs()" [value]="mode()" (change)="setMode($any($event))" />
+
+      @if (mode() === 'grade-entry') {
+        <div class="mb-4 rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-950 leading-relaxed print:hidden">
+          <div class="font-bold">{{ fr() ? 'Saisie des notes : votre feuille de travail' : 'Grade entry: your work sheet' }}</div>
+          <div class="mt-1 text-brand-900">{{ fr() ? '1. Choisissez la classe · 2. Choisissez la période · 3. Choisissez la matière · 4. Saisissez une note pour chaque élève · 5. Enregistrez ou envoyez à la direction.' : '1. Choose the class · 2. Choose the period · 3. Choose the subject · 4. Enter one mark for each student · 5. Save or send it to management.' }}</div>
+        </div>
+      }
 
       <!-- Toolbar: class + sequence -->
       <bbc-card className="mb-5 print:hidden">
         <div class="flex items-start gap-4 flex-wrap">
           <div class="flex-1 min-w-[240px]">
-            <div class="text-xs font-semibold text-mute uppercase mb-2">{{ fr() ? 'Classe' : 'Class' }}</div>
+            <div class="text-xs font-semibold text-mute uppercase mb-2">{{ mode() === 'grade-entry' ? (fr() ? '1. Classe' : '1. Class') : (fr() ? 'Classe' : 'Class') }}</div>
             <select [ngModel]="selectedClass()" (ngModelChange)="onClassChange($event)"
               class="w-full h-10 px-3 rounded-lg border border-slate-200 text-sm bg-white text-ink focus:outline-none focus:border-brand-400 font-semibold">
               <option value="">{{ fr() ? '— Choisir une classe —' : '— Pick a class —' }}</option>
@@ -114,30 +152,34 @@ const appreciation = (avg: number, fr: boolean): string => {
           </div>
           @if (reportingPeriods().length) {
             <div class="flex-1 min-w-[220px]">
-              <div class="text-xs font-semibold text-mute uppercase mb-2">{{ fr() ? 'Jalon académique' : 'Academic milestone' }}</div>
+              <div class="text-xs font-semibold text-mute uppercase mb-2">{{ mode() === 'grade-entry' ? (fr() ? '2. Période de notation' : '2. Grading period') : (fr() ? 'Jalon académique' : 'Academic milestone') }}</div>
+              @if (mode() === 'grade-entry') {
+                <select [ngModel]="selectedReportingPeriodId()" (ngModelChange)="onReportingPeriodChange($event)"
+                  class="w-full h-10 px-3 rounded-lg border border-slate-200 text-sm bg-white text-ink focus:outline-none focus:border-brand-400 font-semibold">
+                  @for (p of sequenceReportingPeriods(); track p.id) { <option [value]="p.id">{{ p.code }} · {{ display(p.label) }}</option> }
+                </select>
+              }
               <select [ngModel]="selectedReportingPeriodId()" (ngModelChange)="onReportingPeriodChange($event)"
+                [class.hidden]="mode() === 'grade-entry'"
                 class="w-full h-10 px-3 rounded-lg border border-slate-200 text-sm bg-white text-ink focus:outline-none focus:border-brand-400 font-semibold">
-                @for (p of reportingPeriods(); track p.id) { <option [value]="p.id">{{ p.code }} · {{ p.label }}</option> }
+                @for (p of reportingPeriods(); track p.id) { <option [value]="p.id">{{ p.code }} · {{ display(p.label) }}</option> }
               </select>
+              @if (mode() === 'grade-entry') { <div class="mt-1 text-xs text-mute">{{ fr() ? 'La période sur laquelle les notes seront enregistrées.' : 'The period these marks will be recorded for.' }}</div> }
             </div>
           }
-          <div class="flex flex-col gap-2 shrink-0">
-            <div class="text-xs font-semibold text-mute uppercase">{{ fr() ? 'Séquence' : 'Sequence' }}</div>
-            <bbc-chip-filter allLabel="—" [value]="String(sequence())" [options]="seqOptions()"
-              (change)="onSequenceChip($event)" />
-          </div>
           @if (mode() === 'grade-entry' && gradeEntry(); as entry) {
             <div class="flex-1 min-w-[240px]">
-              <div class="text-xs font-semibold text-mute uppercase mb-2">{{ fr() ? 'Matière à saisir' : 'Subject to enter' }}</div>
+              <div class="text-xs font-semibold text-mute uppercase mb-2">{{ fr() ? '3. Matière' : '3. Subject' }}</div>
               <select [ngModel]="selectedGradeSubjectCode()" (ngModelChange)="onGradeSubjectChange($event)"
                 class="w-full h-10 px-3 rounded-lg border border-slate-200 text-sm bg-white text-ink focus:outline-none focus:border-brand-400 font-semibold">
                 @for (s of entry.availableSubjects; track s.code) {
-                  <option [value]="s.code">{{ s.label }} · {{ s.code }} · {{ fr() ? 'coef.' : 'coef.' }} {{ s.coefficient }}</option>
+                  <option [value]="s.code">{{ display(s.label) }} · {{ fr() ? 'coefficient' : 'coefficient' }} {{ s.coefficient }}</option>
                 }
               </select>
+              <div class="mt-1 text-xs text-mute">{{ fr() ? 'Les élèves et les évaluations apparaîtront ci-dessous.' : 'The students and assessments appear below.' }}</div>
             </div>
           }
-          @if (mode() === 'pv') {
+          @if (mode() === 'pv' || mode() === 'overview') {
             <div class="flex flex-col justify-end shrink-0">
               <div class="text-xs font-semibold text-transparent uppercase mb-2">.</div>
               <button (click)="loadPv()" [disabled]="!selectedClass()"
@@ -149,69 +191,146 @@ const appreciation = (avg: number, fr: boolean): string => {
         </div>
       </bbc-card>
 
+      @if (mode() === 'bulletin' && selectedPeriodIsComputed()) {
+        <div class="mb-4 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-950 print:hidden"><div class="font-bold">{{ fr() ? 'Résultat calculé' : 'Computed result' }}</div><div class="mt-1">{{ dependencyText() }}</div><div class="mt-1 text-xs text-indigo-800">{{ fr() ? 'Les jalons T1, T2, T3 et annuel sont calculés à partir des dépendances configurées. Les notes brutes restent limitées à S1–S6.' : 'T1, T2, T3 and annual milestones use configured dependencies. Raw marks remain limited to S1–S6.' }}</div></div>
+      }
+
+      @if (mode() === 'bulletin') {
+        @if (bulletin(); as b) {
+          @if (b.workflowMeta; as meta) {
+            @if (meta.versionRelation === 'STALE') {
+              <div class="mb-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 print:hidden">
+                <div class="flex items-start gap-3">
+                  <bbc-icon name="alertTri" [s]="18" />
+                  <div class="flex-1">
+                    <div class="font-bold">{{ fr() ? 'Brouillon obsolète' : 'Draft is stale' }}</div>
+                    <div class="mt-1">{{ fr() ? 'Les données courantes sont affichées, mais le brouillon durable n’a pas encore été actualisé.' : 'Current data is displayed, but the durable draft has not been refreshed yet.' }}</div>
+                    <div class="mt-1 text-xs">{{ fr() ? 'Ancienne moyenne' : 'Previous average' }}: {{ formatMark(meta.persistedAverage) }}/20 · {{ fr() ? 'Moyenne actuelle' : 'Current average' }}: {{ formatMark(b.average) }}/20</div>
+                  </div>
+                  @if (canWrite && meta.capabilities.canRefreshDraft) {
+                    <button type="button" (click)="requestRefresh(b)" class="shrink-0 h-9 px-3 rounded-lg bg-amber-600 text-white text-xs font-semibold">{{ fr() ? 'Actualiser le brouillon' : 'Refresh draft' }}</button>
+                  }
+                </div>
+              </div>
+            }
+            @if (meta.dependencies.length) {
+              <div class="mb-4 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs print:hidden">
+                <div class="font-bold text-ink">{{ fr() ? 'État des sources' : 'Source readiness' }}</div>
+                <div class="mt-2 flex flex-wrap gap-2">
+                  @for (dependency of meta.dependencies; track dependency.periodId) {
+                    <span class="rounded-full px-2.5 py-1 font-semibold" [class]="dependency.readiness === 'READY' ? 'bg-emerald-100 text-emerald-800' : dependency.readiness === 'PROVISIONAL' ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800'">{{ dependency.code }} · {{ dependency.readiness }}</span>
+                  }
+                </div>
+              </div>
+            }
+            @if (b.issues?.length) {
+              <div class="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-950 print:hidden">
+                <div class="font-bold">{{ fr() ? 'À corriger avant validation' : 'Fix before validation' }}</div>
+                <ul class="mt-1 list-disc pl-5">@for (issue of (b.issues ?? []); track issue.code + issue.periodCode + issue.subjectCode) { @if (issue.severity === 'ERROR') { <li>{{ fr() ? issue.messageFr : issue.messageEn }}</li> } }</ul>
+              </div>
+            }
+          }
+        }
+      }
+
       <!-- ============ TEACHER GRADE ENTRY ============ -->
       @if (mode() === 'grade-entry') {
         @if (!selectedClass()) {
-          <bbc-card><bbc-empty icon="users" [label]="fr() ? 'Choisissez une classe pour commencer la saisie.' : 'Pick a class to start entering grades.'" /></bbc-card>
+          <bbc-card className="border-brand-200">
+            <div class="flex items-start gap-3">
+              <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-100 text-brand-700 font-bold">1</div>
+              <div><h2 class="text-lg font-bold text-ink">{{ fr() ? 'Commencer une feuille de notes' : 'Start a grade sheet' }}</h2><p class="mt-1 text-sm text-mute">{{ fr() ? 'Choisissez une classe ci-dessus. La période et la matière vous permettront ensuite de voir exactement les élèves à noter.' : 'Choose a class above. The period and subject will then show you exactly which students need marks.' }}</p></div>
+            </div>
+          </bbc-card>
+        } @else if (gradeEntryError(); as error) {
+          <bbc-card className="border-rose-200 bg-rose-50/40">
+            <div class="flex items-start gap-3" role="alert">
+              <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-rose-100 text-rose-700 font-bold">!</div>
+              <div class="flex-1"><h2 class="text-lg font-bold text-rose-950">{{ fr() ? 'Cette feuille ne peut pas être ouverte' : 'This grade sheet cannot be opened' }}</h2><p class="mt-1 text-sm text-rose-900">{{ error }}</p><p class="mt-2 text-xs text-rose-800">{{ fr() ? 'Vérifiez la classe, la période, l’affectation de la matière et l’enseignant responsable, puis réessayez.' : 'Check the class, period, subject assignment, and responsible teacher, then try again.' }}</p><button type="button" (click)="loadGradeEntry()" class="mt-3 h-9 px-3 rounded-lg bg-white border border-rose-300 text-rose-800 text-sm font-semibold hover:bg-rose-100">{{ fr() ? 'Réessayer' : 'Try again' }}</button></div>
+            </div>
+          </bbc-card>
         } @else if (!gradeEntry()) {
-          <bbc-card><bbc-empty icon="doc" [label]="fr() ? 'Chargement de la feuille de saisie…' : 'Loading the grade-entry sheet…'" /></bbc-card>
+          <bbc-card><bbc-empty icon="doc" [label]="fr() ? 'Préparation de la feuille de notes…' : 'Preparing the grade sheet…'" /></bbc-card>
         } @else {
           @if (gradeEntry(); as entry) {
             <bbc-card className="mb-4">
               <div class="flex flex-wrap items-start gap-3 justify-between">
                 <div>
-                  <div class="text-lg font-bold text-ink">{{ entry.subjectLabel }} <span class="text-mute font-normal">· {{ entry.subjectCode }}</span></div>
-                  <div class="text-sm text-mute mt-1">{{ entry.className }} · {{ entry.teacherName || (fr() ? 'Enseignant à préciser' : 'Teacher to be assigned') }} · {{ fr() ? 'Coefficient' : 'Coefficient' }} {{ entry.coefficient }}</div>
+                  <div class="text-xs font-semibold uppercase tracking-wide text-brand-700">{{ fr() ? 'Feuille de notes' : 'Grade sheet' }}</div>
+                  <h2 class="text-xl font-bold text-ink mt-1">{{ display(entry.subjectLabel) }}</h2>
+                  <div class="text-sm text-mute mt-1">{{ entry.className }} · {{ selectedReportingPeriodCode() }} · {{ fr() ? 'coefficient' : 'coefficient' }} {{ entry.coefficient }}</div>
+                  <div class="text-xs text-mute mt-1">{{ fr() ? 'Enseignant responsable :' : 'Responsible teacher:' }} {{ display(entry.teacherName) || (fr() ? 'Non configuré' : 'Not configured') }}</div>
                 </div>
                 <span class="px-2.5 py-1 rounded-full text-xs font-bold uppercase"
                   [class]="entry.packetStatus === 'ACCEPTED' ? 'bg-emerald-100 text-emerald-700' : entry.packetStatus === 'SUBMITTED' ? 'bg-blue-100 text-blue-700' : entry.packetStatus === 'RETURNED' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-800'">
-                  {{ entry.packetStatus === 'DRAFT' ? (fr() ? 'Brouillon' : 'Draft') : entry.packetStatus === 'SUBMITTED' ? (fr() ? 'Soumis' : 'Submitted') : entry.packetStatus === 'ACCEPTED' ? (fr() ? 'Accepté' : 'Accepted') : entry.packetStatus === 'RETURNED' ? (fr() ? 'À corriger' : 'Returned') : entry.packetStatus }}
+                  {{ gradePacketStatusLabel(entry.packetStatus) }}
                 </span>
               </div>
-              <div class="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
-                <div class="rounded-lg border border-slate-200 bg-slate-50 p-3"><div class="text-[11px] uppercase text-mute font-semibold">{{ fr() ? 'Élèves' : 'Students' }}</div><div class="text-xl font-bold text-ink mt-1">{{ entry.totalStudents }}</div></div>
-                <div class="rounded-lg border border-slate-200 bg-slate-50 p-3"><div class="text-[11px] uppercase text-mute font-semibold">{{ fr() ? 'Complets' : 'Complete' }}</div><div class="text-xl font-bold text-emerald-700 mt-1">{{ entry.completedStudents }}/{{ entry.totalStudents }}</div></div>
-                <div class="rounded-lg border border-slate-200 bg-slate-50 p-3"><div class="text-[11px] uppercase text-mute font-semibold">{{ fr() ? 'Évaluations' : 'Assessments' }}</div><div class="text-xl font-bold text-ink mt-1">{{ entry.assessments.length }}</div></div>
-                <div class="rounded-lg border border-slate-200 bg-slate-50 p-3"><div class="text-[11px] uppercase text-mute font-semibold">{{ fr() ? 'Règle' : 'Rule' }}</div><div class="text-sm font-semibold text-ink mt-2">{{ fr() ? 'Note / statut par élève' : 'Mark / status per student' }}</div></div>
+              <div class="mt-4 rounded-lg border border-brand-200 bg-brand-50 px-3 py-3 text-sm text-brand-950"><strong>{{ fr() ? 'Votre tâche :' : 'Your task:' }}</strong> {{ fr() ? 'saisissez la note prévue pour chaque élève. Enregistrez pour garder un brouillon ; envoyez ensuite la feuille à la direction.' : 'enter the required mark for each student. Save to keep a draft; then send the sheet to management.' }}</div>
+              <div class="mt-4 grid grid-cols-2 md:grid-cols-3 gap-3">
+                <div class="rounded-lg border border-slate-200 bg-slate-50 p-3"><div class="text-[11px] uppercase text-mute font-semibold">{{ fr() ? 'Élèves à noter' : 'Students to grade' }}</div><div class="text-xl font-bold text-ink mt-1">{{ entry.totalStudents }}</div></div>
+                <div class="rounded-lg border border-slate-200 bg-slate-50 p-3"><div class="text-[11px] uppercase text-mute font-semibold">{{ fr() ? 'Saisie complète' : 'Completed' }}</div><div class="text-xl font-bold text-emerald-700 mt-1">{{ entry.completedStudents }}/{{ entry.totalStudents }}</div></div>
+                <div class="rounded-lg border border-slate-200 bg-slate-50 p-3"><div class="text-[11px] uppercase text-mute font-semibold">{{ fr() ? 'Colonnes de notes' : 'Mark columns' }}</div><div class="text-xl font-bold text-ink mt-1">{{ entry.assessments.length }}</div></div>
               </div>
-              @if (entry.blockers.length) {
-                <div class="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                  <div class="font-bold">{{ fr() ? 'À compléter avant soumission' : 'Complete before submitting' }}</div>
-                  <div class="mt-1">{{ entry.blockers.join(' · ') }}</div>
-                </div>
-              }
-              <div class="mt-4 text-sm text-mute">{{ fr() ? 'Les notes sont saisies sur 20 après conversion depuis le barème de chaque évaluation. Utilisez ABS pour un absent et EX pour une dispense.' : 'Marks are entered on a 20-point scale after conversion from each assessment maximum. Use ABS for absent and EX for exempt.' }}</div>
-            </bbc-card>
-            <bbc-card className="mb-4">
-              <div class="flex items-center justify-between gap-3 flex-wrap">
-                <div><div class="font-bold text-ink">{{ fr() ? 'Évaluations de la matière' : 'Subject assessments' }}</div><div class="text-xs text-mute mt-1">{{ fr() ? 'Ces évaluations sont liées à cette classe et à cette matière. Un barème générique reste disponible comme compatibilité.' : 'These definitions are scoped to this class and subject. Generic definitions remain available for compatibility.' }}</div></div>
-                <button (click)="assessmentDialog.set(!assessmentDialog())" class="h-9 px-3 rounded-lg border border-brand-200 text-brand-700 text-sm font-semibold hover:bg-brand-50">{{ assessmentDialog() ? (fr() ? 'Fermer' : 'Close') : (fr() ? 'Ajouter une évaluation' : 'Add assessment') }}</button>
-              </div>
-              <div class="flex flex-wrap gap-2 mt-3">
-                @for (a of entry.assessments; track a.id) { <span class="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">{{ a.code }} · /{{ a.maxScore }} · ×{{ a.weight }}{{ a.mandatory ? ' · ' + (fr() ? 'obligatoire' : 'required') : '' }}</span> }
-              </div>
-              @if (assessmentDialog()) {
-                <div class="mt-4 rounded-lg border border-brand-100 bg-brand-50/40 p-3">
-                  <div class="grid grid-cols-1 md:grid-cols-5 gap-2">
-                    <label class="field-label"><span>Code</span><input [ngModel]="assessmentCode" (ngModelChange)="assessmentCode=$event" class="field" [class.border-rose-400]="assessmentTouched() && !assessmentCode.trim()" placeholder="CTRL1" /></label>
-                    <label class="field-label md:col-span-2"><span>{{ fr() ? 'Libellé' : 'Label' }}</span><input [ngModel]="assessmentLabel" (ngModelChange)="assessmentLabel=$event" class="field" [class.border-rose-400]="assessmentTouched() && !assessmentLabel.trim()" placeholder="Contrôle de séquence" /></label>
-                    <label class="field-label"><span>{{ fr() ? 'Barème' : 'Max score' }}</span><input type="number" min="0.01" step="0.01" [ngModel]="assessmentMax" (ngModelChange)="assessmentMax=+$event" class="field" /></label>
-                    <label class="field-label"><span>{{ fr() ? 'Poids' : 'Weight' }}</span><input type="number" min="0.01" step="0.01" [ngModel]="assessmentWeight" (ngModelChange)="assessmentWeight=+$event" class="field" /></label>
+              @if (entry.assignmentReadiness && entry.assignmentReadiness.status !== 'RESOLVED') {
+                <div class="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-3 text-sm text-rose-950" role="alert">
+                  <div class="font-bold">{{ fr() ? 'Affectation enseignant à réparer' : 'Teacher assignment needs repair' }}</div>
+                  <div class="mt-1">{{ fr() ? 'Le brouillon peut rester enregistré, mais l’envoi est bloqué tant qu’un enseignant responsable unique n’est pas configuré.' : 'The draft can stay saved, but submission is blocked until exactly one responsible teacher is configured.' }}</div>
+                  <div class="mt-2 flex flex-wrap items-center gap-2">
+                    <span class="text-xs font-semibold text-rose-800">{{ display(entry.assignmentReadiness.messageEn || entry.assignmentReadiness.messageFr) }}</span>
+                    @if (entry.capabilities?.canEditDraft !== false) {
+                      <button type="button" (click)="saveAndOpenAssignmentRepair(entry)" [disabled]="gradeBusy()" class="h-9 px-3 rounded-lg bg-rose-700 text-white text-sm font-semibold hover:bg-rose-800 disabled:opacity-50">{{ fr() ? 'Enregistrer le brouillon et configurer l’enseignant' : 'Save draft and configure teacher' }}</button>
+                    }
+                    <button type="button" (click)="openAssignmentRepair(entry)" [disabled]="gradeBusy()" class="h-9 px-3 rounded-lg bg-white border border-rose-300 text-rose-800 text-sm font-semibold hover:bg-rose-100 disabled:opacity-50">{{ fr() ? 'Configurer l’enseignant' : 'Configure teacher' }}</button>
                   </div>
-                  <div class="flex items-center justify-between gap-3 mt-3"><label class="flex items-center gap-2 text-sm"><input type="checkbox" [(ngModel)]="assessmentMandatory" /> {{ fr() ? 'Évaluation obligatoire pour cette matière' : 'Required for this subject' }}</label><button (click)="createScopedAssessment(entry)" [disabled]="assessmentBusy()" class="h-9 px-3 rounded-lg bg-brand-600 text-white text-sm font-semibold disabled:opacity-50">{{ assessmentBusy() ? '…' : (fr() ? 'Créer dans cette classe' : 'Create for this class') }}</button></div>
                 </div>
               }
+              @if (entry.blockers.length) {
+                <div class="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-950" role="status">
+                  <div class="font-bold">{{ fr() ? 'Il reste des champs à compléter avant l’envoi' : 'Some fields still need to be completed before sending' }}</div>
+                  <ul class="mt-1 list-disc pl-5">@for (blocker of entry.blockers; track blocker) { <li>{{ gradeBlockerLabel(blocker) }}</li> }</ul>
+                </div>
+              } @else if (entry.totalStudents > 0 && entry.assessments.length > 0) {
+                <div class="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">{{ fr() ? 'Toutes les notes obligatoires sont renseignées. Vous pouvez enregistrer ou envoyer la feuille.' : 'All required marks are entered. You can save or send the sheet.' }}</div>
+              }
+              <div class="mt-4 text-sm text-mute">{{ fr() ? 'Saisissez la note sur le barème affiché (par exemple /20). Pour un élève absent ou dispensé, choisissez le statut correspondant au lieu de saisir une note.' : 'Enter the mark using the scale shown (for example /20). For an absent or exempt student, choose the matching status instead of entering a mark.' }}</div>
             </bbc-card>
+            @if (gradeEntry(); as entry) {
+            <bbc-card className="mb-4 border-brand-200 bg-brand-50/40">
+              <div class="flex items-start gap-3">
+                <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-100 text-brand-700 font-bold">✓</div>
+                <div>
+                  <div class="font-bold text-ink">{{ fr() ? 'Note à saisir' : 'Mark to enter' }}</div>
+                  <div class="mt-1 text-sm text-mute">{{ fr() ? 'Saisissez une note pour chaque élève sur le barème affiché. Les détails techniques sont gérés automatiquement par le système.' : 'Enter one mark for each student using the scale shown. Technical details are handled automatically by the system.' }}</div>
+                </div>
+              </div>
+              @if (entry.assessments.length === 1) {
+                <div class="mt-3 flex items-center justify-between gap-3 rounded-lg border border-brand-200 bg-white px-3 py-2 text-sm">
+                  <span class="font-semibold text-ink">{{ selectedReportingPeriodCode() }} · {{ display(entry.subjectLabel) }}</span>
+                  <span class="text-mute">{{ fr() ? 'sur' : 'out of' }} {{ entry.assessments[0].maxScore }}</span>
+                </div>
+              } @else if (entry.assessments.length > 1) {
+                <div class="mt-3 rounded-lg border border-brand-200 bg-white px-3 py-2 text-sm text-mute">{{ fr() ? entry.assessments.length + ' colonnes de notes sont prévues pour cette matière.' : entry.assessments.length + ' mark columns are expected for this subject.' }}</div>
+              } @else {
+                <div class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">{{ fr() ? 'La feuille n’est pas encore prête : aucune colonne de note n’est configurée pour cette matière.' : 'This sheet is not ready yet: no mark column is configured for this subject.' }}</div>
+              }
+            </bbc-card>
+            }
             <bbc-card className="overflow-hidden">
-              <div class="overflow-x-auto -mx-5">
-                <table class="min-w-[980px] w-full text-sm">
+              <div class="flex items-start justify-between gap-3 flex-wrap px-5 pt-5">
+                <div><h2 class="text-lg font-bold text-ink">{{ fr() ? '4. Saisir les notes' : '4. Enter marks' }}</h2><p class="mt-1 text-sm text-mute">{{ fr() ? 'Une ligne = un élève. Remplissez chaque colonne obligatoire.' : 'One row = one student. Complete every required column.' }}</p></div>
+                @if (entry.assessments.length) { <div class="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-sm font-semibold text-ink">{{ entry.completedStudents }} / {{ entry.totalStudents }} {{ fr() ? 'élève(s) complet(s)' : 'student(s) complete' }}</div> }
+              </div>
+              @if (entry.assessments.length) {
+              <div class="overflow-x-auto mt-4">
+                <table class="min-w-[880px] w-full text-sm">
                   <thead class="bg-brand-50 border-y-2 border-brand-600">
                     <tr class="text-brand-700 font-bold uppercase text-[10px]">
-                      <th class="text-left py-3 pl-5 sticky left-0 bg-brand-50 z-10 min-w-[230px]">{{ fr() ? 'Élève' : 'Student' }}</th>
+                      <th class="text-left py-3 pl-5 sticky left-0 bg-brand-50 z-10 min-w-[220px]">{{ fr() ? 'Élève' : 'Student' }}</th>
                       @for (a of entry.assessments; track a.id) {
-                        <th class="text-center py-3 px-2 min-w-[145px]">{{ a.code }}<div class="font-normal normal-case">{{ a.label }} · /{{ a.maxScore }}</div></th>
+                        <th class="text-center py-3 px-2 min-w-[160px]"><span class="normal-case text-sm">{{ gradeAssessmentLabel(entry, a) }}</span><div class="font-normal normal-case">{{ fr() ? 'Note sur' : 'Mark out of' }} {{ a.maxScore }}</div><div class="font-normal normal-case text-mute">{{ a.mandatory ? (fr() ? 'Obligatoire' : 'Required') : (fr() ? 'Facultatif' : 'Optional') }}</div></th>
                       }
-                      <th class="text-left py-3 px-2 min-w-[250px]">{{ fr() ? 'Remarque par matière' : 'Subject remark' }}</th>
+                      <th class="text-left py-3 px-2 min-w-[240px]">{{ fr() ? 'Appréciation (facultatif)' : 'Comment (optional)' }}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -222,17 +341,19 @@ const appreciation = (avg: number, fr: boolean): string => {
                         </td>
                         @for (cell of row.values; track cell.assessmentId; let i = $index) {
                           <td class="p-2">
+                            <div class="mb-1 text-[11px] text-mute">{{ fr() ? 'Note /' : 'Mark /' }} {{ entry.assessments[i].maxScore }}</div>
                             <input type="number" min="0" [max]="entry.assessments[i].maxScore" step="0.01" [ngModel]="cell.mark" (ngModelChange)="updateGradeMark(row.studentId, i, $event)"
+                              [attr.aria-label]="(fr() ? 'Note de ' : 'Mark for ') + row.studentName + ' — ' + (gradeAssessmentLabel(entry, entry.assessments[i]))"
                               [disabled]="entry.packetStatus === 'SUBMITTED' || entry.packetStatus === 'ACCEPTED' || entry.packetStatus === 'LOCKED'"
-                              class="w-full h-9 px-2 text-center rounded-md border border-slate-300 bg-white focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 disabled:bg-slate-100" placeholder="—" />
+                              class="w-full h-10 px-2 text-center rounded-md border border-slate-300 bg-white text-base font-semibold focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 disabled:bg-slate-100" placeholder="—" />
                             <select [ngModel]="cell.valueStatus" (ngModelChange)="updateGradeStatus(row.studentId, i, $event)"
                               [disabled]="entry.packetStatus === 'SUBMITTED' || entry.packetStatus === 'ACCEPTED' || entry.packetStatus === 'LOCKED'"
-                              class="w-full h-7 mt-1 px-1 text-[10px] rounded border border-slate-200 bg-white text-mute">
-                              <option value="SCORED">{{ fr() ? 'Note' : 'Scored' }}</option><option value="ABSENT">ABS</option><option value="EXEMPT">EX</option><option value="MISSING">{{ fr() ? 'Manquante' : 'Missing' }}</option>
+                              class="w-full h-8 mt-1 px-2 text-xs rounded border border-slate-200 bg-white text-mute">
+                              <option value="SCORED">{{ fr() ? 'Note saisie' : 'Mark entered' }}</option><option value="ABSENT">{{ fr() ? 'Absent' : 'Absent' }}</option><option value="EXEMPT">{{ fr() ? 'Dispensé' : 'Exempt' }}</option><option value="MISSING">{{ fr() ? 'À compléter' : 'To complete' }}</option>
                             </select>
                           </td>
                         }
-                        <td class="p-2"><textarea rows="2" [ngModel]="row.comment" (ngModelChange)="updateGradeComment(row.studentId, $event)" [disabled]="entry.packetStatus === 'SUBMITTED' || entry.packetStatus === 'ACCEPTED' || entry.packetStatus === 'LOCKED'" maxlength="500" class="w-full px-2 py-1.5 rounded-md border border-slate-300 text-xs resize-y focus:outline-none focus:border-brand-500 disabled:bg-slate-100" [placeholder]="fr() ? 'Appréciation du professeur…' : 'Teacher remark…'"></textarea></td>
+                        <td class="p-2"><textarea rows="2" [ngModel]="row.comment" (ngModelChange)="updateGradeComment(row.studentId, $event)" [disabled]="entry.packetStatus === 'SUBMITTED' || entry.packetStatus === 'ACCEPTED' || entry.packetStatus === 'LOCKED'" maxlength="500" class="w-full px-2 py-2 rounded-md border border-slate-300 text-sm resize-y focus:outline-none focus:border-brand-500 disabled:bg-slate-100" [placeholder]="fr() ? 'Facultatif : remarque sur le travail…' : 'Optional: comment on the work…'"></textarea></td>
                       </tr>
                     } @empty {
                       <tr><td [attr.colspan]="entry.assessments.length + 2" class="p-8 text-center text-mute">{{ fr() ? 'Aucun élève actif dans cette classe pour la session.' : 'No active student in this class for the session.' }}</td></tr>
@@ -240,15 +361,18 @@ const appreciation = (avg: number, fr: boolean): string => {
                   </tbody>
                 </table>
               </div>
+              } @else {
+                <div class="mx-5 mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-950">{{ fr() ? 'La saisie ne peut pas commencer tant qu’une évaluation n’est pas configurée pour cette matière.' : 'Mark entry cannot start until an assessment is configured for this subject.' }}</div>
+              }
               <div class="flex flex-wrap gap-2 items-center mt-5 pt-4 border-t border-slate-100 print:hidden">
-                <div class="flex-1 text-xs text-mute">{{ fr() ? 'Enregistrer conserve le brouillon. Soumettre transmet la feuille à la direction.' : 'Save keeps a draft. Submit sends the sheet to management.' }}</div>
+                <div class="flex-1 min-w-[260px] text-xs text-mute">{{ entry.packetStatus === 'SUBMITTED' ? (fr() ? 'Cette feuille est en attente de vérification par la direction.' : 'This sheet is waiting for management review.') : entry.packetStatus === 'ACCEPTED' ? (fr() ? 'Cette feuille a été acceptée et est verrouillée.' : 'This sheet was accepted and is locked.') : (fr() ? 'Enregistrer = garder votre travail. Envoyer à la direction = demander la vérification.' : 'Save = keep your work. Send to management = request review.') }}</div>
                 @if (canWrite && (entry.packetStatus === 'DRAFT' || entry.packetStatus === 'RETURNED')) {
-                  <button (click)="saveGradeEntry()" [disabled]="gradeBusy()" class="h-10 px-4 rounded-lg border border-slate-300 text-sm font-semibold text-ink hover:bg-slate-50 disabled:opacity-50">{{ gradeBusy() ? '…' : (fr() ? 'Enregistrer le brouillon' : 'Save draft') }}</button>
-                  <button (click)="submitGradeEntry()" [disabled]="gradeBusy() || entry.blockers.length > 0" class="h-10 px-4 rounded-lg bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700 disabled:opacity-50">{{ fr() ? 'Soumettre la saisie' : 'Submit grades' }}</button>
+                  <button type="button" (click)="saveGradeEntry()" [disabled]="gradeBusy() || entry.capabilities?.canEditDraft === false" class="h-10 px-4 rounded-lg border border-slate-300 text-sm font-semibold text-ink hover:bg-slate-50 disabled:opacity-50">{{ gradeBusy() ? '…' : (fr() ? 'Enregistrer sans envoyer' : 'Save without sending') }}</button>
+                  <button type="button" (click)="submitGradeEntry()" [disabled]="gradeBusy() || entry.blockers.length > 0 || !entry.assessments.length || !canSubmitGrade(entry)" [title]="entry.submissionBlockers?.length ? (fr() ? 'Réparez l’affectation et complétez les champs indiqués avant l’envoi.' : 'Repair the assignment and complete the highlighted fields before sending.') : ''" class="h-10 px-4 rounded-lg bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700 disabled:opacity-50">{{ fr() ? 'Envoyer à la direction' : 'Send to management' }}</button>
                 }
                 @if (canReview() && entry.packetStatus === 'SUBMITTED') {
-                  <button (click)="reviewGradeEntry('RETURN')" [disabled]="gradeBusy()" class="h-10 px-4 rounded-lg border border-rose-200 text-rose-700 text-sm font-semibold hover:bg-rose-50 disabled:opacity-50">{{ fr() ? 'Retourner à corriger' : 'Return for correction' }}</button>
-                  <button (click)="reviewGradeEntry('ACCEPT')" [disabled]="gradeBusy()" class="h-10 px-4 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50">{{ fr() ? 'Accepter la saisie' : 'Accept grades' }}</button>
+                  <button type="button" (click)="reviewGradeEntry('RETURN')" [disabled]="gradeBusy()" class="h-10 px-4 rounded-lg border border-rose-200 text-rose-700 text-sm font-semibold hover:bg-rose-50 disabled:opacity-50">{{ fr() ? 'Retourner pour correction' : 'Return for correction' }}</button>
+                  <button type="button" (click)="reviewGradeEntry('ACCEPT')" [disabled]="gradeBusy()" class="h-10 px-4 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50">{{ fr() ? 'Accepter la feuille' : 'Accept the sheet' }}</button>
                 }
               </div>
             </bbc-card>
@@ -393,6 +517,9 @@ const appreciation = (avg: number, fr: boolean): string => {
                             <div class="font-display text-xl font-bold leading-tight">Bayo Bilingual Complex</div>
                             <div class="text-sm text-brand-100 mt-0.5">Maroua</div>
                             <div class="text-xs text-gold-200 mt-2 font-semibold">
+                              {{ bulletinTitle(b) }}
+                            </div>
+                            <div class="text-xs text-gold-200 mt-2 font-semibold hidden">
                               {{ (fr() ? 'BULLETIN' : 'REPORT CARD') }} — {{ (fr() ? 'SÉQUENCE ' : 'SEQ. ') + b.sequence }}
                             </div>
                           </div>
@@ -400,6 +527,10 @@ const appreciation = (avg: number, fr: boolean): string => {
                             @if (b.state === 'PUBLISHED') {
                               <div class="bg-emerald-500 text-white text-[10px] font-bold uppercase px-2 py-1 rounded flex items-center gap-1">
                                 <bbc-icon name="eye" [s]="12" [sw]="3" /> {{ fr() ? 'Publié aux parents' : 'Published to parents' }}
+                              </div>
+                            } @else if (b.state === 'PREVIEW') {
+                              <div class="bg-blue-100 text-blue-800 text-[10px] font-bold uppercase px-2 py-1 rounded flex items-center gap-1">
+                                <bbc-icon name="eye" [s]="12" [sw]="3" /> {{ fr() ? 'Aperçu lecture seule' : 'Read-only preview' }}
                               </div>
                             } @else if (b.validated) {
                               <div class="bg-emerald-500 text-white text-[10px] font-bold uppercase px-2 py-1 rounded flex items-center gap-1">
@@ -432,10 +563,16 @@ const appreciation = (avg: number, fr: boolean): string => {
                       </div>
 
                       <div class="p-6">
+                        @if (b.state === 'PREVIEW') {
+                          <div class="mb-5 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+                            <div class="font-bold">{{ fr() ? 'Aperçu en lecture seule' : 'Read-only preview' }}</div>
+                            <div class="mt-1">{{ fr() ? 'Aucune version de bulletin n’a été créée. Les données affichées proviennent du calcul courant et ne modifient pas le dossier.' : 'No report-card version was created. The displayed data is a current calculation and does not change the record.' }}</div>
+                          </div>
+                        }
                         @if (b.complete === false && b.blockers?.length) {
                           <div class="mb-5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                             <div class="font-bold">{{ fr() ? 'Bulletin non complet' : 'Report card is incomplete' }}</div>
-                            <ul class="mt-1 list-disc pl-5 font-normal">@for (blocker of b.blockers; track blocker) { <li>{{ blocker }}</li> }</ul>
+                            <ul class="mt-1 list-disc pl-5 font-normal">@for (blocker of b.blockers; track blocker) { <li>{{ bulletinBlockerLabel(blocker, b) }}</li> }</ul>
                           </div>
                         }
                         @if (b.financiallyBlocked) {
@@ -445,6 +582,36 @@ const appreciation = (avg: number, fr: boolean): string => {
                           </div>
                         }
 
+                        @if (isComputedBulletin(b)) {
+                          <div class="overflow-x-auto">
+                            <table class="min-w-[720px] w-full text-sm">
+                              <thead>
+                                <tr class="border-b-2 border-brand-600 text-[11px] uppercase text-brand-700 font-bold">
+                                  <th class="text-left py-2">{{ fr() ? 'Matière' : 'Subject' }}</th>
+                                  @for (periodCode of periodColumns(b); track periodCode) { <th class="text-center py-2 w-20">{{ periodCode }}</th> }
+                                  <th class="text-center py-2 w-20">{{ b.product === 'ANNUAL' ? (fr() ? 'Annuel' : 'Annual') : (fr() ? 'Trimestre' : 'Term') }}</th>
+                                  <th class="text-center py-2 w-16">Coef</th>
+                                  <th class="text-center py-2 w-24">{{ fr() ? 'Pondéré' : 'Weighted' }}</th>
+                                  <th class="text-left py-2 min-w-[160px]">{{ fr() ? 'Appréciation' : 'Appreciation' }}</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                @for (l of b.lines; track l.subjectCode) {
+                                  <tr class="border-b border-slate-100">
+                                    <td class="py-2.5 font-semibold text-ink">{{ l.subjectLabel }} @if (l.subjectGroupLabel) { <div class="text-[10px] font-normal uppercase tracking-wide text-brand-600">{{ l.subjectGroupLabel }}</div> } @if (l.teacherName) { <div class="text-[10px] font-normal text-mute">{{ fr() ? 'Prof. ' : 'Teacher: ' }}{{ l.teacherName }}</div> }</td>
+                                    @for (periodCode of periodColumns(b); track periodCode) { <td class="py-2.5 text-center font-mono">{{ formatMark(periodMark(l, periodCode)) }}</td> }
+                                    <td class="py-2.5 text-center font-bold">{{ formatMark(l.mark) }}</td>
+                                    <td class="py-2.5 text-center text-mute">{{ l.coef }}</td>
+                                    <td class="py-2.5 text-center font-mono">{{ formatMark(l.weighted) }}</td>
+                                    <td class="py-2.5 pr-2 text-xs italic text-mute">{{ l.teacherRemark || appr(l.mark) }}</td>
+                                  </tr>
+                                } @empty {
+                                  <tr><td [attr.colspan]="periodColumns(b).length + 5" class="py-10"><bbc-empty icon="doc" [label]="fr() ? 'Aucune note' : 'No marks'" /></td></tr>
+                                }
+                              </tbody>
+                            </table>
+                          </div>
+                        } @else {
                         <table class="w-full text-sm">
                           <thead>
                             <tr class="border-b-2 border-brand-600 text-[11px] uppercase text-brand-700 font-bold">
@@ -461,7 +628,7 @@ const appreciation = (avg: number, fr: boolean): string => {
                                 <td class="py-2.5 font-semibold text-ink">{{ l.subjectLabel }} @if (l.subjectGroupLabel) { <div class="text-[10px] font-normal uppercase tracking-wide text-brand-600">{{ l.subjectGroupLabel }}</div> } @if (l.teacherName) { <div class="text-[10px] font-normal text-mute">{{ fr() ? 'Prof. ' : 'Teacher: ' }}{{ l.teacherName }}</div> } @if (l.periodMarks?.length) { <div class="text-[10px] font-normal text-mute mt-0.5">@for (part of (l.periodMarks ?? []); track part.periodCode) { {{ part.periodCode }}: {{ part.mark }} @if (!$last) { · } }</div> }</td>
                                 <td class="py-2.5 text-center text-mute">{{ l.coef }}</td>
                                 <td class="py-2.5 text-center font-bold"
-                                  [class]="l.mark < 10 ? 'text-rose-700' : l.mark < 14 ? 'text-ink' : 'text-emerald-700'">{{ l.mark }}</td>
+                                  [class]="markClass(l.mark)">{{ formatMark(l.mark) }}</td>
                                 <td class="py-2.5 text-center font-mono text-ink">{{ l.weighted }}</td>
                                 <td class="py-2.5 pr-2 text-xs italic text-mute">{{ l.teacherRemark || appr(l.mark) }}</td>
                               </tr>
@@ -470,13 +637,14 @@ const appreciation = (avg: number, fr: boolean): string => {
                             }
                           </tbody>
                         </table>
+                        }
 
                         @if (b.groupStats?.length) {
                           <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-2">
                             @for (group of (b.groupStats ?? []); track group.code) {
                               <div class="rounded-lg border border-brand-100 bg-brand-50/50 px-3 py-2">
                                 <div class="flex items-center justify-between gap-2 text-xs font-semibold text-brand-900">
-                                  <span>{{ group.label || group.code }}</span><span>{{ group.average }}/20</span>
+                                  <span>{{ group.label || group.code }}</span><span>{{ formatMark(group.average) }}/20</span>
                                 </div>
                                 <div class="text-[11px] text-mute mt-1">
                                   {{ fr() ? 'Total pondéré' : 'Weighted total' }}: {{ group.total }} · {{ fr() ? 'Coef' : 'Coef' }}: {{ group.coefficient }} · {{ group.subjectCount }} {{ fr() ? 'matières' : 'subjects' }}
@@ -488,9 +656,9 @@ const appreciation = (avg: number, fr: boolean): string => {
 
                         <div class="grid grid-cols-3 gap-3 mt-5">
                           <div class="rounded-lg px-3 py-2.5 ring-2 ring-gold-300"
-                            [class]="b.average < 10 ? 'bg-rose-50 text-rose-700' : b.average < 14 ? 'bg-slate-50 text-ink' : 'bg-emerald-50 text-emerald-700'">
+                            [class]="markClass(b.average)">
                             <div class="text-[10px] uppercase tracking-wide text-mute font-semibold">{{ fr() ? 'Moyenne' : 'Average' }}</div>
-                            <div class="text-lg font-bold">{{ b.average }}/20</div>
+                            <div class="text-lg font-bold">{{ formatMark(b.average) }}/20</div>
                           </div>
                           <div class="rounded-lg px-3 py-2.5 bg-slate-50 text-ink">
                             <div class="text-[10px] uppercase tracking-wide text-mute font-semibold">{{ fr() ? 'Rang' : 'Rank' }}</div>
@@ -498,7 +666,7 @@ const appreciation = (avg: number, fr: boolean): string => {
                           </div>
                           <div class="rounded-lg px-3 py-2.5 bg-slate-50 text-ink">
                             <div class="text-[10px] uppercase tracking-wide text-mute font-semibold">{{ fr() ? 'Moy. classe' : 'Class avg' }}</div>
-                            <div class="text-lg font-bold">{{ b.classAverage }}/20</div>
+                            <div class="text-lg font-bold">{{ formatMark(b.classAverage) }}/20</div>
                           </div>
                         </div>
                         @if (b.attendance; as attendance) {
@@ -520,11 +688,11 @@ const appreciation = (avg: number, fr: boolean): string => {
                               <div class="text-[10px] uppercase tracking-wider text-mute font-semibold">
                                 {{ fr() ? 'Appréciation générale' : 'General appreciation' }}
                               </div>
-                              @if (canWrite && !b.validated && !b.financiallyBlocked) {
+                              @if (canWrite && b.state !== 'PREVIEW' && !b.validated && !b.financiallyBlocked) {
                                 <bbc-icon name="edit" [s]="12" />
                               }
                             </div>
-                            @if (canWrite && !b.validated && !b.financiallyBlocked) {
+                            @if (canWrite && b.state !== 'PREVIEW' && !b.validated && !b.financiallyBlocked) {
                               <textarea [ngModel]="appreciationDraft()" (ngModelChange)="appreciationDraft.set($event)"
                                 rows="3" [placeholder]="fr() ? 'Saisissez l’appréciation générale…' : 'Enter overall appreciation…'"
                                 class="w-full p-2 text-sm rounded border border-slate-200 italic resize-none focus:outline-none focus:border-brand-400 print:hidden"></textarea>
@@ -554,13 +722,25 @@ const appreciation = (avg: number, fr: boolean): string => {
                           } @else {
                             <div class="flex-1"></div>
                           }
-                          @if (canWrite && !b.validated && !b.financiallyBlocked) {
+                          @if (canWrite && (b.workflowMeta?.capabilities?.canCreateDraft ?? (b.state === 'PREVIEW')) && !b.financiallyBlocked) {
+                            <button (click)="createBulletinDraft(b)" [disabled]="bulletinBusy()"
+                              class="inline-flex items-center gap-2 h-10 px-4 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-semibold disabled:opacity-50">
+                              <bbc-icon name="doc" [s]="16" /> {{ bulletinBusy() ? '…' : (fr() ? 'Créer le brouillon' : 'Create draft') }}
+                            </button>
+                          }
+                          @if (canWrite && (b.workflowMeta?.capabilities?.canValidate ?? (!!b.id && b.state !== 'PREVIEW' && !b.validated)) && !b.financiallyBlocked) {
                             <button (click)="validate(b)"
                               class="inline-flex items-center gap-2 h-10 px-4 bg-gold-500 hover:bg-gold-600 text-white rounded-lg text-sm font-semibold">
                               <bbc-icon name="check" [s]="16" [sw]="2.5" /> {{ fr() ? 'Valider le bulletin' : 'Validate report card' }}
                             </button>
                           }
-                          @if (canWrite && b.state === 'VALIDATED' && !b.financiallyBlocked) {
+                          @if (canWrite && (b.workflowMeta?.capabilities?.canRefreshDraft ?? false)) {
+                            <button (click)="requestRefresh(b)"
+                              class="inline-flex items-center gap-2 h-10 px-4 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-semibold">
+                              <bbc-icon name="edit" [s]="16" /> {{ fr() ? 'Actualiser le brouillon' : 'Refresh draft' }}
+                            </button>
+                          }
+                          @if (canWrite && (b.workflowMeta?.capabilities?.canPublish ?? (b.state === 'VALIDATED')) && !b.financiallyBlocked) {
                             <button (click)="requestPublication(b)"
                               class="inline-flex items-center gap-2 h-10 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-semibold">
                               <bbc-icon name="eye" [s]="16" /> {{ fr() ? 'Publier aux parents' : 'Publish to parents' }}
@@ -613,8 +793,8 @@ const appreciation = (avg: number, fr: boolean): string => {
                       <tr class="border-b border-slate-100">
                         <td class="py-1.5 font-semibold">{{ l.subjectLabel }}</td>
                         <td class="py-1.5 text-center">{{ l.coef }}</td>
-                        <td class="py-1.5 text-center font-bold">{{ l.mark }}</td>
-                        <td class="py-1.5 text-center font-mono">{{ l.weighted }}</td>
+                        <td class="py-1.5 text-center font-bold">{{ formatMark(l.mark) }}</td>
+                        <td class="py-1.5 text-center font-mono">{{ formatMark(l.weighted) }}</td>
                       </tr>
                     }
                   </tbody>
@@ -682,13 +862,13 @@ const appreciation = (avg: number, fr: boolean): string => {
       }
 
       <!-- ============ PV ============ -->
-      @if (mode() === 'pv') {
+      @if (mode() === 'pv' || mode() === 'overview') {
         @if (pv(); as p) {
-          <bbc-card [title]="(fr() ? 'Procès-verbal' : 'Master sheet') + ' — ' + p.className"
+          <bbc-card [title]="(mode() === 'overview' ? (fr() ? 'Vue de classe (lecture seule)' : 'Class overview (read-only)') : (fr() ? 'Procès-verbal' : 'Master sheet')) + ' — ' + p.className"
             [subtitle]="p.reportingPeriodCode ? p.rows.length + (fr() ? ' élèves · ' : ' students · ') + p.reportingPeriodCode + ' · ' + (p.completeStudents ?? 0) + (fr() ? ' complets' : ' complete') : p.rows.length + (fr() ? ' élèves · Séquence ' : ' students · Sequence ') + p.sequence">
             <div action class="text-right">
               <div class="text-[10px] uppercase tracking-wide text-mute font-semibold">{{ fr() ? 'Moy. classe' : 'Class avg' }}</div>
-              <div class="text-lg font-bold text-brand-600">{{ p.classAverage }}/20</div>
+              <div class="text-lg font-bold text-brand-600">{{ formatMark(p.classAverage) }}/20</div>
             </div>
             @if (p.rows.length === 0) {
               <bbc-empty icon="users" [label]="fr() ? 'Aucun élève' : 'No students'" />
@@ -714,8 +894,8 @@ const appreciation = (avg: number, fr: boolean): string => {
                         </td>
                         <td class="py-2 pr-5 text-right">
                           <span class="inline-block px-2 py-0.5 rounded font-bold"
-                            [class]="r.average < 10 ? 'bg-rose-100 text-rose-700' : r.average < 14 ? 'bg-slate-100 text-ink' : 'bg-emerald-100 text-emerald-700'">
-                            {{ r.complete === false ? (fr() ? 'Incomplet' : 'Incomplete') : r.average + '/20' }}
+                            [class]="markClass(r.average)">
+                            {{ r.complete === false ? (fr() ? 'Incomplet' : 'Incomplete') : formatMark(r.average) + '/20' }}
                           </span>
                         </td>
                       </tr>
@@ -731,6 +911,17 @@ const appreciation = (avg: number, fr: boolean): string => {
               [label]="fr() ? 'Choisissez une classe et une séquence, puis chargez le PV.' : 'Pick a class and sequence, then load the master sheet.'" />
           </bbc-card>
         }
+      }
+      @if (refreshDialog()) {
+        <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/55" (click)="cancelRefresh()">
+          <section class="bg-white rounded-xl2 shadow-pop w-full max-w-md p-6" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+            <h3 class="text-lg font-bold text-ink">{{ fr() ? 'Actualiser ce brouillon ?' : 'Refresh this draft?' }}</h3>
+            <p class="text-sm text-mute mt-2">{{ fr() ? 'Les sources courantes seront recalculées. L’ancienne version sera conservée comme supersédée.' : 'Current sources will be recalculated. The previous version will be retained as superseded.' }}</p>
+            <label class="block mt-4"><span class="text-xs font-semibold">{{ fr() ? 'Motif obligatoire' : 'Required reason' }}</span><textarea [(ngModel)]="refreshReason" rows="3" maxlength="500" class="w-full mt-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm" [class.border-rose-400]="!refreshReason.trim()" [placeholder]="fr() ? 'Ex. Notes S1 et S2 contrôlées.' : 'E.g. S1 and S2 grades checked.'"></textarea></label>
+            @if (!refreshReason.trim()) { <div class="mt-1 text-xs text-rose-700">{{ fr() ? 'Le motif est obligatoire.' : 'A reason is required.' }}</div> }
+            <div class="flex justify-end gap-2 mt-5"><button (click)="cancelRefresh()" class="h-9 px-3 rounded-lg border border-slate-200 text-sm font-semibold">{{ fr() ? 'Annuler' : 'Cancel' }}</button><button (click)="confirmRefresh()" [disabled]="!refreshReason.trim() || refreshBusy()" class="h-9 px-3 rounded-lg bg-amber-600 text-white text-sm font-semibold disabled:opacity-50">{{ refreshBusy() ? '…' : (fr() ? 'Confirmer l’actualisation' : 'Confirm refresh') }}</button></div>
+          </section>
+        </div>
       }
       @if (publicationDialog()) {
         <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/55" (click)="cancelPublication()">
@@ -776,8 +967,9 @@ export class AcademicComponent {
   private auth = inject(AuthService);
   private scope = inject(ScopeService);
   private foundationApi = inject(FoundationApi);
+  private route = inject(ActivatedRoute);
+  private router = inject(Router);
 
-  protected readonly sequences = [1, 2, 3, 4, 5, 6] as const;
   protected canWrite = this.auth.can('academic', 'write');
 
   protected isApc = computed(() => {
@@ -791,26 +983,24 @@ export class AcademicComponent {
   protected classStudents = signal<Student[]>([]);
   protected studentQuery = signal('');
   protected selectedStudentId = signal('');
+  protected academicSessionId = signal('');
   protected sequence = signal(1);
   protected reportingPeriods = signal<AcademicReportingPeriodView[]>([]);
   protected selectedReportingPeriodId = signal('');
   protected selectedReportingPeriodCode = computed(() => this.reportingPeriods().find((p) => p.id === this.selectedReportingPeriodId())?.code ?? '');
+  protected sequenceReportingPeriods = computed(() => this.reportingPeriods().filter((p) => p.periodType === 'SEQUENCE'));
+  protected computedReportingPeriods = computed(() => this.reportingPeriods().filter((p) => p.periodType !== 'SEQUENCE'));
+  protected selectedPeriodIsComputed = computed(() => { const period = this.reportingPeriods().find((p) => p.id === this.selectedReportingPeriodId()); return !!period && period.periodType !== 'SEQUENCE'; });
+  protected reportingDependencies = signal<import('../../core/foundation.api').StructureDependencyView[]>([]);
   protected mode = signal<Mode>('bulletin');
   protected bulletin = signal<BulletinView | null>(null);
   protected pv = signal<PvView | null>(null);
   protected gradeEntry = signal<GradeEntryView | null>(null);
+  protected gradeEntryError = signal<string | null>(null);
   protected reportInputs = signal<ReportCardInputsView | null>(null);
   protected inputDrafts = signal<Record<string, ReportCardInputUpsert>>({});
   protected inputBusy = signal<string | null>(null);
   protected selectedGradeSubjectCode = signal('');
-  protected assessmentDialog = signal(false);
-  protected assessmentBusy = signal(false);
-  protected assessmentTouched = signal(false);
-  protected assessmentCode = '';
-  protected assessmentLabel = '';
-  protected assessmentMax = 20;
-  protected assessmentWeight = 1;
-  protected assessmentMandatory = true;
   protected gradeBusy = signal(false);
   protected appreciationDraft = signal('');
   protected bulkBulletins = signal<BulletinView[]>([]);
@@ -820,6 +1010,11 @@ export class AcademicComponent {
   protected publicationReason = '';
   protected publicationTarget = signal<BulletinView | null>(null);
   protected publicationBusy = signal(false);
+  protected refreshDialog = signal(false);
+  protected refreshReason = '';
+  protected refreshTarget = signal<BulletinView | null>(null);
+  protected refreshBusy = signal(false);
+  protected bulletinBusy = signal(false);
   protected officialDocumentBusy = signal(false);
   protected officialDocument = signal<GeneratedDocumentView | null>(null);
   protected gradeReviewDialog = signal<'ACCEPT' | 'RETURN' | null>(null);
@@ -831,25 +1026,25 @@ export class AcademicComponent {
   protected batchItems = signal<BulletinBatchItemView[]>([]);
   protected batchBusy = signal(false);
   private batchPollId: string | null = null;
+  private rosterRequestKey = '';
+  private gradeEntryRequestId = 0;
   protected notice = signal<{ ok: boolean; text: string } | null>(null);
   private photoApi = inject(PhotoApi);
 
   protected fr = () => this.i18n.lang() === 'fr';
   protected String = String;
+  protected display(value: string | null | undefined): string { return cleanDisplay(value); }
 
   protected tabs = computed(() => [
     { id: 'batch', label: this.fr() ? 'Génération en lot' : 'Batch generation' },
     { id: 'bulletin', label: this.fr() ? 'Bulletin' : 'Report card' },
     { id: 'grade-entry', label: this.fr() ? 'Saisie des notes' : 'Grade entry' },
     { id: 'inputs', label: this.fr() ? 'Assiduité & conseil' : 'Attendance & council' },
+    { id: 'overview', label: this.fr() ? 'Vue de classe (lecture)' : 'Class overview (read-only)' },
     { id: 'pv', label: this.fr() ? 'Procès-verbal' : 'Master sheet' },
   ]);
 
   protected canReview = computed(() => ['admin', 'principal', 'dean_of_studies', 'censor'].includes(this.auth.user()?.role ?? ''));
-
-  protected seqOptions = computed(() =>
-    this.sequences.map((n) => ({ value: String(n), label: (this.fr() ? 'Séq. ' : 'Seq ') + n })),
-  );
 
   protected filteredClassStudents = computed(() => {
     const q = this.studentQuery().trim().toLowerCase();
@@ -860,83 +1055,150 @@ export class AcademicComponent {
   });
 
   constructor() {
+    const requestedMode = this.route.snapshot.queryParamMap.get('mode') as Mode | null;
+    const requestedClassId = this.route.snapshot.queryParamMap.get('classId');
+    const requestedPeriodId = this.route.snapshot.queryParamMap.get('periodId');
+    const requestedSubjectCode = this.route.snapshot.queryParamMap.get('subjectCode');
+    if (requestedSubjectCode) this.selectedGradeSubjectCode.set(requestedSubjectCode.toUpperCase());
+    if (requestedMode && ['bulletin', 'grade-entry', 'inputs', 'pv', 'overview', 'batch'].includes(requestedMode)) this.mode.set(requestedMode);
     this.setupApi.listClasses().subscribe({
-      next: (c) => this.classes.set(c),
+      next: (c) => { this.classes.set(c); const klass = c.find((item) => item.id === requestedClassId); if (klass && this.academicSessionId()) this.onClassChange(klass.name, !!requestedSubjectCode); },
       error: () => this.classes.set([]),
     });
     this.foundationApi.currentSession().subscribe({
-      next: (s) => this.foundationApi.reportingPeriods(s.id).subscribe({
-        next: (periods) => { const readablePeriods = periods.map((p) => ({ ...p, label: cleanDisplay(p.label) })); this.reportingPeriods.set(readablePeriods); const first = readablePeriods.find((p) => p.code === 'S1') ?? readablePeriods[0]; if (first) { this.selectedReportingPeriodId.set(first.id); this.sequence.set(this.periodSequence(first)); } },
+      next: (s) => {
+        this.academicSessionId.set(s.id);
+        this.foundationApi.reportingDependencies(s.id).subscribe({ next: (rows) => this.reportingDependencies.set(rows), error: () => this.reportingDependencies.set([]) });
+        this.foundationApi.reportingPeriods(s.id).subscribe({
+        next: (periods) => { const readablePeriods = periods.map((p) => ({ ...p, label: cleanDisplay(p.label) })); this.reportingPeriods.set(readablePeriods); const first = readablePeriods.find((p) => p.id === requestedPeriodId && (this.mode() !== 'grade-entry' || p.periodType === 'SEQUENCE')) ?? readablePeriods.find((p) => p.code === 'S1') ?? readablePeriods[0]; if (first) { this.selectedReportingPeriodId.set(first.id); this.sequence.set(this.periodSequence(first)); } const klass = this.classes().find((c) => c.id === requestedClassId); if (klass) this.onClassChange(klass.name, !!requestedSubjectCode); },
         error: () => this.reportingPeriods.set([]),
-      }),
+        });
+      },
       error: () => this.reportingPeriods.set([]),
     });
   }
 
-  protected appr(mark: number): string {
-    return appreciation(mark, this.fr());
+  protected appr(mark: number | null): string {
+    return mark == null ? (this.fr() ? '—' : '—') : appreciation(mark, this.fr());
+  }
+
+  protected formatMark(mark: number | null | undefined): string {
+    return formatAcademicMark(mark);
+  }
+
+  protected markClass(mark: number | null | undefined): string {
+    if (mark == null) return 'bg-slate-100 text-mute';
+    return mark < 10 ? 'bg-rose-50 text-rose-700' : mark < 14 ? 'bg-slate-50 text-ink' : 'bg-emerald-50 text-emerald-700';
+  }
+
+  protected bulletinTitle(b: BulletinView): string {
+    return academicBulletinTitle(b, this.fr());
+  }
+
+  protected isComputedBulletin(b: BulletinView): boolean {
+    return b.product === 'TERM' || b.product === 'ANNUAL' || b.reportingPeriodType === 'TERM_RESULT' || b.reportingPeriodType === 'ANNUAL_RESULT';
+  }
+
+  protected periodColumns(b: BulletinView): string[] {
+    return computedPeriodCodes(b.lines);
+  }
+
+  protected periodMark(line: BulletinView['lines'][number], code: string): number | null {
+    return line.periodMarks?.find((mark) => mark.periodCode === code)?.mark ?? null;
   }
 
   protected setMode(m: Mode): void {
+    if (m === 'grade-entry' && this.reportingPeriods().find((p) => p.id === this.selectedReportingPeriodId())?.periodType !== 'SEQUENCE') {
+      const firstSequence = this.sequenceReportingPeriods()[0];
+      if (firstSequence) this.selectedReportingPeriodId.set(firstSequence.id);
+    }
     this.mode.set(m);
+    this.notice.set(null);
+    this.gradeEntryError.set(null);
     this.bulkBulletins.set([]);
     if (m === 'grade-entry' && this.selectedClassId() && this.selectedReportingPeriodId()) this.loadGradeEntry();
     if (m === 'inputs' && this.selectedClassId() && this.selectedReportingPeriodId()) this.loadReportInputs();
     if (m === 'batch' && this.selectedClassId() && this.selectedReportingPeriodId()) this.loadBatchJobs();
+    if ((m === 'pv' || m === 'overview') && this.selectedClassId() && this.selectedReportingPeriodId()) this.loadPv();
   }
 
-  protected onClassChange(name: string): void {
+  protected onClassChange(name: string, preserveSubjectCode = false): void {
+    this.notice.set(null);
+    this.gradeEntryError.set(null);
     this.selectedClass.set(name);
     this.selectedClassId.set(this.classes().find((c) => c.name === name)?.id ?? '');
     this.selectedStudentId.set('');
-    this.bulletin.set(null);
+    this.clearBulletinState();
     this.pv.set(null);
     this.bulkBulletins.set([]);
+    this.gradeEntryRequestId++;
     this.gradeEntry.set(null);
     this.reportInputs.set(null);
     this.inputDrafts.set({});
-    this.selectedGradeSubjectCode.set('');
+    if (!preserveSubjectCode) this.selectedGradeSubjectCode.set('');
     this.studentQuery.set('');
     this.classStudents.set([]);
     this.batchJob.set(null); this.batchJobs.set([]); this.batchItems.set([]);
     if (!name) return;
-    this.studentApi.list(name).subscribe({
-      next: (r) => this.classStudents.set(r),
-      error: () => this.classStudents.set([]),
+    const sessionId = this.academicSessionId();
+    const classId = this.selectedClassId();
+    if (!sessionId || !classId) return;
+    const requestKey = `${sessionId}:${classId}`;
+    this.rosterRequestKey = requestKey;
+    this.studentApi.listRoster(sessionId, classId).subscribe({
+      next: (r) => {
+        if (this.rosterRequestKey === requestKey && this.academicSessionId() === sessionId && this.selectedClassId() === classId) {
+          this.classStudents.set(r);
+        }
+      },
+      error: (e) => {
+        if (this.rosterRequestKey === requestKey) {
+          this.classStudents.set([]);
+          this.notice.set({ ok: false, text: this.explainError(e) });
+        }
+      },
     });
-    if (this.mode() === 'pv') this.loadPv();
+    if (this.mode() === 'pv' || this.mode() === 'overview') this.loadPv();
     if (this.mode() === 'grade-entry') this.loadGradeEntry();
     if (this.mode() === 'inputs') this.loadReportInputs();
     if (this.mode() === 'batch') this.loadBatchJobs();
   }
 
   protected onStudentChange(id: string): void {
+    this.clearBulletinState();
     this.selectedStudentId.set(id);
-    this.studentPhotoUrl.set(null);
-    this.photoApi.load('students', id).subscribe((url) => this.studentPhotoUrl.set(url));
     this.bulkBulletins.set([]);
+    if (!id) return;
+    if (!this.classStudents().some((student) => student.id === id)) {
+      this.selectedStudentId.set('');
+      this.notice.set({ ok: false, text: this.fr()
+        ? 'Cet élève n’est pas inscrit activement dans la classe et la session sélectionnées.'
+        : 'This student is not actively enrolled in the selected class and session.' });
+      return;
+    }
+    this.photoApi.load('students', id).subscribe((url) => {
+      if (this.selectedStudentId() === id) this.studentPhotoUrl.set(url);
+    });
     this.loadBulletin();
   }
 
-  protected onSequenceChip(value: string | null): void {
-    if (!value) return;
-    this.sequence.set(Number(value));
-    this.bulkBulletins.set([]);
-    if (this.mode() === 'bulletin' && this.selectedStudentId()) this.loadBulletin();
-    if (this.mode() === 'pv' && this.selectedClass()) this.loadPv();
-    if (this.mode() === 'grade-entry' && this.selectedClassId()) this.loadGradeEntry();
-    if (this.mode() === 'inputs' && this.selectedClassId()) this.loadReportInputs();
-    if (this.mode() === 'batch' && this.selectedClassId()) this.loadBatchJobs();
-  }
-
   protected onReportingPeriodChange(id: string): void {
+    const selected = this.reportingPeriods().find((p) => p.id === id);
+    if (this.mode() === 'grade-entry' && selected && selected.periodType !== 'SEQUENCE') return;
+    this.notice.set(null);
+    this.gradeEntryError.set(null);
+    this.gradeEntryRequestId++;
     this.selectedReportingPeriodId.set(id);
-    const period = this.reportingPeriods().find((p) => p.id === id);
+    this.clearBulletinState();
+    this.pv.set(null);
+    this.bulkBulletins.set([]);
+    const period = selected;
     if (period) this.sequence.set(this.periodSequence(period));
     if (this.mode() === 'bulletin' && this.selectedStudentId()) this.loadBulletin();
     if (this.mode() === 'grade-entry' && this.selectedClassId()) this.loadGradeEntry();
     if (this.mode() === 'inputs' && this.selectedClassId()) this.loadReportInputs();
     if (this.mode() === 'batch' && this.selectedClassId()) this.loadBatchJobs();
+    if ((this.mode() === 'pv' || this.mode() === 'overview') && this.selectedClassId()) this.loadPv();
   }
 
   private loadBatchJobs(): void {
@@ -1018,31 +1280,70 @@ export class AcademicComponent {
   }
 
   protected onGradeSubjectChange(code: string): void {
+    this.notice.set(null);
+    this.gradeEntryError.set(null);
     this.selectedGradeSubjectCode.set(code);
     this.loadGradeEntry(code);
   }
 
-  private loadGradeEntry(subjectCode?: string): void {
-    const classId = this.selectedClassId(); const periodId = this.selectedReportingPeriodId();
-    if (!classId || !periodId) { this.gradeEntry.set(null); return; }
-    this.api.gradeEntry(periodId, classId, subjectCode || this.selectedGradeSubjectCode() || undefined).subscribe({
-      next: (entry) => { this.gradeEntry.set(entry); this.selectedGradeSubjectCode.set(entry.subjectCode); },
-      error: (e) => { this.gradeEntry.set(null); this.fail(e); },
-    });
+  protected gradePacketStatusLabel(status: GradeEntryView['packetStatus']): string {
+    if (!this.fr()) return ({ DRAFT: 'Draft — not sent', SUBMITTED: 'Sent for review', RETURNED: 'Returned for correction', ACCEPTED: 'Accepted and locked', LOCKED: 'Locked' } as any)[status] ?? status;
+    return ({ DRAFT: 'Brouillon — non envoyé', SUBMITTED: 'Envoyée pour vérification', RETURNED: 'Retournée pour correction', ACCEPTED: 'Acceptée et verrouillée', LOCKED: 'Verrouillée' } as any)[status] ?? status;
   }
 
-  protected createScopedAssessment(entry: GradeEntryView): void {
-    this.assessmentTouched.set(true);
-    if (!this.assessmentCode.trim() || !this.assessmentLabel.trim()) return;
-    this.assessmentBusy.set(true);
-    this.api.createAssessment({
-      reportingPeriodId: entry.reportingPeriodId, code: this.assessmentCode.trim(), label: this.assessmentLabel.trim(),
-      assessmentType: 'EVALUATION', maxScore: this.assessmentMax || 20, weight: this.assessmentWeight || 1,
-      mandatory: this.assessmentMandatory, displayOrder: entry.assessments.length + 1,
-      classId: entry.classId, subjectCode: entry.subjectCode,
-    }).subscribe({
-      next: () => { this.assessmentBusy.set(false); this.assessmentDialog.set(false); this.assessmentTouched.set(false); this.assessmentCode = ''; this.assessmentLabel = ''; this.assessmentMax = 20; this.assessmentWeight = 1; this.loadGradeEntry(entry.subjectCode); this.notice.set({ ok: true, text: this.fr() ? 'Évaluation créée pour cette classe et cette matière.' : 'Assessment created for this class and subject.' }); },
-      error: (e) => { this.assessmentBusy.set(false); this.fail(e); },
+  protected gradeBlockerLabel(blocker: string): string {
+    const readable = cleanDisplay(blocker);
+    return readable.replace(' · ', ' — ');
+  }
+
+  /** Keep API blocker codes stable while presenting actionable staff-facing text. */
+  protected bulletinBlockerLabel(blocker: string, bulletin?: BulletinView): string {
+    const raw = cleanDisplay(blocker).trim();
+    const parts = raw.split(':');
+    const code = parts.at(-1)?.toUpperCase() ?? raw.toUpperCase();
+    const subjectCode = parts.length > 1 ? parts[0].toUpperCase() : '';
+    const subject = bulletin?.lines.find((line) => line.subjectCode.toUpperCase() === subjectCode);
+    const subjectLabel = subject ? this.display(subject.subjectLabel) : (this.fr() ? 'Cette matière' : 'This subject');
+    if (code === 'MISSING') {
+      return this.fr()
+        ? `${subjectLabel} : saisissez la note obligatoire ou choisissez « Absent » / « Dispensé ».`
+        : `${subjectLabel}: enter the required mark or choose “Absent” / “Exempt”.`;
+    }
+    if (code === 'REMARK_REQUIRED') {
+      return this.fr()
+        ? `${subjectLabel} : ajoutez l’appréciation obligatoire de l’enseignant.`
+        : `${subjectLabel}: add the teacher’s required comment.`;
+    }
+    if (code === 'NO_ASSESSMENT') {
+      return this.fr()
+        ? `${subjectLabel} : configurez au moins une évaluation avant de publier le bulletin.`
+        : `${subjectLabel}: configure at least one assessment before publishing the report card.`;
+    }
+    const labels: Record<string, [string, string]> = {
+      PUBLISHED_ANNUAL_REQUIRED: ['Publiez d’abord le bulletin annuel requis.', 'Publish the required annual report card first.'],
+      COUNCIL_APPROVAL_REQUIRED: ['Faites approuver les éléments par le conseil de classe.', 'Have the class-council inputs approved.'],
+      ATTENDANCE_REQUIRED: ['Finalisez les appels requis avant de publier.', 'Finalize the required attendance calls before publishing.'],
+    };
+    const message = labels[code];
+    return message ? (this.fr() ? message[0] : message[1]) : (this.fr()
+      ? 'Complétez l’information indiquée avant de publier le bulletin.'
+      : 'Complete the indicated information before publishing the report card.');
+  }
+
+  protected gradeAssessmentLabel(entry: GradeEntryView, assessment: GradeEntryView['assessments'][number]): string {
+    if (entry.assessments.length === 1) return this.display(entry.subjectLabel);
+    return this.display(assessment.label) || assessment.code;
+  }
+
+  protected loadGradeEntry(subjectCode?: string): void {
+    const classId = this.selectedClassId(); const periodId = this.selectedReportingPeriodId();
+    if (!classId || !periodId) { this.gradeEntry.set(null); return; }
+    const requestId = ++this.gradeEntryRequestId;
+    const requestedSubjectCode = subjectCode || this.selectedGradeSubjectCode() || undefined;
+    this.gradeEntryError.set(null);
+    this.api.gradeEntry(periodId, classId, requestedSubjectCode).subscribe({
+      next: (entry) => { if (requestId !== this.gradeEntryRequestId || this.selectedClassId() !== classId || this.selectedReportingPeriodId() !== periodId) return; this.gradeEntry.set(this.refreshGradeProgress(entry)); this.gradeEntryError.set(null); this.selectedGradeSubjectCode.set(entry.subjectCode); },
+      error: (e) => { if (requestId !== this.gradeEntryRequestId || this.selectedClassId() !== classId || this.selectedReportingPeriodId() !== periodId) return; this.gradeEntry.set(null); this.gradeEntryError.set(this.explainError(e, 'grade-entry')); },
     });
   }
 
@@ -1153,7 +1454,31 @@ export class AcademicComponent {
   }
 
   private updateGradeEntry(mutator: (entry: GradeEntryView) => GradeEntryView): void {
-    const current = this.gradeEntry(); if (current) this.gradeEntry.set(mutator(current));
+    const current = this.gradeEntry(); if (current) this.gradeEntry.set(this.refreshGradeProgress(mutator(current)));
+  }
+
+  private refreshGradeProgress(entry: GradeEntryView): GradeEntryView {
+    if (!entry.assessments.length) {
+      return { ...entry, completedStudents: 0, blockers: [this.fr() ? 'Aucune évaluation n’est configurée pour cette matière.' : 'No assessment is configured for this subject.'] };
+    }
+    const subject = entry.availableSubjects.find((item) => item.code.toUpperCase() === entry.subjectCode.toUpperCase());
+    const blockers: string[] = [];
+    const complete = entry.students.filter((row) => {
+      let ok = true;
+      entry.assessments.forEach((assessment, index) => {
+        const cell = row.values[index];
+        if (assessment.mandatory && (!cell || !['SCORED', 'ABSENT', 'EXEMPT'].includes(cell.valueStatus))) {
+          ok = false;
+          blockers.push(`${row.studentName} · ${this.gradeAssessmentLabel(entry, assessment)}`);
+        }
+      });
+      if (subject?.remarkRequired && !row.comment?.trim()) {
+        ok = false;
+        blockers.push(`${row.studentName} · ${this.fr() ? 'Appréciation obligatoire' : 'Required comment'}`);
+      }
+      return ok;
+    }).length;
+    return { ...entry, completedStudents: complete, blockers: blockers.length > 12 ? [...blockers.slice(0, 12), this.fr() ? `… et ${blockers.length - 12} autre(s)` : `… and ${blockers.length - 12} more`] : blockers };
   }
 
   protected updateGradeMark(studentId: string, index: number, raw: unknown): void {
@@ -1169,21 +1494,45 @@ export class AcademicComponent {
     this.updateGradeEntry((entry) => ({ ...entry, students: entry.students.map((row) => row.studentId === studentId ? { ...row, comment } : row) }));
   }
 
-  protected saveGradeEntry(): void {
+  protected saveGradeEntry(afterSave?: () => void): void {
     const entry = this.gradeEntry(); if (!entry) return;
     this.gradeBusy.set(true);
     this.api.saveGradeEntry({ reportingPeriodId: entry.reportingPeriodId, classId: entry.classId, subjectCode: entry.subjectCode, packetVersion: entry.packetVersion, students: entry.students.map((row) => ({ studentId: row.studentId, comment: row.comment, values: row.values.map((cell) => ({ assessmentId: cell.assessmentId, mark: cell.mark, valueStatus: cell.valueStatus, version: cell.version })) })) }).subscribe({
-      next: (updated) => { this.gradeEntry.set(updated); this.selectedGradeSubjectCode.set(updated.subjectCode); this.gradeBusy.set(false); this.notice.set({ ok: true, text: this.fr() ? 'Brouillon de notes enregistré.' : 'Grade draft saved.' }); },
+      next: (updated) => { this.gradeEntry.set(updated); this.selectedGradeSubjectCode.set(updated.subjectCode); this.gradeBusy.set(false); this.notice.set({ ok: true, text: this.fr() ? 'Brouillon de notes enregistré.' : 'Grade draft saved.' }); afterSave?.(); },
       error: (e) => { this.gradeBusy.set(false); this.fail(e); },
     });
   }
 
   protected submitGradeEntry(): void {
     const entry = this.gradeEntry(); if (!entry) return;
+    if (!this.canSubmitGrade(entry)) return;
     this.gradeBusy.set(true);
     this.api.gradeEntryWorkflow(entry.reportingPeriodId, entry.classId, entry.subjectCode, 'SUBMIT', undefined, entry.packetVersion).subscribe({
       next: (updated) => { this.gradeEntry.set(updated); this.gradeBusy.set(false); this.notice.set({ ok: true, text: this.fr() ? 'Saisie soumise à la direction.' : 'Grades submitted to management.' }); },
       error: (e) => { this.gradeBusy.set(false); this.fail(e); },
+    });
+  }
+
+  protected saveAndOpenAssignmentRepair(entry: GradeEntryView): void {
+    if (this.gradeBusy()) return;
+    this.saveGradeEntry(() => this.openAssignmentRepair(this.gradeEntry() ?? entry));
+  }
+
+  protected canSubmitGrade(entry: GradeEntryView): boolean {
+    const assignmentReady = entry.assignmentReadiness?.status === undefined || entry.assignmentReadiness?.status === 'RESOLVED';
+    const editable = entry.capabilities?.canEditDraft !== false;
+    const serverReady = entry.capabilities?.canSubmit !== false;
+    return assignmentReady && editable && serverReady && entry.packetStatus !== 'SUBMITTED'
+      && entry.packetStatus !== 'ACCEPTED' && entry.packetStatus !== 'LOCKED';
+  }
+
+  protected openAssignmentRepair(entry: GradeEntryView): void {
+    this.router.navigate(['/settings'], {
+      queryParams: {
+        tab: 'academic', subtab: 'class-subjects', sessionId: entry.academicSessionId,
+        classId: entry.classId, subjectCode: entry.subjectCode,
+        returnUrl: `/academic?mode=grade-entry&classId=${encodeURIComponent(entry.classId)}&periodId=${encodeURIComponent(entry.reportingPeriodId)}&subjectCode=${encodeURIComponent(entry.subjectCode)}`,
+      },
     });
   }
 
@@ -1208,21 +1557,51 @@ export class AcademicComponent {
   private loadBulletin(): void {
     const id = this.selectedStudentId();
     if (!id) {
-      this.bulletin.set(null);
+      this.clearBulletinState();
       return;
     }
+    if (!this.classStudents().some((student) => student.id === id)) {
+      this.clearBulletinState();
+      return;
+    }
+    this.clearBulletinState();
     const periodId = this.selectedReportingPeriodId();
     if (periodId) {
-      this.api.bulletinSnapshot(id, periodId).subscribe((snapshot) => {
-        this.bulletin.set({ id: snapshot.id, studentId: snapshot.studentId, studentName: snapshot.studentName, className: snapshot.className ?? '', sequence: this.periodSequence(this.reportingPeriods().find((p) => p.id === periodId)!), lines: snapshot.lines.map((l) => ({ subjectCode: l.subjectCode, subjectLabel: l.subjectLabel, coef: l.coefficient, mark: l.mark, weighted: l.weighted, teacherRemark: l.teacherRemark ?? undefined, periodMarks: l.periodMarks ?? undefined, teacherName: l.teacherName, subjectGroupCode: l.subjectGroupCode, subjectGroupLabel: l.subjectGroupLabel })), average: snapshot.average, rank: snapshot.rank ?? 0, classSize: snapshot.classSize, classAverage: snapshot.classStats?.average ?? snapshot.average, validated: snapshot.state === 'VALIDATED' || snapshot.state === 'PUBLISHED', generalAppreciation: snapshot.generalAppreciation, financiallyBlocked: false, reportingPeriodId: snapshot.reportingPeriodId, reportingPeriodCode: snapshot.reportingPeriodCode, state: snapshot.state, complete: snapshot.complete, blockers: snapshot.blockers, snapshotHash: snapshot.snapshotHash, version: snapshot.version, attendance: snapshot.attendance, conduct: snapshot.conduct, groupStats: snapshot.groupStats ?? undefined });
+      this.api.previewBulletinSnapshot(id, periodId).subscribe((snapshot) => {
+        if (this.selectedStudentId() !== id || this.selectedReportingPeriodId() !== periodId) return;
+        this.bulletin.set(this.mapSnapshot(snapshot));
         this.appreciationDraft.set(snapshot.generalAppreciation ?? '');
+      }, (e) => {
+        if (this.selectedStudentId() === id && this.selectedReportingPeriodId() === periodId) {
+          this.clearBulletinState();
+          this.fail(e);
+        }
       });
     } else {
-      this.api.bulletin(id, this.sequence()).subscribe((b) => { this.bulletin.set(b); this.appreciationDraft.set(b.generalAppreciation ?? ''); });
+      const sequence = this.sequence();
+      this.api.bulletin(id, sequence).subscribe({
+        next: (b) => {
+          if (this.selectedStudentId() !== id || this.sequence() !== sequence) return;
+          this.bulletin.set(b); this.appreciationDraft.set(b.generalAppreciation ?? '');
+        },
+        error: (e) => {
+          if (this.selectedStudentId() === id && this.sequence() === sequence) {
+            this.clearBulletinState();
+            this.fail(e);
+          }
+        },
+      });
     }
   }
 
   private periodSequence(period: AcademicReportingPeriodView): number { const match = period?.code?.match(/^S(\d+)$/); return match ? Number(match[1]) : this.sequence(); }
+  protected dependencyText(): string {
+    const parent = this.reportingPeriods().find((p) => p.id === this.selectedReportingPeriodId());
+    if (!parent) return this.fr() ? 'Dépendances configurées non disponibles.' : 'Configured dependencies are unavailable.';
+    const children = this.reportingDependencies().filter((d) => d.parentPeriodId === parent.id);
+    if (!children.length) return this.fr() ? 'Aucune dépendance configurée pour ce jalon.' : 'No dependency is configured for this milestone.';
+    return (this.fr() ? 'Calcul : ' : 'Formula: ') + children.map((d) => `${d.childCode} × ${d.weight}`).join(' + ');
+  }
 
   protected loadPv(): void {
     const cls = this.selectedClass().trim();
@@ -1230,19 +1609,53 @@ export class AcademicComponent {
       this.pv.set(null);
       return;
     }
+    this.pv.set(null);
+    const classId = this.selectedClassId();
+    const periodId = this.selectedReportingPeriodId();
     if (this.selectedClassId() && this.selectedReportingPeriodId()) {
-      this.api.sessionPv(this.selectedClassId(), this.selectedReportingPeriodId()).subscribe({
-        next: (p) => this.pv.set({ ...p, sequence: this.sequence() }),
-        error: (e) => this.fail(e),
+      this.api.sessionPv(classId, periodId).subscribe({
+        next: (p) => {
+          if (this.selectedClassId() === classId && this.selectedReportingPeriodId() === periodId) this.pv.set({ ...p, sequence: this.sequence() });
+        },
+        error: (e) => {
+          if (this.selectedClassId() === classId && this.selectedReportingPeriodId() === periodId) { this.pv.set(null); this.fail(e); }
+        },
       });
       return;
     }
-    this.api.pv(cls, this.sequence()).subscribe((p) => this.pv.set(p));
+    const sequence = this.sequence();
+    this.api.pv(cls, sequence).subscribe({
+      next: (p) => { if (this.selectedClass() === cls && this.sequence() === sequence) this.pv.set(p); },
+      error: (e) => { if (this.selectedClass() === cls && this.sequence() === sequence) { this.pv.set(null); this.fail(e); } },
+    });
+  }
+
+  private clearBulletinState(): void {
+    this.bulletin.set(null);
+    this.studentPhotoUrl.set(null);
+    this.appreciationDraft.set('');
+    this.officialDocument.set(null);
+    this.publicationDialog.set(false);
+    this.publicationTarget.set(null);
+    this.publicationReason = '';
   }
 
   protected validate(b: BulletinView): void {
     if (!b.id) return;
     this.api.validateSnapshot(b.id).subscribe({ next: (snapshot) => { this.applySnapshot(snapshot); this.notice.set({ ok: true, text: this.fr() ? 'Bulletin validé. Il peut maintenant être publié aux parents.' : 'Report card validated. It can now be published to parents.' }); }, error: (e) => this.fail(e) });
+  }
+
+  protected createBulletinDraft(b: BulletinView): void {
+    if (b.id || !b.reportingPeriodId || b.state !== 'PREVIEW' || this.bulletinBusy()) return;
+    this.bulletinBusy.set(true);
+    this.api.bulletinSnapshot(b.studentId, b.reportingPeriodId).subscribe({
+      next: (snapshot) => {
+        this.bulletinBusy.set(false);
+        this.applySnapshot(snapshot);
+        this.notice.set({ ok: true, text: this.fr() ? 'Brouillon de bulletin créé. Il peut maintenant être validé.' : 'Report-card draft created. It can now be validated.' });
+      },
+      error: (e) => { this.bulletinBusy.set(false); this.fail(e); },
+    });
   }
 
   protected requestPublication(b: BulletinView): void { this.publicationTarget.set(b); this.publicationReason = ''; this.publicationDialog.set(true); }
@@ -1257,12 +1670,114 @@ export class AcademicComponent {
     });
   }
 
-  private applySnapshot(snapshot: import('./academic.api').BulletinSnapshotView): void {
-    this.bulletin.set({ id: snapshot.id, studentId: snapshot.studentId, studentName: snapshot.studentName, className: snapshot.className ?? '', sequence: this.periodSequence(this.reportingPeriods().find((p) => p.id === snapshot.reportingPeriodId)!), lines: snapshot.lines.map((l) => ({ subjectCode: l.subjectCode, subjectLabel: l.subjectLabel, coef: l.coefficient, mark: l.mark, weighted: l.weighted, teacherRemark: l.teacherRemark ?? undefined, periodMarks: l.periodMarks ?? undefined, teacherName: l.teacherName, subjectGroupCode: l.subjectGroupCode, subjectGroupLabel: l.subjectGroupLabel })), average: snapshot.average, rank: snapshot.rank ?? 0, classSize: snapshot.classSize, classAverage: snapshot.classStats?.average ?? snapshot.average, validated: snapshot.state === 'VALIDATED' || snapshot.state === 'PUBLISHED', generalAppreciation: snapshot.generalAppreciation, financiallyBlocked: false, reportingPeriodId: snapshot.reportingPeriodId, reportingPeriodCode: snapshot.reportingPeriodCode, state: snapshot.state, complete: snapshot.complete, blockers: snapshot.blockers, snapshotHash: snapshot.snapshotHash, version: snapshot.version, attendance: snapshot.attendance, conduct: snapshot.conduct, groupStats: snapshot.groupStats ?? undefined });
+  protected requestRefresh(b: BulletinView): void {
+    if (!b.id || b.version == null) return;
+    this.refreshTarget.set(b);
+    this.refreshReason = '';
+    this.refreshDialog.set(true);
+  }
+
+  protected cancelRefresh(): void {
+    this.refreshDialog.set(false);
+    this.refreshTarget.set(null);
+    this.refreshReason = '';
+  }
+
+  protected confirmRefresh(): void {
+    const target = this.refreshTarget();
+    if (!target?.id || target.version == null || !this.refreshReason.trim()) return;
+    this.refreshBusy.set(true);
+    this.api.refreshBulletinDraft(target.id, this.refreshReason.trim(), target.version).subscribe({
+      next: (snapshot) => {
+        this.refreshBusy.set(false);
+        this.cancelRefresh();
+        this.applySnapshot(snapshot);
+        const average = this.formatMark(snapshot.average);
+        this.notice.set({ ok: true, text: this.fr()
+          ? `Brouillon actualisé à partir des sources actuelles (${average}/20). L’ancien brouillon a été conservé comme version supersédée.`
+          : `Draft refreshed from current sources (${average}/20). The previous draft was retained as a superseded version.` });
+      },
+      error: (e) => { this.refreshBusy.set(false); this.fail(e); },
+    });
+  }
+
+  private mapSnapshot(snapshot: BulletinSnapshotView): BulletinView {
+    const period = this.reportingPeriods().find((p) => p.id === snapshot.reportingPeriodId);
+    return {
+      id: snapshot.id,
+      studentId: snapshot.studentId,
+      studentName: snapshot.studentName,
+      className: snapshot.className ?? '',
+      sequence: this.periodSequence(period!),
+      reportingPeriodType: snapshot.reportingPeriodType ?? period?.periodType,
+      product: snapshot.product,
+      lines: snapshot.lines.map((line) => ({
+        subjectCode: line.subjectCode,
+        subjectLabel: line.subjectLabel,
+        coef: line.coefficient,
+        mark: line.mark,
+        weighted: line.weighted,
+        teacherRemark: line.teacherRemark ?? undefined,
+        periodMarks: line.periodMarks ?? undefined,
+        teacherName: line.teacherName,
+        subjectGroupCode: line.subjectGroupCode,
+        subjectGroupLabel: line.subjectGroupLabel,
+      })),
+      average: snapshot.average,
+      rank: snapshot.rank,
+      classSize: snapshot.classSize,
+      classAverage: snapshot.classStats?.average ?? snapshot.average,
+      validated: snapshot.state === 'VALIDATED' || snapshot.state === 'PUBLISHED',
+      generalAppreciation: snapshot.generalAppreciation,
+      financiallyBlocked: false,
+      reportingPeriodId: snapshot.reportingPeriodId,
+      reportingPeriodCode: snapshot.reportingPeriodCode,
+      reportingPeriodLabel: snapshot.reportingPeriodLabel,
+      state: snapshot.state,
+      complete: snapshot.complete,
+      blockers: snapshot.blockers,
+      snapshotHash: snapshot.snapshotHash,
+      version: snapshot.version,
+      attendance: snapshot.attendance,
+      conduct: snapshot.conduct,
+      groupStats: snapshot.groupStats ?? undefined,
+      workflowMeta: snapshot.workflowMeta,
+      issues: snapshot.issues ?? [],
+      capabilities: snapshot.workflowMeta?.capabilities,
+    };
+  }
+
+  private applySnapshot(snapshot: BulletinSnapshotView): void {
+    this.bulletin.set(this.mapSnapshot(snapshot));
     this.appreciationDraft.set(snapshot.generalAppreciation ?? '');
   }
 
-  private fail(e: any): void { this.notice.set({ ok: false, text: typeof e?.error?.message === 'string' ? e.error.message : (this.fr() ? 'Opération impossible.' : 'Operation failed.') }); }
+  private explainError(e: any, context?: 'grade-entry'): string {
+    const raw = cleanDisplay(typeof e?.error?.message === 'string' ? e.error.message : '');
+    const code = String(e?.error?.code ?? '').toUpperCase();
+    const text = raw.toLowerCase();
+    const className = this.selectedClass() || (this.fr() ? 'la classe sélectionnée' : 'the selected class');
+    const period = this.selectedReportingPeriodCode() || (this.fr() ? 'la période sélectionnée' : 'the selected period');
+    if (code === 'ENROLLMENT_MISSING' || text.includes('inscription active') || text.includes('active enrollment')) {
+      return this.fr()
+        ? `Cet élève n’est pas inscrit dans ${className} pour ${period}. Vérifiez son inscription dans Élèves → Inscription avant de consulter ou publier son bulletin.`
+        : `This student is not enrolled in ${className} for ${period}. Check the student’s enrollment in Students → Enrollment before viewing or publishing the report card.`;
+    }
+    if (text.includes('matière') && (text.includes('affect') || text.includes('assigned'))) {
+      return this.fr()
+        ? `Cette matière n’est pas affectée à ${className}. Un administrateur doit la configurer dans Paramètres → Scolarité → Matières par classe.`
+        : `This subject is not assigned to ${className}. An administrator must configure it in Settings → Academics → Class subjects.`;
+    }
+    if (text.includes('enseignant') || text.includes('teacher assignment') || code.includes('ASSIGNMENT_')) {
+      return this.fr()
+        ? `Aucun enseignant responsable n’est configuré pour cette matière et cette classe. Configurez l’affectation avant la saisie.`
+        : `No responsible teacher is configured for this subject and class. Configure the assignment before entering marks.`;
+    }
+    if (context === 'grade-entry' && raw) return raw;
+    return raw || (this.fr() ? 'Impossible de terminer cette opération.' : 'This operation could not be completed.');
+  }
+
+  private fail(e: any): void { this.notice.set({ ok: false, text: this.explainError(e) }); }
 
   protected print(): void {
     this.bulkBulletins.set([]);

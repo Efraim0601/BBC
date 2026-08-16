@@ -1,131 +1,148 @@
 package com.bbc.sms.platform.security;
 
+import com.bbc.sms.academic.security.AcademicAccessPolicyService;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.tenant.TenantContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
 /**
- * Cloisonnement d'un enseignant : sa section (cycle) et les classes qui lui sont
- * assignées.
+ * Compatibility class-scope adapter for non-academic screens.
  *
- * <p>Un enseignant ne voit que les données de sa section et de ses classes. Les
- * autres rôles (direction, censeur, économe) ne sont pas restreints — le filtre
- * par parcours, choisi à la connexion, leur suffit.
- *
- * <p>La restriction est résolue à partir du compte : {@code app_user.employee_id}
- * donne l'employé, {@code teacher_class} ses classes, {@code employee.level} sa
- * section. Un enseignant sans aucune classe assignée ne voit rien — c'est
- * volontaire : mieux vaut une liste vide qu'un accès par défaut à tout
- * l'établissement.
+ * <p>Academic services use AcademicAccessPolicyService directly.  This
+ * adapter is still session/effective-date aware so legacy callers cannot fall
+ * back to student.class_id or the current session by accident.</p>
  */
 @Service("teacherScope")
 public class TeacherScopeService {
-
-    /** Rôles cloisonnés aux classes qui leur sont assignées. */
     private static final Set<String> RESTRICTED_ROLES = Set.of("teacher", "form_teacher");
-
     private final JdbcTemplate jdbc;
+    private final AcademicAccessPolicyService accessPolicy;
 
-    public TeacherScopeService(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+    public TeacherScopeService(JdbcTemplate jdbc, AcademicAccessPolicyService accessPolicy) {
+        this.jdbc = jdbc; this.accessPolicy = accessPolicy;
+    }
 
-    /** L'utilisateur courant est-il un enseignant cloisonné ? */
+    /** A missing employee link is still restricted; it must never become broad access. */
     public boolean restricted() {
         AppUserPrincipal p = principal();
-        return p != null && RESTRICTED_ROLES.contains(p.roleCode()) && employeeId(p) != null;
+        return p != null && RESTRICTED_ROLES.contains(normalize(p.roleCode()));
     }
 
-    /** Section de l'enseignant courant (maternelle|primary|secondary), null si non cloisonné. */
     public String section() {
-        AppUserPrincipal p = principal();
-        if (p == null || !RESTRICTED_ROLES.contains(p.roleCode())) return null;
-        UUID employeeId = employeeId(p);
+        UUID employeeId = employeeId();
         if (employeeId == null) return null;
-        return jdbc.query("SELECT level FROM employee WHERE id = ?",
-                rs -> rs.next() ? rs.getString(1) : null, employeeId);
+        return jdbc.query("SELECT level FROM employee WHERE id=? AND school_id=? AND active=true",
+                rs -> rs.next() ? rs.getString(1) : null, employeeId, TenantContext.get());
     }
 
-    /**
-     * Identifiants des classes visibles par l'utilisateur courant, ou null quand
-     * il n'est pas cloisonné (aucun filtre à appliquer).
-     */
+    /** Current-session compatibility method. */
     public Set<UUID> allowedClassIds() {
-        AppUserPrincipal p = principal();
-        if (p == null || !RESTRICTED_ROLES.contains(p.roleCode())) return null;
-        UUID employeeId = employeeId(p);
-        if (employeeId == null) return null;
-        // Classes explicitement assignées + la classe dont il est titulaire.
+        if (!restricted()) return null;
+        UUID sessionId = jdbc.query("SELECT id FROM academic_session WHERE school_id=? AND is_current=true",
+                rs -> rs.next() ? rs.getObject(1, UUID.class) : null, TenantContext.get());
+        LocalDate date = sessionId == null ? LocalDate.now() : jdbc.query(
+                "SELECT start_date FROM academic_session WHERE id=? AND school_id=?",
+                rs -> rs.next() ? rs.getObject(1, LocalDate.class) : LocalDate.now(), sessionId, TenantContext.get());
+        return sessionId == null ? Set.of() : allowedClassIds(sessionId, date);
+    }
+
+    /** Session/effective-date aware class scope. */
+    public Set<UUID> allowedClassIds(UUID academicSessionId, LocalDate effectiveDate) {
+        if (!restricted()) return null;
         List<UUID> ids = jdbc.query("""
-                SELECT c.id FROM school_class c
-                 WHERE c.school_id = ?
-                   AND (c.id IN (SELECT class_id FROM teacher_class WHERE employee_id = ?)
-                        OR c.name = (SELECT form_class FROM employee WHERE id = ?))
-                """,
-                (rs, n) -> UUID.fromString(rs.getString(1)),
-                TenantContext.get(), employeeId, employeeId);
-        return Set.copyOf(ids);
+                SELECT DISTINCT c.id
+                  FROM school_class c
+                 WHERE c.school_id=?
+                """, (rs, n) -> rs.getObject(1, UUID.class), TenantContext.get());
+        return ids.stream().filter(id -> accessPolicy.can(
+                AcademicAccessPolicyService.Capability.ACADEMIC_ROSTER_VIEW,
+                academicSessionId, id, null, null, effectiveDate)).collect(java.util.stream.Collectors.toUnmodifiableSet());
     }
 
-    /** Noms des classes visibles, ou null quand l'utilisateur n'est pas cloisonné. */
     public Set<String> allowedClassNames() {
-        AppUserPrincipal p = principal();
-        if (p == null || !RESTRICTED_ROLES.contains(p.roleCode())) return null;
-        UUID employeeId = employeeId(p);
-        if (employeeId == null) return null;
-        List<String> names = jdbc.query("""
-                SELECT c.name FROM school_class c
-                 WHERE c.school_id = ?
-                   AND (c.id IN (SELECT class_id FROM teacher_class WHERE employee_id = ?)
-                        OR c.name = (SELECT form_class FROM employee WHERE id = ?))
-                """,
-                (rs, n) -> rs.getString(1),
-                TenantContext.get(), employeeId, employeeId);
-        return Set.copyOf(names);
+        Set<UUID> ids = allowedClassIds();
+        if (ids == null) return null;
+        if (ids.isEmpty()) return Set.of();
+        return Set.copyOf(jdbc.query("SELECT name FROM school_class WHERE school_id=? AND id = ANY(?)",
+                (rs, n) -> rs.getString(1), TenantContext.get(), ids.toArray(UUID[]::new)));
     }
 
-    /** Refuse l'accès à une classe qui n'est pas assignée à l'enseignant courant. */
     public void assertClass(UUID classId) {
-        Set<UUID> allowed = allowedClassIds();
-        if (allowed == null) return;                       // utilisateur non cloisonné
-        if (classId == null || !allowed.contains(classId)) throw denied();
+        if (!restricted()) return;
+        UUID sessionId = jdbc.query("SELECT id FROM academic_session WHERE school_id=? AND is_current=true",
+                rs -> rs.next() ? rs.getObject(1, UUID.class) : null, TenantContext.get());
+        LocalDate date = sessionId == null ? null : jdbc.query(
+                "SELECT start_date FROM academic_session WHERE id=? AND school_id=?",
+                rs -> rs.next() ? rs.getObject(1, LocalDate.class) : null, sessionId, TenantContext.get());
+        if (sessionId == null || date == null) throw denied("ACADEMIC_CLASS_ACCESS_DENIED");
+        accessPolicy.require(AcademicAccessPolicyService.Capability.ACADEMIC_ROSTER_VIEW,
+                sessionId, classId, null, null, date);
     }
 
-    /** Même contrôle, à partir du nom de la classe (les écrans historiques l'utilisent). */
+    public void assertClass(UUID academicSessionId, UUID classId, LocalDate effectiveDate) {
+        if (!restricted()) return;
+        accessPolicy.require(AcademicAccessPolicyService.Capability.ACADEMIC_ROSTER_VIEW,
+                academicSessionId, classId, null, null, effectiveDate);
+    }
+
     public void assertClassName(String className) {
         Set<String> allowed = allowedClassNames();
-        if (allowed == null) return;
-        if (className == null || !allowed.contains(className)) throw denied();
+        if (allowed != null && (className == null || !allowed.contains(className))) throw denied("ACADEMIC_CLASS_ACCESS_DENIED");
     }
 
-    /** Refuse l'accès à un élève scolarisé hors des classes de l'enseignant. */
+    /** Compatibility student assertion resolves active enrollment in current session. */
     public void assertStudent(UUID studentId) {
-        Set<UUID> allowed = allowedClassIds();
-        if (allowed == null) return;
-        UUID classId = jdbc.query("SELECT class_id FROM student WHERE id = ? AND school_id = ?",
-                rs -> rs.next() && rs.getString(1) != null ? UUID.fromString(rs.getString(1)) : null,
-                studentId, TenantContext.get());
-        if (classId == null || !allowed.contains(classId)) throw denied();
+        if (!restricted()) return;
+        UUID sessionId = jdbc.query("SELECT id FROM academic_session WHERE school_id=? AND is_current=true",
+                rs -> rs.next() ? rs.getObject(1, UUID.class) : null, TenantContext.get());
+        LocalDate date = sessionId == null ? null : jdbc.query(
+                "SELECT start_date FROM academic_session WHERE id=? AND school_id=?",
+                rs -> rs.next() ? rs.getObject(1, LocalDate.class) : null, sessionId, TenantContext.get());
+        if (sessionId == null || date == null) throw denied("ACADEMIC_CLASS_ACCESS_DENIED");
+        assertStudent(studentId, sessionId, date, null);
     }
 
-    private static ApiException denied() {
-        return new ApiException(org.springframework.http.HttpStatus.FORBIDDEN,
-                "Cette classe ne vous est pas assignée");
+    /** Session-aware enrollment scope. classId may be null when only class membership is needed. */
+    public void assertStudent(UUID studentId, UUID academicSessionId, LocalDate effectiveDate, UUID classId) {
+        if (!restricted()) return;
+        UUID enrolledClass = jdbc.query("""
+                SELECT school_class_id FROM student_enrollment
+                 WHERE school_id=? AND student_id=? AND academic_session_id=? AND status='ACTIVE'
+                   AND enrolled_on<=? AND (exited_on IS NULL OR exited_on>=?)
+                 ORDER BY enrolled_on DESC,created_at DESC LIMIT 1
+                """, rs -> rs.next() ? rs.getObject(1, UUID.class) : null,
+                TenantContext.get(), studentId, academicSessionId, effectiveDate, effectiveDate);
+        if (enrolledClass == null || (classId != null && !classId.equals(enrolledClass))) {
+            throw denied("ENROLLMENT_SCOPE_MISMATCH");
+        }
+        accessPolicy.require(AcademicAccessPolicyService.Capability.ACADEMIC_ROSTER_VIEW,
+                academicSessionId, enrolledClass, null, studentId, effectiveDate);
     }
 
-    private UUID employeeId(AppUserPrincipal p) {
-        return jdbc.query("SELECT employee_id FROM app_user WHERE id = ?",
-                rs -> rs.next() && rs.getString(1) != null ? UUID.fromString(rs.getString(1)) : null,
-                p.userId());
+    public UUID employeeId() {
+        AppUserPrincipal p = principal();
+        if (p == null) return null;
+        return jdbc.query("SELECT employee_id FROM app_user WHERE id=? AND school_id=? AND active=true",
+                rs -> rs.next() ? rs.getObject(1, UUID.class) : null, p.userId(), TenantContext.get());
     }
 
     private AppUserPrincipal principal() {
         var auth = SecurityContextHolder.getContext().getAuthentication();
         Object principal = auth == null ? null : auth.getPrincipal();
         return principal instanceof AppUserPrincipal aup ? aup : null;
+    }
+
+    private static String normalize(String value) { return value == null ? "" : value.trim().toLowerCase(); }
+
+    private static ApiException denied(String code) {
+        return ApiException.coded(org.springframework.http.HttpStatus.FORBIDDEN, code,
+                "Cette ressource académique n'est pas accessible dans votre périmètre.");
     }
 }

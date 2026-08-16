@@ -106,12 +106,14 @@ public class ProductionBootstrap implements ApplicationRunner {
         grants(schoolId, "form_teacher", "write", "academic", "discipline", "coursebook", "messages", "classkit");
         grants(schoolId, "form_teacher", "read", "dashboard", "presence", "students", "timetable", "events", "journey", "alerts", "health", "documents");
         grants(schoolId, "teacher", "write", "academic", "coursebook");
-        grants(schoolId, "teacher", "read", "dashboard", "presence", "timetable", "events", "messages");
+        grants(schoolId, "teacher", "read", "dashboard", "presence", "students", "timetable", "events", "messages");
         grant(schoolId, "parent", "parent", "read");
 
         seedFoundation(schoolId, sessionId);
+        seedAttendanceDefaults(schoolId);
 
         seedPaymentChannels(schoolId);
+        seedFinanceAccounting(schoolId, sessionId, startYear);
 
         jdbc.update("INSERT INTO app_user (school_id, username, password_hash, display_name, initials, role_code) "
                   + "VALUES (?,?,?,?,?, 'principal')",
@@ -160,6 +162,59 @@ public class ProductionBootstrap implements ApplicationRunner {
     }
 
     /**
+     * Attendance migrations run before the first school exists, so their
+     * school-scoped seed rows cannot create defaults for a brand-new tenant.
+     * Keep the same safe defaults in the first-run bootstrap as well.
+     */
+    private void seedAttendanceDefaults(UUID schoolId) {
+        jdbc.update("""
+            INSERT INTO attendance_policy
+                (school_id, level, model, late_after_minutes,
+                 chronic_absence_percent, require_absence_reason)
+            VALUES
+                (?, 'maternelle', 'DAILY', 0, 20.00, false),
+                (?, 'primary',    'DAILY', 0, 20.00, false),
+                (?, 'secondary',  'PERIOD', 0, 20.00, false)
+            ON CONFLICT (school_id, level) DO NOTHING
+            """, schoolId, schoolId, schoolId);
+
+        String[] allAttendanceActions = {
+            "ATTENDANCE_ROSTER_VIEW", "ATTENDANCE_MARK", "ATTENDANCE_FINALIZE",
+            "ATTENDANCE_REOPEN", "ATTENDANCE_ANALYTICS_VIEW",
+            "ATTENDANCE_POLICY_MANAGE", "ATTENDANCE_RECONCILE"
+        };
+        String[] scopedTeacherActions = {
+            "ATTENDANCE_ROSTER_VIEW", "ATTENDANCE_MARK", "ATTENDANCE_FINALIZE",
+            "ATTENDANCE_ANALYTICS_VIEW"
+        };
+        for (String action : allAttendanceActions) {
+            for (String role : new String[]{"principal", "prefect"}) {
+                grantAction(schoolId, role, action, true);
+            }
+        }
+        for (String action : scopedTeacherActions) {
+            for (String role : new String[]{"teacher", "form_teacher"}) {
+                grantAction(schoolId, role, action, true);
+            }
+        }
+
+        // Teachers need to read the active session so their academic and
+        // attendance screens can validate dates; this does not grant session
+        // administration or any class/subject data by itself.
+        grantAction(schoolId, "teacher", "SESSION_VIEW", true);
+        grantAction(schoolId, "form_teacher", "SESSION_VIEW", true);
+    }
+
+    private void grantAction(UUID schoolId, String role, String action, boolean allowed) {
+        jdbc.update("""
+            INSERT INTO permission_action_grant(school_id, role_code, action_code, allowed)
+            VALUES (?,?,?,?)
+            ON CONFLICT (school_id, role_code, action_code)
+            DO UPDATE SET allowed=EXCLUDED.allowed
+            """, schoolId, role, action, allowed);
+    }
+
+    /**
      * Catalogue des moyens de paiement du nouvel établissement. Les migrations
      * ne peuvent pas s'en charger : elles s'exécutent avant que cet amorçage ne
      * crée l'établissement. Sans cela, l'onglet « Moyens de paiement » resterait
@@ -187,6 +242,99 @@ public class ProductionBootstrap implements ApplicationRunner {
         insertChannel(schoolId, "SARA", "SARA", "SARA", true, true, 6,
             "Depuis votre compte SARA, effectuez le transfert vers le numéro de l'école. Conservez l'ID de transaction et communiquez-le à l'économat.",
             "From your SARA account, transfer to the school number. Keep the transaction ID and give it to the bursary.");
+    }
+
+    /** Wave 1 accounting defaults for a school created after V59 has run. */
+    private void seedFinanceAccounting(UUID schoolId, UUID sessionId, int startYear) {
+        String[][] accountRows = {
+            {"1000", "Caisse", "Cash on hand", "ASSET", "DEBIT"},
+            {"1010", "Banque", "Bank", "ASSET", "DEBIT"},
+            {"1020", "Compensation Orange Money", "Orange Money clearing", "ASSET", "DEBIT"},
+            {"1030", "Compensation MoMo", "MoMo clearing", "ASSET", "DEBIT"},
+            {"1040", "Compensation carte", "Card clearing", "ASSET", "DEBIT"},
+            {"1100", "Créances élèves", "Accounts receivable - students", "ASSET", "DEBIT"},
+            {"2100", "Crédits élèves", "Student credits", "LIABILITY", "CREDIT"},
+            {"4000", "Produits de scolarité", "Tuition revenue", "REVENUE", "CREDIT"},
+            {"4010", "Produits d'inscription", "Registration revenue", "REVENUE", "CREDIT"},
+            {"4090", "Autres produits scolaires", "Other fee revenue", "REVENUE", "CREDIT"},
+            {"2200", "Dettes de paie", "Payroll payable", "LIABILITY", "CREDIT"},
+            {"6000", "Charges de personnel", "Salary expense", "EXPENSE", "DEBIT"},
+            {"6900", "Compte de contrôle des dépenses", "Expense control", "EXPENSE", "DEBIT"},
+            {"3000", "Fonds propres d'ouverture", "Opening balance equity", "EQUITY", "CREDIT"},
+            {"3990", "Compte d'attente", "Suspense", "EQUITY", "CREDIT"}
+        };
+        for (String[] row : accountRows) {
+            jdbc.update("""
+                INSERT INTO chart_of_account
+                    (school_id,code,name_fr,name_en,account_type,normal_side,currency,posting_allowed)
+                VALUES (?,?,?,?,?,?, 'XAF', true)
+                ON CONFLICT (school_id,code) DO NOTHING
+                """, schoolId, row[0], row[1], row[2], row[3], row[4]);
+        }
+
+        LocalDate cursor = LocalDate.of(startYear, 9, 1);
+        LocalDate end = LocalDate.of(startYear + 1, 7, 31);
+        while (!cursor.isAfter(end)) {
+            LocalDate periodEnd = cursor.withDayOfMonth(cursor.lengthOfMonth());
+            if (periodEnd.isAfter(end)) periodEnd = end;
+            String code = cursor.toString().substring(0, 7);
+            jdbc.update("""
+                INSERT INTO accounting_period
+                    (school_id,code,name_fr,name_en,start_date,end_date,academic_session_id,status)
+                VALUES (?,?,?, ?,?,?,?,'OPEN') ON CONFLICT (school_id,code) DO NOTHING
+                """, schoolId, code, "Période " + code, "Period " + code,
+                    cursor, periodEnd, sessionId);
+            jdbc.update("""
+                INSERT INTO document_sequence(school_id,document_type,period_key,prefix,next_number,padding)
+                VALUES (?, 'JOURNAL', ?, ?, 1, 6) ON CONFLICT DO NOTHING
+                """, schoolId, code, "JRN/" + code + "/");
+            cursor = cursor.plusMonths(1);
+        }
+
+        String[][] rules = {
+            {"FEE_CHARGE", "DEBIT", "1100"}, {"FEE_CHARGE", "CREDIT", "4000"},
+            {"PAYMENT_CASH", "DEBIT", "1000"}, {"PAYMENT_CASH", "CREDIT", "1100"},
+            {"PAYMENT_OM", "DEBIT", "1020"}, {"PAYMENT_OM", "CREDIT", "1100"},
+            {"PAYMENT_MOMO", "DEBIT", "1030"}, {"PAYMENT_MOMO", "CREDIT", "1100"},
+            {"PAYMENT_CARD", "DEBIT", "1040"}, {"PAYMENT_CARD", "CREDIT", "1100"},
+            {"PAYMENT_TRANSFER", "DEBIT", "1010"}, {"PAYMENT_TRANSFER", "CREDIT", "1100"},
+            {"EXPENSE_POST", "DEBIT", "6900"}, {"EXPENSE_POST", "CREDIT", "1000"},
+            {"PAYROLL_ACCRUAL", "DEBIT", "6000"}, {"PAYROLL_ACCRUAL", "CREDIT", "2200"},
+            {"PAYROLL_PAYMENT", "DEBIT", "2200"}, {"PAYROLL_PAYMENT", "CREDIT", "1010"}
+        };
+        for (String[] rule : rules) {
+            jdbc.update("""
+                INSERT INTO posting_rule(school_id,event_type,side,target_account_id,priority,enabled)
+                SELECT ?,?,?,id,0,true FROM chart_of_account
+                 WHERE school_id=? AND code=?
+                   AND NOT EXISTS (SELECT 1 FROM posting_rule p
+                                    WHERE p.school_id=? AND p.event_type=? AND p.side=?
+                                      AND p.priority=0 AND p.scope_code IS NULL
+                                      AND p.fee_type_code IS NULL AND p.payment_channel_code IS NULL
+                                      AND p.component_code IS NULL)
+                """, schoolId, rule[0], rule[1], schoolId, rule[2], schoolId, rule[0], rule[1]);
+        }
+
+        jdbc.update("INSERT INTO permission_grant(school_id,role_code,module,level) VALUES (?, 'accountant','finance','write') ON CONFLICT DO NOTHING", schoolId);
+        String[] actions = {
+            "FINANCE_OVERVIEW_VIEW", "FEE_TYPE_MANAGE", "FEE_PLAN_DRAFT", "FEE_PLAN_ACTIVATE",
+            "CHARGE_PREVIEW", "CHARGE_GENERATE", "CHARGE_ADJUST", "FEE_WAIVE_REQUEST", "FEE_WAIVE_APPROVE",
+            "PAYMENT_COLLECT", "PAYMENT_REVERSE", "REFUND_REQUEST", "REFUND_APPROVE", "CASHIER_SESSION_CLOSE",
+            "FINANCE_DOCUMENT_GENERATE", "FINANCE_DOCUMENT_VOID", "ACCOUNT_MANAGE", "POSTING_RULE_MANAGE",
+            "LEDGER_POST", "LEDGER_REVERSE", "LEDGER_CLOSE", "LEDGER_REOPEN", "PAYROLL_CALCULATE",
+            "PAYROLL_REVIEW", "PAYROLL_APPROVE", "PAYROLL_PAY", "PAYSLIP_VIEW_ALL", "FINANCE_REPORT_VIEW", "FINANCE_EXPORT"
+        };
+        for (String action : actions) {
+            jdbc.update("""
+                INSERT INTO permission_action_grant(school_id,role_code,action_code,allowed)
+                SELECT ?, r.code, ?, CASE
+                    WHEN r.code IN ('principal','accountant') THEN true
+                    WHEN r.code='econome' AND ? IN ('FINANCE_OVERVIEW_VIEW','FINANCE_REPORT_VIEW','FINANCE_EXPORT') THEN true
+                    ELSE false END
+                  FROM role r WHERE r.code IN ('principal','econome','accountant')
+                ON CONFLICT(school_id,role_code,action_code) DO UPDATE SET allowed=EXCLUDED.allowed
+                """, schoolId, action, action);
+        }
     }
 
     private void insertChannel(UUID schoolId, String code, String labelFr, String labelEn,

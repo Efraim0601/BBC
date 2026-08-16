@@ -100,6 +100,46 @@ export const routes: Routes = [
         loadComponent: () => import('./features/attendance/attendance').then((m) => m.AttendanceComponent),
       },
       {
+        path: 'finance/fee-types',
+        canActivate: [permissionGuard('finance')],
+        loadComponent: () => import('./features/finance/finance-fee-types').then((m) => m.FinanceFeeTypesComponent),
+      },
+      {
+        path: 'finance/plans',
+        canActivate: [permissionGuard('finance')],
+        loadComponent: () => import('./features/finance/finance-plans').then((m) => m.FinancePlansComponent),
+      },
+      {
+        path: 'finance/charges',
+        canActivate: [permissionGuard('finance')],
+        loadComponent: () => import('./features/finance/finance-charges').then((m) => m.FinanceChargesComponent),
+      },
+      {
+        path: 'finance/collections',
+        canActivate: [permissionGuard('finance')],
+        loadComponent: () => import('./features/finance/finance-collections').then((m) => m.FinanceCollectionsComponent),
+      },
+      {
+        path: 'finance/documents',
+        canActivate: [permissionGuard('finance')],
+        loadComponent: () => import('./features/finance/finance-documents').then((m) => m.FinanceDocumentsComponent),
+      },
+      {
+        path: 'finance/payroll',
+        canActivate: [permissionGuard('finance')],
+        loadComponent: () => import('./features/finance/finance-payroll').then((m) => m.FinancePayrollComponent),
+      },
+      {
+        path: 'finance/accounting',
+        canActivate: [permissionGuard('finance')],
+        loadComponent: () => import('./features/finance/finance-accounting').then((m) => m.FinanceAccountingComponent),
+      },
+      {
+        path: 'finance/reports',
+        canActivate: [permissionGuard('finance')],
+        loadComponent: () => import('./features/finance/finance-reports').then((m) => m.FinanceReportsComponent),
+      },
+      {
         path: 'finance',
         canActivate: [permissionGuard('finance')],
         loadComponent: () => import('./features/finance/finance').then((m) => m.FinanceComponent),

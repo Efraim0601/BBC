@@ -106,7 +106,8 @@ export class AuthService {
     const u = this.user();
     if (!u) return false;
     const rank = { none: 0, read: 1, write: 2 };
-    return rank[u.permissions[module] ?? 'none'] >= rank[level];
+    const permissionKey = module === 'finance-accounting' ? 'finance' : module;
+    return rank[u.permissions[permissionKey] ?? 'none'] >= rank[level];
   }
 
   private persist(res: TokenResponse): void {
