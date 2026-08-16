@@ -1,0 +1,37 @@
+# Isolated production-simulation runtime for the 2026-2027 real-data setup.
+# This intentionally does not reuse bbc-full-e2e-db or any production-derived volume.
+services:
+  db:
+    ports: !override
+      - "5542:5432"
+    volumes: !override
+      - bbc-prod-2026-db:/var/lib/postgresql/data
+
+  backend:
+    environment:
+      BBC_ADMIN_USERNAME: admin
+      BBC_ADMIN_PASSWORD: admin
+      BBC_ADMIN_NAME: Production Simulation Administrator
+      BBC_SCHOOL_NAME: Production Simulation School
+      BBC_SCHOOL_CODE: BBC-PROD-2026
+      BBC_CORS_ORIGINS: http://localhost:8110
+      SPRING_PROFILES_ACTIVE: e2e
+      BBC_E2E_FIXTURES_ENABLED: "false"
+    ports: !override
+      - "8111:8080"
+    volumes: !override
+      - bbc-prod-2026-documents:/data/documents
+
+  frontend:
+    ports: !override
+      - "8110:80"
+
+  mailpit:
+    ports: !override
+      - "8135:8025"
+
+volumes:
+  bbc-prod-2026-db:
+    name: bbc-prod-2026-db
+  bbc-prod-2026-documents:
+    name: bbc-prod-2026-documents
