@@ -67,7 +67,7 @@ class ReportCardPdfServiceTest {
             assertThat(document.getNumberOfPages()).isGreaterThanOrEqualTo(1);
             assertThat(document.getPage(0).getMediaBox().getWidth()).isCloseTo(595.27563f, org.assertj.core.data.Offset.offset(0.01f));
             String text = new PDFTextStripper().getText(document);
-            assertThat(text).contains("BULLETIN DE NOTES - SEQUENCE 1", "COMPETENCES EVALUEES", "N/20", "M/20");
+            assertThat(text).contains("BULLETIN DE NOTES DE LA SEQUENCE 1", "COMPETENCES EVALUEES", "N/20", "M/20", "TOTAL", "Moyenne");
         }
         writeQa("secondary-sequence-fr.pdf", bytes);
     }
@@ -97,7 +97,7 @@ class ReportCardPdfServiceTest {
         }
         try (PDDocument document = PDDocument.load(bytes)) {
             String text = new PDFTextStripper().getText(document);
-            assertThat(text).contains("ANNUAL REPORT SHEET", "T1", "T2", "T3", "PRODUCT", "[MIN-MAX]");
+            assertThat(text).contains("ANNUAL REPORT SHEET", "T1", "T2", "T3", "PRODUCT", "[MIN-MAX]", "TERM AVERAGES", "Student average");
             assertThat(text).doesNotContain("WEIGHTED");
         }
         writeQa("secondary-annual-en.pdf", bytes);
@@ -131,8 +131,8 @@ class ReportCardPdfServiceTest {
         }
         try (PDDocument document = PDDocument.load(bytes)) {
             String text = new PDFTextStripper().getText(document);
-            assertThat(text).contains("BULLETIN SCOLAIRE - PREMIER TRIMESTRE",
-                    "COMPETENCES EVALUEES", "N/20", "M/20", "Resolution de problemes", "14");
+            assertThat(text).contains("FIRST TERM PROGRESS RECORD",
+                    "COMPETENCIES EVALUATED", "N/20", "M/20", "Resolution de problemes", "14");
             assertThat(text).doesNotContain("PONDERE");
         }
         writeQa("secondary-term-fr.pdf", bytes);

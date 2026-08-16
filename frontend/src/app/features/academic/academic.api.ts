@@ -50,6 +50,10 @@ export interface BulletinView {
   rank: number | null;
   classSize: number;
   classAverage: number | null;
+  classMinimum?: number | null;
+  classMaximum?: number | null;
+  successCount?: number | null;
+  successRate?: number | null;
   validated: boolean;
   generalAppreciation: string | null;
   financiallyBlocked: boolean;

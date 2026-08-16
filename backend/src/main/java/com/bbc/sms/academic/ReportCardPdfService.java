@@ -55,6 +55,7 @@ public class ReportCardPdfService {
         byte[] photoBytes = snapshotPhoto(b);
         BrandingRenderData branding = branding(b);
         boolean secondary = isSecondary(b);
+        boolean reportFrench = secondary ? !"EN".equalsIgnoreCase(b.subsystem()) : french;
         boolean annual = annual(b);
         boolean computed = computed(b);
         String templateFamily = b.evidence() == null || b.evidence().documentDesign() == null
@@ -67,37 +68,35 @@ public class ReportCardPdfService {
                 PDImageXObject image = imageOrNull(doc, photoBytes, "student-photo");
                 PDImageXObject logo = imageOrNull(doc, branding == null ? null : branding.logoBytes(), "school-logo");
                 PDImageXObject stamp = imageOrNull(doc, branding == null ? null : branding.stampBytes(), "school-stamp");
-                float y = header(doc, page, b, french, image, secondary, branding, logo);
-                y = secondary ? secondaryTableHeader(doc, page, y, french, annual, templateFamily)
-                        : computed ? computedTableHeader(doc, page, y, french, b)
-                        : tableHeader(doc, page, y, french, false, annual, templateFamily);
+                float y = header(doc, page, b, reportFrench, image, secondary, branding, logo);
+                y = secondary ? secondaryTableHeader(doc, page, y, reportFrench, annual, templateFamily)
+                        : computed ? computedTableHeader(doc, page, y, reportFrench, b)
+                        : tableHeader(doc, page, y, reportFrench, false, annual, templateFamily);
                 for (int lineIndex = 0; lineIndex < b.lines().size(); lineIndex++) {
                     BulletinLineView line = b.lines().get(lineIndex);
-                    GroupStatsView group = secondary && groupEnds(b.lines(), lineIndex) ? groupFor(b, line.subjectGroupCode()) : null;
                     float rowHeight = secondary ? secondaryRowHeight(line, annual)
                             : computed ? computedRowHeight(line, b) : 22;
-                    if (group != null) rowHeight += 16;
                     if (y - rowHeight < 78) {
-                        footer(doc, page, french);
+                        footer(doc, page, reportFrench);
                         page = new PDPage(PDRectangle.A4); doc.addPage(page);
-                        y = header(doc, page, b, french, image, secondary, branding, logo);
-                        y = secondary ? secondaryTableHeader(doc, page, y, french, annual, templateFamily)
-                                : computed ? computedTableHeader(doc, page, y, french, b)
-                                : tableHeader(doc, page, y, french, false, annual, templateFamily);
+                        y = header(doc, page, b, reportFrench, image, secondary, branding, logo);
+                        y = secondary ? secondaryTableHeader(doc, page, y, reportFrench, annual, templateFamily)
+                                : computed ? computedTableHeader(doc, page, y, reportFrench, b)
+                                : tableHeader(doc, page, y, reportFrench, false, annual, templateFamily);
                     }
-                    if (secondary) y -= secondaryRow(doc, page, y, line, french, annual);
-                    else if (computed) y -= computedRow(doc, page, y, line, french, b);
-                    else { row(doc, page, y, line, french, false); y -= 22; }
-                    if (group != null) y -= secondaryGroupRow(doc, page, y, group, french, annual);
+                    if (secondary) y -= secondaryRow(doc, page, y, line, reportFrench, annual);
+                    else if (computed) y -= computedRow(doc, page, y, line, reportFrench, b);
+                    else { row(doc, page, y, line, reportFrench, false); y -= 22; }
                 }
                 y -= 5;
-                if (y < 230) { footer(doc, page, french); page = new PDPage(PDRectangle.A4); doc.addPage(page); y = header(doc, page, b, french, image, secondary, branding, logo) - 10; }
-                summary(doc, page, y, b, french, secondary);
-                signatureBoxes(doc, page, y - 148, french, branding, stamp);
+                if (secondary) y -= secondaryTotals(doc, page, y, b, reportFrench, annual);
+                if (y < 230) { footer(doc, page, reportFrench); page = new PDPage(PDRectangle.A4); doc.addPage(page); y = header(doc, page, b, reportFrench, image, secondary, branding, logo) - 10; }
+                summary(doc, page, y, b, reportFrench, secondary);
+                signatureBoxes(doc, page, y - 148, reportFrench, branding, stamp);
                 // Keep the verification mark in the footer band so it never
                 // obscures the result table, conduct block, or signatures.
                 drawQr(doc, page, b, 485, 58);
-                footer(doc, page, french);
+                footer(doc, page, reportFrench);
                 doc.save(out);
                 return out.toByteArray();
             } finally {
@@ -431,42 +430,6 @@ public class ReportCardPdfService {
         text(cs, bold(), 7, 272, y, number(l.mark()));
     }
 
-    private float secondaryGroupRow(PDDocument doc, PDPage page, float y, GroupStatsView group,
-                                    boolean fr, boolean annual) throws Exception {
-        float height = 16;
-        try (PDPageContentStream cs = new PDPageContentStream(doc, page, PDPageContentStream.AppendMode.APPEND, true)) {
-            cs.setNonStrokingColor(.9f, .9f, .9f);
-            cs.addRect(LEFT, y - height, RIGHT - LEFT, height); cs.fill();
-            cs.setNonStrokingColor(0, 0, 0);
-            String label = group.label() == null || group.label().isBlank() ? group.code() : group.label();
-            text(cs, bold(), 7, 48, y - 11, (fr ? "TOTAL " : "GROUP TOTAL ") + clip(label, 26));
-            if (annual) {
-                text(cs, bold(), 7, 272, y - 11, number(group.average()));
-                text(cs, bold(), 7, 307, y - 11, String.valueOf(group.coefficient()));
-                text(cs, bold(), 7, 341, y - 11, number(group.total()));
-                text(cs, bold(), 7, 381, y - 11, grade(group.average()));
-            } else {
-                text(cs, bold(), 7, 326, y - 11, number(group.average()));
-                text(cs, bold(), 7, 357, y - 11, String.valueOf(group.coefficient()));
-                text(cs, bold(), 7, 390, y - 11, number(group.total()));
-                text(cs, bold(), 7, 432, y - 11, grade(group.average()));
-            }
-            box(cs, LEFT, y - height, RIGHT, y);
-        }
-        return height;
-    }
-
-    private boolean groupEnds(List<BulletinLineView> lines, int index) {
-        String code = lines.get(index).subjectGroupCode();
-        if (code == null || code.isBlank()) return false;
-        return index + 1 >= lines.size() || !code.equals(lines.get(index + 1).subjectGroupCode());
-    }
-
-    private GroupStatsView groupFor(BulletinSnapshotView bulletin, String code) {
-        if (code == null || bulletin.groupStats() == null) return null;
-        return bulletin.groupStats().stream().filter(group -> code.equals(group.code())).findFirst().orElse(null);
-    }
-
     private List<PeriodMarkView> annualPeriodMarks(BulletinLineView line) {
         if (line.periodMarks() == null) return List.of();
         List<PeriodMarkView> termMarks = line.periodMarks().stream()
@@ -479,6 +442,62 @@ public class ReportCardPdfService {
         return termMarks.isEmpty() ? line.periodMarks().stream()
                 .sorted(Comparator.comparingInt(value -> periodNumber(value.periodCode())))
                 .limit(3).toList() : termMarks;
+    }
+
+    private float secondaryTotals(PDDocument doc, PDPage page, float y, BulletinSnapshotView bulletin,
+                                  boolean fr, boolean annual) throws Exception {
+        int coefficient = bulletin.lines().stream().mapToInt(BulletinLineView::coefficient).sum();
+        BigDecimal product = bulletin.lines().stream().map(BulletinLineView::weighted)
+                .filter(java.util.Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add);
+        float totalHeight = annual ? 34 : 18;
+        try (PDPageContentStream cs = new PDPageContentStream(doc, page, PDPageContentStream.AppendMode.APPEND, true)) {
+            cs.setNonStrokingColor(.76f, .76f, .76f); cs.addRect(LEFT, y - 18, RIGHT - LEFT, 18); cs.fill();
+            cs.setNonStrokingColor(0, 0, 0); box(cs, LEFT, y - 18, RIGHT, y);
+            if (annual) {
+                line(cs, 300, y - 18, 300, y, .45f); line(cs, 333, y - 18, 333, y, .45f); line(cs, 375, y - 18, 375, y, .45f);
+                text(cs, bold(), 8, 176, y - 12, "TOTAL"); text(cs, bold(), 8, 309, y - 12, String.valueOf(coefficient));
+                text(cs, bold(), 8, 340, y - 12, number(product));
+                text(cs, bold(), 8, 405, y - 12, (fr ? "Moyenne : " : "Student average: ") + number(bulletin.average()));
+                cs.setNonStrokingColor(.86f, .86f, .86f); cs.addRect(LEFT, y - 34, RIGHT - LEFT, 16); cs.fill();
+                cs.setNonStrokingColor(0, 0, 0); box(cs, LEFT, y - 34, RIGHT, y - 18);
+                float segment = (RIGHT - 210) / 3f;
+                line(cs, 210, y - 34, 210, y - 18, .4f);
+                line(cs, 210 + segment, y - 34, 210 + segment, y - 18, .4f);
+                line(cs, 210 + 2 * segment, y - 34, 210 + 2 * segment, y - 18, .4f);
+                text(cs, bold(), 6, 74, y - 29, fr ? "RAPPEL DES MOYENNES TRIMESTRIELLES" : "TERM AVERAGES");
+                List<String> periodCodes = annualPeriodCodes(bulletin);
+                for (int index = 0; index < 3; index++) {
+                    BigDecimal average = index < periodCodes.size() ? weightedPeriodAverage(bulletin, periodCodes.get(index)) : null;
+                    String label = fr ? (index + 1) + (index == 0 ? "er" : "e") + " Trimestre" : switch (index) { case 0 -> "1st Term"; case 1 -> "2nd Term"; default -> "3rd Term"; };
+                    text(cs, bold(), 6, 218 + index * segment, y - 29, label + " : " + number(average));
+                }
+            } else {
+                line(cs, 290, y - 18, 290, y, .45f); line(cs, 350, y - 18, 350, y, .45f);
+                text(cs, bold(), 8, 150, y - 12, "TOTAL"); text(cs, bold(), 8, 309, y - 12, String.valueOf(coefficient));
+                text(cs, bold(), 8, 365, y - 12, number(product));
+                text(cs, bold(), 8, 440, y - 12, (fr ? "Moyenne : " : "Average: ") + number(bulletin.average()));
+            }
+        }
+        return totalHeight;
+    }
+
+    private List<String> annualPeriodCodes(BulletinSnapshotView bulletin) {
+        java.util.LinkedHashSet<String> codes = new java.util.LinkedHashSet<>();
+        for (BulletinLineView line : bulletin.lines()) if (line.periodMarks() != null) for (PeriodMarkView period : line.periodMarks()) {
+            String code = period.periodCode() == null ? "" : period.periodCode().toUpperCase(Locale.ROOT);
+            if (code.matches("T[123](_RESULT)?") || code.contains("TRIM")) codes.add(period.periodCode());
+        }
+        return codes.stream().sorted(Comparator.comparingInt(ReportCardPdfService::periodNumber)).limit(3).toList();
+    }
+
+    private BigDecimal weightedPeriodAverage(BulletinSnapshotView bulletin, String code) {
+        BigDecimal total = BigDecimal.ZERO; int coefficients = 0;
+        for (BulletinLineView line : bulletin.lines()) {
+            BigDecimal mark = line.periodMarks() == null ? null : line.periodMarks().stream()
+                    .filter(value -> code.equals(value.periodCode())).map(PeriodMarkView::mark).findFirst().orElse(null);
+            if (mark != null) { total = total.add(mark.multiply(BigDecimal.valueOf(line.coefficient()))); coefficients += line.coefficient(); }
+        }
+        return coefficients == 0 ? null : total.divide(BigDecimal.valueOf(coefficients), 2, java.math.RoundingMode.HALF_UP);
     }
 
     private static int periodNumber(String code) {
@@ -575,53 +594,70 @@ public class ReportCardPdfService {
         String decision = conduct == null || conduct.decisionCode() == null ? "-"
                 : conduct.decisionCode() + (conduct.councilObservation() == null ? "" : " / " + conduct.councilObservation());
         try (PDPageContentStream cs = new PDPageContentStream(doc, page, PDPageContentStream.AppendMode.APPEND, true)) {
-            box(cs, LEFT, y - 132, RIGHT, y);
-            text(cs, bold(), 9, 52, y - 16, fr ? "RESULTAT DE L'ELEVE" : "STUDENT RESULT");
-            text(cs, normal(), 9, 52, y - 34, (fr ? "Moyenne : " : "Average: ") + number(b.average()) + " / 20");
-            text(cs, normal(), 9, 52, y - 51, (fr ? "Rang : " : "Rank: ") + (b.rank() == null ? "-" : b.rank()) + " / " + b.classSize());
-            text(cs, normal(), 9, 285, y - 34, (fr ? "Moyenne classe : " : "Class average: ") + (stats == null ? "-" : number(stats.average())));
-            text(cs, normal(), 9, 285, y - 51, (fr ? "Min / Max : " : "Min / Max: ") + (stats == null ? "-" : number(stats.minimum()) + " / " + number(stats.maximum())));
-            text(cs, normal(), 9, 430, y - 34, (fr ? "Reussite : " : "Pass rate: ") + (stats == null ? "-" : number(stats.successRate()) + "%"));
-            text(cs, normal(), 7, 430, y - 51, fr ? "Presence :" : "Attendance:");
-            text(cs, normal(), 7, 430, y - 63, b.attendance() == null ? "-" : b.attendance().presentCount() + " P / " + b.attendance().absentCount() + " A / " + number(b.attendance().unjustifiedAbsenceHours()) + "h NJ");
-            text(cs, normal(), 8, 52, y - 69, (fr ? "Groupes : " : "Groups: ") + clip(groupText, 76));
-            text(cs, normal(), 8, 52, y - 86, (fr ? "Conduite et distinctions : " : "Conduct and awards: ") + clip(conductText, 88));
-            text(cs, normal(), 8, 52, y - 103, (fr ? "Decision du conseil : " : "Council decision: ") + clip(decision, 88));
-            text(cs, normal(), 8, 52, y - 120, fr ? "Bulletin genere depuis un snapshot academique immuable." : "Generated from an immutable academic snapshot.");
+            float x1 = 214, x2 = 384;
+            float headerBottom = y - 18, bottom = y - 126;
+            cs.setNonStrokingColor(.9f, .9f, .9f); cs.addRect(LEFT, headerBottom, RIGHT - LEFT, 18); cs.fill();
+            cs.setNonStrokingColor(0, 0, 0); box(cs, LEFT, bottom, RIGHT, y);
+            line(cs, x1, bottom, x1, y, .45f); line(cs, x2, bottom, x2, y, .45f);
+            for (int row = 0; row <= 6; row++) line(cs, LEFT, headerBottom - row * 18, RIGHT, headerBottom - row * 18, .35f);
+            text(cs, bold(), 8, 105, y - 13, fr ? "Discipline" : "Discipline");
+            text(cs, bold(), 8, 265, y - 13, fr ? "Travail de l'eleve" : "Student performance");
+            text(cs, bold(), 8, 445, y - 13, fr ? "Profil de la classe" : "Class Profile");
+
+            String unexcused = b.attendance() == null ? "0" : number(b.attendance().unjustifiedAbsenceHours());
+            String excused = b.attendance() == null ? "0" : number(b.attendance().justifiedAbsenceHours());
+            String late = b.attendance() == null ? "0" : number(BigDecimal.valueOf(b.attendance().lateMinutes()).divide(BigDecimal.valueOf(60), 2, java.math.RoundingMode.HALF_UP));
+            String[] disciplineLabels = fr ? new String[]{"Absences non J.","Absences J.","Retards (heures)","Avert. conduite","Blame conduite","Exclusion (jours)"}
+                    : new String[]{"Absences non J.","Absences J.","Lateness (hours)","Conduct warning","Reprimand","Suspension (days)"};
+            String[] disciplineValues = new String[]{unexcused,excused,late,
+                    conduct != null && conduct.conductWarning() ? "X" : "-",
+                    conduct != null && conduct.conductBlame() ? "X" : "-",
+                    conduct == null ? "0" : String.valueOf(conduct.exclusionDays())};
+            String[] workLabels = fr ? new String[]{"Total general","Total coef.","Moyenne","Cote","Decision du conseil","Distinctions"}
+                    : new String[]{"Total score","Total coef.","Average","Grade","Class council decision","Awards"};
+            int totalCoefficient = b.lines().stream().mapToInt(BulletinLineView::coefficient).sum();
+            BigDecimal totalScore = b.lines().stream().map(BulletinLineView::weighted).filter(java.util.Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add);
+            String[] workValues = new String[]{number(totalScore),String.valueOf(totalCoefficient),number(b.average()),grade(b.average()),clip(decision,18),clip(conductText,18)};
+            String[] classLabels = fr ? new String[]{"Moyenne generale","Rang","Nombre de moyennes","Taux de reussite","Minimum","Maximum"}
+                    : new String[]{"Class average","Rank","Number passed","Success rate","Minimum","Maximum"};
+            String[] classValues = new String[]{stats == null ? "-" : number(stats.average()),
+                    (b.rank() == null ? "-" : b.rank()) + " / " + b.classSize(),
+                    stats == null ? "-" : String.valueOf(stats.successCount()), stats == null ? "-" : number(stats.successRate()) + "%",
+                    stats == null ? "-" : number(stats.minimum()), stats == null ? "-" : number(stats.maximum())};
+            for (int row = 0; row < 6; row++) {
+                float ty = headerBottom - 13 - row * 18;
+                text(cs, normal(), 6, 47, ty, clip(disciplineLabels[row], 24)); text(cs, bold(), 7, 188, ty, disciplineValues[row]);
+                text(cs, normal(), 6, 219, ty, clip(workLabels[row], 15)); text(cs, bold(), 6, 315, ty, clip(workValues[row], 11));
+                text(cs, normal(), 6, 389, ty, clip(classLabels[row], 17)); text(cs, bold(), 6, 510, ty, clip(classValues[row], 8));
+            }
         }
     }
 
     private void signatureBoxes(PDDocument doc, PDPage page, float top, boolean fr,
                                 BrandingRenderData branding, PDImageXObject stamp) throws Exception {
-        float first = LEFT;
-        float width = (RIGHT - LEFT) / 3f;
+        float x1 = 250, x2 = 350, x3 = 450;
         try (PDPageContentStream cs = new PDPageContentStream(doc, page, PDPageContentStream.AppendMode.APPEND, true)) {
-            box(cs, first, top - 58, first + width, top);
-            box(cs, first + width, top - 58, first + (2 * width), top);
-            box(cs, first + (2 * width), top - 58, RIGHT, top);
-            text(cs, bold(), 7, first + 8, top - 15, fr ? "VISA DU PARENT" : "PARENT SIGNATURE");
+            box(cs, LEFT, top - 70, RIGHT, top);
+            line(cs, x1, top - 70, x1, top, .5f); line(cs, x2, top - 70, x2, top, .5f); line(cs, x3, top - 70, x3, top, .5f);
+            text(cs, bold(), 7, LEFT + 6, top - 13, fr ? "APPRECIATION DU TRAVAIL DE L'ELEVE" : "REMARKS ON STUDENT PERFORMANCE");
             String headTitle = branding == null || branding.principalTitle() == null || branding.principalTitle().isBlank()
                     ? (fr ? "CHEF D'ETABLISSEMENT" : "HEAD OF SCHOOL") : branding.principalTitle();
-            String councilTitle = branding == null || branding.councilTitle() == null || branding.councilTitle().isBlank()
-                    ? (fr ? "CONSEIL DE CLASSE" : "CLASS COUNCIL") : branding.councilTitle();
-            text(cs, bold(), 7, first + width + 8, top - 15, councilTitle);
-            text(cs, bold(), 7, first + (2 * width) + 8, top - 15, headTitle);
-            text(cs, normal(), 7, first + 8, top - 45, fr ? "Signature / date" : "Signature / date");
-            text(cs, normal(), 7, first + width + 8, top - 45, branding == null || branding.classMasterTitle() == null
-                    ? (fr ? "Avis et visa" : "Decision / signature") : clip(branding.classMasterTitle(), 28));
-            text(cs, normal(), 7, first + (2 * width) + 8, top - 45, branding == null || branding.principalName() == null
-                    ? (fr ? "Cachet" : "Seal") : clip(branding.principalName(), 28));
-            if (stamp != null) cs.drawImage(stamp, first + (2 * width) + 100, top - 55, 30, 30);
+            text(cs, normal(), 7, x1 + 7, top - 13, fr ? "Visa du parent / Tuteur" : "Parent / Guardian signature");
+            text(cs, normal(), 7, x2 + 7, top - 13, fr ? "Nom et visa du professeur" : "Class master's signature");
+            text(cs, normal(), 7, x3 + 7, top - 13, fr ? "Fait a MAROUA, le" : "At MAROUA, on");
+            text(cs, bold(), 7, x3 + 7, top - 26, clip(headTitle, 22));
+            if (stamp != null) cs.drawImage(stamp, x3 + 55, top - 64, 34, 34);
         }
     }
 
     private String reportTitle(BulletinSnapshotView bulletin, boolean fr) {
         if (annual(bulletin)) return fr ? "BULLETIN SCOLAIRE ANNUEL" : "ANNUAL REPORT SHEET";
-        String label = safeText(bulletin.reportingPeriodLabel()).toUpperCase(Locale.ROOT);
+        int number = periodNumber(bulletin.reportingPeriodCode());
         if ("TERM_RESULT".equalsIgnoreCase(bulletin.reportingPeriodType())
                 || "TERM".equalsIgnoreCase(bulletin.product()))
-            return fr ? "BULLETIN SCOLAIRE - " + label : label + " PROGRESS RECORD";
-        return fr ? "BULLETIN DE NOTES - " + label : label + " PROGRESS RECORD";
+            return fr ? "BULLETIN SCOLAIRE DU " + (number == 1 ? "1er" : number + "e") + " TRIMESTRE"
+                    : switch (number) { case 1 -> "FIRST TERM PROGRESS RECORD"; case 2 -> "SECOND TERM PROGRESS RECORD"; default -> "THIRD TERM PROGRESS RECORD"; };
+        return fr ? "BULLETIN DE NOTES DE LA SEQUENCE " + number : "SEQUENCE " + number + " PROGRESS RECORD";
     }
 
     private StudentRenderData studentData(BulletinSnapshotView bulletin) {

@@ -483,7 +483,7 @@ const appreciation = (avg: number, fr: boolean): string => {
         } @else {
           <div class="grid grid-cols-12 gap-4">
             <!-- Class roster -->
-            <bbc-card className="col-span-12 lg:col-span-4 print:hidden"
+            <bbc-card className="col-span-12 lg:col-span-3 print:hidden"
               [title]="selectedClass()"
               [subtitle]="classStudents().length + (fr() ? ' élèves' : ' students')">
               <input [ngModel]="studentQuery()" (ngModelChange)="studentQuery.set($event)"
@@ -507,7 +507,7 @@ const appreciation = (avg: number, fr: boolean): string => {
             </bbc-card>
 
             <!-- Single bulletin -->
-            <div class="col-span-12 lg:col-span-8">
+            <div class="col-span-12 lg:col-span-9">
               @if (bulletin(); as b) {
                 @if (isApc()) {
                   <bbc-card className="overflow-x-auto"><bbc-apc-bulletin [view]="b" /></bbc-card>
@@ -1823,6 +1823,10 @@ export class AcademicComponent {
       rank: snapshot.rank,
       classSize: snapshot.classSize,
       classAverage: snapshot.classStats?.average ?? snapshot.average,
+      classMinimum: snapshot.classStats?.minimum ?? null,
+      classMaximum: snapshot.classStats?.maximum ?? null,
+      successCount: snapshot.classStats?.successCount ?? null,
+      successRate: snapshot.classStats?.successRate ?? null,
       validated: snapshot.state === 'VALIDATED' || snapshot.state === 'PUBLISHED',
       generalAppreciation: snapshot.generalAppreciation,
       financiallyBlocked: false,
