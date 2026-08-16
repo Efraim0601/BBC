@@ -27,13 +27,31 @@ services:
       - bbc_production_documents:/data/documents
 
   frontend:
-    ports: !override
-      - "80:80"
+    ports: !override []
+    expose:
+      - "80"
     volumes: !override
       - ./frontend/nginx.ssl.production.conf:/etc/nginx/conf.d/default.conf:ro
+
+  caddy:
+    image: caddy:2-alpine
+    depends_on:
+      - frontend
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile.production:/etc/caddy/Caddyfile:ro
+      - bbc_production_caddy_data:/data
+      - bbc_production_caddy_config:/config
+    restart: unless-stopped
 
 volumes:
   bbc_production_pgdata:
     name: bbc-vps-production-pgdata
   bbc_production_documents:
     name: bbc-vps-production-documents
+  bbc_production_caddy_data:
+    name: bbc-vps-production-caddy-data
+  bbc_production_caddy_config:
+    name: bbc-vps-production-caddy-config
