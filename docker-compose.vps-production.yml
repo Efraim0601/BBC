@@ -29,10 +29,8 @@ services:
   frontend:
     ports: !override
       - "80:80"
-      - "20444:443"
     volumes: !override
       - ./frontend/nginx.ssl.production.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./certs-production:/etc/nginx/certs:ro
 
 volumes:
   bbc_production_pgdata:
