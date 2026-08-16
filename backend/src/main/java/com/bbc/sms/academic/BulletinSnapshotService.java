@@ -107,10 +107,17 @@ public class BulletinSnapshotService {
         return new CurrentSnapshot(student, enrollment, calculation, attendance, conduct, trace, json, sha256(json));
     }
 
-    private List<String> officialBlockers(Calculation calculation, ConductSummaryView conduct) {
+    private List<String> officialBlockers(AcademicReportingPeriod period, Calculation calculation, ConductSummaryView conduct) {
         List<String> blockers = new ArrayList<>(calculation == null ? List.of() : calculation.blockers());
-        if (conduct == null || !"APPROVED".equalsIgnoreCase(conduct.status())) addDistinct(blockers, "CONDUCT_NOT_APPROVED");
+        if (requiresCouncilApproval(period) && (conduct == null || !"APPROVED".equalsIgnoreCase(conduct.status()))) {
+            addDistinct(blockers, "CONDUCT_NOT_APPROVED");
+        }
         return blockers;
+    }
+
+    static boolean requiresCouncilApproval(AcademicReportingPeriod period) {
+        return period != null && Set.of("TERM_RESULT", "ANNUAL_RESULT")
+                .contains(String.valueOf(period.getPeriodType()).toUpperCase(Locale.ROOT));
     }
 
     private BulletinSnapshotView persistedView(BulletinVersion version, AcademicReportingPeriod period,
@@ -150,7 +157,7 @@ public class BulletinSnapshotService {
         BulletinVersion active = latestActive(studentId, periodId);
         if (official != null && active == null) return viewFromSnapshot(official, period, student);
         CurrentSnapshot current = currentSnapshot(studentId, period, student, enrollment);
-        List<String> officialBlockers = officialBlockers(current.calculation(), current.conduct());
+        List<String> officialBlockers = officialBlockers(period, current.calculation(), current.conduct());
         if (active != null) {
             if (Objects.equals(active.getSnapshotHash(), current.hash()) && officialBlockers.isEmpty())
                 return persistedView(active, period, student, current, "CURRENT", false);
@@ -204,7 +211,7 @@ public class BulletinSnapshotService {
         StudentEnrollment enrollment = enrollment(previous.getStudentId(), period);
         if (enrollment == null) throw ApiException.conflict("Aucune inscription active pour l'actualisation.");
         CurrentSnapshot current = currentSnapshot(previous.getStudentId(), period, student, enrollment);
-        List<String> blockers = officialBlockers(current.calculation(), current.conduct());
+        List<String> blockers = officialBlockers(period, current.calculation(), current.conduct());
         if (!blockers.isEmpty()) {
             throw ApiException.blockers("BULLETIN_NOT_READY",
                     "Le brouillon ne peut pas être actualisé tant que ses sources ne sont pas prêtes.", blockers);
@@ -389,7 +396,7 @@ public class BulletinSnapshotService {
                     "Le brouillon ne correspond plus aux sources actuelles. Actualisez-le avant validation.",
                     List.of("BULLETIN_DRAFT_STALE"));
         }
-        List<String> blockers = officialBlockers(current.calculation(), current.conduct());
+        List<String> blockers = officialBlockers(period, current.calculation(), current.conduct());
         if (!blockers.isEmpty()) throw ApiException.blockers("BULLETIN_NOT_READY",
                 "Bulletin incomplet ou preuves administratives non approuvées : " + String.join("; ", blockers), blockers);
         version.setState("VALIDATED"); version.setValidatedAt(Instant.now()); version.setValidatedBy(currentUserId());
@@ -425,7 +432,7 @@ public class BulletinSnapshotService {
             throw ApiException.blockers("BULLETIN_DRAFT_STALE",
                     "Le bulletin validé ne correspond plus aux sources actuelles.", List.of("BULLETIN_DRAFT_STALE"));
         }
-        List<String> blockers = officialBlockers(current.calculation(), current.conduct());
+        List<String> blockers = officialBlockers(period, current.calculation(), current.conduct());
         if (!blockers.isEmpty()) throw ApiException.blockers("BULLETIN_NOT_READY",
                 "Le bulletin ne peut pas être publié : " + String.join("; ", blockers), blockers);
         version.setState("PUBLISHED");
@@ -1148,7 +1155,7 @@ public class BulletinSnapshotService {
     private BulletinSnapshotView view(BulletinVersion v, AcademicReportingPeriod p, Student s, Calculation c,
                                       AttendanceSummaryView attendance, ConductSummaryView conduct, SnapshotTrace trace,
                                       String relation, boolean refreshRequired) {
-        List<String> validationBlockers = officialBlockers(c, conduct);
+        List<String> validationBlockers = officialBlockers(p, c, conduct);
         List<BulletinIssueView> issues = new ArrayList<>(c.issues());
         if (validationBlockers.contains("CONDUCT_NOT_APPROVED")) {
             issues.add(issue("CONDUCT_NOT_APPROVED", "ERROR", p.getCode(), null,

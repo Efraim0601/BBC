@@ -78,6 +78,15 @@ public class FinanceService {
         LocalDate paidOn = in.paidOn() == null ? LocalDate.now() : in.paidOn();
         requireStudent("PAYMENT_COLLECT", in.studentId(), paidOn);
 
+        long configuredTotal = expectedTotal(schoolId, in.studentId());
+        if (configuredTotal <= 0) {
+            throw com.bbc.sms.platform.common.ApiException.badRequest(
+                    "Aucune grille de frais ne couvre cet élève. Configurez ses frais avant d'enregistrer un paiement.");
+        }
+        long alreadyReceived = payments.findBySchoolIdAndStudentIdOrderByPaidOnAsc(schoolId, in.studentId())
+                .stream().mapToLong(Payment::getAmount).sum();
+        requireCollectibleAmount(configuredTotal, alreadyReceived, in.amount());
+
         // Le canal doit exister et être actif ; ceux qui l'exigent (mobile money, carte,
         // virement) imposent la référence de transaction, seule preuve opposable au parent.
         PaymentChannel channel = fees.requireEnabledChannel(schoolId, in.method());
@@ -100,14 +109,28 @@ public class FinanceService {
 
         // Reconcile the student's running balance — without this, recording a payment
         // never reduced what the student owes (the dashboard/debtor figures went stale).
-        reconcileStudentFee(schoolId, in.studentId(), in.amount());
+        reconcileStudentFee(schoolId, in.studentId());
 
         realtime.broadcast(schoolId, "payments", view);
         return view;
     }
 
+    static long requireCollectibleAmount(long configuredTotal, long alreadyReceived, long requested) {
+        long remaining = Math.max(0, configuredTotal - Math.min(configuredTotal, alreadyReceived));
+        if (remaining == 0) {
+            throw com.bbc.sms.platform.common.ApiException.conflict(
+                    "Les frais de cet élève sont déjà entièrement réglés. Aucun nouveau paiement n'est attendu.");
+        }
+        if (requested > remaining) {
+            throw com.bbc.sms.platform.common.ApiException.badRequest(
+                    "Le montant saisi (" + requested + " FCFA) dépasse le solde restant de "
+                            + remaining + " FCFA.");
+        }
+        return remaining;
+    }
+
     /** Apply a payment to the student's {@code student_fee} row, creating it from the fee grid if absent. */
-    private void reconcileStudentFee(UUID schoolId, UUID studentId, long amount) {
+    private void reconcileStudentFee(UUID schoolId, UUID studentId) {
         StudentFee fee = studentFees.findBySchoolIdAndStudentId(schoolId, studentId)
                 .orElseGet(() -> {
                     StudentFee fresh = new StudentFee();
@@ -119,8 +142,10 @@ public class FinanceService {
                     return fresh;
                 });
 
-        long paid = fee.getPaid() + amount;
-        long total = Math.max(fee.getTotal(), paid);   // never let balance go negative
+        long total = expectedTotal(schoolId, studentId);
+        long received = payments.findBySchoolIdAndStudentIdOrderByPaidOnAsc(schoolId, studentId)
+                .stream().mapToLong(Payment::getAmount).sum();
+        long paid = Math.min(total, received);
         long balance = Math.max(0, total - paid);
 
         fee.setTotal(total);

@@ -16,14 +16,15 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -129,13 +130,20 @@ public class FeeService {
     public Optional<FeeConfig> resolveGrid(UUID schoolId, Student student) {
         if (student == null) return Optional.empty();
         List<FeeConfig> all = feeConfigs.findBySchoolId(schoolId);
+        Map<String, UUID> classIdsByName = classes.findBySchoolIdOrderByName(schoolId).stream()
+                .collect(Collectors.toMap(SchoolClass::getName, SchoolClass::getId, (a, b) -> a));
+        return resolveGrid(student, all, classIdsByName);
+    }
+
+    private Optional<FeeConfig> resolveGrid(Student student, List<FeeConfig> all,
+                                            Map<String, UUID> classIdsByName) {
+        if (student == null) return Optional.empty();
 
         // L'élève porte parfois seulement le nom de sa classe (données antérieures aux
         // sélecteurs de classe) : on retrouve alors l'identifiant par son libellé.
         UUID classId = student.getClassId() != null ? student.getClassId()
                 : (student.getClassName() == null ? null
-                   : classes.findBySchoolIdAndName(schoolId, student.getClassName())
-                            .map(SchoolClass::getId).orElse(null));
+                   : classIdsByName.get(student.getClassName()));
 
         if (classId != null) {
             UUID finalClassId = classId;
@@ -158,13 +166,13 @@ public class FeeService {
 
     // ----------------------------------------------------------------- situation
 
-    @Transactional(readOnly = true)
+    @Transactional
     public List<SituationView> situation() {
         requireSchool("FINANCE_OVERVIEW_VIEW");
         return buildSituation(false);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public List<SituationView> debtors() {
         requireSchool("FINANCE_OVERVIEW_VIEW");
         return buildSituation(true);
@@ -172,11 +180,13 @@ public class FeeService {
 
     private List<SituationView> buildSituation(boolean onlyDebtors) {
         UUID schoolId = TenantContext.get();
+        Set<UUID> coveredStudents = refreshExpectedTotals(schoolId);
         List<StudentFee> feeRows = studentFees.findBySchoolId(schoolId);
         Map<UUID, FinanceStudent> studentsById = financeStudents(schoolId,
                 feeRows.stream().map(StudentFee::getStudentId).collect(Collectors.toSet()));
 
         return feeRows.stream()
+                .filter(sf -> coveredStudents.contains(sf.getStudentId()))
                 .filter(sf -> !onlyDebtors || sf.getBalance() > 0)
                 .map(sf -> toSituation(sf, studentsById.get(sf.getStudentId())))
                 .sorted(Comparator.comparingLong(SituationView::balance).reversed())
@@ -433,20 +443,63 @@ public class FeeService {
     // -------------------------------------------------------------------- interne
 
     /** Réaligne le montant attendu de chaque élève sur la grille qui lui est applicable. */
-    private void refreshExpectedTotals(UUID schoolId) {
-        Map<UUID, Student> byId = students.findBySchoolIdAndActiveTrueOrderByLastNameAsc(schoolId).stream()
-                .collect(Collectors.toMap(Student::getId, Function.identity()));
+    private Set<UUID> refreshExpectedTotals(UUID schoolId) {
+        List<Student> activeStudents = students.findBySchoolIdAndActiveTrueOrderByLastNameAsc(schoolId);
+        List<FeeConfig> grids = feeConfigs.findBySchoolId(schoolId);
+        Map<String, UUID> classIdsByName = classes.findBySchoolIdOrderByName(schoolId).stream()
+                .collect(Collectors.toMap(SchoolClass::getName, SchoolClass::getId, (a, b) -> a));
+        Map<UUID, StudentFee> feeByStudent = studentFees.findBySchoolId(schoolId).stream()
+                .collect(Collectors.toMap(StudentFee::getStudentId, fee -> fee, (a, b) -> a));
+        Map<UUID, Long> receivedByStudent = payments.findBySchoolIdOrderByPaidOnDesc(schoolId).stream()
+                .collect(Collectors.groupingBy(Payment::getStudentId,
+                        Collectors.summingLong(Payment::getAmount)));
 
-        for (StudentFee fee : studentFees.findBySchoolId(schoolId)) {
-            Student s = byId.get(fee.getStudentId());
-            if (s == null) continue;
-            long total = resolveGrid(schoolId, s).map(FeeConfig::getTotal).orElse(0L);
-            if (total == 0) continue;                      // aucune grille : on ne touche à rien
-            fee.setTotal(Math.max(total, fee.getPaid()));  // jamais de solde négatif
-            fee.setBalance(Math.max(0, fee.getTotal() - fee.getPaid()));
-            fee.setStatus(fee.getBalance() <= 0 ? "paid" : (fee.getPaid() > 0 ? "partial" : "unpaid"));
-            studentFees.save(fee);
+        Set<UUID> covered = new HashSet<>();
+        List<StudentFee> synchronizedRows = new ArrayList<>();
+        for (Student student : activeStudents) {
+            FeeConfig grid = resolveGrid(student, grids, classIdsByName).orElse(null);
+            if (grid == null || grid.getTotal() <= 0) continue;
+
+            covered.add(student.getId());
+            StudentFee fee = feeByStudent.get(student.getId());
+            boolean newRow = fee == null;
+            if (fee == null) {
+                fee = new StudentFee();
+                fee.setSchoolId(schoolId);
+                fee.setStudentId(student.getId());
+            }
+
+            long total = grid.getTotal();
+            long received = Math.max(0, receivedByStudent.getOrDefault(student.getId(), 0L));
+            long applied = Math.min(total, received);
+            long balance = total - applied;
+            int tranchesPaid = coveredTranches(grid, applied);
+            String status = balance == 0 ? "paid" : (applied > 0 ? "partial" : "unpaid");
+            boolean changed = newRow || fee.getTotal() != total || fee.getPaid() != applied
+                    || fee.getBalance() != balance || fee.getTranchesPaid() != tranchesPaid
+                    || !Objects.equals(fee.getStatus(), status);
+            if (!changed) continue;
+
+            fee.setTotal(total);
+            fee.setPaid(applied);
+            fee.setBalance(balance);
+            fee.setTranchesPaid(tranchesPaid);
+            fee.setStatus(status);
+            synchronizedRows.add(fee);
         }
+        if (!synchronizedRows.isEmpty()) studentFees.saveAll(synchronizedRows);
+        return covered;
+    }
+
+    private int coveredTranches(FeeConfig grid, long paid) {
+        long cumulative = 0;
+        int covered = 0;
+        for (TrancheView tranche : fromJson(grid.getTranches())) {
+            cumulative += tranche.amount();
+            if (paid < cumulative) break;
+            covered++;
+        }
+        return covered;
     }
 
     private Optional<FeeConfig> findExisting(UUID schoolId, FeeConfigUpdate in) {

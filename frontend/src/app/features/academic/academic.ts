@@ -71,6 +71,15 @@ export const academicBulletinTitle = (b: Pick<BulletinView, 'product' | 'reporti
   return `${fr ? 'BULLETIN' : 'REPORT CARD'} — ${fr ? 'SÉQUENCE' : 'SEQUENCE'} ${code.replace(/^S/i, '') || b.sequence}`;
 };
 
+/**
+ * Grade-packet review is resource-scoped by the backend (session, class and
+ * subject).  Never infer it from a broad role name in the UI: Access Control
+ * may deliberately delegate this action to another role for a limited scope.
+ */
+export const canReviewGradePacket = (
+  entry: Pick<GradeEntryView, 'packetStatus' | 'capabilities'>,
+): boolean => entry.packetStatus === 'SUBMITTED' && entry.capabilities?.canReview === true;
+
 export const computedPeriodCodes = (lines: BulletinView['lines']): string[] => {
   const seen = new Set<string>();
   for (const line of lines) for (const mark of line.periodMarks ?? []) if (mark.periodCode) seen.add(mark.periodCode);
@@ -370,7 +379,7 @@ const appreciation = (avg: number, fr: boolean): string => {
                   <button type="button" (click)="saveGradeEntry()" [disabled]="gradeBusy() || entry.capabilities?.canEditDraft === false" class="h-10 px-4 rounded-lg border border-slate-300 text-sm font-semibold text-ink hover:bg-slate-50 disabled:opacity-50">{{ gradeBusy() ? '…' : (fr() ? 'Enregistrer sans envoyer' : 'Save without sending') }}</button>
                   <button type="button" (click)="submitGradeEntry()" [disabled]="gradeBusy() || entry.blockers.length > 0 || !entry.assessments.length || !canSubmitGrade(entry)" [title]="entry.submissionBlockers?.length ? (fr() ? 'Réparez l’affectation et complétez les champs indiqués avant l’envoi.' : 'Repair the assignment and complete the highlighted fields before sending.') : ''" class="h-10 px-4 rounded-lg bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700 disabled:opacity-50">{{ fr() ? 'Envoyer à la direction' : 'Send to management' }}</button>
                 }
-                @if (canReview() && entry.packetStatus === 'SUBMITTED') {
+                @if (canReviewGradePacket(entry)) {
                   <button type="button" (click)="reviewGradeEntry('RETURN')" [disabled]="gradeBusy()" class="h-10 px-4 rounded-lg border border-rose-200 text-rose-700 text-sm font-semibold hover:bg-rose-50 disabled:opacity-50">{{ fr() ? 'Retourner pour correction' : 'Return for correction' }}</button>
                   <button type="button" (click)="reviewGradeEntry('ACCEPT')" [disabled]="gradeBusy()" class="h-10 px-4 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50">{{ fr() ? 'Accepter la feuille' : 'Accept the sheet' }}</button>
                 }
@@ -1045,6 +1054,7 @@ export class AcademicComponent {
   ]);
 
   protected canReview = computed(() => ['admin', 'principal', 'dean_of_studies', 'censor'].includes(this.auth.user()?.role ?? ''));
+  protected readonly canReviewGradePacket = canReviewGradePacket;
 
   protected filteredClassStudents = computed(() => {
     const q = this.studentQuery().trim().toLowerCase();
@@ -1057,10 +1067,10 @@ export class AcademicComponent {
   /** Teacher grade-entry must use the server-filtered academic scope model.
    * The setup class catalogue is intentionally reserved for administration
    * and returns 403 for ordinary teachers. */
-  private loadClasses(): void {
+  private loadClasses(sessionId?: string, reportingPeriodId?: string, afterLoad?: () => void): void {
     const role = this.auth.user()?.role;
     if (role === 'teacher' || role === 'form_teacher') {
-      this.api.academicMyScope().subscribe({
+      this.api.academicMyScope(sessionId, reportingPeriodId).subscribe({
         next: (scope) => {
           const seen = new Set<string>();
           const classes = [...scope.subjects, ...scope.classOverviews]
@@ -1080,14 +1090,15 @@ export class AcademicComponent {
               teacherCount: 0,
             }));
           this.classes.set(classes);
+          afterLoad?.();
         },
-        error: () => this.classes.set([]),
+        error: () => { this.classes.set([]); afterLoad?.(); },
       });
       return;
     }
     this.setupApi.listClasses().subscribe({
-      next: (classes) => this.classes.set(classes),
-      error: () => this.classes.set([]),
+      next: (classes) => { this.classes.set(classes); afterLoad?.(); },
+      error: () => { this.classes.set([]); afterLoad?.(); },
     });
   }
 
@@ -1096,15 +1107,28 @@ export class AcademicComponent {
     const requestedClassId = this.route.snapshot.queryParamMap.get('classId');
     const requestedPeriodId = this.route.snapshot.queryParamMap.get('periodId');
     const requestedSubjectCode = this.route.snapshot.queryParamMap.get('subjectCode');
+    const teacherScoped = ['teacher', 'form_teacher'].includes(this.auth.user()?.role ?? '');
     if (requestedSubjectCode) this.selectedGradeSubjectCode.set(requestedSubjectCode.toUpperCase());
     if (requestedMode && ['bulletin', 'grade-entry', 'inputs', 'pv', 'overview', 'batch'].includes(requestedMode)) this.mode.set(requestedMode);
-    this.loadClasses();
+    if (!teacherScoped) this.loadClasses();
     this.foundationApi.currentSession().subscribe({
       next: (s) => {
         this.academicSessionId.set(s.id);
         this.foundationApi.reportingDependencies(s.id).subscribe({ next: (rows) => this.reportingDependencies.set(rows), error: () => this.reportingDependencies.set([]) });
         this.foundationApi.reportingPeriods(s.id).subscribe({
-        next: (periods) => { const readablePeriods = periods.map((p) => ({ ...p, label: cleanDisplay(p.label) })); this.reportingPeriods.set(readablePeriods); const first = readablePeriods.find((p) => p.id === requestedPeriodId && (this.mode() !== 'grade-entry' || p.periodType === 'SEQUENCE')) ?? readablePeriods.find((p) => p.code === 'S1') ?? readablePeriods[0]; if (first) { this.selectedReportingPeriodId.set(first.id); this.sequence.set(this.periodSequence(first)); } const klass = this.classes().find((c) => c.id === requestedClassId); if (klass) this.onClassChange(klass.name, !!requestedSubjectCode); },
+        next: (periods) => {
+          const readablePeriods = periods.map((p) => ({ ...p, label: cleanDisplay(p.label) }));
+          this.reportingPeriods.set(readablePeriods);
+          const first = readablePeriods.find((p) => p.id === requestedPeriodId && (this.mode() !== 'grade-entry' || p.periodType === 'SEQUENCE'))
+            ?? readablePeriods.find((p) => p.code === 'S1') ?? readablePeriods[0];
+          if (first) { this.selectedReportingPeriodId.set(first.id); this.sequence.set(this.periodSequence(first)); }
+          const openRequestedClass = () => {
+            const klass = this.classes().find((c) => c.id === requestedClassId);
+            if (klass) this.onClassChange(klass.name, !!requestedSubjectCode);
+          };
+          if (teacherScoped) this.loadClasses(s.id, first?.id, openRequestedClass);
+          else openRequestedClass();
+        },
         error: () => this.reportingPeriods.set([]),
         });
       },
