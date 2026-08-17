@@ -151,7 +151,15 @@ public class MailService {
         Properties p = sender.getJavaMailProperties();
         p.put("mail.transport.protocol", "smtp");
         p.put("mail.smtp.auth", String.valueOf(auth));
-        p.put("mail.smtp.starttls.enable", String.valueOf(c.isUseTls()));
+        // Hostinger's port 465 uses implicit TLS (the TLS handshake starts when
+        // the socket is opened), while port 587 uses STARTTLS after connecting.
+        // The configuration screen exposes one TLS switch, so infer the
+        // protocol from the well-known implicit-TLS port instead of trying to
+        // negotiate STARTTLS on port 465.
+        boolean implicitTls = c.getPort() == 465;
+        p.put("mail.smtp.ssl.enable", String.valueOf(implicitTls));
+        p.put("mail.smtp.starttls.enable", String.valueOf(c.isUseTls() && !implicitTls));
+        p.put("mail.smtp.ssl.checkserveridentity", String.valueOf(implicitTls));
         p.put("mail.smtp.connectiontimeout", "10000");
         p.put("mail.smtp.timeout", "10000");
         p.put("mail.smtp.writetimeout", "10000");

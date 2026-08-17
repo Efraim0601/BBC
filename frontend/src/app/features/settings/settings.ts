@@ -562,8 +562,11 @@ type SettingsTab = 'academic' | 'sessions' | 'general' | 'perms' | 'roles' | 'ma
 
                 <label class="flex items-center gap-2.5 cursor-pointer">
                   <input type="checkbox" [(ngModel)]="mailDraft.useTls" [disabled]="!canWrite" class="w-4 h-4 rounded accent-brand-600" />
-                  <span class="text-sm text-ink">{{ fr() ? 'STARTTLS (chiffrement)' : 'STARTTLS (encryption)' }}</span>
+                  <span class="text-sm text-ink">{{ fr() ? 'TLS (SSL implicite sur 465, STARTTLS sur 587)' : 'TLS (implicit SSL on 465, STARTTLS on 587)' }}</span>
                 </label>
+                <p class="text-xs text-mute -mt-1">
+                  {{ fr() ? 'Le port 465 est utilisé avec SSL implicite. Le port 587 utilise STARTTLS.' : 'Port 465 uses implicit SSL. Port 587 uses STARTTLS.' }}
+                </p>
 
                 @if (canWrite) {
                   <div class="flex items-center gap-2 pt-1">
