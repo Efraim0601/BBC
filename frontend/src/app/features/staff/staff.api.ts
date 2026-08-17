@@ -22,6 +22,7 @@ export interface EmployeeView {
   roles: string[];
   active: boolean;
   hasLogin: boolean;
+  accountUserId: string | null;
   username: string | null;
 }
 

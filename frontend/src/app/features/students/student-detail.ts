@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/cor
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { Student } from '../../core/models';
-import { ClassView, SetupApi } from '../../core/setup.api';
+import { ClassView } from '../../core/setup.api';
 import { I18nService } from '../../core/i18n.service';
 import { PhotoApi } from '../../core/photo.api';
 import { AvatarComponent, CardComponent, IconComponent, PageHeaderComponent } from '../../core/ui';
@@ -114,13 +114,13 @@ import { GuardianInput, GuardianRelationshipView, GuardianSearchView, StudentApi
     </div>`,
 })
 export class StudentDetailComponent {
-  private api=inject(StudentApi); private setup=inject(SetupApi); private route=inject(ActivatedRoute); private photoApi=inject(PhotoApi); protected i18n=inject(I18nService);
+  private api=inject(StudentApi); private route=inject(ActivatedRoute); private photoApi=inject(PhotoApi); protected i18n=inject(I18nService);
   protected fr=()=>this.i18n.lang()==='fr'; protected student=signal<Student|null>(null); protected guardians=signal<GuardianRelationshipView[]>([]); protected classes=signal<ClassView[]>([]); protected photo=signal<string|null>(null); protected error=signal<string|null>(null); protected notice=signal<string|null>(null);
   protected adding=signal(false); protected editing=signal(false); protected saving=signal(false); protected addAttempted=signal(false); protected editAttempted=signal(false); protected endAttempted=signal(false); protected formError=signal<string|null>(null); protected results=signal<GuardianSearchView[]>([]); protected searchQ='';
   protected draft:GuardianInput=this.blank(); protected editDraft:StudentUpsert={firstName:'',lastName:'',sex:'M',repeats:false,classId:null}; protected endTarget=signal<GuardianRelationshipView|null>(null); protected endReason=''; private id=this.route.snapshot.paramMap.get('id')!;
 
-  constructor(){this.reload();this.setup.listClasses().subscribe(c=>this.classes.set(c));this.photoApi.load('students',this.id).subscribe(p=>this.photo.set(p));}
-  private reload(){this.api.get(this.id).subscribe({next:s=>this.student.set(s),error:e=>this.error.set(e.error?.message||'Élève introuvable')});this.api.guardians(this.id).subscribe(g=>this.guardians.set(g));}
+  constructor(){this.reload();this.api.listClassOptions().subscribe({next:c=>this.classes.set(c),error:()=>this.classes.set([])});this.photoApi.load('students',this.id).subscribe(p=>this.photo.set(p));}
+  private reload(){this.api.get(this.id).subscribe({next:s=>this.student.set(s),error:e=>this.error.set(e.error?.message||'Élève introuvable')});this.api.guardians(this.id).subscribe({next:g=>this.guardians.set(g),error:()=>this.guardians.set([])});}
   protected openAdd(){this.draft=this.blank();this.searchQ='';this.results.set([]);this.formError.set(null);this.addAttempted.set(false);this.adding.set(true);}
   protected closeAdd(){this.adding.set(false);this.addAttempted.set(false);this.formError.set(null);}
   protected searchGuardian(){if(this.searchQ.trim().length<3){this.formError.set(this.fr()?'Saisissez au moins 3 caractères pour rechercher un parent.':'Enter at least 3 characters to search.');return;}this.formError.set(null);this.api.searchGuardians(this.searchQ).subscribe({next:r=>this.results.set(r),error:e=>this.formError.set(e.error?.message)});}

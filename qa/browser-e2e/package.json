@@ -1,0 +1,11 @@
+{
+  "name": "bbc-sms-browser-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node run-golden-journeys.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.55.0"
+  }
+}

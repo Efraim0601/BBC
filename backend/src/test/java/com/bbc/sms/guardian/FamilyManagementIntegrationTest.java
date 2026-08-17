@@ -2,6 +2,7 @@ package com.bbc.sms.guardian;
 
 import com.bbc.sms.foundation.session.AcademicSessionService;
 import com.bbc.sms.foundation.session.SessionDtos.SessionUpsert;
+import com.bbc.sms.platform.security.AppUserPrincipal;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.student.StudentRegistrationService;
 import com.bbc.sms.student.StudentRegistrationService.RegistrationRequest;
@@ -10,6 +11,8 @@ import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -26,9 +29,21 @@ class FamilyManagementIntegrationTest {
  @Container static final PostgreSQLContainer<?> DB=new PostgreSQLContainer<>("postgres:16-alpine").withDatabaseName("family").withUsername("bbc").withPassword("bbc");
  @DynamicPropertySource static void props(DynamicPropertyRegistry r){r.add("spring.datasource.url",DB::getJdbcUrl);r.add("spring.datasource.username",DB::getUsername);r.add("spring.datasource.password",DB::getPassword);}
  @Autowired JdbcTemplate jdbc;@Autowired AcademicSessionService sessions;@Autowired StudentRegistrationService registrations;@Autowired GuardianService guardians;@Autowired FamilyImportService imports;
- UUID school,classId;
- @BeforeEach void setup(){school=UUID.randomUUID();classId=UUID.randomUUID();jdbc.update("INSERT INTO school(id,code,name) VALUES (?,?,?)",school,"F"+school.toString().substring(0,6),"Family school");jdbc.update("INSERT INTO role(code,label_fr,label_en) VALUES ('parent','Parent','Parent') ON CONFLICT DO NOTHING");String section="s"+school.toString().substring(0,8);jdbc.update("INSERT INTO section(id,school_id,label,subsystem,level) VALUES (?,?,?,?,?)",section,school,"Primaire","FR","primary");jdbc.update("INSERT INTO school_class(id,school_id,section_id,name,subsystem,level) VALUES (?,?,?,?,?,?)",classId,school,section,"CM1-"+school.toString().substring(0,4),"FR","primary");TenantContext.set(school);sessions.create(new SessionUpsert("2026-27","2026-2027",LocalDate.of(2026,8,1),LocalDate.of(2027,7,31),"OPEN",true,null,null,null,null,null));}
- @AfterEach void clear(){TenantContext.clear();}
+ UUID school,classId,actorUserId;
+ @BeforeEach void setup(){
+  school=UUID.randomUUID();classId=UUID.randomUUID();actorUserId=UUID.randomUUID();
+  jdbc.update("INSERT INTO school(id,code,name) VALUES (?,?,?)",school,"F"+school.toString().substring(0,6),"Family school");
+  jdbc.update("INSERT INTO role(code,label_fr,label_en,builtin) VALUES ('parent','Parent','Parent',true),('principal','Principal','Principal',true) ON CONFLICT DO NOTHING");
+  jdbc.update("INSERT INTO app_user(id,school_id,username,password_hash,display_name,initials,role_code,active) VALUES (?,?,'family-test','test','Family test','FT','principal',true)",actorUserId,school);
+  jdbc.update("INSERT INTO app_user_role(school_id,user_id,role_code,is_primary,reason) VALUES (?,?,'principal',true,'Family integration fixture') ON CONFLICT DO NOTHING",school,actorUserId);
+  for(String action:new String[]{"STUDENT_PROFILE_CREATE","STUDENT_IMPORT","GUARDIAN_DIRECTORY_SEARCH","GUARDIAN_DIRECTORY_MANAGE","GUARDIAN_LINK_MANAGE","GUARDIAN_ACCOUNT_MANAGE"})
+   jdbc.update("INSERT INTO permission_role_action(school_id,role_code,action_code,effect,scope_mode,is_permanent,reason) VALUES (?,? ,?,'ALLOW','SCHOOL_ALL',true,'Family integration fixture') ON CONFLICT DO NOTHING",school,"principal",action);
+  String section="s"+school.toString().substring(0,8);jdbc.update("INSERT INTO section(id,school_id,label,subsystem,level) VALUES (?,?,?,?,?)",section,school,"Primaire","FR","primary");jdbc.update("INSERT INTO school_class(id,school_id,section_id,name,subsystem,level) VALUES (?,?,?,?,?,?)",classId,school,section,"CM1-"+school.toString().substring(0,4),"FR","primary");TenantContext.set(school);
+  AppUserPrincipal principal=new AppUserPrincipal(actorUserId,school,"family-test","principal","Family test","FT");
+  SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(principal,null,principal.getAuthorities()));
+  sessions.create(new SessionUpsert("2026-27","2026-2027",LocalDate.of(2026,8,1),LocalDate.of(2027,7,31),"OPEN",true,null,null,null,null,null));
+ }
+ @AfterEach void clear(){SecurityContextHolder.clearContext();TenantContext.clear();}
 
  @Test void registrationIsAtomicAndExistingGuardianCanBeLinkedToSibling(){
   GuardianInput invalid=new GuardianInput(null,"Parent sans email",null,null,"MOTHER","SEND_INVITE",null,true,true,1,true,true,true,true,true,true,false,true,null);

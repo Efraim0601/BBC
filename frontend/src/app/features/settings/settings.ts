@@ -1,6 +1,7 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
+import { RouterLink } from '@angular/router';
 import {
   SettingsApi, PermissionMatrix, RoleView, RoleUpsert, MailConfigUpdate,
   SchoolProfileView, SchoolProfileUpdate, HolidayView, CatalogItemView, CatalogItemUpsert,
@@ -20,12 +21,17 @@ type SettingsTab = 'academic' | 'sessions' | 'general' | 'perms' | 'roles' | 'ma
   selector: 'bbc-settings',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, IconComponent, CardComponent, PageHeaderComponent, EmptyComponent, TabsComponent, AcademicSetupComponent, FoundationSettingsComponent],
+  imports: [FormsModule, RouterLink, IconComponent, CardComponent, PageHeaderComponent, EmptyComponent, TabsComponent, AcademicSetupComponent, FoundationSettingsComponent],
   template: `
     <div class="fade-in max-w-6xl mx-auto">
       <bbc-page-header [title]="i18n.t('settings')"
         [subtitle]="fr() ? 'Configuration générale de l’établissement' : 'General school configuration'">
         <div right class="flex items-center gap-2">
+          @if (auth.canAction('PERMISSION_VIEW')) {
+            <a routerLink="/access-control" class="inline-flex items-center gap-1.5 h-9 px-3 text-xs font-semibold rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100">
+              <bbc-icon name="shield" [s]="14" /> {{ fr() ? 'Accès & responsabilités' : 'Access & responsibilities' }}
+            </a>
+          }
           @if (currentUser(); as u) {
             <span class="inline-flex items-center gap-1.5 h-9 px-3 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-mute">
               <bbc-icon name="shield" [s]="14" /> {{ u.role }}
@@ -39,7 +45,13 @@ type SettingsTab = 'academic' | 'sessions' | 'general' | 'perms' | 'roles' | 'ma
       @switch (tab()) {
         <!-- ===================== ACADEMIC SETUP ===================== -->
         @case ('academic') {
-          <bbc-academic-setup />
+          @if (canViewAcademicSetup()) {
+            <bbc-academic-setup />
+          } @else {
+            <bbc-card data-testid="academic-setup-guarded">
+              <bbc-empty icon="shield" [label]="fr() ? 'La configuration scolaire est réservée aux profils autorisés.' : 'Academic setup is available only to authorized profiles.'" />
+            </bbc-card>
+          }
         }
 
         @case ('sessions') {
@@ -74,6 +86,12 @@ type SettingsTab = 'academic' | 'sessions' | 'general' | 'perms' | 'roles' | 'ma
                     <label class="block">
                       <span class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'Pays' : 'Country' }}</span>
                       <input [(ngModel)]="schoolDraft.country" [disabled]="!canWrite"
+                        class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400 disabled:bg-slate-50" />
+                    </label>
+                    <label class="block col-span-2">
+                      <span class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'Adresse' : 'Street address' }}</span>
+                      <input [(ngModel)]="schoolDraft.address" [disabled]="!canWrite"
+                        autocomplete="street-address"
                         class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400 disabled:bg-slate-50" />
                     </label>
                     <label class="block">
@@ -544,8 +562,11 @@ type SettingsTab = 'academic' | 'sessions' | 'general' | 'perms' | 'roles' | 'ma
 
                 <label class="flex items-center gap-2.5 cursor-pointer">
                   <input type="checkbox" [(ngModel)]="mailDraft.useTls" [disabled]="!canWrite" class="w-4 h-4 rounded accent-brand-600" />
-                  <span class="text-sm text-ink">{{ fr() ? 'STARTTLS (chiffrement)' : 'STARTTLS (encryption)' }}</span>
+                  <span class="text-sm text-ink">{{ fr() ? 'TLS (SSL implicite sur 465, STARTTLS sur 587)' : 'TLS (implicit SSL on 465, STARTTLS on 587)' }}</span>
                 </label>
+                <p class="text-xs text-mute -mt-1">
+                  {{ fr() ? 'Le port 465 est utilisé avec SSL implicite. Le port 587 utilise STARTTLS.' : 'Port 465 uses implicit SSL. Port 587 uses STARTTLS.' }}
+                </p>
 
                 @if (canWrite) {
                   <div class="flex items-center gap-2 pt-1">
@@ -607,9 +628,22 @@ export class SettingsComponent {
   private router = inject(Router);
 
   protected matrix = signal<PermissionMatrix | null>(null);
-  protected canWrite = this.auth.can('settings', 'write');
   protected currentUser = this.auth.user;
   protected tab = signal<SettingsTab>('academic');
+
+  /** Enable only the V2 action that governs the active settings surface. */
+  protected get canWrite(): boolean {
+    switch (this.tab()) {
+      case 'sessions': return this.auth.canAction('SESSION_MANAGE');
+      case 'general': return this.auth.canAction('SCHOOL_PROFILE_MANAGE');
+      case 'calendar': return this.auth.canAction('CALENDAR_MANAGE');
+      case 'discipline': return this.auth.canAction('DISCIPLINE_CATALOG_MANAGE');
+      case 'perms': return this.auth.canAction('PERMISSION_MANAGE');
+      case 'roles': return this.auth.canAction('ROLE_MANAGE');
+      case 'mail': return this.auth.canAction('MAIL_CONFIG_MANAGE');
+      default: return false;
+    }
+  }
 
   // School profile
   protected school = signal<SchoolProfileView | null>(null);
@@ -647,8 +681,27 @@ export class SettingsComponent {
 
   protected fr = () => this.i18n.lang() === 'fr';
 
+  /**
+   * AcademicSetupComponent loads setup endpoints in its constructor. Keep it
+   * out of read-only settings sessions unless the server has granted at least
+   * one setup action (including a contextual grant). This prevents ordinary
+   * settings readers from generating predictable 403 console/network noise.
+   */
+  protected canViewAcademicSetup = computed(() => [
+    'CLASS_MANAGE',
+    'SUBJECT_MANAGE',
+    'CURRICULUM_MANAGE',
+    'CURRICULUM_CLASS_MANAGE',
+    'ACADEMIC_ACCESS_DELEGATE',
+    'ACADEMIC_ASSESSMENT_MANAGE',
+    'DOCUMENT_DESIGN_PUBLISH',
+  ].some((action) => {
+    const state = this.auth.actionState(action);
+    return state === 'ALLOW' || state === 'CONTEXT_REQUIRED';
+  }));
+
   protected tabs = computed(() => [
-    { id: 'academic', label: this.fr() ? 'Scolarité' : 'Academics' },
+    ...(this.canViewAcademicSetup() ? [{ id: 'academic', label: this.fr() ? 'Scolarité' : 'Academics' }] : []),
     { id: 'sessions', label: this.fr() ? 'Années & périodes' : 'Sessions & terms' },
     { id: 'general', label: this.fr() ? 'Général' : 'General' },
     { id: 'calendar', label: this.fr() ? 'Calendrier' : 'Calendar' },
@@ -707,7 +760,7 @@ export class SettingsComponent {
 
   private emptySchool(): SchoolProfileUpdate {
     return {
-      name: '', motto: '', city: '', country: '', phone: '', email: '',
+      name: '', motto: '', city: '', country: '', address: '', phone: '', email: '',
       currency: 'XAF', authority: '', schoolStartTime: '07:30', schoolEndTime: '15:30',
     };
   }
@@ -720,6 +773,7 @@ export class SettingsComponent {
         motto: s.motto ?? '',
         city: s.city ?? '',
         country: s.country ?? '',
+        address: s.address ?? '',
         phone: s.phone ?? '',
         email: s.email ?? '',
         currency: s.currency || 'XAF',

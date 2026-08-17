@@ -1,0 +1,5 @@
+# Public production entrypoint for bbcomplex.com.
+# Caddy obtains and renews the Let's Encrypt certificate automatically.
+bbcomplex.com, www.bbcomplex.com {
+    reverse_proxy frontend:80
+}

@@ -1,5 +1,6 @@
 package com.bbc.sms.finance.accounting;
 
+import com.bbc.sms.finance.FinancePolicyService;
 import com.bbc.sms.foundation.audit.AuditService;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.tenant.TenantContext;
@@ -19,14 +20,18 @@ import static com.bbc.sms.finance.accounting.AccountingDtos.*;
 public class ReconciliationService {
     private final ReconciliationItemRepository items;
     private final AuditService audit;
+    private final FinancePolicyService financePolicy;
 
-    public ReconciliationService(ReconciliationItemRepository items, AuditService audit) {
+    public ReconciliationService(ReconciliationItemRepository items, AuditService audit,
+                                 FinancePolicyService financePolicy) {
         this.items = items;
         this.audit = audit;
+        this.financePolicy = financePolicy;
     }
 
     @Transactional(readOnly = true)
     public List<ReconciliationView> list(String state) {
+        financePolicy.requireSchool("FINANCE_REPORT_VIEW");
         String normalized = state == null || state.isBlank() ? null : state.trim().toUpperCase(Locale.ROOT);
         List<ReconciliationItem> rows = normalized == null
                 ? items.findBySchoolIdOrderByCreatedAtDesc(TenantContext.get())
@@ -36,6 +41,7 @@ public class ReconciliationService {
 
     @Transactional
     public ReconciliationView resolve(UUID id, ReconciliationResolveRequest request) {
+        financePolicy.requireSchool("LEDGER_POST");
         String state = request.state().trim().toUpperCase(Locale.ROOT);
         if (!state.equals("MATCHED") && !state.equals("IGNORED")) {
             throw ApiException.structured(org.springframework.http.HttpStatus.BAD_REQUEST,

@@ -5,6 +5,8 @@ import jakarta.validation.constraints.NotBlank;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 
 /** DTOs for the parent portal module. */
@@ -19,7 +21,9 @@ public final class ParentDtos {
             String className,
             long balance,
             String feeStatus,
-            int attendanceRate
+            int attendanceRate,
+            boolean financeVisible,
+            boolean attendanceVisible
     ) {}
 
     /**
@@ -52,4 +56,29 @@ public final class ParentDtos {
     public record ParentJourneyEventView(UUID id, String eventType, String sessionLabel,
                                          String className, BigDecimal average, String decision,
                                          Instant occurredAt, UUID sourceId) {}
+
+    /** Parent-safe attendance summary; it deliberately omits staff/device metadata. */
+    public record ParentAttendanceView(UUID studentId, int total, int present, int late,
+                                       int absent, int excused, int attendanceRate,
+                                       List<ParentAttendanceRecordView> records) {}
+
+    public record ParentAttendanceRecordView(UUID id, LocalDate date, String status, int lateMinutes) {}
+
+    /** Discipline fields published to a linked parent; no internal actor/audit fields. */
+    public record ParentDisciplineView(UUID id, LocalDate incidentDate, String type,
+                                       String description, String sanction) {}
+
+    /** Confidential health records remain hidden; only parent-safe infirmary history is returned. */
+    public record ParentHealthView(UUID studentId, List<ParentHealthVisitView> visits) {}
+
+    public record ParentHealthVisitView(UUID id, LocalDate visitDate, String reason, String treatment) {}
+
+    public record ParentEventView(UUID id, String title, String type, LocalDate eventDate,
+                                  String description) {}
+
+    public record ParentNoticeView(UUID id, String category, String subject, String body,
+                                   boolean requiresAck, boolean acknowledged,
+                                   Instant acknowledgedAt, String senderName, Instant createdAt) {}
+
+    public record ParentAckRequest(@NotBlank String signedBy) {}
 }

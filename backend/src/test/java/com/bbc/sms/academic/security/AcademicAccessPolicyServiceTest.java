@@ -16,6 +16,7 @@ import java.time.LocalDate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 class AcademicAccessPolicyServiceTest {
@@ -41,6 +42,28 @@ class AcademicAccessPolicyServiceTest {
         assertThat(decision.allowed()).isFalse();
         assertThat(decision.code()).isEqualTo("ACADEMIC_CLASS_ACCESS_DENIED");
         verifyNoInteractions(jdbc);
+    }
+
+    @Test
+    void booleanCanTreatsCentralResourceDenialAsFalseForCollectionFilters() {
+        TenantContext.set(school);
+        UUID userId = UUID.randomUUID();
+        AppUserPrincipal principal = new AppUserPrincipal(userId, school, "teacher", "teacher", "Teacher", "T");
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
+
+        com.bbc.sms.platform.security.AuthorizationPolicyService central =
+                mock(com.bbc.sms.platform.security.AuthorizationPolicyService.class);
+        when(central.decide(eq("ACADEMIC_ROSTER_VIEW"), any(com.bbc.sms.platform.security.PolicyResourceContext.class)))
+                .thenReturn(com.bbc.sms.platform.security.PolicyDecision.deny(
+                        "ACADEMIC_ROSTER_VIEW", "POLICY_RULE_MISSING", "Refusé.", "Denied.", 3, null));
+
+        AcademicAccessPolicyService policy = new AcademicAccessPolicyService(
+                mock(JdbcTemplate.class), mock(PermissionService.class),
+                mock(com.bbc.sms.timetable.TeachingAssignmentResolver.class), central);
+
+        assertThat(policy.can(AcademicAccessPolicyService.Capability.ACADEMIC_ROSTER_VIEW,
+                null, null, null, null, LocalDate.of(2026, 9, 1))).isFalse();
     }
 
     @Test
@@ -78,6 +101,62 @@ class AcademicAccessPolicyServiceTest {
     }
 
     @Test
+    void bootstrapAdminCanManageDelegationsThroughTheGlobalPermissionBoundary() {
+        TenantContext.set(school);
+        UUID userId = UUID.randomUUID();
+        AppUserPrincipal principal = new AppUserPrincipal(userId, school, "principal", "principal",
+                "Bootstrap admin", "BA");
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
+        com.bbc.sms.platform.security.AuthorizationPolicyService central =
+                mock(com.bbc.sms.platform.security.AuthorizationPolicyService.class);
+        when(central.canAction("PERMISSION_MANAGE")).thenReturn(true);
+
+        AcademicAccessPolicyService policy = new AcademicAccessPolicyService(mock(JdbcTemplate.class),
+                mock(PermissionService.class), mock(TeachingAssignmentResolver.class), central);
+
+        org.assertj.core.api.Assertions.assertThatCode(policy::requireDelegationManager)
+                .doesNotThrowAnyException();
+        verify(central).canAction("PERMISSION_MANAGE");
+    }
+
+    @Test
+    void ordinaryTeacherCannotManageDelegations() {
+        assertDelegationManagerDenied("teacher", true);
+    }
+
+    @Test
+    void ordinaryAccountantCannotManageDelegations() {
+        assertDelegationManagerDenied("accountant", false);
+    }
+
+    @Test
+    void ordinaryParentCannotManageDelegations() {
+        assertDelegationManagerDenied("parent", false);
+    }
+
+    private void assertDelegationManagerDenied(String role, boolean teacherRole) {
+        TenantContext.set(school);
+        UUID userId = UUID.randomUUID();
+        AppUserPrincipal principal = new AppUserPrincipal(userId, school, role, role,
+                "Ordinary user", "OU");
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
+        com.bbc.sms.platform.security.AuthorizationPolicyService central =
+                mock(com.bbc.sms.platform.security.AuthorizationPolicyService.class);
+        when(central.canAction("PERMISSION_MANAGE")).thenReturn(false);
+
+        AcademicAccessPolicyService policy = new AcademicAccessPolicyService(mock(JdbcTemplate.class),
+                mock(PermissionService.class), mock(TeachingAssignmentResolver.class), central);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(policy::requireDelegationManager)
+                .isInstanceOf(com.bbc.sms.platform.common.ApiException.class)
+                .extracting("code").isEqualTo("ACADEMIC_ACCESS_DELEGATE_DENIED");
+        if (teacherRole) verifyNoInteractions(central);
+        else verify(central).canAction("PERMISSION_MANAGE");
+    }
+
+    @Test
     void deniesASecondaryTeacherAnotherTeachersSubjectWithStableSubjectCode() {
         TenantContext.set(school);
         UUID userId = UUID.randomUUID();
@@ -109,6 +188,113 @@ class AcademicAccessPolicyServiceTest {
         assertThat(decision.allowed()).isFalse();
         assertThat(decision.code()).isEqualTo("ACADEMIC_SUBJECT_ACCESS_DENIED");
         assertThat(decision.messageEn()).contains("not assigned");
+    }
+
+    @Test
+    void titulaireAnySubjectEditRequiresDatedHomeroomAndActiveCurriculum() {
+        TenantContext.set(school);
+        UUID userId = UUID.randomUUID();
+        UUID employeeId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        UUID classId = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2026, 9, 1);
+        AppUserPrincipal principal = new AppUserPrincipal(userId, school, "teacher", "teacher", "Teacher", "T");
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        stubScopeQueries(jdbc, employeeId, sessionId, classId, date);
+        when(jdbc.queryForObject(anyString(), eq(Integer.class), any(Object[].class))).thenReturn(1);
+        TeachingAssignmentResolver assignments = mock(TeachingAssignmentResolver.class);
+        when(assignments.resolveHomeroom(sessionId, classId, date))
+                .thenReturn(new TeachingAssignmentResolver.Resolution("HOMEROOM", employeeId, "Teacher", "EMP-1",
+                        UUID.randomUUID(), 2L, "HOMEROOM", "RESOLVED", "ASSIGNMENT_RESOLVED",
+                        "Dated titulaire", "Dated homeroom", true));
+
+        AcademicAccessPolicyService policy = new AcademicAccessPolicyService(jdbc,
+                mock(PermissionService.class), assignments);
+        AcademicAccessPolicyService.AccessDecision allowed = policy.resolveDomain(
+                AcademicAccessPolicyService.Capability.TITULAIRE_ANY_SUBJECT_GRADE_EDIT,
+                sessionId, classId, "SCIENCE", null, date);
+        assertThat(allowed.allowed()).isTrue();
+
+        when(assignments.resolveHomeroom(sessionId, classId, date))
+                .thenReturn(new TeachingAssignmentResolver.Resolution("HOMEROOM", UUID.randomUUID(), "Other", "EMP-2",
+                        UUID.randomUUID(), 3L, "HOMEROOM", "RESOLVED", "ASSIGNMENT_RESOLVED",
+                        "Dated titulaire", "Dated homeroom", true));
+        AcademicAccessPolicyService.AccessDecision denied = policy.resolveDomain(
+                AcademicAccessPolicyService.Capability.TITULAIRE_ANY_SUBJECT_GRADE_EDIT,
+                sessionId, classId, "SCIENCE", null, date);
+        assertThat(denied.allowed()).isFalse();
+        assertThat(denied.code()).isEqualTo("ACADEMIC_TITULAIRE_SCOPE_DENIED");
+    }
+
+    @Test
+    void centralContextUsesTheSuppliedHistoricalSessionStartWhenDateIsOmitted() {
+        TenantContext.set(school);
+        UUID userId = UUID.randomUUID();
+        UUID employeeId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        UUID classId = UUID.randomUUID();
+        LocalDate historicalStart = LocalDate.of(2023, 9, 1);
+        LocalDate historicalEnd = LocalDate.of(2024, 7, 31);
+        AppUserPrincipal principal = new AppUserPrincipal(userId, school, "teacher", "teacher", "Teacher", "T");
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
+
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        doAnswer(invocation -> {
+            String sql = invocation.getArgument(0, String.class);
+            org.springframework.jdbc.core.ResultSetExtractor<?> extractor = invocation.getArgument(1,
+                    org.springframework.jdbc.core.ResultSetExtractor.class);
+            java.sql.ResultSet row = mock(java.sql.ResultSet.class);
+            when(row.next()).thenReturn(true);
+            if (sql.contains("SELECT start_date FROM academic_session")) {
+                when(row.getObject(1, LocalDate.class)).thenReturn(historicalStart);
+            } else if (sql.contains("u.employee_id")) {
+                when(row.getObject(1, UUID.class)).thenReturn(employeeId);
+            } else if (sql.contains("SELECT id,start_date,end_date")) {
+                when(row.getObject(1, UUID.class)).thenReturn(sessionId);
+                when(row.getObject(2, LocalDate.class)).thenReturn(historicalStart);
+                when(row.getObject(3, LocalDate.class)).thenReturn(historicalEnd);
+            } else if (sql.contains("SELECT level,subsystem")) {
+                when(row.getString(1)).thenReturn("secondary");
+                when(row.getString(2)).thenReturn("general");
+            } else if (sql.contains("SELECT lower(level)")) {
+                when(row.getString(1)).thenReturn("secondary");
+            } else if (sql.contains("SELECT id,lower(level)")) {
+                when(row.getObject(1, UUID.class)).thenReturn(classId);
+                when(row.getString(2)).thenReturn("secondary");
+            } else {
+                when(row.next()).thenReturn(false);
+            }
+            return extractor.extractData(row);
+        }).when(jdbc).query(anyString(), any(org.springframework.jdbc.core.ResultSetExtractor.class), any(Object[].class));
+
+        TeachingAssignmentResolver assignments = mock(TeachingAssignmentResolver.class);
+        when(assignments.resolveHomeroom(eq(sessionId), eq(classId), eq(historicalStart)))
+                .thenReturn(new TeachingAssignmentResolver.Resolution("HOMEROOM", employeeId, "Teacher", "EMP-1",
+                        UUID.randomUUID(), 2L, "HOMEROOM", "RESOLVED", "ASSIGNMENT_RESOLVED",
+                        "Dated titulaire", "Dated homeroom", true));
+        com.bbc.sms.platform.security.AuthorizationPolicyService central =
+                mock(com.bbc.sms.platform.security.AuthorizationPolicyService.class);
+        when(central.decide(eq("ACADEMIC_ROSTER_VIEW"), any(com.bbc.sms.platform.security.PolicyResourceContext.class)))
+                .thenReturn(com.bbc.sms.platform.security.PolicyDecision.allow(
+                        "ACADEMIC_ROSTER_VIEW", "USER_OVERRIDE", "CLASS_SET", 3));
+        AcademicAccessPolicyService policy = new AcademicAccessPolicyService(jdbc, mock(PermissionService.class),
+                assignments, central);
+
+        AcademicAccessPolicyService.AccessDecision decision = policy.resolve(
+                AcademicAccessPolicyService.Capability.ACADEMIC_ROSTER_VIEW,
+                sessionId, classId, null, null, null);
+
+        assertThat(decision.allowed()).isTrue();
+        org.mockito.ArgumentCaptor<com.bbc.sms.platform.security.PolicyResourceContext> captured =
+                org.mockito.ArgumentCaptor.forClass(com.bbc.sms.platform.security.PolicyResourceContext.class);
+        verify(central).decide(eq("ACADEMIC_ROSTER_VIEW"), captured.capture());
+        assertThat(captured.getValue().effectiveDate()).isEqualTo(historicalStart);
+        assertThat(captured.getValue().academicSessionId()).isEqualTo(sessionId);
+        assertThat(captured.getValue().parcours()).isNotNull();
+        assertThat(captured.getValue().parcours().level()).isEqualTo("secondary");
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { academicBulletinTitle, computedPeriodCodes, formatAcademicMark } from './academic';
+import { academicBulletinTitle, canReviewGradePacket, computedPeriodCodes, formatAcademicMark } from './academic';
 
 describe('computed bulletin presentation', () => {
   it('keeps missing current marks visible instead of rendering zero', () => {
@@ -20,5 +20,20 @@ describe('computed bulletin presentation', () => {
         { periodCode: 'S3', mark: 11 }, { periodCode: 'S4', mark: null }, { periodCode: 'S5', mark: 14 },
       ] },
     ])).toEqual(['S3', 'S4', 'S5']);
+  });
+
+  it('uses the scoped server decision for grade-packet review instead of a role name', () => {
+    expect(canReviewGradePacket({
+      packetStatus: 'SUBMITTED',
+      capabilities: { canEditDraft: false, canSubmit: false, canReview: true, restrictedTeacher: true },
+    })).toBe(true);
+    expect(canReviewGradePacket({
+      packetStatus: 'SUBMITTED',
+      capabilities: { canEditDraft: false, canSubmit: false, canReview: false, restrictedTeacher: true },
+    })).toBe(false);
+    expect(canReviewGradePacket({
+      packetStatus: 'DRAFT',
+      capabilities: { canEditDraft: true, canSubmit: true, canReview: true, restrictedTeacher: true },
+    })).toBe(false);
   });
 });

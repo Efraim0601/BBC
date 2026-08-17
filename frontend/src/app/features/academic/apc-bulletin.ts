@@ -1,15 +1,12 @@
 import { Component, ChangeDetectionStrategy, inject, input, computed } from '@angular/core';
 import { I18nService } from '../../core/i18n.service';
-import { ScopeService } from '../../core/scope.service';
 import { AuthService } from '../../core/auth.service';
 import { BulletinView } from './academic.api';
-import { apcFramework } from './apc-framework';
 
 /**
- * Competency-based (APC) report card for Maternelle & Primaire, rendered to match the
- * official BBC templates (Francophone / Anglophone). Marks cells are left blank so the
- * sheet is a faithful, printable form; richer mark entry is a later iteration. Identity
- * (student, class) comes from the shared {@link BulletinView}.
+ * Primary and nursery report card. Its rows always come from the calculated bulletin
+ * payload so the printed subjects, coefficients and marks match the class curriculum
+ * and grade-entry screens.
  */
 @Component({
   selector: 'bbc-apc-bulletin',
@@ -43,64 +40,51 @@ import { apcFramework } from './apc-framework';
         </tr>
       </table>
 
-      <!-- Competencies -->
-      @for (c of fw().competencies; track c.code) {
-        <table class="w-full border-2 border-t-0 border-black text-[11px]">
-          <thead>
-            <tr class="bg-slate-100">
-              <th colspan="3" class="border border-black px-2 py-1 text-left uppercase">
-                {{ c.code }} — {{ c.title }} ({{ c.max }} {{ fr() ? 'pts' : 'mks' }})
-              </th>
-              @for (t of fw().terms; track t) {
-                <th colspan="2" class="border border-black px-2 py-1 text-center">{{ t }}</th>
-              }
-            </tr>
-            <tr class="text-[10px] uppercase">
-              <th class="border border-black px-2 py-0.5 text-left">{{ fr() ? 'Sous-compétence' : 'Sub-competency' }}</th>
-              <th class="border border-black px-2 py-0.5 text-left">{{ fr() ? 'Évaluation' : 'Evaluation' }}</th>
-              <th class="border border-black px-1 py-0.5">{{ fr() ? 'Max' : 'Max' }}</th>
-              @for (t of fw().terms; track t) {
-                <th class="border border-black px-1 py-0.5">{{ fr() ? 'Note' : 'Mark' }}</th>
-                <th class="border border-black px-1 py-0.5">{{ fr() ? 'Cote' : 'Grade' }}</th>
-              }
-            </tr>
-          </thead>
-          <tbody>
-            @for (s of c.subs; track s.code) {
-              @for (e of s.evals; track e.label; let first = $first) {
-                <tr>
-                  @if (first) {
-                    <td class="border border-black px-2 py-0.5 align-top" [attr.rowspan]="s.evals.length">
-                      <b>{{ s.code }}</b> {{ s.title }} ({{ s.max }})
-                    </td>
-                  }
-                  <td class="border border-black px-2 py-0.5">{{ e.label }}</td>
-                  <td class="border border-black px-1 py-0.5 text-center">{{ e.max }}</td>
-                  @for (t of fw().terms; track t) {
-                    <td class="border border-black px-1 py-0.5">&nbsp;</td>
-                    <td class="border border-black px-1 py-0.5">&nbsp;</td>
-                  }
-                </tr>
-              }
-              <tr class="font-bold bg-slate-50">
-                <td class="border border-black px-2 py-0.5 text-right" colspan="2">{{ fr() ? 'Total' : 'Total' }} {{ s.code }}</td>
-                <td class="border border-black px-1 py-0.5 text-center">{{ s.max }}</td>
-                @for (t of fw().terms; track t) {
-                  <td class="border border-black px-1 py-0.5">&nbsp;</td>
-                  <td class="border border-black px-1 py-0.5">&nbsp;</td>
-                }
-              </tr>
+      <!-- Subjects configured for this class and calculated for this milestone -->
+      <table class="w-full border-2 border-t-0 border-black text-[11px]">
+        <thead>
+          <tr class="bg-slate-100 text-[10px] uppercase">
+            <th class="border border-black px-2 py-1 text-left">{{ fr() ? 'Matière' : 'Subject' }}</th>
+            @for (periodCode of periodColumns(); track periodCode) {
+              <th class="border border-black px-2 py-1 text-center">{{ periodCode }}</th>
             }
-          </tbody>
-        </table>
-      }
+            <th class="border border-black px-2 py-1 text-center">{{ fr() ? 'Note' : 'Mark' }}</th>
+            <th class="border border-black px-2 py-1 text-center">{{ fr() ? 'Coef.' : 'Coef.' }}</th>
+            <th class="border border-black px-2 py-1 text-center">{{ fr() ? 'Total' : 'Total' }}</th>
+            <th class="border border-black px-2 py-1 text-left">{{ fr() ? 'Appréciation' : 'Appreciation' }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (line of view().lines; track line.subjectCode) {
+            <tr>
+              <td class="border border-black px-2 py-1">
+                <b>{{ line.subjectLabel }}</b>
+                <span class="block text-[9px] text-slate-600">{{ line.subjectCode }}</span>
+              </td>
+              @for (periodCode of periodColumns(); track periodCode) {
+                <td class="border border-black px-2 py-1 text-center">{{ formatMark(periodMark(line, periodCode)) }}</td>
+              }
+              <td class="border border-black px-2 py-1 text-center font-bold">{{ formatMark(line.mark) }}</td>
+              <td class="border border-black px-2 py-1 text-center">{{ line.coef }}</td>
+              <td class="border border-black px-2 py-1 text-center">{{ formatMark(line.weighted) }}</td>
+              <td class="border border-black px-2 py-1">{{ line.teacherRemark || appreciation(line.mark) }}</td>
+            </tr>
+          } @empty {
+            <tr>
+              <td [attr.colspan]="periodColumns().length + 5" class="border border-black px-2 py-6 text-center text-slate-600">
+                {{ fr() ? 'Aucune matière configurée pour cette classe et cette période.' : 'No subjects are configured for this class and period.' }}
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
 
       <!-- Grand total + summary -->
       <table class="w-full border-2 border-t-0 border-black text-[12px]">
         <tr class="font-bold">
           <td class="border border-black px-2 py-1">{{ fr() ? 'TOTAL GÉNÉRAL' : 'GRAND TOTAL' }}</td>
-          <td class="border border-black px-2 py-1 text-center">_____ / {{ fw().grandTotal }}</td>
-          <td class="border border-black px-2 py-1">{{ fr() ? 'Moyenne' : 'Average' }}: _____ / 20</td>
+          <td class="border border-black px-2 py-1 text-center">{{ formatMark(weightedTotal()) }}</td>
+          <td class="border border-black px-2 py-1">{{ fr() ? 'Moyenne' : 'Average' }}: {{ formatMark(view().average) }} / 20</td>
           <td class="border border-black px-2 py-1">{{ fr() ? 'Rang' : 'Rank' }}: {{ view().rank || '__' }}/{{ view().classSize || '__' }}</td>
         </tr>
       </table>
@@ -140,7 +124,6 @@ import { apcFramework } from './apc-framework';
 })
 export class ApcBulletinComponent {
   private i18n = inject(I18nService);
-  private scope = inject(ScopeService);
   private auth = inject(AuthService);
 
   readonly view = input.required<BulletinView>();
@@ -148,6 +131,28 @@ export class ApcBulletinComponent {
   protected fr = () => this.i18n.lang() === 'fr';
   protected readonly schoolYear = new Date().getFullYear() + '-' + (new Date().getFullYear() + 1);
 
-  protected fw = computed(() => apcFramework(this.scope.scope()?.subsystem ?? 'EN'));
+  protected periodColumns = computed(() => Array.from(new Set(
+    this.view().lines.flatMap(line => (line.periodMarks ?? []).map(mark => mark.periodCode)),
+  )));
+  protected weightedTotal = computed(() => this.view().lines.reduce(
+    (sum, line) => sum + (line.weighted ?? 0), 0,
+  ));
   protected schoolName = computed(() => this.auth.user()?.schoolName || 'Bayo Bilingual Complex');
+
+  protected periodMark(line: BulletinView['lines'][number], periodCode: string): number | null {
+    return line.periodMarks?.find(mark => mark.periodCode === periodCode)?.mark ?? null;
+  }
+
+  protected formatMark(value: number | null | undefined): string {
+    return value == null ? '—' : Number(value).toFixed(2);
+  }
+
+  protected appreciation(mark: number | null): string {
+    if (mark == null) return '';
+    if (mark >= 16) return this.fr() ? 'Très bien' : 'Very good';
+    if (mark >= 14) return this.fr() ? 'Bien' : 'Good';
+    if (mark >= 12) return this.fr() ? 'Assez bien' : 'Fairly good';
+    if (mark >= 10) return this.fr() ? 'Passable' : 'Pass';
+    return this.fr() ? 'À renforcer' : 'Needs improvement';
+  }
 }

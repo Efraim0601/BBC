@@ -16,16 +16,16 @@ public class SchoolCalendarController {
     private final SchoolCalendarService service;
     public SchoolCalendarController(SchoolCalendarService service) { this.service = service; }
 
-    @GetMapping("/{sessionId}/days") @PreAuthorize("@perm.canAction('CALENDAR_VIEW')")
+    @GetMapping("/{sessionId}/days") @PreAuthorize("@policy.canAction('CALENDAR_VIEW')")
     public List<CalendarDayView> days(@PathVariable UUID sessionId) { return service.days(sessionId); }
 
-    @PutMapping("/{sessionId}/days") @PreAuthorize("@perm.canAction('CALENDAR_MANAGE')")
+    @PutMapping("/{sessionId}/days") @PreAuthorize("@policy.canAction('CALENDAR_MANAGE')")
     public CalendarDayView day(@PathVariable UUID sessionId, @Valid @RequestBody CalendarDayUpdate in) { return service.updateDay(sessionId, in); }
 
-    @PostMapping("/generate") @PreAuthorize("@perm.canAction('CALENDAR_MANAGE')")
+    @PostMapping("/generate") @PreAuthorize("@policy.canAction('CALENDAR_MANAGE')")
     public GenerationResult generate(@Valid @RequestBody GenerateRequest in) { return service.generate(in); }
 
-    @GetMapping("/{sessionId}/expected") @PreAuthorize("@perm.canAction('CALENDAR_VIEW')")
+    @GetMapping("/{sessionId}/expected") @PreAuthorize("@policy.canAction('CALENDAR_VIEW')")
     public List<ExpectedSessionView> expected(@PathVariable UUID sessionId,
                                               @RequestParam(required = false) LocalDate start,
                                               @RequestParam(required = false) LocalDate end,

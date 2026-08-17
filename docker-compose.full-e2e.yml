@@ -1,0 +1,37 @@
+# Isolated full-school lifecycle acceptance stack.
+# Use with: docker compose -p bbc-full-e2e -f docker-compose.yml -f docker-compose.full-e2e.yml up -d --build
+services:
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "8125:8025"
+
+  db:
+    ports: !override []
+    volumes: !override
+      - bbc-full-e2e-db:/var/lib/postgresql/data
+
+  backend:
+    environment:
+      BBC_ADMIN_USERNAME: admin
+      BBC_ADMIN_PASSWORD: admin
+      BBC_ADMIN_NAME: BBC E2E Bootstrap Administrator
+      BBC_SCHOOL_NAME: BBC E2E Demonstration School
+      BBC_SCHOOL_CODE: BBC-E2E
+      BBC_CORS_ORIGINS: http://localhost:8100
+      SPRING_PROFILES_ACTIVE: e2e
+      BBC_E2E_FIXTURES_ENABLED: "true"
+    ports: !override
+      - "8101:8080"
+    volumes: !override
+      - bbc-full-e2e-documents:/data/documents
+
+  frontend:
+    ports: !override
+      - "8100:80"
+
+volumes:
+  bbc-full-e2e-db:
+    name: bbc-full-e2e-db
+  bbc-full-e2e-documents:
+    name: bbc-full-e2e-documents

@@ -792,7 +792,7 @@ import { downloadCsv } from '../../core/csv';
                 <div class="flex flex-wrap items-start justify-between gap-3 mb-3"><div class="flex items-start gap-2"><span class="flex h-7 w-7 items-center justify-center rounded-full bg-slate-800 text-white text-xs font-bold">2</span><div><h3 class="font-semibold text-ink">{{ fr() ? 'Identité imprimée de l’établissement' : 'School identity printed on documents' }}</h3><p class="text-xs text-mute mt-1">{{ fr() ? 'Nom, ville, ministère, logo, cachet et titres des signataires utilisés sur les nouveaux PDF.' : 'Name, city, ministry, logo, stamp, and signatory titles used on new PDFs.' }}</p></div></div>@if (canWrite) { <button type="button" (click)="openDesignPublish('branding', undefined, fr() ? 'Identité de l’établissement' : 'School identity')" class="btn-primary">{{ fr() ? 'Publier après modification' : 'Publish after a change' }}</button> }</div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                   @for (branding of design.branding; track branding.id) {
-                    <div class="rounded-lg border border-slate-200 bg-white p-4"><div class="flex items-start justify-between gap-2"><div><strong>{{ branding.schoolName }}</strong><div class="text-xs text-mute mt-1">{{ branding.city || '—' }} · {{ branding.country || '—' }}</div></div><span class="chip" [class]="branding.status === 'PUBLISHED' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'">{{ designLocaleLabel(branding.locale) }} · v{{ branding.version }} · {{ designStatusLabel(branding.status) }}</span></div><div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-4 text-xs"><div class="rounded-lg bg-slate-50 p-2"><div class="text-slate-500">{{ fr() ? 'Principal / signataire' : 'Principal / signatory' }}</div><div class="font-semibold mt-1">{{ branding.principalName || (fr() ? 'Non renseigné' : 'Not configured') }}</div><div class="text-slate-500">{{ branding.principalTitle || '—' }}</div></div><div class="rounded-lg bg-slate-50 p-2"><div class="text-slate-500">{{ fr() ? 'Version publiée le' : 'Published on' }}</div><div class="font-semibold mt-1">{{ branding.publishedAt || branding.createdAt }}</div></div></div><details class="mt-3 text-[11px] text-slate-500"><summary class="cursor-pointer font-semibold">{{ fr() ? 'Afficher la référence technique' : 'Show technical reference' }}</summary><div class="font-mono break-all mt-2">{{ branding.contentHash }}</div></details></div>
+                    <div class="rounded-lg border border-slate-200 bg-white p-4"><div class="flex items-start justify-between gap-2"><div><strong>{{ branding.schoolName }}</strong><div class="text-xs text-mute mt-1">{{ branding.address || '—' }}</div><div class="text-xs text-mute">{{ branding.city || '—' }} · {{ branding.country || '—' }}</div><div class="text-xs mt-2" [class]="branding.logoConfigured ? 'text-emerald-700' : 'text-amber-700'">{{ branding.logoConfigured ? (fr() ? 'Logo configuré' : 'Logo configured') : (fr() ? 'Logo non configuré' : 'Logo not configured') }}</div></div><span class="chip" [class]="branding.status === 'PUBLISHED' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'">{{ designLocaleLabel(branding.locale) }} · v{{ branding.version }} · {{ designStatusLabel(branding.status) }}</span></div><div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-4 text-xs"><div class="rounded-lg bg-slate-50 p-2"><div class="text-slate-500">{{ fr() ? 'Principal / signataire' : 'Principal / signatory' }}</div><div class="font-semibold mt-1">{{ branding.principalName || (fr() ? 'Non renseigné' : 'Not configured') }}</div><div class="text-slate-500">{{ branding.principalTitle || '—' }}</div></div><div class="rounded-lg bg-slate-50 p-2"><div class="text-slate-500">{{ fr() ? 'Version publiée le' : 'Published on' }}</div><div class="font-semibold mt-1">{{ branding.publishedAt || branding.createdAt }}</div></div></div><details class="mt-3 text-[11px] text-slate-500"><summary class="cursor-pointer font-semibold">{{ fr() ? 'Afficher la référence technique' : 'Show technical reference' }}</summary><div class="font-mono break-all mt-2">{{ branding.contentHash }}</div></details></div>
                   } @empty { <div class="rounded-lg border border-dashed border-slate-300 p-4 text-sm text-mute">{{ fr() ? 'Aucune version de marque.' : 'No branding version.' }}</div> }
                 </div>
               </section>
@@ -829,6 +829,11 @@ import { downloadCsv } from '../../core/csv';
           <div class="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-950 leading-relaxed"><strong>{{ fr() ? 'Conséquence :' : 'Consequence:' }}</strong> {{ request.kind === 'branding' ? (fr() ? 'La version publiée actuelle sera conservée dans l’historique et une nouvelle version de marque sera créée à partir du profil de l’établissement.' : 'The current published version will remain in history and a new branding version will be created from the school profile.') : (fr() ? 'Le modèle est copié dans un nouveau numéro de version. Les snapshots déjà publiés continuent de référencer leur modèle d’origine.' : 'The template is copied into a new version number. Existing published snapshots continue to reference their original template.') }}</div>
           <label class="block mt-4"><span class="text-xs font-semibold text-slate-700">{{ fr() ? 'Motif obligatoire' : 'Required reason' }} <span class="text-rose-600">*</span></span><textarea [(ngModel)]="designReason" rows="3" class="field mt-1.5" [class.invalid]="!designReason.trim()" [placeholder]="fr() ? 'Expliquez pourquoi cette version est publiée…' : 'Explain why this version is being published…'"></textarea></label>
           @if (!designReason.trim()) { <div class="mt-1 text-xs text-rose-600">{{ fr() ? 'Le motif est obligatoire.' : 'A reason is required.' }}</div> }
+          @if (request.kind === 'branding') {
+            <label class="block mt-4"><span class="text-xs font-semibold text-slate-700">{{ fr() ? 'Logo de l’établissement (PNG/JPEG, 512 Ko maximum)' : 'School logo (PNG/JPEG, 512 KB maximum)' }}</span><input type="file" accept="image/png,image/jpeg" (change)="onDesignLogoFile($event)" class="mt-1.5 block w-full text-sm" [disabled]="designBusy()" /></label>
+            @if (designLogoAsset; as logo) { <div class="mt-2 flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 p-2"><img [src]="designLogoPreview()" [alt]="fr() ? 'Aperçu du logo' : 'Logo preview'" class="h-12 w-12 rounded object-contain bg-white border border-slate-200" /><div class="text-xs text-mute"><div class="font-semibold text-ink">{{ logo.name }}</div><div>{{ logo.contentType }}</div></div></div> }
+            <div class="mt-1 text-xs text-mute">{{ fr() ? 'Sans nouveau fichier, le logo publié est conservé dans la nouvelle version.' : 'Without a new file, the published logo is carried into the new version.' }}</div>
+          }
           <div class="flex justify-end gap-2 mt-5"><button type="button" (click)="cancelDesignPublish()" class="btn-secondary">{{ fr() ? 'Annuler — ne rien changer' : 'Cancel — make no change' }}</button><button type="button" (click)="confirmDesignPublish()" [disabled]="!designReason.trim() || designBusy()" class="btn-primary">{{ designBusy() ? '…' : (fr() ? 'Confirmer la publication' : 'Confirm publication') }}</button></div>
         </section>
       </div>
@@ -851,7 +856,34 @@ export class AcademicSetupComponent {
   private repairReturnUrl: string | null = null;
 
   protected fr = () => this.i18n.lang() === 'fr';
-  protected canWrite = this.auth.can('settings', 'write');
+  /**
+   * Setup writes are governed by the server-authoritative V2 action model.
+   * The legacy settings:write bit is intentionally not sufficient here: the
+   * fresh bootstrap administrator is granted narrowly-scoped setup exceptions
+   * while ordinary role templates remain unchanged.
+   */
+  protected get canWrite(): boolean {
+    const action = {
+      sections: 'CLASS_MANAGE',
+      classes: 'CLASS_MANAGE',
+      subjects: 'SUBJECT_MANAGE',
+      'class-subjects': 'CURRICULUM_CLASS_MANAGE',
+      'access-exceptions': 'ACADEMIC_ACCESS_DELEGATE',
+      assessments: 'ACADEMIC_ASSESSMENT_MANAGE',
+      competencies: 'ACADEMIC_ASSESSMENT_MANAGE',
+      design: 'DOCUMENT_DESIGN_PUBLISH',
+    }[this.sub()];
+    if (this.auth.canAction(action)) return true;
+    // Resource-scoped setup actions are deliberately reported by the server
+    // as CONTEXT_REQUIRED: the selected class/session/subject is evaluated by
+    // the service when the mutation is submitted. Keep the UI usable for a
+    // bootstrap administrator with that potential grant without turning the
+    // contextual capability into a context-free authorization bypass.
+    if (this.auth.actionState(action) !== 'CONTEXT_REQUIRED') return false;
+    return this.sub() === 'class-subjects'
+      ? !!this.assignmentClassId()
+      : this.sub() === 'assessments' || this.sub() === 'access-exceptions' || this.sub() === 'competencies';
+  }
   protected activeScope = computed(() => this.scopeSvc.scope());
 
   protected scopeBanner = computed(() => {
@@ -970,6 +1002,7 @@ export class AcademicSetupComponent {
   protected documentDesign = signal<DocumentDesignView | null>(null);
   protected designPublish = signal<{ kind: 'template' | 'branding'; id?: string; label: string } | null>(null);
   protected designReason = '';
+  protected designLogoAsset: { contentType: string; base64: string; name: string } | null = null;
   protected designBusy = signal(false);
 
   protected competencyPeriods = signal<AcademicReportingPeriodView[]>([]);
@@ -1049,7 +1082,7 @@ export class AcademicSetupComponent {
     this.loadClasses();
     this.loadSubjects();
     this.loadCoefficients();
-    this.loadDocumentDesign();
+    if (this.sub() === 'design') this.maybeLoadDocumentDesign();
     this.foundation.listSessions().subscribe((rows) => {
       this.academicSessions.set(rows);
       const current = rows.find((s) => s.id === this.curriculumSessionId())
@@ -1347,7 +1380,9 @@ export class AcademicSetupComponent {
     this.sub.set(t === 'competencies' ? 'assessments' : t);
     this.secForm.set(false); this.clsForm.set(false); this.subjForm.set(false);
     this.assignmentNotice.set(null);
+    this.err.set(null);
     if (t === 'access-exceptions') this.loadAcademicAccess();
+    if (t === 'design') this.maybeLoadDocumentDesign();
   }
 
   protected selectAccessSession(sessionId: string): void {
@@ -1417,6 +1452,17 @@ export class AcademicSetupComponent {
 
   private loadDocumentDesign(): void {
     this.foundation.documentDesign().subscribe({ next: (design) => this.documentDesign.set(design), error: (error) => this.fail(error) });
+  }
+
+  private maybeLoadDocumentDesign(): void {
+    const loadIfAllowed = (): void => {
+      if (this.auth.canAction('DOCUMENT_DESIGN_PUBLISH')) this.loadDocumentDesign();
+    };
+    if (this.auth.capabilities()) {
+      loadIfAllowed();
+      return;
+    }
+    this.auth.loadCapabilities().subscribe({ next: loadIfAllowed, error: () => undefined });
   }
 
   protected selectCompetencySession(sessionId: string): void {
@@ -1518,11 +1564,39 @@ export class AcademicSetupComponent {
   protected openDesignPublish(kind: 'template' | 'branding', id: string | undefined, label: string): void {
     this.designPublish.set({ kind, id, label });
     this.designReason = '';
+    this.designLogoAsset = null;
   }
 
   protected cancelDesignPublish(): void {
     this.designPublish.set(null);
     this.designReason = '';
+    this.designLogoAsset = null;
+  }
+
+  protected designLogoPreview(): string | null {
+    return this.designLogoAsset ? `data:${this.designLogoAsset.contentType};base64,${this.designLogoAsset.base64}` : null;
+  }
+
+  protected onDesignLogoFile(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    if (!['image/png', 'image/jpeg'].includes(file.type) || file.size > 512 * 1024) {
+      this.fail({ error: { message: this.fr() ? 'Logo: choisissez un PNG/JPEG de 512 Ko maximum.' : 'Logo: choose a PNG/JPEG of 512 KB or less.' } });
+      input.value = '';
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const raw = String(reader.result ?? '');
+      const comma = raw.indexOf(',');
+      if (comma < 0) {
+        this.fail({ error: { message: this.fr() ? 'Logo illisible.' : 'The logo could not be read.' } });
+        return;
+      }
+      this.designLogoAsset = { contentType: file.type, base64: raw.substring(comma + 1), name: file.name };
+    };
+    reader.readAsDataURL(file);
   }
 
   protected confirmDesignPublish(): void {
@@ -1535,7 +1609,9 @@ export class AcademicSetupComponent {
     if (request.kind === 'template' && request.id) {
       this.foundation.publishDocumentTemplate(request.id, reason).subscribe({ next: complete, error: failed });
     } else {
-      this.foundation.publishDocumentBranding('fr', reason).subscribe({ next: complete, error: failed });
+      this.foundation.publishDocumentBranding('fr', reason, this.designLogoAsset ? {
+        contentType: this.designLogoAsset.contentType, base64: this.designLogoAsset.base64,
+      } : null).subscribe({ next: complete, error: failed });
     }
   }
 

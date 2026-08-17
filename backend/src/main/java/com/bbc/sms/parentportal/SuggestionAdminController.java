@@ -20,7 +20,7 @@ public class SuggestionAdminController {
     }
 
     @GetMapping("")
-    @PreAuthorize("@perm.can('dashboard','read')")
+    @PreAuthorize("@perm.canAction('DASHBOARD_VIEW') and @perm.staffOnly()")
     public List<SuggestionView> allSuggestions() {
         return service.allSuggestions(TenantContext.get());
     }

@@ -9,8 +9,10 @@ export interface ChildView {
   name: string;
   className: string;
   balance: number;
-  feeStatus: 'paid' | 'partial' | 'unpaid';
+  feeStatus: 'paid' | 'partial' | 'unpaid' | null;
   attendanceRate: number;
+  financeVisible: boolean;
+  attendanceVisible: boolean;
 }
 
 export interface GradeView {
@@ -123,6 +125,50 @@ export interface ClassResourceView {
   items: ResourceItem[];
 }
 
+export interface ParentAttendanceView {
+  studentId: string;
+  total: number;
+  present: number;
+  late: number;
+  absent: number;
+  excused: number;
+  attendanceRate: number;
+  records: Array<{ id: string; date: string; status: string; lateMinutes: number }>;
+}
+
+export interface ParentDisciplineView {
+  id: string;
+  incidentDate: string;
+  type: string;
+  description: string;
+  sanction: string | null;
+}
+
+export interface ParentHealthView {
+  studentId: string;
+  visits: Array<{ id: string; visitDate: string; reason: string; treatment: string }>;
+}
+
+export interface ParentEventView {
+  id: string;
+  title: string;
+  type: string;
+  eventDate: string;
+  description: string;
+}
+
+export interface ParentNoticeView {
+  id: string;
+  category: string;
+  subject: string;
+  body: string;
+  requiresAck: boolean;
+  acknowledged: boolean;
+  acknowledgedAt: string | null;
+  senderName: string;
+  createdAt: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ParentApi {
   private http = inject(HttpClient);
@@ -142,6 +188,24 @@ export class ParentApi {
   }
   resources(studentId: string, kind: ResourceKind): Observable<ClassResourceView> {
     return this.http.get<ClassResourceView>(`${this.base}/children/${studentId}/resources/${kind}`);
+  }
+  attendance(studentId: string): Observable<ParentAttendanceView> {
+    return this.http.get<ParentAttendanceView>(`${this.base}/children/${studentId}/attendance`);
+  }
+  discipline(studentId: string): Observable<ParentDisciplineView[]> {
+    return this.http.get<ParentDisciplineView[]>(`${this.base}/children/${studentId}/discipline`);
+  }
+  health(studentId: string): Observable<ParentHealthView> {
+    return this.http.get<ParentHealthView>(`${this.base}/children/${studentId}/health`);
+  }
+  events(studentId: string): Observable<ParentEventView[]> {
+    return this.http.get<ParentEventView[]>(`${this.base}/children/${studentId}/events`);
+  }
+  messages(studentId: string): Observable<ParentNoticeView[]> {
+    return this.http.get<ParentNoticeView[]>(`${this.base}/children/${studentId}/messages`);
+  }
+  acknowledgeMessage(studentId: string, messageId: string, signedBy: string): Observable<ParentNoticeView> {
+    return this.http.post<ParentNoticeView>(`${this.base}/children/${studentId}/messages/${messageId}/ack`, { signedBy });
   }
   fees(studentId: string): Observable<StudentFeeStatementView> {
     return this.http.get<StudentFeeStatementView>(`${this.base}/children/${studentId}/fees`);

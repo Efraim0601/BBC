@@ -154,7 +154,15 @@ export class AssessmentDefaultsComponent {
   private readonly route = inject(ActivatedRoute);
 
   protected readonly fr = () => this.i18n.lang() === 'fr';
-  protected readonly canWrite = this.auth.can('settings', 'write');
+  /**
+   * Assessment setup is a resource-scoped V2 action.  A bootstrap admin can
+   * therefore be CONTEXT_REQUIRED rather than context-free ALLOW; the API
+   * still evaluates the selected session/class/subject on every write.
+   */
+  protected get canWrite(): boolean {
+    const state = this.auth.actionState('ACADEMIC_ASSESSMENT_MANAGE');
+    return state === 'ALLOW' || state === 'CONTEXT_REQUIRED';
+  }
   protected readonly sessions = signal<AcademicSessionView[]>([]);
   protected readonly classes = signal<ClassView[]>([]);
   protected readonly periods = signal<AcademicReportingPeriodView[]>([]);

@@ -38,7 +38,12 @@ public class TimetableDtos {
     public record PlanActionRequest(long version, String reason) {}
 
     public record SlotView(UUID id, int dayIdx, int slotIdx, String subjectCode,
-                           UUID teacherId, String room, String className) {}
+                           UUID teacherId, String room, String className, String subjectName) {
+        public SlotView(UUID id, int dayIdx, int slotIdx, String subjectCode,
+                        UUID teacherId, String room, String className) {
+            this(id, dayIdx, slotIdx, subjectCode, teacherId, room, className, null);
+        }
+    }
 
     public record SlotUpsert(@NotBlank String className, @Min(0) int dayIdx,
                              @Min(0) int slotIdx, String subjectCode,
@@ -48,6 +53,17 @@ public class TimetableDtos {
     public record TeacherConflict(int dayIdx, int slotIdx, UUID teacherId,
                                   String teacherName, List<ConflictSlot> slots) {}
     public record SlotSaveResult(SlotView slot, List<TeacherConflict> conflicts) {}
+    /**
+     * A teacher-facing schedule is self describing.  Teachers may read their
+     * published timetable without having the administrator-only
+     * TIMETABLE_MASTER_VIEW permission, so the bell-period metadata travels
+     * with the schedule instead of requiring a second privileged request.
+     */
     public record TeacherSchedule(UUID teacherId, String teacherName, String sessionLabel,
-                                  List<SlotView> slots) {}
+                                  List<PeriodView> periods, List<SlotView> slots) {
+        public TeacherSchedule(UUID teacherId, String teacherName, String sessionLabel,
+                               List<SlotView> slots) {
+            this(teacherId, teacherName, sessionLabel, List.of(), slots);
+        }
+    }
 }

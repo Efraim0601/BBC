@@ -24,14 +24,22 @@ import { IconComponent, CardComponent, TabsComponent, EmptyComponent } from '../
       [subtitle]="fr() ? 'Configurez la liste par classe, puis publiez-la pour les parents'
                        : 'Configure the per-class list, then publish it for parents'">
       <div action class="flex items-center gap-2">
-        <select [(ngModel)]="classId" (ngModelChange)="reload()" name="cls"
-          class="h-9 px-3 rounded-lg border border-slate-200 bg-white text-sm">
-          <option value="">{{ fr() ? '— Choisir une classe —' : '— Choose a class —' }}</option>
-          @for (c of classes(); track c.id) { <option [value]="c.id">{{ c.name }}</option> }
-        </select>
+        @if (setupUnavailable()) {
+          <span class="text-xs font-semibold text-amber-700">
+            {{ fr() ? 'Gestion des ressources indisponible pour ce profil.' : 'Resource management is not available for this profile.' }}
+          </span>
+        } @else {
+          <select [(ngModel)]="classId" (ngModelChange)="reload()" name="cls"
+            class="h-9 px-3 rounded-lg border border-slate-200 bg-white text-sm">
+            <option value="">{{ fr() ? '— Choisir une classe —' : '— Choose a class —' }}</option>
+            @for (c of classes(); track c.id) { <option [value]="c.id">{{ c.name }}</option> }
+          </select>
+        }
       </div>
 
-      @if (!classId) {
+      @if (setupUnavailable()) {
+        <bbc-empty icon="book" [label]="fr() ? 'La gestion des ressources n’est pas activée pour ce profil.' : 'Resource management is not enabled for this profile.'" />
+      } @else if (!classId) {
         <bbc-empty icon="building" [label]="fr() ? 'Sélectionnez une classe pour configurer la liste.' : 'Select a class to configure the list.'" />
       } @else if (view(); as v) {
         <!-- Publish state bar -->
@@ -176,6 +184,7 @@ export class ClasskitComponent {
   protected kind = signal<ResourceKind>('supplies');
   protected classes = signal<ClassView[]>([]);
   protected subjects = signal<SubjectView[]>([]);
+  protected setupUnavailable = signal(false);
   protected classId = '';
   protected view = signal<ClassResourceView | null>(null);
   protected err = signal<string | null>(null);
@@ -192,8 +201,14 @@ export class ClasskitComponent {
     (this.view()?.items ?? []).reduce((sum, it) => sum + (it.price ?? 0), 0));
 
   constructor() {
-    this.setupApi.listClasses().subscribe((c) => this.classes.set(c));
-    this.setupApi.listSubjects().subscribe((s) => this.subjects.set(s));
+    this.setupApi.listClasses().subscribe({
+      next: (c) => this.classes.set(c),
+      error: () => this.setupUnavailable.set(true),
+    });
+    this.setupApi.listSubjects().subscribe({
+      next: (s) => this.subjects.set(s),
+      error: () => this.setupUnavailable.set(true),
+    });
   }
 
   protected subjectLabel(s: SubjectView): string {

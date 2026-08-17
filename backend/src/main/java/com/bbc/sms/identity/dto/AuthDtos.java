@@ -37,6 +37,7 @@ public class AuthDtos {
             String locale,
             Map<String, String> permissions,   // module -> none|read|write
             List<String> modules,               // modules the role may open
+            String parcoursScopeMode,            // GLOBAL|EXPLICIT|ASSIGNMENT_DERIVED|CHILD_DERIVED|NONE
             List<Parcours> allowedParcours) {}  // empty = all parcours (admin)
 
     public record TokenResponse(

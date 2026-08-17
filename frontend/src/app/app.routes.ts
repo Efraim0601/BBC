@@ -1,5 +1,5 @@
 import { Routes } from '@angular/router';
-import { authGuard, permissionGuard, scopeGuard } from './core/guards';
+import { actionGuard, authGuard, contextualActionGuard, parentGuard, permissionGuard, scopeGuard } from './core/guards';
 
 export const routes: Routes = [
   {
@@ -41,22 +41,22 @@ export const routes: Routes = [
       },
       {
         path: 'students',
-        canActivate: [permissionGuard('students')],
+        canActivate: [contextualActionGuard('STUDENT_DIRECTORY_VIEW')],
         loadComponent: () => import('./features/students/students').then((m) => m.StudentsComponent),
       },
       {
         path: 'students/new',
-        canActivate: [permissionGuard('students')],
+        canActivate: [contextualActionGuard('STUDENT_PROFILE_CREATE')],
         loadComponent: () => import('./features/students/student-registration').then((m) => m.StudentRegistrationComponent),
       },
       {
         path: 'students/import-family',
-        canActivate: [permissionGuard('students')],
+        canActivate: [contextualActionGuard('STUDENT_IMPORT')],
         loadComponent: () => import('./features/students/family-import').then((m) => m.FamilyImportComponent),
       },
       {
         path: 'students/:id',
-        canActivate: [permissionGuard('students')],
+        canActivate: [contextualActionGuard('STUDENT_DIRECTORY_VIEW')],
         loadComponent: () => import('./features/students/student-detail').then((m) => m.StudentDetailComponent),
       },
       {
@@ -66,7 +66,7 @@ export const routes: Routes = [
       },
       {
         path: 'journey/promotions',
-        canActivate: [permissionGuard('journey')],
+        canActivate: [contextualActionGuard('PROGRESSION_VIEW')],
         loadComponent: () => import('./features/journey/promotion-workspace').then((m) => m.PromotionWorkspaceComponent),
       },
       {
@@ -146,18 +146,23 @@ export const routes: Routes = [
       },
       {
         path: 'staff',
-        canActivate: [permissionGuard('hr')],
+        canActivate: [contextualActionGuard('HR_VIEW')],
         loadComponent: () => import('./features/staff/staff').then((m) => m.StaffComponent),
       },
       {
         path: 'events',
-        canActivate: [permissionGuard('events')],
+        canActivate: [actionGuard('EVENTS_VIEW')],
         loadComponent: () => import('./features/events/events').then((m) => m.EventsComponent),
       },
       {
         path: 'settings',
         canActivate: [permissionGuard('settings')],
         loadComponent: () => import('./features/settings/settings').then((m) => m.SettingsComponent),
+      },
+      {
+        path: 'access-control',
+        canActivate: [actionGuard('PERMISSION_VIEW')],
+        loadComponent: () => import('./features/settings/access-control-workspace').then((m) => m.AccessControlWorkspaceComponent),
       },
       {
         path: 'academic',
@@ -186,6 +191,7 @@ export const routes: Routes = [
       },
       {
         path: 'parent',
+        canActivate: [parentGuard],
         loadComponent: () => import('./features/parent/parent').then((m) => m.ParentComponent),
       },
       { path: '', redirectTo: 'dashboard', pathMatch: 'full' },

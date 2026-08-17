@@ -19,8 +19,7 @@ public final class CollectionDtos {
 
     public record StudentSearchView(UUID studentId, String studentName, String matricule,
                                     UUID enrollmentId, UUID academicSessionId,
-                                    String className, String guardianName,
-                                    String guardianPhone, String guardianEmail,
+                                    String className,
                                     LocalDate enrolledOn, LocalDate exitedOn,
                                     long outstandingMinor, long overdueMinor) {}
 

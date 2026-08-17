@@ -19,10 +19,12 @@ public final class DocumentDesignDtos {
 
     public record BrandingVersionView(UUID id, String locale, int version, String status,
                                       String schoolName, String schoolNameEn, String motto,
-                                      String ministryText, String city, String country,
+                                      String ministryText, String address, String city, String country,
+                                      String logoContentType, boolean logoConfigured,
                                       String principalName, String principalTitle,
                                       String classMasterTitle, String councilTitle,
                                       String contentHash, Instant createdAt, Instant publishedAt) {}
 
-    public record PublishRequest(@NotBlank String reason, String locale) {}
+    public record PublishRequest(@NotBlank String reason, String locale,
+                                 String logoContentType, String logoBase64) {}
 }

@@ -35,6 +35,7 @@ const DICT: Record<string, { fr: string; en: string }> = {
   discipline: { fr: 'Discipline', en: 'Discipline' },
   reports: { fr: 'Rapports', en: 'Reports' },
   settings: { fr: 'Paramètres', en: 'Settings' },
+  'access-control': { fr: 'Contrôle des accès', en: 'Access control' },
   present: { fr: 'Présents', en: 'Present' },
   late: { fr: 'Retards', en: 'Late' },
   absent: { fr: 'Absents', en: 'Absent' },

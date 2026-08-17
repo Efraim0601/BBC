@@ -1,5 +1,6 @@
 package com.bbc.sms.finance.accounting;
 
+import com.bbc.sms.finance.FinancePolicyService;
 import com.bbc.sms.foundation.audit.AuditService;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.tenant.TenantContext;
@@ -15,6 +16,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import static com.bbc.sms.finance.accounting.AccountingDtos.*;
@@ -24,20 +26,25 @@ public class AccountingPeriodService {
     private final AccountingPeriodRepository periods;
     private final JdbcTemplate jdbc;
     private final AuditService audit;
+    private final FinancePolicyService financePolicy;
 
-    public AccountingPeriodService(AccountingPeriodRepository periods, JdbcTemplate jdbc, AuditService audit) {
+    public AccountingPeriodService(AccountingPeriodRepository periods, JdbcTemplate jdbc, AuditService audit,
+                                   FinancePolicyService financePolicy) {
         this.periods = periods;
         this.jdbc = jdbc;
         this.audit = audit;
+        this.financePolicy = financePolicy;
     }
 
     @Transactional(readOnly = true)
     public List<PeriodView> list() {
+        financePolicy.requireSchool("FINANCE_OVERVIEW_VIEW");
         return periods.findBySchoolIdOrderByStartDateDesc(TenantContext.get()).stream().map(this::view).toList();
     }
 
     @Transactional
     public PeriodView create(PeriodUpsert in) {
+        financePolicy.requireSchool("LEDGER_CLOSE");
         validateDates(in.startDate(), in.endDate());
         String status = normalizeStatus(in.status());
         UUID schoolId = TenantContext.get();
@@ -61,6 +68,7 @@ public class AccountingPeriodService {
 
     @Transactional
     public PeriodView update(UUID id, PeriodUpsert in) {
+        financePolicy.requireSchool("LEDGER_CLOSE");
         AccountingPeriod p = require(id);
         AccountService.requireVersion(in.version(), p.getVersion(), "période comptable");
         validateDates(in.startDate(), in.endDate());
@@ -82,6 +90,7 @@ public class AccountingPeriodService {
 
     @Transactional
     public List<PeriodView> generate(GeneratePeriodsRequest in) {
+        financePolicy.requireSchool("LEDGER_CLOSE");
         validateDates(in.startDate(), in.endDate());
         UUID schoolId = TenantContext.get();
         validateAcademicSession(in.academicSessionId(), schoolId);
@@ -153,6 +162,24 @@ public class AccountingPeriodService {
                 });
     }
 
+    /**
+     * Non-throwing lookup for read-only previews.  Callers that turn a closed
+     * period into a user-facing blocker must not catch the throwing lookup
+     * inside their own transaction: Spring marks that transaction rollback-only
+     * before the caller can build the preview response.
+     */
+    @Transactional(readOnly = true)
+    public Optional<AccountingPeriod> findOpenForDate(LocalDate date, UUID academicSessionId) {
+        if (date == null) return Optional.empty();
+        UUID schoolId = TenantContext.get();
+        if (academicSessionId == null) {
+            return periods.findFirstBySchoolIdAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqualOrderByStartDateDesc(
+                    schoolId, "OPEN", date, date);
+        }
+        return periods.findFirstBySchoolIdAndAcademicSessionIdAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqualOrderByStartDateDesc(
+                schoolId, academicSessionId, "OPEN", date, date);
+    }
+
     @Transactional(readOnly = true)
     public AccountingPeriod require(UUID id) {
         return periods.findByIdAndSchoolId(id, TenantContext.get())
@@ -161,6 +188,7 @@ public class AccountingPeriodService {
 
     @Transactional(readOnly = true)
     public ClosePreview closePreview(UUID id) {
+        financePolicy.requireSchool("LEDGER_CLOSE");
         AccountingPeriod p = require(id);
         int drafts = jdbc.queryForObject("SELECT count(*) FROM journal_entry WHERE school_id=? AND accounting_period_id=? AND status='DRAFT'",
                 Integer.class, TenantContext.get(), id);
@@ -176,6 +204,7 @@ public class AccountingPeriodService {
 
     @Transactional
     public PeriodView close(UUID id, PeriodActionRequest request) {
+        financePolicy.requireSchool("LEDGER_CLOSE");
         AccountingPeriod p = require(id);
         AccountService.requireVersion(request.version(), p.getVersion(), "période comptable");
         if (!"OPEN".equals(p.getStatus())) throw ApiException.conflict("Cette période est déjà fermée.");
@@ -199,6 +228,7 @@ public class AccountingPeriodService {
 
     @Transactional
     public PeriodView reopen(UUID id, PeriodActionRequest request) {
+        financePolicy.requireSchool("LEDGER_REOPEN");
         AccountingPeriod p = require(id);
         AccountService.requireVersion(request.version(), p.getVersion(), "période comptable");
         if (!"CLOSED".equals(p.getStatus())) throw ApiException.conflict("Seule une période fermée peut être rouverte.");

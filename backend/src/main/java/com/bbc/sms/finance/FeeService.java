@@ -2,25 +2,29 @@ package com.bbc.sms.finance;
 
 import com.bbc.sms.finance.dto.FeeDtos.*;
 import com.bbc.sms.platform.common.ApiException;
+import com.bbc.sms.platform.security.AuthorizationPolicyService;
+import com.bbc.sms.platform.security.PolicyResourceContext;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.student.Student;
 import com.bbc.sms.student.StudentRepository;
 import com.bbc.sms.timetable.SchoolClass;
 import com.bbc.sms.timetable.SchoolClassRepository;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -41,22 +45,31 @@ public class FeeService {
     private final PaymentRepository payments;
     private final PaymentChannelRepository channels;
     private final SchoolClassRepository classes;
+    private final AuthorizationPolicyService policy;
+    private final JdbcTemplate jdbc;
+
+    private record FinanceStudent(UUID id, String matricule, String firstName,
+                                  String lastName, String className) {}
 
     public FeeService(FeeConfigRepository feeConfigs, StudentFeeRepository studentFees,
                       StudentRepository students, PaymentRepository payments,
-                      PaymentChannelRepository channels, SchoolClassRepository classes) {
+                      PaymentChannelRepository channels, SchoolClassRepository classes,
+                      AuthorizationPolicyService policy, JdbcTemplate jdbc) {
         this.feeConfigs = feeConfigs;
         this.studentFees = studentFees;
         this.students = students;
         this.payments = payments;
         this.channels = channels;
         this.classes = classes;
+        this.policy = policy;
+        this.jdbc = jdbc;
     }
 
     // ------------------------------------------------------------------- grilles
 
     @Transactional(readOnly = true)
     public List<FeeConfigView> listConfig() {
+        requireSchool("FINANCE_OVERVIEW_VIEW");
         UUID schoolId = TenantContext.get();
         Map<UUID, String> classNames = classNames(schoolId);
         return feeConfigs.findBySchoolId(schoolId).stream()
@@ -68,6 +81,7 @@ public class FeeService {
 
     @Transactional
     public FeeConfigView upsertConfig(FeeConfigUpdate in) {
+        requireSchool("FEE_CONFIGURE");
         UUID schoolId = TenantContext.get();
         List<TrancheView> tranches = in.tranches() == null ? List.of() : in.tranches();
 
@@ -102,6 +116,7 @@ public class FeeService {
 
     @Transactional
     public void deleteConfig(UUID id) {
+        requireSchool("FEE_CONFIGURE");
         UUID schoolId = TenantContext.get();
         FeeConfig cfg = feeConfigs.findById(id)
                 .filter(c -> c.getSchoolId().equals(schoolId))
@@ -115,13 +130,20 @@ public class FeeService {
     public Optional<FeeConfig> resolveGrid(UUID schoolId, Student student) {
         if (student == null) return Optional.empty();
         List<FeeConfig> all = feeConfigs.findBySchoolId(schoolId);
+        Map<String, UUID> classIdsByName = classes.findBySchoolIdOrderByName(schoolId).stream()
+                .collect(Collectors.toMap(SchoolClass::getName, SchoolClass::getId, (a, b) -> a));
+        return resolveGrid(student, all, classIdsByName);
+    }
+
+    private Optional<FeeConfig> resolveGrid(Student student, List<FeeConfig> all,
+                                            Map<String, UUID> classIdsByName) {
+        if (student == null) return Optional.empty();
 
         // L'élève porte parfois seulement le nom de sa classe (données antérieures aux
         // sélecteurs de classe) : on retrouve alors l'identifiant par son libellé.
         UUID classId = student.getClassId() != null ? student.getClassId()
                 : (student.getClassName() == null ? null
-                   : classes.findBySchoolIdAndName(schoolId, student.getClassName())
-                            .map(SchoolClass::getId).orElse(null));
+                   : classIdsByName.get(student.getClassName()));
 
         if (classId != null) {
             UUID finalClassId = classId;
@@ -144,23 +166,27 @@ public class FeeService {
 
     // ----------------------------------------------------------------- situation
 
-    @Transactional(readOnly = true)
+    @Transactional
     public List<SituationView> situation() {
+        requireSchool("FINANCE_OVERVIEW_VIEW");
         return buildSituation(false);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public List<SituationView> debtors() {
+        requireSchool("FINANCE_OVERVIEW_VIEW");
         return buildSituation(true);
     }
 
     private List<SituationView> buildSituation(boolean onlyDebtors) {
         UUID schoolId = TenantContext.get();
+        Set<UUID> coveredStudents = refreshExpectedTotals(schoolId);
+        List<StudentFee> feeRows = studentFees.findBySchoolId(schoolId);
+        Map<UUID, FinanceStudent> studentsById = financeStudents(schoolId,
+                feeRows.stream().map(StudentFee::getStudentId).collect(Collectors.toSet()));
 
-        Map<UUID, Student> studentsById = students.findBySchoolIdAndActiveTrueOrderByLastNameAsc(schoolId).stream()
-                .collect(Collectors.toMap(Student::getId, Function.identity()));
-
-        return studentFees.findBySchoolId(schoolId).stream()
+        return feeRows.stream()
+                .filter(sf -> coveredStudents.contains(sf.getStudentId()))
                 .filter(sf -> !onlyDebtors || sf.getBalance() > 0)
                 .map(sf -> toSituation(sf, studentsById.get(sf.getStudentId())))
                 .sorted(Comparator.comparingLong(SituationView::balance).reversed())
@@ -174,6 +200,117 @@ public class FeeService {
      */
     @Transactional(readOnly = true)
     public StudentFeeStatementView statement(UUID schoolId, UUID studentId) {
+        policy.require("PAYMENT_VIEW", new PolicyResourceContext(schoolId, null, LocalDate.now(),
+                null, null, null, studentId, null, null, null, null, null));
+        return statementInternal(schoolId, studentId);
+    }
+
+    /** Parent portal entry point; ParentService has already enforced child + feature scope. */
+    @Transactional(readOnly = true)
+    public StudentFeeStatementView statementForParent(UUID schoolId, UUID studentId) {
+        if (hasV2Charges(schoolId, studentId)) return v2StatementForParent(schoolId, studentId);
+        return statementInternal(schoolId, studentId);
+    }
+
+    /**
+     * Finance V2 is the authoritative parent balance once a student has a V2 charge.
+     * Keep the legacy fallback for older students that have not yet been migrated.
+     * Refunds are netted from the visible payment line while the charge's paid and
+     * outstanding snapshots remain the source of truth for the headline totals.
+     */
+    private StudentFeeStatementView v2StatementForParent(UUID schoolId, UUID studentId) {
+        Student s = students.findByIdAndSchoolId(studentId, schoolId)
+                .orElseThrow(() -> ApiException.notFound("Élève"));
+        V2Totals totals = jdbc.queryForObject("""
+                SELECT COALESCE(SUM(adjusted_amount_minor),0),
+                       COALESCE(SUM(paid_minor),0),
+                       COALESCE(SUM(waived_minor),0),
+                       COALESCE(SUM(outstanding_minor),0),
+                       COALESCE(LOWER(MIN(scope_type)),'level')
+                  FROM student_charge
+                 WHERE school_id=? AND student_id=?
+                   AND status NOT IN ('VOID','CANCELLED')
+                """, (rs, n) -> new V2Totals(rs.getLong(1), rs.getLong(2), rs.getLong(3),
+                        rs.getLong(4), rs.getString(5)), schoolId, studentId);
+
+        List<V2Installment> installments = jdbc.query("""
+                SELECT i.installment_no,i.label_fr,i.due_date,i.amount_minor,
+                       i.paid_minor,i.waived_minor,i.outstanding_minor
+                  FROM charge_installment i
+                  JOIN student_charge c ON c.school_id=i.school_id AND c.id=i.charge_id
+                 WHERE i.school_id=? AND c.student_id=?
+                   AND c.status NOT IN ('VOID','CANCELLED')
+                 ORDER BY c.charge_date,c.created_at,i.installment_no
+                """, (rs, n) -> new V2Installment(rs.getInt(1), rs.getString(2),
+                        rs.getObject(3, LocalDate.class), rs.getLong(4), rs.getLong(5),
+                        rs.getLong(6), rs.getLong(7)), schoolId, studentId);
+
+        List<TrancheStatusView> tranches = new ArrayList<>(installments.size());
+        for (int index = 0; index < installments.size(); index++) {
+            V2Installment installment = installments.get(index);
+            long covered = installment.paidMinor() + installment.waivedMinor();
+            String status = installment.outstandingMinor() <= 0 ? "paid"
+                    : covered > 0 ? "partial" : "pending";
+            boolean overdue = installment.outstandingMinor() > 0
+                    && installment.dueDate() != null
+                    && installment.dueDate().isBefore(LocalDate.now());
+            tranches.add(new TrancheStatusView(index + 1,
+                    installment.labelFr() == null || installment.labelFr().isBlank()
+                            ? "T" + (index + 1) : installment.labelFr(),
+                    installment.amountMinor(), installment.dueDate(), installment.paidMinor(),
+                    installment.outstandingMinor(), status, overdue));
+        }
+
+        List<PaymentLineView> payments = jdbc.query("""
+                SELECT p.receipt_no,p.payment_date,
+                       p.amount_minor-COALESCE(SUM(rt.amount_minor),0),
+                       p.channel_code_snapshot,p.reference,
+                       COALESCE(pc.label_fr,p.channel_code_snapshot),
+                       COALESCE(pc.label_en,p.channel_code_snapshot)
+                  FROM finance_payment p
+                  LEFT JOIN refund_transaction rt
+                    ON rt.school_id=p.school_id AND rt.payment_id=p.id
+                  LEFT JOIN payment_channel pc
+                    ON pc.school_id=p.school_id AND pc.code=p.channel_code_snapshot
+                 WHERE p.school_id=? AND p.student_id=?
+                   AND p.status NOT IN ('REVERSED','VOID')
+                 GROUP BY p.id,p.receipt_no,p.payment_date,p.amount_minor,
+                          p.channel_code_snapshot,p.reference,pc.label_fr,pc.label_en
+                HAVING p.amount_minor-COALESCE(SUM(rt.amount_minor),0)>0
+                 ORDER BY p.payment_date DESC,p.receipt_no DESC
+                """, (rs, n) -> new PaymentLineView(rs.getString(1),
+                        rs.getObject(2, LocalDate.class), rs.getLong(3), rs.getString(4),
+                        rs.getString(6), rs.getString(7), rs.getString(5), null), schoolId, studentId);
+
+        long balance = Math.max(0, totals.outstandingMinor());
+        int progress = totals.adjustedAmountMinor() > 0
+                ? (int) Math.min(100, Math.round(totals.paidMinor() * 100.0 / totals.adjustedAmountMinor()))
+                : (totals.paidMinor() > 0 ? 100 : 0);
+        String status = totals.adjustedAmountMinor() > 0 && balance == 0 ? "paid"
+                : totals.paidMinor() > 0 ? "partial" : "unpaid";
+        return new StudentFeeStatementView(
+                s.getId(), s.getFirstName() + " " + s.getLastName(), s.getMatricule(), s.getClassName(),
+                totals.gridSource(), totals.adjustedAmountMinor(), totals.paidMinor(), balance, progress,
+                status, tranches, payments);
+    }
+
+    private boolean hasV2Charges(UUID schoolId, UUID studentId) {
+        Integer count = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM student_charge
+                 WHERE school_id=? AND student_id=?
+                   AND status NOT IN ('VOID','CANCELLED')
+                """, Integer.class, schoolId, studentId);
+        return count != null && count > 0;
+    }
+
+    private record V2Totals(long adjustedAmountMinor, long paidMinor, long waivedMinor,
+                            long outstandingMinor, String gridSource) {}
+
+    private record V2Installment(int installmentNo, String labelFr, LocalDate dueDate,
+                                 long amountMinor, long paidMinor, long waivedMinor,
+                                 long outstandingMinor) {}
+
+    private StudentFeeStatementView statementInternal(UUID schoolId, UUID studentId) {
         Student s = students.findByIdAndSchoolId(studentId, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Élève"));
 
@@ -240,6 +377,7 @@ public class FeeService {
 
     @Transactional(readOnly = true)
     public List<PaymentChannelView> listChannels() {
+        requireSchool("FINANCE_OVERVIEW_VIEW");
         return channels.findBySchoolIdOrderBySortOrderAscLabelFrAsc(TenantContext.get()).stream()
                 .map(this::toView).toList();
     }
@@ -254,6 +392,7 @@ public class FeeService {
 
     @Transactional
     public PaymentChannelView updateChannel(String code, PaymentChannelUpdate in) {
+        requireSchool("FEE_CONFIGURE");
         UUID schoolId = TenantContext.get();
         PaymentChannel c = channels.findBySchoolIdAndCode(schoolId, code)
                 .orElseThrow(() -> ApiException.notFound("Moyen de paiement " + code));
@@ -268,9 +407,27 @@ public class FeeService {
         if (in.enabled() != null) c.setEnabled(in.enabled());
         if (in.visibleToParents() != null) c.setVisibleToParents(in.visibleToParents());
         if (in.sortOrder() != null) c.setSortOrder(in.sortOrder());
+        if (in.debitAccountId() != null) {
+            ChartOfAccountRef debit = jdbc.query("""
+                    SELECT id, account_type, active, posting_allowed
+                      FROM chart_of_account
+                     WHERE school_id=? AND id=?
+                    """, rs -> {
+                if (!rs.next()) return null;
+                return new ChartOfAccountRef(rs.getObject("id", UUID.class), rs.getString("account_type"),
+                        rs.getBoolean("active"), rs.getBoolean("posting_allowed"));
+            }, schoolId, in.debitAccountId());
+            if (debit == null || !"ASSET".equals(debit.accountType())
+                    || !debit.active() || !debit.postingAllowed()) {
+                throw ApiException.badRequest("Le compte débité doit être un compte d'actif actif et postable.");
+            }
+            c.setDebitAccountId(debit.id());
+        }
 
         return toView(channels.save(c));
     }
+
+    private record ChartOfAccountRef(UUID id, String accountType, boolean active, boolean postingAllowed) {}
 
     /** Canal actif portant ce code, ou échec explicite : un encaissement doit être traçable. */
     @Transactional(readOnly = true)
@@ -286,20 +443,63 @@ public class FeeService {
     // -------------------------------------------------------------------- interne
 
     /** Réaligne le montant attendu de chaque élève sur la grille qui lui est applicable. */
-    private void refreshExpectedTotals(UUID schoolId) {
-        Map<UUID, Student> byId = students.findBySchoolIdAndActiveTrueOrderByLastNameAsc(schoolId).stream()
-                .collect(Collectors.toMap(Student::getId, Function.identity()));
+    private Set<UUID> refreshExpectedTotals(UUID schoolId) {
+        List<Student> activeStudents = students.findBySchoolIdAndActiveTrueOrderByLastNameAsc(schoolId);
+        List<FeeConfig> grids = feeConfigs.findBySchoolId(schoolId);
+        Map<String, UUID> classIdsByName = classes.findBySchoolIdOrderByName(schoolId).stream()
+                .collect(Collectors.toMap(SchoolClass::getName, SchoolClass::getId, (a, b) -> a));
+        Map<UUID, StudentFee> feeByStudent = studentFees.findBySchoolId(schoolId).stream()
+                .collect(Collectors.toMap(StudentFee::getStudentId, fee -> fee, (a, b) -> a));
+        Map<UUID, Long> receivedByStudent = payments.findBySchoolIdOrderByPaidOnDesc(schoolId).stream()
+                .collect(Collectors.groupingBy(Payment::getStudentId,
+                        Collectors.summingLong(Payment::getAmount)));
 
-        for (StudentFee fee : studentFees.findBySchoolId(schoolId)) {
-            Student s = byId.get(fee.getStudentId());
-            if (s == null) continue;
-            long total = resolveGrid(schoolId, s).map(FeeConfig::getTotal).orElse(0L);
-            if (total == 0) continue;                      // aucune grille : on ne touche à rien
-            fee.setTotal(Math.max(total, fee.getPaid()));  // jamais de solde négatif
-            fee.setBalance(Math.max(0, fee.getTotal() - fee.getPaid()));
-            fee.setStatus(fee.getBalance() <= 0 ? "paid" : (fee.getPaid() > 0 ? "partial" : "unpaid"));
-            studentFees.save(fee);
+        Set<UUID> covered = new HashSet<>();
+        List<StudentFee> synchronizedRows = new ArrayList<>();
+        for (Student student : activeStudents) {
+            FeeConfig grid = resolveGrid(student, grids, classIdsByName).orElse(null);
+            if (grid == null || grid.getTotal() <= 0) continue;
+
+            covered.add(student.getId());
+            StudentFee fee = feeByStudent.get(student.getId());
+            boolean newRow = fee == null;
+            if (fee == null) {
+                fee = new StudentFee();
+                fee.setSchoolId(schoolId);
+                fee.setStudentId(student.getId());
+            }
+
+            long total = grid.getTotal();
+            long received = Math.max(0, receivedByStudent.getOrDefault(student.getId(), 0L));
+            long applied = Math.min(total, received);
+            long balance = total - applied;
+            int tranchesPaid = coveredTranches(grid, applied);
+            String status = balance == 0 ? "paid" : (applied > 0 ? "partial" : "unpaid");
+            boolean changed = newRow || fee.getTotal() != total || fee.getPaid() != applied
+                    || fee.getBalance() != balance || fee.getTranchesPaid() != tranchesPaid
+                    || !Objects.equals(fee.getStatus(), status);
+            if (!changed) continue;
+
+            fee.setTotal(total);
+            fee.setPaid(applied);
+            fee.setBalance(balance);
+            fee.setTranchesPaid(tranchesPaid);
+            fee.setStatus(status);
+            synchronizedRows.add(fee);
         }
+        if (!synchronizedRows.isEmpty()) studentFees.saveAll(synchronizedRows);
+        return covered;
+    }
+
+    private int coveredTranches(FeeConfig grid, long paid) {
+        long cumulative = 0;
+        int covered = 0;
+        for (TrancheView tranche : fromJson(grid.getTranches())) {
+            cumulative += tranche.amount();
+            if (paid < cumulative) break;
+            covered++;
+        }
+        return covered;
     }
 
     private Optional<FeeConfig> findExisting(UUID schoolId, FeeConfigUpdate in) {
@@ -320,9 +520,9 @@ public class FeeService {
         return out;
     }
 
-    private SituationView toSituation(StudentFee sf, Student student) {
-        String name = student == null ? null : (student.getFirstName() + " " + student.getLastName());
-        String className = student == null ? null : student.getClassName();
+    private SituationView toSituation(StudentFee sf, FinanceStudent student) {
+        String name = student == null ? null : (student.firstName() + " " + student.lastName());
+        String className = student == null ? null : student.className();
         int progressPct = sf.getTotal() > 0
                 ? (int) Math.round(sf.getPaid() * 100.0 / sf.getTotal())
                 : 100;
@@ -340,6 +540,40 @@ public class FeeService {
         return new PaymentChannelView(c.getId(), c.getCode(), c.getLabelFr(), c.getLabelEn(),
                 c.getAccountRef(), c.getAccountName(), c.getInstructionsFr(), c.getInstructionsEn(),
                 c.isRequiresReference(), c.isEnabled(), c.isVisibleToParents(), c.getSortOrder());
+    }
+
+    private Map<UUID, FinanceStudent> financeStudents(UUID schoolId, java.util.Set<UUID> ids) {
+        if (ids.isEmpty()) return Map.of();
+        String placeholders = String.join(",", java.util.Collections.nCopies(ids.size(), "?"));
+        List<Object> args = new ArrayList<>();
+        args.add(schoolId);
+        args.add(schoolId);
+        args.addAll(ids);
+        return jdbc.query("""
+                SELECT s.id,s.matricule,s.first_name,s.last_name,
+                       COALESCE(c.name,s.class_name)
+                  FROM student s
+                  LEFT JOIN LATERAL (
+                       SELECT e.school_class_id
+                         FROM student_enrollment e
+                         JOIN academic_session a ON a.id=e.academic_session_id
+                                               AND a.school_id=e.school_id
+                        WHERE e.school_id=? AND e.student_id=s.id AND e.status='ACTIVE'
+                          AND a.is_current=true AND e.enrolled_on<=CURRENT_DATE
+                          AND (e.exited_on IS NULL OR e.exited_on>=CURRENT_DATE)
+                        ORDER BY e.enrolled_on DESC,e.created_at DESC LIMIT 1
+                  ) current_enrollment ON true
+                  LEFT JOIN school_class c ON c.id=current_enrollment.school_class_id
+                                           AND c.school_id=s.school_id
+                 WHERE s.school_id=? AND s.active=true AND s.id IN (%s)
+                """.formatted(placeholders), (rs, n) -> new FinanceStudent(
+                        rs.getObject(1, UUID.class), rs.getString(2), rs.getString(3),
+                        rs.getString(4), rs.getString(5)), args.toArray())
+                .stream().collect(Collectors.toMap(FinanceStudent::id, x -> x));
+    }
+
+    private void requireSchool(String action) {
+        policy.require(action, PolicyResourceContext.empty().forSchool(TenantContext.get()));
     }
 
     /** JSONB → tranches typées. Tolère l'ancien format (un simple tableau de montants). */

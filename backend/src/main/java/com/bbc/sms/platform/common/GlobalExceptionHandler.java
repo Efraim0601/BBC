@@ -3,6 +3,7 @@ package com.bbc.sms.platform.common;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -109,6 +110,13 @@ public class GlobalExceptionHandler {
             msg = "Une entrée avec ces valeurs existe déjà.";
         }
         return body(HttpStatus.CONFLICT, "DATA_INTEGRITY_CONFLICT", msg);
+    }
+
+    @ExceptionHandler(OptimisticLockingFailureException.class)
+    public ResponseEntity<ApiError> handleOptimisticLock(OptimisticLockingFailureException ex) {
+        log.info("Optimistic concurrency conflict: {}", ex.getMessage());
+        return body(HttpStatus.CONFLICT, "OPTIMISTIC_LOCK_CONFLICT",
+                "La donnée a changé ailleurs. Actualisez avant de réessayer.");
     }
 
     @ExceptionHandler(Exception.class)

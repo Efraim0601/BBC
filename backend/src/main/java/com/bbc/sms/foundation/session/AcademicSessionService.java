@@ -443,8 +443,8 @@ public class AcademicSessionService {
                     && (period.gradeEntryOpensAt() != null || period.gradeEntryClosesAt() != null
                     || period.teacherSubmissionOpensAt() != null || period.teacherSubmissionClosesAt() != null)) {
                 throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST, "RAW_WINDOW_NOT_APPLICABLE",
-                        "Les fenÃªtres de saisie et de soumission ne s'appliquent qu'aux sÃ©quences.",
-                        "gradeEntryOpensAt", "Les rÃ©sultats calculÃ©s n'acceptent pas de notes brutes.");
+                        "Les fenêtres de saisie et de soumission ne s'appliquent qu'aux séquences.",
+                        "gradeEntryOpensAt", "Les résultats calculés n'acceptent pas de notes brutes.");
             }
             if (period.academicTermId() != null) {
                 Integer termCount = jdbc.queryForObject("SELECT count(*) FROM academic_term WHERE id=? AND school_id=? AND academic_session_id=?",
@@ -501,7 +501,7 @@ public class AcademicSessionService {
                     || (AcademicPeriodRules.ANNUAL_RESULT.equalsIgnoreCase(parentType)
                     && !AcademicPeriodRules.TERM_RESULT.equalsIgnoreCase(childType))) {
                 throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST, "DEPENDENCY_TYPE_INVALID",
-                        "Les rÃ©sultats calculÃ©s doivent dÃ©pendre du niveau de rÃ©sultat prÃ©cÃ©dent.", "dependencies",
+                        "Les résultats calculés doivent dépendre du niveau de résultat précédent.", "dependencies",
                         "Use sequence children for trimester results and trimester children for the annual result.");
             }
             graph.computeIfAbsent(parent, ignored -> new HashSet<>()).add(child);
@@ -509,7 +509,7 @@ public class AcademicSessionService {
         Set<String> visiting = new HashSet<>(), visited = new HashSet<>();
         for (String node : graph.keySet()) if (hasCycle(node, graph, visiting, visited)) {
             throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST, "DEPENDENCY_CYCLE",
-                    "Les dÃ©pendances de rÃ©sultats ne peuvent pas former de cycle.", "dependencies",
+                    "Les dépendances de résultats ne peuvent pas former de cycle.", "dependencies",
                     "Reporting period dependencies must be acyclic.");
         }
     }
@@ -917,7 +917,7 @@ public class AcademicSessionService {
         if (!AcademicPeriodRules.SEQUENCE.equalsIgnoreCase(p.getPeriodType())
                 && (p.getGradeEntryOpensAt() != null || p.getGradeEntryClosesAt() != null
                 || p.getTeacherSubmissionOpensAt() != null || p.getTeacherSubmissionClosesAt() != null)) {
-            throw ApiException.badRequest("Les fenÃªtres de saisie et de soumission ne s'appliquent qu'aux sÃ©quences");
+            throw ApiException.badRequest("Les fenêtres de saisie et de soumission ne s'appliquent qu'aux séquences");
         }
         validateWindow(p.getGradeEntryOpensAt(), p.getGradeEntryClosesAt(), "saisie des notes");
         validateWindow(p.getReviewOpensAt(), p.getReviewClosesAt(), "revue");

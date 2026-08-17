@@ -262,6 +262,12 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                         </button>
                       }
                     </div>
+                    @if (e.accountUserId && auth.canAction('PERMISSION_VIEW')) {
+                      <a [routerLink]="['/access-control']" [queryParams]="{ userId: e.accountUserId }"
+                        class="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-700 hover:text-indigo-900">
+                        <bbc-icon name="shield" [s]="14" /> {{ fr() ? 'Accès & responsabilités' : 'Access & responsibilities' }}
+                      </a>
+                    }
                     @if (accountMsg(); as m) {
                       <div class="mt-2 text-xs rounded-lg px-3 py-2" [class]="m.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'">{{ m.text }}</div>
                     }
@@ -1054,7 +1060,7 @@ export class StaffComponent {
   private hrApi = inject(HrApi);
   private settingsApi = inject(SettingsApi);
   private setupApi = inject(SetupApi);
-  private auth = inject(AuthService);
+  protected auth = inject(AuthService);
 
   protected rows = signal<EmployeeView[]>([]);
   protected roleDefs = signal<RoleView[]>([]);
@@ -1088,7 +1094,10 @@ export class StaffComponent {
   protected selectedId = signal<string | null>(null);
   protected mode = signal<'list' | 'edit' | 'import'>('list');
   protected editId = signal<string | null>(null);
-  protected canWrite = this.auth.can('hr', 'write');
+  /** HR mutations use the V2 action model; the legacy module bit is read-only
+   * for the bootstrap administrator until the scoped HR setup exception is
+   * explicitly granted. */
+  protected get canWrite(): boolean { return this.auth.canAction('HR_MANAGE'); }
   protected draft: EmployeeUpsert = this.blank();
   protected draftRoles = signal<string[]>([]);
   /** Photo saisie au formulaire (data URL), envoyée après l'enregistrement. */
