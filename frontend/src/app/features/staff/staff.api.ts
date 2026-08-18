@@ -15,6 +15,8 @@ export interface EmployeeView {
   formClass: string;
   /** Section (cycle) : maternelle | primary | secondary ; null pour le personnel non enseignant. */
   section: string | null;
+  /** Nursery/Primary/Secondary levels managed by a principal. */
+  managementLevels: string[];
   departmentId: string | null;
   departmentName: string | null;
   monthlySalary: number;
@@ -34,6 +36,7 @@ export interface EmployeeUpsert {
   phone?: string;
   formClass?: string;
   section?: string | null;
+  managementLevels?: string[];
   departmentId?: string | null;
   monthlySalary?: number;
   hourlyRate?: number;
@@ -136,6 +139,7 @@ export interface StaffApplicationFinalize {
   roles?: string[];
   formClass?: string;
   section?: string | null;
+  managementLevels?: string[];
   createLogin?: boolean;
 }
 

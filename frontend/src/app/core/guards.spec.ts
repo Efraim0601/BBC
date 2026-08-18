@@ -2,7 +2,8 @@ import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { AuthService } from './auth.service';
-import { actionGuard, contextualActionGuard, parentGuard } from './guards';
+import { actionGuard, contextualActionGuard, parentGuard, scopeGuard } from './guards';
+import { ScopeService } from './scope.service';
 import { Router, ActivatedRouteSnapshot, RouterStateSnapshot } from '@angular/router';
 
 describe('contextual action route guards', () => {
@@ -152,5 +153,55 @@ describe('parent portal route guard', () => {
   it('redirects an unauthenticated direct route to login', () => {
     const { result, tree } = evaluate(null, false);
     expect(result).toBe(tree);
+  });
+});
+
+describe('parcours route guard', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  function evaluate(user: any, selected: any, allMode = false) {
+    const tree = { redirect: '/parcours' };
+    const auth = { user: signal(user) };
+    const scope = {
+      scope: signal(selected),
+      allMode: signal(allMode),
+      resolved: signal(selected != null || allMode),
+      clear: vi.fn(),
+    };
+    const router = { createUrlTree: vi.fn(() => tree) };
+    TestBed.configureTestingModule({
+      providers: [
+        { provide: AuthService, useValue: auth },
+        { provide: ScopeService, useValue: scope },
+        { provide: Router, useValue: router },
+      ],
+    });
+    const result = TestBed.runInInjectionContext(() =>
+      scopeGuard({} as ActivatedRouteSnapshot, {} as RouterStateSnapshot),
+    );
+    return { result, tree, scope };
+  }
+
+  const restrictedPrincipal = {
+    role: 'principal', parcoursScopeMode: 'EXPLICIT',
+    allowedParcours: [{ level: 'primary', subsystem: 'FR' }],
+  };
+
+  it('accepts an assigned principal parcours', () => {
+    expect(evaluate(restrictedPrincipal, { level: 'primary', subsystem: 'FR' }).result).toBe(true);
+  });
+
+  it('clears stale all-parcours state inherited from an administrator', () => {
+    const { result, tree, scope } = evaluate(restrictedPrincipal, null, true);
+    expect(result).toBe(tree);
+    expect(scope.clear).toHaveBeenCalled();
+  });
+
+  it('clears a selected parcours that is no longer assigned', () => {
+    const { result, tree, scope } = evaluate(
+      restrictedPrincipal, { level: 'secondary', subsystem: 'FR' }, false,
+    );
+    expect(result).toBe(tree);
+    expect(scope.clear).toHaveBeenCalled();
   });
 });

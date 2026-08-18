@@ -50,6 +50,12 @@ public class Employee {
      */
     private String level;
 
+    /** Nursery/Primary/Secondary divisions managed by an operational principal. */
+    @ElementCollection
+    @CollectionTable(name = "employee_management_level", joinColumns = @JoinColumn(name = "employee_id"))
+    @Column(name = "level")
+    private Set<String> managementLevels = new HashSet<>();
+
     @Column(name = "department_id")
     private UUID departmentId;
 

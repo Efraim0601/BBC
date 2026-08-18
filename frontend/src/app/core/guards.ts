@@ -31,7 +31,20 @@ export const scopeGuard: CanActivateFn = () => {
   const user = auth.user();
   if (!user) return router.createUrlTree(['/login']);
   if (user.role === 'parent') return true;
-  return scope.resolved() ? true : router.createUrlTree(['/parcours']);
+  const global = user.parcoursScopeMode === 'GLOBAL'
+    || (user.parcoursScopeMode == null && (user.allowedParcours ?? []).length === 0);
+  if (global) return scope.resolved() ? true : router.createUrlTree(['/parcours']);
+
+  const selected = scope.scope();
+  const valid = !scope.allMode() && selected != null
+    && (user.allowedParcours ?? []).some((allowed) =>
+      allowed.level === selected.level && allowed.subsystem === selected.subsystem);
+  if (valid) return true;
+
+  // A previous administrator may have left "All parcours" or another scope in
+  // this browser. Never reuse it after a restricted principal signs in.
+  scope.clear();
+  return router.createUrlTree(['/parcours']);
 };
 
 /** Route guard mapped to the same permission matrix as the backend. */

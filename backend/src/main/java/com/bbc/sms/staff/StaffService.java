@@ -204,6 +204,7 @@ public class StaffService {
         if (createLogin) {
             accounts.provisionOrReset(saved);
         } else {
+            accounts.syncAccount(saved);
             mail.notifyUserCreated(saved.getSchoolId(), saved.getName(), saved.getEmail());
         }
         return toView(saved);
@@ -270,6 +271,15 @@ public class StaffService {
                 }
 
                 Set<String> roles = resolveRoles(row.roles(), validRoles);
+                Set<String> managementLevels = new HashSet<>();
+                if (roles.contains("principal")) {
+                    String importedLevel = normSection(blankToNull(row.section()));
+                    if (importedLevel == null) {
+                        throw new IllegalArgumentException(
+                                "Un principal doit avoir au moins un cycle attribué (maternelle, primary ou secondary)");
+                    }
+                    managementLevels.add(importedLevel);
+                }
 
                 String code;
                 do {
@@ -287,6 +297,7 @@ public class StaffService {
                 e.setPhone(phone);
                 e.setFormClass(blankToNull(row.formClass()));
                 e.setLevel(normSection(blankToNull(row.section())));
+                e.setManagementLevels(managementLevels);
                 e.setDepartmentId(departmentId);
                 e.setMonthlySalary(row.monthlySalary() == null ? 0L : Math.max(0L, row.monthlySalary()));
                 e.setHourlyRate(row.hourlyRate() == null ? 0 : Math.max(0, row.hourlyRate()));
@@ -314,7 +325,9 @@ public class StaffService {
         Employee e = find(id);
         apply(e, in);
         e.setInitials(initials(in.name()));
-        return toView(repo.save(e));
+        Employee saved = repo.save(e);
+        accounts.syncAccount(saved);
+        return toView(saved);
     }
 
     @Transactional
@@ -362,11 +375,14 @@ public class StaffService {
         e.setMonthlySalary(in.monthlySalary());
         e.setHourlyRate(in.hourlyRate());
         Set<String> validRoles = new HashSet<>(jdbc.queryForList("SELECT code FROM role", String.class));
+        Set<String> resolvedRoles;
         try {
-            e.setRoles(resolveRoles(in.roles() == null ? null : List.copyOf(in.roles()), validRoles));
+            resolvedRoles = resolveRoles(in.roles() == null ? null : List.copyOf(in.roles()), validRoles);
         } catch (IllegalArgumentException ex) {
             throw ApiException.badRequest(ex.getMessage());
         }
+        e.setRoles(resolvedRoles);
+        applyManagementLevels(e, in.managementLevels(), resolvedRoles);
     }
 
     /**
@@ -432,6 +448,10 @@ public class StaffService {
                 if ("parent".equals(code)) {
                     throw new IllegalArgumentException("Le rôle « parent » ne s’applique pas au personnel");
                 }
+                if (Set.of("administrator", "admin", "school_admin").contains(code)) {
+                    throw new IllegalArgumentException(
+                            "Le rôle Administrateur est réservé au compte technique de l’établissement");
+                }
                 if (!validRoles.contains(code)) {
                     throw new IllegalArgumentException("Rôle inconnu (« " + r.trim() + " »)");
                 }
@@ -440,6 +460,25 @@ public class StaffService {
         }
         if (out.isEmpty()) out.add("teacher");
         return out;
+    }
+
+    private void applyManagementLevels(Employee employee, Set<String> rawLevels, Set<String> roles) {
+        Set<String> normalized = new HashSet<>();
+        if (rawLevels != null) {
+            for (String raw : rawLevels) {
+                String level = normSection(blankToNull(raw));
+                if (level == null) {
+                    throw ApiException.badRequest(
+                            "Cycle de direction inconnu (attendu maternelle, primary ou secondary)");
+                }
+                normalized.add(level);
+            }
+        }
+        if (roles.contains("principal") && normalized.isEmpty()) {
+            throw ApiException.badRequest(
+                    "Attribuez au principal au moins un cycle : Maternelle, Primaire ou Secondaire");
+        }
+        employee.setManagementLevels(roles.contains("principal") ? normalized : new HashSet<>());
     }
 
     private String nextCode(UUID schoolId) {
@@ -474,9 +513,11 @@ public class StaffService {
         // Copy the lazy @ElementCollection into a plain set while the session is
         // still open, otherwise JSON serialization fails with LazyInitializationException.
         Set<String> roles = e.getRoles() == null ? Set.of() : new HashSet<>(e.getRoles());
+        Set<String> managementLevels = e.getManagementLevels() == null
+                ? Set.of() : new HashSet<>(e.getManagementLevels());
         return new EmployeeView(e.getId(), e.getCode(), e.getName(), e.getInitials(),
                 e.getSex(), e.getType(), e.getEmail(), e.getPhone(), e.getFormClass(),
-                e.getLevel(), e.getDepartmentId(), deptName,
+                e.getLevel(), managementLevels, e.getDepartmentId(), deptName,
                 e.getMonthlySalary(), e.getHourlyRate(), roles, e.isActive(),
                 account != null, account == null ? null : account.getId(), account == null ? null : account.getUsername());
     }

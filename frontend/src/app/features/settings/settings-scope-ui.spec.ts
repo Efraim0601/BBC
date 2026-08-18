@@ -15,7 +15,7 @@ describe('settings academic-setup scope boundary', () => {
     const auth = {
       user: signal({ role: 'principal', displayName: 'Direction A' }),
       actionState: vi.fn(actionState),
-      canAction: vi.fn(() => false),
+      canAction: vi.fn((action: string) => actionState(action) === 'ALLOW'),
     };
     const api = {
       getMatrix: vi.fn(() => of({ modules: [], roles: [], matrix: {} })),
@@ -44,6 +44,20 @@ describe('settings academic-setup scope boundary', () => {
   it('does not expose or instantiate academic setup for a read-only Direction session', () => {
     const fixture = create(() => 'DENY');
     expect((fixture.componentInstance as any).canViewAcademicSetup()).toBe(false);
+  });
+
+  it('hides administrator-only permissions and roles tabs from a principal', () => {
+    const fixture = create(() => 'DENY');
+    const ids = (fixture.componentInstance as any).tabs().map((tab: { id: string }) => tab.id);
+    expect(ids).not.toContain('perms');
+    expect(ids).not.toContain('roles');
+  });
+
+  it('exposes permissions and roles tabs to an administrator', () => {
+    const fixture = create((action) => action === 'PERMISSION_VIEW' ? 'ALLOW' : 'DENY');
+    const ids = (fixture.componentInstance as any).tabs().map((tab: { id: string }) => tab.id);
+    expect(ids).toContain('perms');
+    expect(ids).toContain('roles');
   });
 
   it('keeps setup available for an allowed setup action', () => {

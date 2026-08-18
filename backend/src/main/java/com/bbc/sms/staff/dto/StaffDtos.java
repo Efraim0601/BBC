@@ -22,6 +22,8 @@ public class StaffDtos {
             String formClass,
             /** Section (cycle) de rattachement : maternelle|primary|secondary, null si non enseignant. */
             String section,
+            /** Cycles explicitly managed when the employee is a principal. */
+            Set<String> managementLevels,
             UUID departmentId,
             String departmentName,
             long monthlySalary,
@@ -40,6 +42,7 @@ public class StaffDtos {
             @Pattern(regexp = "^$|^[+0-9][0-9\\s().-]{5,24}$", message = "Numéro de téléphone invalide") String phone,
             String formClass,
             String section,
+            Set<String> managementLevels,
             UUID departmentId,
             long monthlySalary,
             int hourlyRate,
@@ -141,6 +144,7 @@ public class StaffDtos {
             Set<String> roles,
             String formClass,
             String section,
+            Set<String> managementLevels,
             Boolean createLogin) {}
 
     public record StaffPortalSettingsView(

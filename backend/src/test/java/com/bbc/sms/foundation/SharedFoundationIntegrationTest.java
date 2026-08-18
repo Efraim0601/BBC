@@ -382,7 +382,7 @@ class SharedFoundationIntegrationTest {
                 academicId, schoolId);
         jdbc.update("INSERT INTO employee(id,school_id,code,name,type,active,level) VALUES (?,?,?,'Directory Teacher','Permanent',true,'secondary')",
                 employeeId, schoolId, "SD-" + schoolId.toString().substring(0, 8));
-        jdbc.update("INSERT INTO app_user(id,school_id,username,password_hash,display_name,initials,role_code,employee_id,active) VALUES (?,?,?,'test','Directory Teacher','DT','teacher',?,true)",
+        jdbc.update("INSERT INTO app_user(id,school_id,username,password_hash,display_name,initials,role_code,employee_id,active,parcours_scope_mode) VALUES (?,?,?,'test','Directory Teacher','DT','teacher',?,true,'ASSIGNMENT_DERIVED')",
                 teacherUserId, schoolId, "directory-teacher-" + schoolId.toString().substring(0, 8), employeeId);
         jdbc.update("INSERT INTO app_user_role(school_id,user_id,role_code,is_primary,reason) VALUES (?,?, 'teacher',true,'Student directory regression') ON CONFLICT DO NOTHING",
                 schoolId, teacherUserId);
@@ -408,6 +408,102 @@ class SharedFoundationIntegrationTest {
 
         assertThat(rows).extracting(v -> v.id()).containsExactly(studentId);
         assertThat(rows.getFirst().className()).isEqualTo("6eme Directory");
+    }
+
+    @Test
+    void primaryAndKindergartenHomeroomsGrantStudentAccessWithoutTimetableOrCourseDistribution() {
+        UUID academicId = UUID.randomUUID();
+        String sectionPrefix = "hr" + schoolId.toString().substring(0, 7);
+        jdbc.update("INSERT INTO academic_session(id,school_id,code,label,start_date,end_date,status,is_current) VALUES (?,?, '2026-2027','2026-2027','2026-09-01','2027-07-31','OPEN',true)",
+                academicId, schoolId);
+        for (String action : new String[]{"ACADEMIC_ROSTER_VIEW", "STUDENT_DIRECTORY_VIEW", "STUDENT_PROFILE_VIEW"}) {
+            jdbc.update("INSERT INTO permission_role_action(school_id,role_code,action_code,effect,scope_mode,is_permanent,reason) VALUES (?,?,?,'ALLOW','ASSIGNED_CLASSES',true,'Homeroom roster regression') ON CONFLICT DO NOTHING",
+                    schoolId, "teacher", action);
+        }
+
+        UUID primaryStudent = insertHomeroomOnlyRosterFixture(academicId, sectionPrefix + "p",
+                "primary", "CE1 Homeroom", "Primary Homeroom Teacher", "PH", "HR-P");
+        UUID kindergartenStudent = insertHomeroomOnlyRosterFixture(academicId, sectionPrefix + "m",
+                "maternelle", "Nursery Homeroom", "Kindergarten Homeroom Teacher", "KH", "HR-M");
+
+        authenticateTeacherForStudent(primaryStudent);
+        assertThat(students.list(null)).extracting(v -> v.id()).containsExactly(primaryStudent);
+        assertThat(students.get(primaryStudent)).isNotNull();
+
+        authenticateTeacherForStudent(kindergartenStudent);
+        assertThat(students.list(null)).extracting(v -> v.id()).containsExactly(kindergartenStudent);
+        assertThat(students.get(kindergartenStudent)).isNotNull();
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM timetable_class_config WHERE school_id=? AND academic_session_id=?",
+                Integer.class, schoolId, academicId)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM timetable_slot WHERE school_id=? AND academic_session_id=?",
+                Integer.class, schoolId, academicId)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM teacher_class tc JOIN employee e ON e.id=tc.employee_id WHERE e.school_id=? AND e.code IN ('HR-P','HR-M')",
+                Integer.class, schoolId)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM academic_class_subject_teacher WHERE school_id=? AND academic_session_id=?",
+                Integer.class, schoolId, academicId)).isZero();
+    }
+
+    @Test
+    void secondaryHomeroomAloneDoesNotReplaceResponsibleSubjectAssignmentForStudentAccess() {
+        UUID academicId = UUID.randomUUID();
+        String sectionId = "hs" + schoolId.toString().substring(0, 8);
+        jdbc.update("INSERT INTO academic_session(id,school_id,code,label,start_date,end_date,status,is_current) VALUES (?,?, '2026-2027','2026-2027','2026-09-01','2027-07-31','OPEN',true)",
+                academicId, schoolId);
+        for (String action : new String[]{"ACADEMIC_ROSTER_VIEW", "STUDENT_DIRECTORY_VIEW", "STUDENT_PROFILE_VIEW"}) {
+            jdbc.update("INSERT INTO permission_role_action(school_id,role_code,action_code,effect,scope_mode,is_permanent,reason) VALUES (?,?,?,'ALLOW','ASSIGNED_CLASSES',true,'Secondary roster regression') ON CONFLICT DO NOTHING",
+                    schoolId, "teacher", action);
+        }
+        UUID studentId = insertHomeroomOnlyRosterFixture(academicId, sectionId,
+                "secondary", "Form 1 Homeroom", "Secondary Form Teacher", "SF", "HR-S");
+
+        authenticateTeacherForStudent(studentId);
+
+        assertThat(students.list(null)).isEmpty();
+        assertThatThrownBy(() -> students.get(studentId))
+                .isInstanceOf(ApiException.class);
+    }
+
+    private UUID insertHomeroomOnlyRosterFixture(UUID academicId, String sectionId, String level,
+                                                  String className, String teacherName,
+                                                  String initials, String employeeCode) {
+        UUID classId = UUID.randomUUID();
+        UUID employeeId = UUID.randomUUID();
+        UUID teacherUserId = UUID.randomUUID();
+        UUID studentId = UUID.randomUUID();
+        jdbc.update("INSERT INTO section(id,school_id,label,subsystem,level) VALUES (?,?,?,'FR',?)",
+                sectionId, schoolId, className, level);
+        jdbc.update("INSERT INTO school_class(id,school_id,section_id,name,subsystem,level) VALUES (?,?,?,?,'FR',?)",
+                classId, schoolId, sectionId, className, level);
+        jdbc.update("INSERT INTO employee(id,school_id,code,name,type,active,level) VALUES (?,?,?,?, 'Permanent',true,?)",
+                employeeId, schoolId, employeeCode, teacherName, level);
+        jdbc.update("INSERT INTO app_user(id,school_id,username,password_hash,display_name,initials,role_code,employee_id,active,parcours_scope_mode) VALUES (?,?,?,'test',?,?,'teacher',?,true,'ASSIGNMENT_DERIVED')",
+                teacherUserId, schoolId, "homeroom-" + employeeCode.toLowerCase(), teacherName, initials, employeeId);
+        jdbc.update("INSERT INTO app_user_role(school_id,user_id,role_code,is_primary,reason) VALUES (?,?, 'teacher',true,'Homeroom roster regression') ON CONFLICT DO NOTHING",
+                schoolId, teacherUserId);
+        jdbc.update("INSERT INTO class_teacher_assignment(school_id,academic_session_id,class_id,employee_id,role,effective_from,status,source) VALUES (?,?,?,?,'HOMEROOM','2026-09-01','ACTIVE','ACADEMIC_SETUP')",
+                schoolId, academicId, classId, employeeId);
+        jdbc.update("INSERT INTO student(id,school_id,matricule,first_name,last_name,class_id,class_name,subsystem,level) VALUES (?,?,?,'Test',?, ?,?,'FR',?)",
+                studentId, schoolId, "ST-" + employeeCode, className, classId, className, level);
+        jdbc.update("INSERT INTO student_enrollment(school_id,student_id,academic_session_id,school_class_id,class_name_snapshot,level_snapshot,subsystem_snapshot,status,enrolled_on,source) VALUES (?,?,?,?,?,?,'FR','ACTIVE','2026-09-01','TEST')",
+                schoolId, studentId, academicId, classId, className, level);
+        return studentId;
+    }
+
+    private void authenticateTeacherForStudent(UUID studentId) {
+        Map<String, Object> teacher = jdbc.queryForMap("""
+                SELECT u.id,u.username,u.display_name,u.initials
+                  FROM app_user u
+                  JOIN employee e ON e.id=u.employee_id
+                  JOIN class_teacher_assignment a ON a.employee_id=e.id AND a.school_id=e.school_id
+                  JOIN student_enrollment se ON se.school_class_id=a.class_id
+                 WHERE u.school_id=? AND se.student_id=?
+                """, schoolId, studentId);
+        AppUserPrincipal principal = new AppUserPrincipal((UUID) teacher.get("id"), schoolId,
+                (String) teacher.get("username"), "teacher", (String) teacher.get("display_name"),
+                (String) teacher.get("initials"));
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
     }
 
     @Test
