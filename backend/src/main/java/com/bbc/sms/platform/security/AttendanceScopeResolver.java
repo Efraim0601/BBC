@@ -43,10 +43,10 @@ public class AttendanceScopeResolver {
         UUID employeeId = employeeId(principal, context.schoolId());
         if (employeeId == null) return false;
         if (primaryOrMaternelle(context.schoolId(), context.classId())) {
-            return "TITULAIRE_CLASSES".equals(scope)
+            return ("TITULAIRE_CLASSES".equals(scope) || "ASSIGNED_CLASSES".equals(scope))
                     && datedTitulaire(context, employeeId);
         }
-        return "TIMETABLE_OCCURRENCES_ASSIGNED".equals(scope)
+        return ("TIMETABLE_OCCURRENCES_ASSIGNED".equals(scope) || "ASSIGNED_CLASSES".equals(scope))
                 && publishedOccurrence(context, employeeId);
     }
 

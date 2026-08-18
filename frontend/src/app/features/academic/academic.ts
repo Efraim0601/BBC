@@ -1086,7 +1086,7 @@ export class AcademicComponent {
    * and returns 403 for ordinary teachers. */
   private loadClasses(sessionId?: string, reportingPeriodId?: string, afterLoad?: () => void): void {
     const role = this.auth.user()?.role;
-    if (role === 'teacher' || role === 'form_teacher') {
+    if (role === 'teacher' || role === 'secondary_teacher' || role === 'form_teacher') {
       this.api.academicMyScope(sessionId, reportingPeriodId).subscribe({
         next: (scope) => {
           const seen = new Set<string>();
@@ -1124,7 +1124,7 @@ export class AcademicComponent {
     const requestedClassId = this.route.snapshot.queryParamMap.get('classId');
     const requestedPeriodId = this.route.snapshot.queryParamMap.get('periodId');
     const requestedSubjectCode = this.route.snapshot.queryParamMap.get('subjectCode');
-    const teacherScoped = ['teacher', 'form_teacher'].includes(this.auth.user()?.role ?? '');
+    const teacherScoped = ['teacher', 'secondary_teacher', 'form_teacher'].includes(this.auth.user()?.role ?? '');
     if (requestedSubjectCode) this.selectedGradeSubjectCode.set(requestedSubjectCode.toUpperCase());
     if (requestedMode && ['bulletin', 'grade-entry', 'inputs', 'pv', 'overview', 'batch'].includes(requestedMode)) this.mode.set(requestedMode);
     if (!teacherScoped) this.loadClasses();

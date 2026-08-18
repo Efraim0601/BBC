@@ -690,7 +690,8 @@ public class AcademicAccessPolicyService {
     }
 
     private static boolean isTeacherRole(String role) {
-        return role != null && List.of("teacher", "form_teacher").contains(role.toLowerCase(Locale.ROOT));
+        return role != null && List.of("teacher", "secondary_teacher", "form_teacher")
+                .contains(role.toLowerCase(Locale.ROOT));
     }
 
     private static String sourceFor(String level, String source) {

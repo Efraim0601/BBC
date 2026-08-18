@@ -319,7 +319,8 @@ public class SecondaryCompetencyService {
         var authentication = SecurityContextHolder.getContext().getAuthentication();
         Object principal = authentication == null ? null : authentication.getPrincipal();
         if (!(principal instanceof AppUserPrincipal user)
-                || !Set.of("teacher", "form_teacher").contains(user.roleCode())) return;
+                || !Set.of("teacher", "secondary_teacher", "form_teacher")
+                .contains(user.roleCode())) return;
         UUID employeeId = jdbc.query("SELECT employee_id FROM app_user WHERE id=? AND school_id=?",
                 rs -> rs.next() ? rs.getObject(1, UUID.class) : null, user.userId(), TenantContext.get());
         if (!Objects.equals(employeeId, assignedTeacherId)) {

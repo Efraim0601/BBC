@@ -38,8 +38,10 @@ class AttendanceScopeResolverTest {
         PolicyResourceContext context = context(null, null, "DAILY");
 
         assertThat(resolver.allowsTeacher(principal, context, "TITULAIRE_CLASSES")).isTrue();
+        assertThat(resolver.allowsTeacher(principal, context, "ASSIGNED_CLASSES")).isTrue();
         assertThat(resolver.allowsTeacher(principal, context, "TIMETABLE_OCCURRENCES_ASSIGNED")).isFalse();
-        verify(jdbc).queryForObject(org.mockito.ArgumentMatchers.contains("a.role='HOMEROOM'"),
+        verify(jdbc, org.mockito.Mockito.times(2)).queryForObject(
+                org.mockito.ArgumentMatchers.contains("a.role='HOMEROOM'"),
                 eq(Integer.class), any(Object[].class));
     }
 
@@ -69,9 +71,10 @@ class AttendanceScopeResolverTest {
 
         assertThat(resolver.allowsTeacher(principal, context,
                 "TIMETABLE_OCCURRENCES_ASSIGNED")).isTrue();
+        assertThat(resolver.allowsTeacher(principal, context, "ASSIGNED_CLASSES")).isTrue();
         assertThat(captured[0]).contains(schoolId, occurrenceId, sessionId, classId,
                 "MATH", "P1", employeeId);
-        verify(jdbc).queryForObject(
+        verify(jdbc, org.mockito.Mockito.times(2)).queryForObject(
                 org.mockito.ArgumentMatchers.argThat(sql -> sql.contains("v.status='PUBLISHED'")
                         && sql.contains("sub.timetable_version_id=v.id")
                         && sql.contains("s.day_idx=?")

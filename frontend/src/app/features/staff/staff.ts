@@ -1279,7 +1279,7 @@ export class StaffComponent {
   protected selectedClasses = signal<TeacherClassView[]>([]);
   /** Les rôles cloisonnés par section : eux seuls portent un cycle de rattachement. */
   protected teachingRole = computed(() =>
-    this.draftRoles().some((r) => r === 'teacher' || r === 'form_teacher'));
+    this.draftRoles().some((r) => r === 'teacher' || r === 'secondary_teacher' || r === 'form_teacher'));
   protected principalRole = computed(() => this.draftRoles().includes('principal'));
   protected managementLevelOptions = computed(() => [
     { value: 'maternelle', label: this.fr() ? 'Maternelle' : 'Nursery' },
@@ -1389,7 +1389,7 @@ export class StaffComponent {
 
   /** Un employé porte-t-il un rôle enseignant ? */
   protected isTeacher(e: EmployeeView): boolean {
-    return (e.roles || []).some((r) => r === 'teacher' || r === 'form_teacher');
+    return (e.roles || []).some((r) => r === 'teacher' || r === 'secondary_teacher' || r === 'form_teacher');
   }
 
   protected sectionLabel(section: string | null): string {
@@ -1401,7 +1401,7 @@ export class StaffComponent {
     }
   }
 
-  protected teacherCount = computed(() => this.rows().filter((e) => e.roles.includes('teacher') || e.roles.includes('form_teacher')).length);
+  protected teacherCount = computed(() => this.rows().filter((e) => e.roles.includes('teacher') || e.roles.includes('secondary_teacher') || e.roles.includes('form_teacher')).length);
   protected permCount = computed(() => this.rows().filter((e) => e.type === 'Permanent').length);
   protected vacCount = computed(() => this.rows().filter((e) => e.type === 'Vacataire').length);
   protected permPct = computed(() => (this.rows().length ? Math.round((this.permCount() / this.rows().length) * 100) : 0));

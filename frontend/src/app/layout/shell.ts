@@ -71,7 +71,7 @@ const NAV_COLLAPSE_KEY = 'bbc.nav.collapsed';
           </div>
           <div class="text-left hidden md:block">
             <div class="text-xs font-bold leading-tight">{{ user()?.displayName }}</div>
-            <div class="text-[10px] text-brand-200">{{ user()?.role }}</div>
+            <div class="text-[10px] text-brand-200">{{ roleLabel(user()?.role) }}</div>
           </div>
           <button (click)="auth.logout()" class="ml-1 text-[11px] text-brand-100 hover:text-white underline">
             {{ i18n.t('signOut') }}
@@ -214,6 +214,19 @@ export class ShellComponent {
     const next = !this.collapsed();
     this.collapsed.set(next);
     localStorage.setItem(NAV_COLLAPSE_KEY, next ? '1' : '0');
+  }
+
+  protected roleLabel(role: string | undefined): string {
+    if (role === 'secondary_teacher') {
+      return this.fr() ? 'Enseignant secondaire' : 'Secondary teacher';
+    }
+    if (role === 'teacher') {
+      return this.fr() ? 'Enseignant primaire / maternelle' : 'Primary / Kindergarten teacher';
+    }
+    if (role === 'form_teacher') {
+      return this.fr() ? 'Professeur principal' : 'Form teacher';
+    }
+    return role ?? '';
   }
 
   protected closeMobile(): void {

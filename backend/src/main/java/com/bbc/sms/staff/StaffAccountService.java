@@ -33,7 +33,8 @@ public class StaffAccountService {
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final String DEFAULT_ROLE = "teacher";
     private static final List<String> ROLE_PRIORITY = List.of(
-            "principal", "accountant", "econome", "prefect", "form_teacher", "teacher");
+            "principal", "accountant", "econome", "prefect", "form_teacher",
+            "secondary_teacher", "teacher");
     private static final Set<String> GLOBAL_ROLES = Set.of(
             "administrator", "admin", "school_admin", "prefect", "accountant", "econome",
             "bursar", "cashier", "finance_officer");
@@ -138,7 +139,9 @@ public class StaffAccountService {
     private String scopeMode(String role) {
         if ("principal".equals(role)) return "EXPLICIT";
         if (GLOBAL_ROLES.contains(role)) return "GLOBAL";
-        if (Set.of("teacher", "form_teacher").contains(role)) return "ASSIGNMENT_DERIVED";
+        if (Set.of("teacher", "secondary_teacher", "form_teacher").contains(role)) {
+            return "ASSIGNMENT_DERIVED";
+        }
         return "NONE";
     }
 
@@ -148,7 +151,10 @@ public class StaffAccountService {
         if (roles != null && !roles.isEmpty()) {
             Set<String> valid = new HashSet<>(jdbc.queryForList("SELECT code FROM role", String.class));
             for (String preferred : ROLE_PRIORITY) {
-                if (roles.contains(preferred) && valid.contains(preferred)) return preferred;
+                if (!roles.contains(preferred) || !valid.contains(preferred)) continue;
+                if ("teacher".equals(preferred) && "secondary".equalsIgnoreCase(e.getLevel())
+                        && valid.contains("secondary_teacher")) return "secondary_teacher";
+                return preferred;
             }
             return roles.stream().filter(valid::contains).sorted().findFirst().orElse(DEFAULT_ROLE);
         }
