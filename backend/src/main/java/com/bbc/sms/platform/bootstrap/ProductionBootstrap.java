@@ -114,7 +114,8 @@ public class ProductionBootstrap implements ApplicationRunner {
         insertRole("prefect", "Préfet d'études", "Dean of studies");
         insertRole("econome", "Économe", "Bursar");
         insertRole("form_teacher", "Prof. Principal", "Form Teacher");
-        insertRole("teacher", "Enseignant", "Teacher");
+        insertRole("teacher", "Enseignant primaire / maternelle", "Primary / Kindergarten Teacher");
+        insertRole("secondary_teacher", "Enseignant secondaire", "Secondary Teacher");
         insertRole("parent", "Parent", "Parent");
 
         // Permission matrix. Principal starts with oversight/read access; the
@@ -131,6 +132,8 @@ public class ProductionBootstrap implements ApplicationRunner {
         grants(schoolId, "form_teacher", "read", "dashboard", "presence", "students", "timetable", "events", "journey", "alerts", "health", "documents");
         grants(schoolId, "teacher", "write", "academic", "coursebook");
         grants(schoolId, "teacher", "read", "dashboard", "presence", "students", "timetable", "events", "messages");
+        grants(schoolId, "secondary_teacher", "write", "academic", "coursebook");
+        grants(schoolId, "secondary_teacher", "read", "dashboard", "presence", "students", "timetable", "events", "messages");
         grant(schoolId, "parent", "parent", "read");
 
         seedFoundation(schoolId, sessionId);
@@ -183,7 +186,7 @@ public class ProductionBootstrap implements ApplicationRunner {
             """, schoolId, adminUserId);
 
         String[][] roleTemplates = {
-            {"teacher", "primary_teacher"}, {"teacher", "secondary_teacher"},
+            {"teacher", "primary_teacher"}, {"secondary_teacher", "secondary_teacher"},
             {"form_teacher", "form_teacher"}, {"principal", "principal_oversight"},
             {"econome", "finance_collector"}, {"accountant", "accountant"},
             {"parent", "parent_portal"}
@@ -315,7 +318,7 @@ public class ProductionBootstrap implements ApplicationRunner {
             }
         }
         for (String action : scopedTeacherActions) {
-            for (String role : new String[]{"teacher", "form_teacher"}) {
+            for (String role : new String[]{"teacher", "secondary_teacher", "form_teacher"}) {
                 grantAction(schoolId, role, action, true);
             }
         }
@@ -324,6 +327,7 @@ public class ProductionBootstrap implements ApplicationRunner {
         // attendance screens can validate dates; this does not grant session
         // administration or any class/subject data by itself.
         grantAction(schoolId, "teacher", "SESSION_VIEW", true);
+        grantAction(schoolId, "secondary_teacher", "SESSION_VIEW", true);
         grantAction(schoolId, "form_teacher", "SESSION_VIEW", true);
     }
 

@@ -49,6 +49,7 @@ class AuthorizationPolicyServiceTest {
     @Test
     void allActiveRoleClassificationKeepsTeacherInvariantForMultiRoleAccounts() {
         assertThat(AuthorizationPolicyService.isTeacher(List.of("principal", "teacher"))).isTrue();
+        assertThat(AuthorizationPolicyService.isTeacher(List.of("secondary_teacher"))).isTrue();
         assertThat(AuthorizationPolicyService.isTeacher(List.of("principal", "accountant"))).isFalse();
         assertThat(AuthorizationPolicyService.isAdministrator(List.of("principal"))).isFalse();
         assertThat(AuthorizationPolicyService.isAdministrator(List.of("principal", "administrator"))).isTrue();

@@ -594,7 +594,8 @@ public class AuthorizationPolicyService {
 
     static boolean isTeacher(List<String> roles) {
         return roles.stream().map(AuthorizationPolicyService::normalizeRole)
-                .anyMatch(role -> role.equals("teacher") || role.equals("form_teacher"));
+                .anyMatch(role -> role.equals("teacher") || role.equals("secondary_teacher")
+                        || role.equals("form_teacher"));
     }
 
     static boolean isAdministrator(List<String> roles) {

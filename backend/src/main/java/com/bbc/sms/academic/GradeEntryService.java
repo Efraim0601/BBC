@@ -344,7 +344,8 @@ public class GradeEntryService {
     }
 
     private boolean restrictedTeacher() {
-        return Set.of("teacher", "form_teacher").contains(currentRole().toLowerCase(Locale.ROOT));
+        return Set.of("teacher", "secondary_teacher", "form_teacher")
+                .contains(currentRole().toLowerCase(Locale.ROOT));
     }
 
     private TeacherAssignmentReadinessView assignmentReadiness(TeachingAssignmentResolver.Resolution resolved) {

@@ -21,7 +21,8 @@ import java.util.UUID;
  */
 @Service("teacherScope")
 public class TeacherScopeService {
-    private static final Set<String> RESTRICTED_ROLES = Set.of("teacher", "form_teacher");
+    private static final Set<String> RESTRICTED_ROLES = Set.of(
+            "teacher", "secondary_teacher", "form_teacher");
     private final JdbcTemplate jdbc;
     private final AcademicAccessPolicyService accessPolicy;
 

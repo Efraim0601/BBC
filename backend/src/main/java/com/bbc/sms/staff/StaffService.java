@@ -38,6 +38,8 @@ public class StaffService {
             Map.entry("bursar", "econome"),
             Map.entry("enseignant", "teacher"),
             Map.entry("prof", "teacher"),
+            Map.entry("enseignant secondaire", "secondary_teacher"),
+            Map.entry("secondary teacher", "secondary_teacher"),
             Map.entry("pp", "form_teacher"),
             Map.entry("professeur principal", "form_teacher"),
             Map.entry("proviseur", "principal"),
@@ -297,6 +299,7 @@ public class StaffService {
                 e.setPhone(phone);
                 e.setFormClass(blankToNull(row.formClass()));
                 e.setLevel(normSection(blankToNull(row.section())));
+                roles = teachingRolesForSection(roles, e.getLevel(), validRoles);
                 e.setManagementLevels(managementLevels);
                 e.setDepartmentId(departmentId);
                 e.setMonthlySalary(row.monthlySalary() == null ? 0L : Math.max(0L, row.monthlySalary()));
@@ -381,6 +384,7 @@ public class StaffService {
         } catch (IllegalArgumentException ex) {
             throw ApiException.badRequest(ex.getMessage());
         }
+        resolvedRoles = teachingRolesForSection(resolvedRoles, e.getLevel(), validRoles);
         e.setRoles(resolvedRoles);
         applyManagementLevels(e, in.managementLevels(), resolvedRoles);
     }
@@ -460,6 +464,18 @@ public class StaffService {
         }
         if (out.isEmpty()) out.add("teacher");
         return out;
+    }
+
+    private Set<String> teachingRolesForSection(Set<String> roles, String section,
+                                                Set<String> validRoles) {
+        Set<String> normalized = new HashSet<>(roles);
+        if ("secondary".equals(section) && normalized.remove("teacher")
+                && validRoles.contains("secondary_teacher")) {
+            normalized.add("secondary_teacher");
+        } else if (!"secondary".equals(section) && normalized.remove("secondary_teacher")) {
+            normalized.add("teacher");
+        }
+        return normalized;
     }
 
     private void applyManagementLevels(Employee employee, Set<String> rawLevels, Set<String> roles) {
