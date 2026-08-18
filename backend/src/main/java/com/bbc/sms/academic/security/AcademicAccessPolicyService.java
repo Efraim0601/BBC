@@ -269,14 +269,22 @@ public class AcademicAccessPolicyService {
         }
 
         if (capability == Capability.ACADEMIC_ROSTER_VIEW) {
-            TeachingAssignmentResolver.Resolution homeroom = assignments.resolveHomeroom(
-                    academicSessionId, classId, effectiveDate);
-            if (actor.employeeId().equals(homeroom.teacherId())) {
-                return allow(actor.employeeId(), sourceFor(resource.level(), "HOMEROOM"),
-                        homeroom.assignmentId(), homeroom.assignmentVersion(), null,
-                        classId, subjectCode, homeroom.code(), effectiveDate);
+            // Primary and Kindergarten are class-teacher models: the dated
+            // homeroom assignment is the class-access authority even when no
+            // timetable, slot or class-subject distribution exists yet.
+            if (isHomeroomLevel(resource.level())) {
+                TeachingAssignmentResolver.Resolution homeroom = assignments.resolveHomeroom(
+                        academicSessionId, classId, effectiveDate);
+                if (actor.employeeId().equals(homeroom.teacherId())) {
+                    return allow(actor.employeeId(), "PRIMARY_HOMEROOM",
+                            homeroom.assignmentId(), homeroom.assignmentVersion(), null,
+                            classId, subjectCode, homeroom.code(), effectiveDate);
+                }
             }
-            if (hasResponsibleAssignment(actor.employeeId(), academicSessionId, classId,
+            // Secondary keeps its departmental model and cannot inherit roster
+            // access merely from a form-teacher/homeroom designation.
+            if (isSecondaryLevel(resource.level())
+                    && hasResponsibleAssignment(actor.employeeId(), academicSessionId, classId,
                     effectiveDate, subjectCode)) {
                 return allow(actor.employeeId(), "SECONDARY_RESPONSIBLE", null, 0, null,
                         classId, subjectCode, "ACADEMIC_ACCESS_ALLOWED", effectiveDate);
@@ -687,6 +695,14 @@ public class AcademicAccessPolicyService {
 
     private static String sourceFor(String level, String source) {
         return "secondary".equalsIgnoreCase(level) ? "SECONDARY_HOMEROOM_VIEW" : "PRIMARY_HOMEROOM";
+    }
+
+    private static boolean isHomeroomLevel(String level) {
+        return "primary".equalsIgnoreCase(level) || "maternelle".equalsIgnoreCase(level);
+    }
+
+    private static boolean isSecondaryLevel(String level) {
+        return "secondary".equalsIgnoreCase(level);
     }
 
     private static boolean councilEditDefault(String level) {

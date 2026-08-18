@@ -257,13 +257,13 @@ class AcademicAccessPolicyServiceTest {
                 when(row.getObject(2, LocalDate.class)).thenReturn(historicalStart);
                 when(row.getObject(3, LocalDate.class)).thenReturn(historicalEnd);
             } else if (sql.contains("SELECT level,subsystem")) {
-                when(row.getString(1)).thenReturn("secondary");
+                when(row.getString(1)).thenReturn("primary");
                 when(row.getString(2)).thenReturn("general");
             } else if (sql.contains("SELECT lower(level)")) {
-                when(row.getString(1)).thenReturn("secondary");
+                when(row.getString(1)).thenReturn("primary");
             } else if (sql.contains("SELECT id,lower(level)")) {
                 when(row.getObject(1, UUID.class)).thenReturn(classId);
-                when(row.getString(2)).thenReturn("secondary");
+                when(row.getString(2)).thenReturn("primary");
             } else {
                 when(row.next()).thenReturn(false);
             }
@@ -294,7 +294,7 @@ class AcademicAccessPolicyServiceTest {
         assertThat(captured.getValue().effectiveDate()).isEqualTo(historicalStart);
         assertThat(captured.getValue().academicSessionId()).isEqualTo(sessionId);
         assertThat(captured.getValue().parcours()).isNotNull();
-        assertThat(captured.getValue().parcours().level()).isEqualTo("secondary");
+        assertThat(captured.getValue().parcours().level()).isEqualTo("primary");
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})
