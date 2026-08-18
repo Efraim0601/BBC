@@ -17,6 +17,7 @@ import {
   IconComponent, CardComponent, KpiComponent, PageHeaderComponent, EmptyComponent,
   AvatarComponent, TabsComponent, ChipFilterComponent,
   DataTableComponent, CellTemplateDirective, Column, PhotoCaptureComponent,
+  ListPaginationComponent, paginateRows,
 } from '../../core/ui';
 import { PhotoApi } from '../../core/photo.api';
 
@@ -30,7 +31,7 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
   imports: [
     FormsModule, DatePipe, RouterLink, IconComponent, CardComponent, KpiComponent, PageHeaderComponent,
     EmptyComponent, AvatarComponent, TabsComponent, ChipFilterComponent,
-    DataTableComponent, CellTemplateDirective, PhotoCaptureComponent,
+    DataTableComponent, CellTemplateDirective, PhotoCaptureComponent, ListPaginationComponent,
   ],
   template: `
     <div class="fade-in max-w-7xl mx-auto">
@@ -87,11 +88,33 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                 <div class="relative">
                   <span class="absolute left-3 top-1/2 -translate-y-1/2 text-mute"><bbc-icon name="search" [s]="16" /></span>
                   <input [ngModel]="search()" (ngModelChange)="search.set($event)"
-                    [placeholder]="fr() ? 'Rechercher (nom, code)…' : 'Search (name, code)…'"
+                    [placeholder]="fr() ? 'Nom, code, e-mail, téléphone ou département…' : 'Name, code, email, phone or department…'"
                     class="h-9 w-72 pl-9 pr-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400" />
                 </div>
                 <bbc-chip-filter [allLabel]="fr() ? 'Tous' : 'All'" [value]="roleFilter()"
                   [options]="roleOptions()" (change)="roleFilter.set($event)" />
+                <select [ngModel]="typeFilter()" (ngModelChange)="typeFilter.set($event || null)"
+                  class="h-9 min-w-36 rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-brand-400 focus:outline-none"
+                  [attr.aria-label]="fr() ? 'Filtrer par type de contrat' : 'Filter by contract type'">
+                  <option value="">{{ fr() ? 'Tous les contrats' : 'All contracts' }}</option>
+                  <option value="Permanent">{{ fr() ? 'Permanents' : 'Permanent' }}</option>
+                  <option value="Vacataire">{{ fr() ? 'Vacataires' : 'Contractors' }}</option>
+                </select>
+                <select [ngModel]="sectionFilter()" (ngModelChange)="sectionFilter.set($event || null)"
+                  class="h-9 min-w-36 rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-brand-400 focus:outline-none"
+                  [attr.aria-label]="fr() ? 'Filtrer par niveau' : 'Filter by level'">
+                  <option value="">{{ fr() ? 'Tous les niveaux' : 'All levels' }}</option>
+                  <option value="maternelle">{{ fr() ? 'Maternelle' : 'Kindergarten' }}</option>
+                  <option value="primary">{{ fr() ? 'Primaire' : 'Primary' }}</option>
+                  <option value="secondary">{{ fr() ? 'Secondaire' : 'Secondary' }}</option>
+                  <option value="non-teaching">{{ fr() ? 'Non enseignant' : 'Non-teaching' }}</option>
+                </select>
+                @if (search() || roleFilter() || typeFilter() || sectionFilter()) {
+                  <button type="button" (click)="clearDirectoryFilters()"
+                    class="h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-mute hover:text-ink">
+                    {{ fr() ? 'Effacer' : 'Clear' }}
+                  </button>
+                }
               </div>
             </bbc-card>
 
@@ -103,6 +126,7 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                   <div class="text-xs text-mute">{{ fr() ? 'Cliquez une ligne pour la fiche' : 'Click a row for the profile' }}</div>
                 </div>
                 <bbc-data-table [columns]="columns()" [rows]="filtered()"
+                  [pagination]="true" [initialPageSize]="25" [language]="fr() ? 'fr' : 'en'"
                   [trackBy]="trackId" [activeId]="selectedId()"
                   [emptyLabel]="fr() ? 'Aucun résultat' : 'No results'"
                   (rowClick)="select($event)">
@@ -314,7 +338,27 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
           @case ('payroll') {
             <bbc-card [title]="fr() ? 'Masse salariale' : 'Monthly payroll'"
               [subtitle]="money(monthlyPayroll()) + ' · ' + (fr() ? 'mensuel' : 'monthly')">
-              @if (payrollRows().length === 0) {
+              <div class="mb-4 grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3 sm:grid-cols-[1.5fr_1fr_auto] sm:items-end">
+                <label class="block">
+                  <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Recherche' : 'Search' }}</span>
+                  <input [ngModel]="payrollQuery()" (ngModelChange)="setPayrollQuery($event)"
+                    [placeholder]="fr() ? 'Nom, code ou rôle…' : 'Name, code or role…'"
+                    class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-brand-400 focus:outline-none" />
+                </label>
+                <label class="block">
+                  <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Contrat' : 'Contract' }}</span>
+                  <select [ngModel]="payrollTypeFilter()" (ngModelChange)="setPayrollType($event)"
+                    class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-brand-400 focus:outline-none">
+                    <option value="">{{ fr() ? 'Tous les contrats' : 'All contracts' }}</option>
+                    <option value="Permanent">Permanent</option><option value="Vacataire">Vacataire</option>
+                  </select>
+                </label>
+                <button type="button" (click)="clearPayrollFilters()" [disabled]="!payrollQuery() && !payrollTypeFilter()"
+                  class="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-mute hover:text-ink disabled:opacity-40">
+                  {{ fr() ? 'Effacer' : 'Clear' }}
+                </button>
+              </div>
+              @if (filteredPayrollRows().length === 0) {
                 <bbc-empty icon="wallet" [label]="fr() ? 'Aucun employé' : 'No employee'" />
               } @else {
                 <table class="w-full text-sm">
@@ -328,7 +372,7 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                     </tr>
                   </thead>
                   <tbody>
-                    @for (r of payrollRows(); track r.e.id) {
+                    @for (r of pagedPayrollRows(); track r.e.id) {
                       <tr class="border-b border-slate-50 last:border-0 hover:bg-slate-50/30">
                         <td class="py-2.5">
                           <div class="flex items-center gap-2.5">
@@ -356,6 +400,8 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                     </tr>
                   </tfoot>
                 </table>
+                <bbc-list-pagination [total]="filteredPayrollRows().length" [page]="payrollPage()" [pageSize]="payrollPageSize()"
+                  [language]="fr() ? 'fr' : 'en'" (pageChange)="payrollPage.set($event)" (pageSizeChange)="setPayrollPageSize($event)" />
               }
             </bbc-card>
           }
@@ -392,7 +438,17 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                 </form>
               }
 
-              @if (departments().length) {
+              <div class="mb-4 flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3 sm:flex-row sm:items-end sm:justify-between">
+                <label class="block w-full sm:max-w-md">
+                  <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Recherche' : 'Search' }}</span>
+                  <input [ngModel]="departmentQuery()" (ngModelChange)="setDepartmentQuery($event)"
+                    [placeholder]="fr() ? 'Département ou responsable…' : 'Department or head…'"
+                    class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-brand-400 focus:outline-none" />
+                </label>
+                @if (departmentQuery()) { <button type="button" (click)="setDepartmentQuery('')" class="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-mute hover:text-ink">{{ fr() ? 'Effacer' : 'Clear' }}</button> }
+              </div>
+
+              @if (filteredDepartments().length) {
                 <table class="w-full text-sm">
                   <thead><tr class="border-b border-slate-100 text-[11px] uppercase text-mute text-left">
                     <th class="py-2 pr-3 font-semibold">{{ fr() ? 'Département' : 'Department' }}</th>
@@ -401,7 +457,7 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                     <th></th>
                   </tr></thead>
                   <tbody>
-                    @for (d of departments(); track d.id) {
+                    @for (d of pagedDepartments(); track d.id) {
                       <tr class="border-b border-slate-50 hover:bg-slate-50/40">
                         <td class="py-2 pr-3 font-semibold text-ink">{{ d.name }}</td>
                         <td class="py-2 px-3 text-mute">{{ d.headName || '—' }}</td>
@@ -416,8 +472,10 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                     }
                   </tbody>
                 </table>
+                <bbc-list-pagination [total]="filteredDepartments().length" [page]="departmentPage()" [pageSize]="departmentPageSize()"
+                  [language]="fr() ? 'fr' : 'en'" (pageChange)="departmentPage.set($event)" (pageSizeChange)="setDepartmentPageSize($event)" />
               } @else {
-                <bbc-empty icon="building" [label]="fr() ? 'Aucun département.' : 'No departments.'" />
+                <bbc-empty icon="building" [label]="departments().length ? (fr() ? 'Aucun département ne correspond à la recherche.' : 'No department matches the search.') : (fr() ? 'Aucun département.' : 'No departments.')" />
               }
               @if (hrErr(); as e) { <div class="mt-3 text-xs rounded-lg px-3 py-2 bg-rose-50 text-rose-600">{{ e }}</div> }
             </bbc-card>
@@ -468,7 +526,28 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                 </form>
               }
 
-              @if (leaves().length) {
+              <div class="mb-4 grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3 sm:grid-cols-[1.5fr_1fr_auto] sm:items-end">
+                <label class="block">
+                  <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Recherche' : 'Search' }}</span>
+                  <input [ngModel]="leaveQuery()" (ngModelChange)="setLeaveQuery($event)"
+                    [placeholder]="fr() ? 'Employé, type ou motif…' : 'Employee, type or reason…'"
+                    class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-brand-400 focus:outline-none" />
+                </label>
+                <label class="block">
+                  <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Statut' : 'Status' }}</span>
+                  <select [ngModel]="leaveStatusFilter()" (ngModelChange)="setLeaveStatus($event)"
+                    class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-brand-400 focus:outline-none">
+                    <option value="">{{ fr() ? 'Tous les statuts' : 'All statuses' }}</option>
+                    <option value="pending">{{ fr() ? 'En attente' : 'Pending' }}</option>
+                    <option value="approved">{{ fr() ? 'Approuvés' : 'Approved' }}</option>
+                    <option value="rejected">{{ fr() ? 'Refusés' : 'Rejected' }}</option>
+                  </select>
+                </label>
+                <button type="button" (click)="clearLeaveFilters()" [disabled]="!leaveQuery() && !leaveStatusFilter()"
+                  class="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-mute hover:text-ink disabled:opacity-40">{{ fr() ? 'Effacer' : 'Clear' }}</button>
+              </div>
+
+              @if (filteredLeaves().length) {
                 <table class="w-full text-sm">
                   <thead><tr class="border-b border-slate-100 text-[11px] uppercase text-mute text-left">
                     <th class="py-2 pr-3 font-semibold">{{ fr() ? 'Employé' : 'Employee' }}</th>
@@ -479,7 +558,7 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                     <th></th>
                   </tr></thead>
                   <tbody>
-                    @for (l of leaves(); track l.id) {
+                    @for (l of pagedLeaves(); track l.id) {
                       <tr class="border-b border-slate-50 hover:bg-slate-50/40">
                         <td class="py-2 pr-3 font-semibold text-ink">{{ l.employeeName || '—' }}</td>
                         <td class="py-2 px-3">{{ leaveTypeLabel(l.type) }}</td>
@@ -498,8 +577,10 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                     }
                   </tbody>
                 </table>
+                <bbc-list-pagination [total]="filteredLeaves().length" [page]="leavePage()" [pageSize]="leavePageSize()"
+                  [language]="fr() ? 'fr' : 'en'" (pageChange)="leavePage.set($event)" (pageSizeChange)="setLeavePageSize($event)" />
               } @else {
-                <bbc-empty icon="calendar" [label]="fr() ? 'Aucune demande de congé.' : 'No leave requests.'" />
+                <bbc-empty icon="calendar" [label]="leaves().length ? (fr() ? 'Aucune demande ne correspond aux filtres.' : 'No leave request matches these filters.') : (fr() ? 'Aucune demande de congé.' : 'No leave requests.')" />
               }
               @if (hrErr(); as e) { <div class="mt-3 text-xs rounded-lg px-3 py-2 bg-rose-50 text-rose-600">{{ e }}</div> }
             </bbc-card>
@@ -555,9 +636,19 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                   [options]="appStatusOptions()" (change)="onAppStatusFilter($event)" />
               </div>
 
-              @if (applications().length) {
+              <div class="mb-4 flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3 sm:flex-row sm:items-end sm:justify-between">
+                <label class="block w-full sm:max-w-lg">
+                  <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Recherche' : 'Search' }}</span>
+                  <input [ngModel]="applicationQuery()" (ngModelChange)="setApplicationQuery($event)"
+                    [placeholder]="fr() ? 'Nom, e-mail, téléphone, département…' : 'Name, email, phone, department…'"
+                    class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-brand-400 focus:outline-none" />
+                </label>
+                @if (applicationQuery()) { <button type="button" (click)="setApplicationQuery('')" class="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-mute hover:text-ink">{{ fr() ? 'Effacer' : 'Clear' }}</button> }
+              </div>
+
+              @if (filteredApplications().length) {
                 <div class="space-y-3">
-                  @for (a of applications(); track a.id) {
+                  @for (a of pagedApplications(); track a.id) {
                     <div class="p-4 rounded-lg border border-slate-100 bg-slate-50/40">
                       <div class="flex flex-wrap items-start justify-between gap-3">
                         <div class="min-w-0">
@@ -608,8 +699,10 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                     </div>
                   }
                 </div>
+                <bbc-list-pagination [total]="filteredApplications().length" [page]="applicationPage()" [pageSize]="applicationPageSize()"
+                  [language]="fr() ? 'fr' : 'en'" (pageChange)="applicationPage.set($event)" (pageSizeChange)="setApplicationPageSize($event)" />
               } @else {
-                <bbc-empty icon="users" [label]="fr() ? 'Aucune candidature.' : 'No applications.'" />
+                <bbc-empty icon="users" [label]="applications().length ? (fr() ? 'Aucune candidature ne correspond à la recherche.' : 'No application matches the search.') : (fr() ? 'Aucune candidature.' : 'No applications.')" />
               }
               @if (appErr(); as e) { <div class="mt-3 text-xs rounded-lg px-3 py-2 bg-rose-50 text-rose-600">{{ e }}</div> }
             </bbc-card>
@@ -1070,6 +1163,9 @@ export class StaffComponent {
   // Applications / portal
   protected applications = signal<StaffApplicationView[]>([]);
   protected appStatusFilter = signal<string | null>('pending');
+  protected applicationQuery = signal('');
+  protected applicationPage = signal(1);
+  protected applicationPageSize = signal(10);
   protected appErr = signal<string | null>(null);
   protected portal = signal<StaffPortalSettingsView | null>(null);
   protected portalBusy = signal(false);
@@ -1083,6 +1179,13 @@ export class StaffComponent {
   // HR — departments & leave
   protected departments = signal<DepartmentView[]>([]);
   protected leaves = signal<LeaveView[]>([]);
+  protected departmentQuery = signal('');
+  protected departmentPage = signal(1);
+  protected departmentPageSize = signal(25);
+  protected leaveQuery = signal('');
+  protected leaveStatusFilter = signal<string | null>(null);
+  protected leavePage = signal(1);
+  protected leavePageSize = signal(25);
   protected hrErr = signal<string | null>(null);
   protected deptForm = signal(false);
   protected deptEditId = signal<string | null>(null);
@@ -1091,6 +1194,12 @@ export class StaffComponent {
   protected leaveDraft: LeaveCreate = { employeeId: '', type: 'annual', startDate: '', endDate: '', reason: '' };
   protected search = signal('');
   protected roleFilter = signal<string | null>(null);
+  protected typeFilter = signal<string | null>(null);
+  protected sectionFilter = signal<string | null>(null);
+  protected payrollQuery = signal('');
+  protected payrollTypeFilter = signal<string | null>(null);
+  protected payrollPage = signal(1);
+  protected payrollPageSize = signal(25);
   protected selectedId = signal<string | null>(null);
   protected mode = signal<'list' | 'edit' | 'import'>('list');
   protected editId = signal<string | null>(null);
@@ -1177,12 +1286,27 @@ export class StaffComponent {
   protected filtered = computed(() => {
     const q = this.search().trim().toLowerCase();
     const role = this.roleFilter();
+    const type = this.typeFilter();
+    const section = this.sectionFilter();
     return this.rows().filter((e) => {
       if (role && !e.roles.includes(role)) return false;
-      if (q && !e.name.toLowerCase().includes(q) && !(e.code || '').toLowerCase().includes(q)) return false;
+      if (type && e.type !== type) return false;
+      if (section === 'non-teaching' && e.section) return false;
+      if (section && section !== 'non-teaching' && e.section !== section) return false;
+      if (q) {
+        const haystack = `${e.name} ${e.code || ''} ${e.email || ''} ${e.phone || ''} ${e.departmentName || ''} ${e.formClass || ''}`.toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
       return true;
     });
   });
+
+  protected clearDirectoryFilters(): void {
+    this.search.set('');
+    this.roleFilter.set(null);
+    this.typeFilter.set(null);
+    this.sectionFilter.set(null);
+  }
 
   protected selected = computed(() => {
     const id = this.selectedId();
@@ -1228,6 +1352,53 @@ export class StaffComponent {
       .map((e) => ({ e, base: e.monthlySalary || 0, total: (e.monthlySalary || 0) + (e.hourlyRate || 0) }))
       .sort((a, b) => b.total - a.total),
   );
+
+  protected filteredPayrollRows = computed(() => {
+    const q = this.payrollQuery().trim().toLowerCase();
+    const type = this.payrollTypeFilter();
+    return this.payrollRows().filter((row) => {
+      if (type && row.e.type !== type) return false;
+      if (q && !`${row.e.name} ${row.e.code} ${row.e.roles.map((role) => this.roleLabel(role)).join(' ')}`.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  });
+  protected pagedPayrollRows = computed(() => paginateRows(this.filteredPayrollRows(), this.payrollPage(), this.payrollPageSize()));
+
+  protected filteredDepartments = computed(() => {
+    const q = this.departmentQuery().trim().toLowerCase();
+    return this.departments().filter((row) => !q || `${row.name} ${row.headName ?? ''}`.toLowerCase().includes(q));
+  });
+  protected pagedDepartments = computed(() => paginateRows(this.filteredDepartments(), this.departmentPage(), this.departmentPageSize()));
+
+  protected filteredLeaves = computed(() => {
+    const q = this.leaveQuery().trim().toLowerCase();
+    const status = this.leaveStatusFilter();
+    return this.leaves().filter((row) => {
+      if (status && row.status !== status) return false;
+      if (q && !`${row.employeeName ?? ''} ${row.type} ${this.leaveTypeLabel(row.type)} ${row.reason ?? ''}`.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  });
+  protected pagedLeaves = computed(() => paginateRows(this.filteredLeaves(), this.leavePage(), this.leavePageSize()));
+
+  protected filteredApplications = computed(() => {
+    const q = this.applicationQuery().trim().toLowerCase();
+    return this.applications().filter((row) => !q || `${row.name} ${row.email ?? ''} ${row.phone ?? ''} ${row.departmentHint ?? ''} ${row.desiredRoles ?? ''} ${row.type}`.toLowerCase().includes(q));
+  });
+  protected pagedApplications = computed(() => paginateRows(this.filteredApplications(), this.applicationPage(), this.applicationPageSize()));
+
+  protected setPayrollQuery(value: string): void { this.payrollQuery.set(value); this.payrollPage.set(1); }
+  protected setPayrollType(value: string | null): void { this.payrollTypeFilter.set(value || null); this.payrollPage.set(1); }
+  protected setPayrollPageSize(value: number): void { this.payrollPageSize.set(value); this.payrollPage.set(1); }
+  protected clearPayrollFilters(): void { this.payrollQuery.set(''); this.payrollTypeFilter.set(null); this.payrollPage.set(1); }
+  protected setDepartmentQuery(value: string): void { this.departmentQuery.set(value); this.departmentPage.set(1); }
+  protected setDepartmentPageSize(value: number): void { this.departmentPageSize.set(value); this.departmentPage.set(1); }
+  protected setLeaveQuery(value: string): void { this.leaveQuery.set(value); this.leavePage.set(1); }
+  protected setLeaveStatus(value: string | null): void { this.leaveStatusFilter.set(value || null); this.leavePage.set(1); }
+  protected setLeavePageSize(value: number): void { this.leavePageSize.set(value); this.leavePage.set(1); }
+  protected clearLeaveFilters(): void { this.leaveQuery.set(''); this.leaveStatusFilter.set(null); this.leavePage.set(1); }
+  protected setApplicationQuery(value: string): void { this.applicationQuery.set(value); this.applicationPage.set(1); }
+  protected setApplicationPageSize(value: number): void { this.applicationPageSize.set(value); this.applicationPage.set(1); }
 
   constructor() {
     this.reload();
@@ -1285,6 +1456,7 @@ export class StaffComponent {
 
   protected onAppStatusFilter(v: string | null): void {
     this.appStatusFilter.set(v);
+    this.applicationPage.set(1);
     this.loadApplications();
   }
 

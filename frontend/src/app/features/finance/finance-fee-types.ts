@@ -6,6 +6,7 @@ import { forkJoin } from 'rxjs';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
 import { AccountView, FinanceAccountingApi } from './accounting.api';
+import { ListPaginationComponent, paginateRows } from '../../core/ui';
 import {
   FeeTypeActionRequest, FeeTypeComparison, FeeTypeCreateRequest, FeeTypeRevisionInput,
   FeeTypeRevisionView, FeeTypeUsageView, FeeTypeView, FeeTypesApi, LegacyFeeCandidate,
@@ -29,7 +30,7 @@ const blankForm = () => ({ code: '', typeId: null as string | null, typeVersion:
   selector: 'bbc-finance-fee-types',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, RouterLink],
+  imports: [CommonModule, FormsModule, RouterLink, ListPaginationComponent],
   template: `
     <div class="fee-shell fade-in mx-auto max-w-7xl space-y-5">
       <header class="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-start sm:justify-between">
@@ -71,15 +72,15 @@ const blankForm = () => ({ code: '', typeId: null as string | null, typeVersion:
         @if (tab() === 'catalogue') {
           <section class="space-y-4">
             <div class="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:flex-row lg:items-end lg:justify-between">
-              <div><h2 class="text-lg font-extrabold text-ink">{{ fr() ? 'Catalogue réutilisable' : 'Reusable catalogue' }}</h2><p class="text-sm text-slate-500">{{ filteredTypes().length }} {{ fr() ? 'type(s) affiché(s)' : 'type(s) shown' }}</p></div>
+              <div><h2 class="text-lg font-extrabold text-ink">{{ fr() ? 'Catalogue réutilisable' : 'Reusable catalogue' }}</h2><p class="text-sm text-slate-500">{{ matchingTypes().length }} {{ fr() ? 'type(s) affiché(s)' : 'type(s) shown' }}</p></div>
               <div class="grid gap-2 sm:grid-cols-3">
-                <label class="field-label">{{ fr() ? 'Rechercher' : 'Search' }}<input class="field min-w-52" [ngModel]="query()" (ngModelChange)="query.set($event)" placeholder="TUITION, transport..." aria-label="Search fee types"></label>
-                <label class="field-label">{{ fr() ? 'Cycle de vie' : 'Lifecycle' }}<select class="field" [ngModel]="lifecycleFilter()" (ngModelChange)="lifecycleFilter.set($event)"><option value="">{{ fr() ? 'Tous' : 'All' }}</option><option value="DRAFT">{{ fr() ? 'Brouillon' : 'Draft' }}</option><option value="ACTIVE">{{ fr() ? 'Actif' : 'Active' }}</option><option value="INACTIVE">{{ fr() ? 'Inactif' : 'Inactive' }}</option></select></label>
-                <label class="field-label">{{ fr() ? 'Catégorie' : 'Category' }}<select class="field" [ngModel]="categoryFilter()" (ngModelChange)="categoryFilter.set($event)"><option value="">{{ fr() ? 'Toutes' : 'All' }}</option>@for (category of categories; track category) {<option [value]="category">{{ category }}</option>}</select></label>
+                <label class="field-label">{{ fr() ? 'Rechercher' : 'Search' }}<input class="field min-w-52" [ngModel]="query()" (ngModelChange)="setQuery($event)" placeholder="TUITION, transport..." aria-label="Search fee types"></label>
+                <label class="field-label">{{ fr() ? 'Cycle de vie' : 'Lifecycle' }}<select class="field" [ngModel]="lifecycleFilter()" (ngModelChange)="setLifecycleFilter($event)"><option value="">{{ fr() ? 'Tous' : 'All' }}</option><option value="DRAFT">{{ fr() ? 'Brouillon' : 'Draft' }}</option><option value="ACTIVE">{{ fr() ? 'Actif' : 'Active' }}</option><option value="INACTIVE">{{ fr() ? 'Inactif' : 'Inactive' }}</option></select></label>
+                <label class="field-label">{{ fr() ? 'Catégorie' : 'Category' }}<select class="field" [ngModel]="categoryFilter()" (ngModelChange)="setCategoryFilter($event)"><option value="">{{ fr() ? 'Toutes' : 'All' }}</option>@for (category of categories; track category) {<option [value]="category">{{ category }}</option>}</select></label>
               </div>
             </div>
 
-            @if (!filteredTypes().length) {
+            @if (!matchingTypes().length) {
               <div class="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center shadow-sm">
                 <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-50 text-2xl text-brand-700">₣</div>
                 <h2 class="mt-4 text-lg font-extrabold text-ink">{{ query() || lifecycleFilter() || categoryFilter() ? (fr() ? 'Aucun résultat' : 'No matching fee types') : (fr() ? 'Votre catalogue est vide' : 'Your catalogue is empty') }}</h2>
@@ -91,6 +92,8 @@ const blankForm = () => ({ code: '', typeId: null as string | null, typeVersion:
                 <table class="w-full min-w-[1180px] text-sm"><thead class="bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500"><tr><th class="px-4 py-3">{{ fr() ? 'Code / nom' : 'Code / name' }}</th><th class="px-4 py-3">{{ fr() ? 'Catégorie' : 'Category' }}</th><th class="px-4 py-3 text-right">{{ fr() ? 'Montant par défaut' : 'Default amount' }}</th><th class="px-4 py-3">{{ fr() ? 'Règles' : 'Rules' }}</th><th class="px-4 py-3">{{ fr() ? 'Comptes' : 'Accounts' }}</th><th class="px-4 py-3">{{ fr() ? 'Cycle / effet' : 'Lifecycle / effective' }}</th><th class="px-4 py-3 text-right">{{ fr() ? 'Usage' : 'Usage' }}</th><th class="px-4 py-3 text-right">{{ fr() ? 'Action' : 'Action' }}</th></tr></thead><tbody>@for (item of filteredTypes(); track item.id) {<tr class="border-t border-slate-100 align-top hover:bg-slate-50"><td class="px-4 py-4"><div class="font-mono text-xs font-extrabold text-brand-700">{{ item.code }}</div><div class="mt-1 font-bold text-ink">{{ name(item) }}</div><div class="text-xs text-slate-500">{{ otherName(item) }} · Rev {{ item.currentRevisionNo ?? '—' }}</div></td><td class="px-4 py-4"><span class="rounded-full bg-slate-100 px-2 py-1 text-xs font-bold">{{ current(item)?.category || '—' }}</span></td><td class="px-4 py-4 text-right font-extrabold">{{ money(current(item)?.defaultAmountMinor ?? 0, current(item)?.defaultCurrency ?? 'XAF') }}</td><td class="px-4 py-4 text-xs text-slate-600"><div>{{ current(item)?.mandatory ? (fr() ? 'Obligatoire' : 'Mandatory') : (fr() ? 'Optionnel' : 'Optional') }}</div><div>{{ current(item)?.refundable ? (fr() ? 'Remboursable' : 'Refundable') : '' }}{{ current(item)?.taxable ? ' · TAX' : '' }}</div></td><td class="px-4 py-4 text-xs"><div>{{ accountLabel(current(item)?.receivableAccount) }}</div><div>{{ accountLabel(current(item)?.revenueAccount) }}</div></td><td class="px-4 py-4"><span class="rounded-full px-2 py-1 text-xs font-extrabold" [class]="lifecycleClass(item.lifecycle)">{{ lifecycleLabel(item.lifecycle) }}</span><div class="mt-2 text-xs text-slate-500">{{ effectiveLabel(item) }}</div></td><td class="px-4 py-4 text-right font-bold">{{ item.usageCount }}</td><td class="px-4 py-4 text-right"><div class="flex min-w-28 flex-col items-end gap-1"><button type="button" class="text-xs font-extrabold text-brand-700 underline" (click)="openEdit(item)">{{ item.lifecycle === 'ACTIVE' ? (fr() ? 'Nouvelle révision' : 'New revision') : (fr() ? 'Modifier' : 'Edit') }}</button>@if (item.lifecycle === 'DRAFT') {<button type="button" class="text-xs font-extrabold text-emerald-700 underline" [disabled]="!canManage()" (click)="openActivate(item)">{{ fr() ? 'Activer' : 'Activate' }}</button>} @if (item.lifecycle === 'ACTIVE') {<button type="button" class="text-xs font-extrabold text-rose-700 underline" [disabled]="!canManage()" (click)="openDeactivate(item)">{{ fr() ? 'Désactiver' : 'Deactivate' }}</button>} @if (item.revisions.length > 1) {<button type="button" class="text-xs font-extrabold text-slate-600 underline" (click)="openCompare(item)">{{ fr() ? 'Comparer' : 'Compare' }}</button>}</div></td></tr>}</tbody></table>
               </div>
               <div class="grid gap-3 md:hidden">@for (item of filteredTypes(); track item.id) {<article class="fee-card rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div class="flex items-start justify-between gap-3"><div><div class="font-mono text-xs font-extrabold text-brand-700">{{ item.code }}</div><h3 class="mt-1 font-extrabold text-ink">{{ name(item) }}</h3><p class="text-xs text-slate-500">{{ otherName(item) }} · Rev {{ item.currentRevisionNo ?? '—' }}</p></div><span class="rounded-full px-2 py-1 text-xs font-extrabold" [class]="lifecycleClass(item.lifecycle)">{{ lifecycleLabel(item.lifecycle) }}</span></div><div class="mt-4 grid grid-cols-2 gap-3 text-sm"><div class="detail-field"><div class="text-[10px] font-bold uppercase text-slate-500">{{ fr() ? 'Montant' : 'Amount' }}</div><div class="mt-1 font-extrabold">{{ money(current(item)?.defaultAmountMinor ?? 0, current(item)?.defaultCurrency ?? 'XAF') }}</div></div><div class="detail-field"><div class="text-[10px] font-bold uppercase text-slate-500">{{ fr() ? 'Usage' : 'Usage' }}</div><div class="mt-1 font-extrabold">{{ item.usageCount }}</div></div></div><div class="mt-3 text-xs text-slate-600">{{ accountLabel(current(item)?.receivableAccount) }} · {{ accountLabel(current(item)?.revenueAccount) }}</div><div class="mt-4 flex flex-wrap gap-2"><button type="button" class="btn-secondary" (click)="openEdit(item)">{{ item.lifecycle === 'ACTIVE' ? (fr() ? 'Nouvelle révision' : 'New revision') : (fr() ? 'Modifier' : 'Edit') }}</button>@if (item.lifecycle === 'DRAFT') {<button type="button" class="btn-primary" [disabled]="!canManage()" (click)="openActivate(item)">{{ fr() ? 'Activer' : 'Activate' }}</button>} @if (item.lifecycle === 'ACTIVE') {<button type="button" class="btn-secondary" [disabled]="!canManage()" (click)="openDeactivate(item)">{{ fr() ? 'Désactiver' : 'Deactivate' }}</button>} </div></article>}</div>
+              <bbc-list-pagination [total]="matchingTypes().length" [page]="cataloguePage()" [pageSize]="cataloguePageSize()"
+                [language]="fr() ? 'fr' : 'en'" (pageChange)="cataloguePage.set($event)" (pageSizeChange)="setCataloguePageSize($event)" />
             }
           </section>
         } @else {
@@ -157,6 +160,8 @@ export class FinanceFeeTypesComponent {
   protected query = signal('');
   protected lifecycleFilter = signal('');
   protected categoryFilter = signal('');
+  protected cataloguePage = signal(1);
+  protected cataloguePageSize = signal(25);
   protected feeTypes = signal<FeeTypeView[]>([]);
   protected accounts = signal<AccountView[]>([]);
   protected legacyPreview = signal<LegacyPreviewView | null>(null);
@@ -174,7 +179,7 @@ export class FinanceFeeTypesComponent {
 
   protected canManage(): boolean { return this.auth.can('finance', 'write'); }
   protected setTab(tab: FeeTab): void { this.tab.set(tab); this.error.set(null); this.success.set(null); if (tab === 'legacy' && !this.legacyPreview()) this.loadLegacy(); }
-  protected filteredTypes(): FeeTypeView[] {
+  protected matchingTypes(): FeeTypeView[] {
     const q = this.query().trim().toLowerCase();
     const lifecycle = this.lifecycleFilter();
     const category = this.categoryFilter();
@@ -182,6 +187,11 @@ export class FinanceFeeTypesComponent {
       && (!category || this.current(item)?.category === category)
       && (!q || item.code.toLowerCase().includes(q) || this.name(item).toLowerCase().includes(q) || this.otherName(item).toLowerCase().includes(q)));
   }
+  protected filteredTypes(): FeeTypeView[] { return paginateRows(this.matchingTypes(), this.cataloguePage(), this.cataloguePageSize()); }
+  protected setQuery(value: string): void { this.query.set(value); this.cataloguePage.set(1); }
+  protected setLifecycleFilter(value: string): void { this.lifecycleFilter.set(value || ''); this.cataloguePage.set(1); }
+  protected setCategoryFilter(value: string): void { this.categoryFilter.set(value || ''); this.cataloguePage.set(1); }
+  protected setCataloguePageSize(value: number): void { this.cataloguePageSize.set(value); this.cataloguePage.set(1); }
   protected current(item: FeeTypeView | null): FeeTypeRevisionView | null { return item?.currentRevision ?? null; }
   protected name(item: FeeTypeView): string { return item.currentRevision?.nameFr || item.currentRevision?.nameEn || item.code; }
   protected otherName(item: FeeTypeView): string { return item.currentRevision?.nameEn || item.currentRevision?.nameFr || item.code; }
@@ -195,7 +205,7 @@ export class FinanceFeeTypesComponent {
   protected reload(): void {
     this.loading.set(true); this.error.set(null);
     forkJoin({ feeTypes: this.feeApi.list(), accounts: this.accountingApi.accounts(), legacy: this.feeApi.legacyPreview() }).subscribe({
-      next: (value) => { this.feeTypes.set(value.feeTypes); this.accounts.set(value.accounts); this.setLegacyPreview(value.legacy); this.loading.set(false); },
+      next: (value) => { this.feeTypes.set(value.feeTypes); this.cataloguePage.set(1); this.accounts.set(value.accounts); this.setLegacyPreview(value.legacy); this.loading.set(false); },
       error: (err) => { this.loading.set(false); this.applyError(err, false); },
     });
   }

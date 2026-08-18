@@ -14,7 +14,7 @@ import { downloadCsv, stampedName } from '../../core/csv';
 import {
   IconComponent, CardComponent, KpiComponent, PageHeaderComponent, EmptyComponent,
   StatusPillComponent, TabsComponent, ChipFilterComponent, AreaChartComponent, Pt,
-  ConfirmComponent,
+  ConfirmComponent, ListPaginationComponent, paginateRows,
 } from '../../core/ui';
 
 const fmtMoney = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} FCFA`;
@@ -28,7 +28,7 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
   imports: [
     FormsModule, IconComponent, CardComponent, KpiComponent, PageHeaderComponent,
     EmptyComponent, StatusPillComponent, TabsComponent, ChipFilterComponent, AreaChartComponent,
-    ConfirmComponent,
+    ConfirmComponent, ListPaginationComponent,
   ],
   template: `
     <div class="fade-in max-w-6xl mx-auto">
@@ -88,10 +88,37 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
             [subtitle]="filtered().length + (fr() ? ' reçus' : ' receipts')">
             <div action>
               <bbc-chip-filter [allLabel]="fr() ? 'Tout' : 'All'" [value]="methodFilter()"
-                (change)="methodFilter.set($event)" [options]="methodOptions()" />
+                (change)="setPaymentMethod($event)" [options]="methodOptions()" />
+            </div>
+            <div class="mb-4 grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3 md:grid-cols-[1.5fr_1fr_1fr_auto] md:items-end">
+              <label class="block">
+                <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Recherche' : 'Search' }}</span>
+                <div class="relative">
+                  <span class="absolute left-3 top-1/2 -translate-y-1/2 text-mute"><bbc-icon name="search" [s]="14" /></span>
+                  <input [ngModel]="paymentQuery()" (ngModelChange)="setPaymentQuery($event)"
+                    [placeholder]="fr() ? 'Reçu, élève, matricule, classe ou référence…' : 'Receipt, student, ID, class or reference…'"
+                    class="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm focus:border-brand-400 focus:outline-none" />
+                </div>
+              </label>
+              <label class="block">
+                <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Du' : 'From' }}</span>
+                <input type="date" [ngModel]="paymentFrom()" (ngModelChange)="setPaymentFrom($event)"
+                  class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-brand-400 focus:outline-none" />
+              </label>
+              <label class="block">
+                <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Au' : 'To' }}</span>
+                <input type="date" [ngModel]="paymentTo()" (ngModelChange)="setPaymentTo($event)"
+                  class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-brand-400 focus:outline-none" />
+              </label>
+              <button type="button" (click)="clearPaymentFilters()" [disabled]="!hasPaymentFilters()"
+                class="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-mute hover:text-ink disabled:cursor-not-allowed disabled:opacity-40">
+                {{ fr() ? 'Effacer' : 'Clear' }}
+              </button>
             </div>
             @if (filtered().length === 0) {
-              <bbc-empty icon="receipt" [label]="fr() ? 'Aucun paiement' : 'No payments'" />
+              <bbc-empty icon="receipt" [label]="hasPaymentFilters()
+                ? (fr() ? 'Aucun paiement ne correspond aux filtres' : 'No payment matches these filters')
+                : (fr() ? 'Aucun paiement' : 'No payments')" />
             } @else {
               <div class="overflow-x-auto -mx-5">
                 <table class="w-full text-sm">
@@ -107,7 +134,7 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
                     </tr>
                   </thead>
                   <tbody>
-                    @for (p of filtered(); track p.id) {
+                    @for (p of pagedPayments(); track p.id) {
                       <tr class="border-b border-slate-50 last:border-0 hover:bg-slate-50/50 group">
                         <td class="py-2.5 pl-5 text-xs font-mono text-brand-600 font-semibold">{{ p.receiptNo }}</td>
                         <td class="py-2.5">
@@ -141,6 +168,11 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
                     }
                   </tbody>
                 </table>
+              </div>
+              <div class="-mx-5 -mb-5">
+                <bbc-list-pagination [total]="filtered().length" [page]="paymentPage()" [pageSize]="paymentPageSize()"
+                  [language]="fr() ? 'fr' : 'en'" (pageChange)="paymentPage.set($event)"
+                  (pageSizeChange)="setPaymentPageSize($event)" />
               </div>
             }
           </bbc-card>
@@ -188,7 +220,7 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
             <div class="mb-4 grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3 md:grid-cols-[1fr_1fr_1.4fr_auto] md:items-end">
               <label class="block">
                 <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Classe' : 'Class' }}</span>
-                <select [ngModel]="debtorClassFilter()" (ngModelChange)="debtorClassFilter.set($event || null)"
+                <select [ngModel]="debtorClassFilter()" (ngModelChange)="setDebtorClass($event)"
                   class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-ink focus:border-brand-400 focus:outline-none">
                   <option value="">{{ fr() ? 'Toutes les classes couvertes' : 'All covered classes' }}</option>
                   @for (name of debtorClassOptions(); track name) { <option [value]="name">{{ name }}</option> }
@@ -196,7 +228,7 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
               </label>
               <label class="block">
                 <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Situation' : 'Status' }}</span>
-                <select [ngModel]="debtorStatusFilter()" (ngModelChange)="debtorStatusFilter.set($event)"
+                <select [ngModel]="debtorStatusFilter()" (ngModelChange)="setDebtorStatus($event)"
                   class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-ink focus:border-brand-400 focus:outline-none">
                   <option value="all">{{ fr() ? 'Tous les soldes' : 'All outstanding' }}</option>
                   <option value="unpaid">{{ fr() ? 'Aucun versement' : 'No payment yet' }} ({{ unpaidCount() }})</option>
@@ -205,8 +237,8 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
               </label>
               <label class="block">
                 <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Élève' : 'Student' }}</span>
-                <input [ngModel]="debtorQuery()" (ngModelChange)="debtorQuery.set($event)" name="debtorQuery"
-                  [placeholder]="fr() ? 'Nom de l’élève…' : 'Student name…'"
+                <input [ngModel]="debtorQuery()" (ngModelChange)="setDebtorQuery($event)" name="debtorQuery"
+                  [placeholder]="fr() ? 'Nom de l’élève ou classe…' : 'Student or class…'"
                   class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-brand-400 focus:outline-none" />
               </label>
               <button (click)="clearDebtorFilters()" [disabled]="!hasDebtorFilters()"
@@ -247,7 +279,7 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
                     </tr>
                   </thead>
                   <tbody>
-                    @for (d of filteredDebtors(); track d.studentId) {
+                    @for (d of pagedDebtors(); track d.studentId) {
                       <tr class="border-b border-slate-50 last:border-0 hover:bg-slate-50/50">
                         <td class="py-2.5 pl-5 font-semibold text-ink">{{ d.studentName }}</td>
                         <td class="py-2.5 text-mute">{{ d.className }}</td>
@@ -278,6 +310,11 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
                     }
                   </tbody>
                 </table>
+              </div>
+              <div class="-mx-5 -mb-5">
+                <bbc-list-pagination [total]="filteredDebtors().length" [page]="debtorPage()" [pageSize]="debtorPageSize()"
+                  [language]="fr() ? 'fr' : 'en'" (pageChange)="debtorPage.set($event)"
+                  (pageSizeChange)="setDebtorPageSize($event)" />
               </div>
             }
           </bbc-card>
@@ -342,7 +379,7 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
             [subtitle]="filteredExpenses().length + (fr() ? ' dépenses' : ' expenses')">
             <div action class="flex items-center gap-2">
               <bbc-chip-filter [allLabel]="fr() ? 'Toutes' : 'All'" [value]="categoryFilter()"
-                (change)="categoryFilter.set($event)" [options]="categoryOptions()" />
+                (change)="setExpenseCategory($event)" [options]="categoryOptions()" />
               <button (click)="exportExpenses()" [disabled]="!filteredExpenses().length"
                 class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed">
                 <bbc-icon name="download" [s]="16" /> {{ fr() ? 'Exporter' : 'Export' }}
@@ -353,6 +390,32 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
                   <bbc-icon name="plus" [s]="16" /> {{ fr() ? 'Nouvelle dépense' : 'New expense' }}
                 </button>
               }
+            </div>
+
+            <div class="mb-4 grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3 md:grid-cols-[1.5fr_1fr_1fr_auto] md:items-end">
+              <label class="block">
+                <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Recherche' : 'Search' }}</span>
+                <div class="relative">
+                  <span class="absolute left-3 top-1/2 -translate-y-1/2 text-mute"><bbc-icon name="search" [s]="14" /></span>
+                  <input [ngModel]="expenseQuery()" (ngModelChange)="setExpenseQuery($event)"
+                    [placeholder]="fr() ? 'Libellé ou catégorie…' : 'Label or category…'"
+                    class="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm focus:border-brand-400 focus:outline-none" />
+                </div>
+              </label>
+              <label class="block">
+                <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Du' : 'From' }}</span>
+                <input type="date" [ngModel]="expenseFrom()" (ngModelChange)="setExpenseFrom($event)"
+                  class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-brand-400 focus:outline-none" />
+              </label>
+              <label class="block">
+                <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Au' : 'To' }}</span>
+                <input type="date" [ngModel]="expenseTo()" (ngModelChange)="setExpenseTo($event)"
+                  class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-brand-400 focus:outline-none" />
+              </label>
+              <button type="button" (click)="clearExpenseFilters()" [disabled]="!hasExpenseFilters()"
+                class="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-mute hover:text-ink disabled:cursor-not-allowed disabled:opacity-40">
+                {{ fr() ? 'Effacer' : 'Clear' }}
+              </button>
             </div>
 
             @if (expensesLoading()) {
@@ -377,7 +440,7 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
                     </tr>
                   </thead>
                   <tbody>
-                    @for (e of filteredExpenses(); track e.id) {
+                    @for (e of pagedExpenses(); track e.id) {
                       <tr class="border-b border-slate-50 last:border-0 hover:bg-slate-50/50 group">
                         <td class="py-2.5 pl-5 text-mute">{{ e.spentOn }}</td>
                         <td class="py-2.5">
@@ -405,6 +468,11 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
                     </tr>
                   </tfoot>
                 </table>
+              </div>
+              <div class="-mx-5 -mb-5">
+                <bbc-list-pagination [total]="filteredExpenses().length" [page]="expensePage()" [pageSize]="expensePageSize()"
+                  [language]="fr() ? 'fr' : 'en'" (pageChange)="expensePage.set($event)"
+                  (pageSizeChange)="setExpensePageSize($event)" />
               </div>
             }
           </bbc-card>
@@ -999,6 +1067,11 @@ export class FinanceComponent {
 
   protected tab = signal<Tab>('payments');
   protected methodFilter = signal<string | null>(null);
+  protected paymentQuery = signal('');
+  protected paymentFrom = signal('');
+  protected paymentTo = signal('');
+  protected paymentPage = signal(1);
+  protected paymentPageSize = signal(25);
   protected paymentOpen = signal(false);
   protected receipt = signal<PaymentView | null>(null);
   protected draft: PaymentRequest = this.blank();
@@ -1028,6 +1101,8 @@ export class FinanceComponent {
   protected debtorQuery = signal('');
   protected debtorClassFilter = signal<string | null>(null);
   protected debtorStatusFilter = signal<'all' | 'unpaid' | 'partial'>('all');
+  protected debtorPage = signal(1);
+  protected debtorPageSize = signal(25);
   protected debtorsLoaded = false;
 
   // --- expenses ------------------------------------------------------------
@@ -1035,6 +1110,11 @@ export class FinanceComponent {
   protected expensesLoading = signal(false);
   protected expensesError = signal(false);
   protected categoryFilter = signal<string | null>(null);
+  protected expenseQuery = signal('');
+  protected expenseFrom = signal('');
+  protected expenseTo = signal('');
+  protected expensePage = signal(1);
+  protected expensePageSize = signal(25);
   protected expenseFormOpen = signal(false);
   protected expenseSaving = signal(false);
   protected expenseError = signal<string | null>(null);
@@ -1079,8 +1159,24 @@ export class FinanceComponent {
 
   protected filtered = computed(() => {
     const m = this.methodFilter();
-    return this.rows().filter((p) => !m || p.method === m);
+    const q = this.paymentQuery().trim().toLowerCase();
+    const from = this.paymentFrom();
+    const to = this.paymentTo();
+    return this.rows().filter((p) => {
+      if (m && p.method !== m) return false;
+      if (from && p.paidOn < from) return false;
+      if (to && p.paidOn > to) return false;
+      if (q) {
+        const haystack = `${p.receiptNo} ${p.studentName ?? ''} ${p.matricule ?? ''} ${p.className ?? ''} ${p.reference ?? ''} ${p.method} ${this.methodLabel(p)}`.toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+      return true;
+    });
   });
+  protected pagedPayments = computed(() => paginateRows(this.filtered(), this.paymentPage(), this.paymentPageSize()));
+  protected hasPaymentFilters = computed(() => !!(
+    this.methodFilter() || this.paymentQuery().trim() || this.paymentFrom() || this.paymentTo()
+  ));
 
   // --- debtor derivations --------------------------------------------------
   protected debtors = computed(() => this.situation().filter((s) => s.balance > 0));
@@ -1091,9 +1187,10 @@ export class FinanceComponent {
     let list = this.debtors();
     if (cls) list = list.filter((d) => d.className === cls);
     if (status !== 'all') list = list.filter((d) => d.status === status);
-    if (q) list = list.filter((d) => (d.studentName ?? '').toLowerCase().includes(q));
+    if (q) list = list.filter((d) => `${d.studentName ?? ''} ${d.className ?? ''}`.toLowerCase().includes(q));
     return list;
   });
+  protected pagedDebtors = computed(() => paginateRows(this.filteredDebtors(), this.debtorPage(), this.debtorPageSize()));
   protected debtorClassOptions = computed(() =>
     [...new Set(this.situation().map((d) => d.className).filter((name): name is string => !!name))]
       .sort((a, b) => a.localeCompare(b, this.fr() ? 'fr' : 'en')),
@@ -1112,8 +1209,21 @@ export class FinanceComponent {
   // --- expense derivations -------------------------------------------------
   protected filteredExpenses = computed(() => {
     const c = this.categoryFilter();
-    return this.expenses().filter((e) => !c || e.category === c);
+    const q = this.expenseQuery().trim().toLowerCase();
+    const from = this.expenseFrom();
+    const to = this.expenseTo();
+    return this.expenses().filter((e) => {
+      if (c && e.category !== c) return false;
+      if (from && e.spentOn < from) return false;
+      if (to && e.spentOn > to) return false;
+      if (q && !`${e.label} ${e.category} ${this.categoryLabel(e.category)}`.toLowerCase().includes(q)) return false;
+      return true;
+    });
   });
+  protected pagedExpenses = computed(() => paginateRows(this.filteredExpenses(), this.expensePage(), this.expensePageSize()));
+  protected hasExpenseFilters = computed(() => !!(
+    this.categoryFilter() || this.expenseQuery().trim() || this.expenseFrom() || this.expenseTo()
+  ));
   protected expenseTotal = computed(() => this.filteredExpenses().reduce((a, e) => a + e.amount, 0));
   protected categoryOptions = computed(() =>
     [...new Set(this.expenses().map((e) => e.category))]
@@ -1183,6 +1293,38 @@ export class FinanceComponent {
     this.debtorClassFilter.set(null);
     this.debtorStatusFilter.set('all');
     this.debtorQuery.set('');
+    this.debtorPage.set(1);
+  }
+
+  protected setPaymentMethod(value: string | null): void { this.methodFilter.set(value); this.paymentPage.set(1); }
+  protected setPaymentQuery(value: string): void { this.paymentQuery.set(value); this.paymentPage.set(1); }
+  protected setPaymentFrom(value: string): void { this.paymentFrom.set(value); this.paymentPage.set(1); }
+  protected setPaymentTo(value: string): void { this.paymentTo.set(value); this.paymentPage.set(1); }
+  protected setPaymentPageSize(value: number): void { this.paymentPageSize.set(value); this.paymentPage.set(1); }
+  protected clearPaymentFilters(): void {
+    this.methodFilter.set(null);
+    this.paymentQuery.set('');
+    this.paymentFrom.set('');
+    this.paymentTo.set('');
+    this.paymentPage.set(1);
+  }
+
+  protected setDebtorClass(value: string | null): void { this.debtorClassFilter.set(value || null); this.debtorPage.set(1); }
+  protected setDebtorStatus(value: 'all' | 'unpaid' | 'partial'): void { this.debtorStatusFilter.set(value); this.debtorPage.set(1); }
+  protected setDebtorQuery(value: string): void { this.debtorQuery.set(value); this.debtorPage.set(1); }
+  protected setDebtorPageSize(value: number): void { this.debtorPageSize.set(value); this.debtorPage.set(1); }
+
+  protected setExpenseCategory(value: string | null): void { this.categoryFilter.set(value); this.expensePage.set(1); }
+  protected setExpenseQuery(value: string): void { this.expenseQuery.set(value); this.expensePage.set(1); }
+  protected setExpenseFrom(value: string): void { this.expenseFrom.set(value); this.expensePage.set(1); }
+  protected setExpenseTo(value: string): void { this.expenseTo.set(value); this.expensePage.set(1); }
+  protected setExpensePageSize(value: number): void { this.expensePageSize.set(value); this.expensePage.set(1); }
+  protected clearExpenseFilters(): void {
+    this.categoryFilter.set(null);
+    this.expenseQuery.set('');
+    this.expenseFrom.set('');
+    this.expenseTo.set('');
+    this.expensePage.set(1);
   }
 
   constructor() {

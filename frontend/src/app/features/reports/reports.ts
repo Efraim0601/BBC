@@ -4,6 +4,7 @@ import { I18nService } from '../../core/i18n.service';
 import {
   IconComponent, CardComponent, KpiComponent, PageHeaderComponent, EmptyComponent,
   DonutComponent, BarChartComponent, AreaChartComponent, Pt, Slice, BarGroup,
+  ListPaginationComponent, paginateRows,
 } from '../../core/ui';
 import {
   ReportApi,
@@ -22,7 +23,7 @@ const PALETTE = ['#1B3A5C', '#D4A843', '#2D5586', '#E2C05A', '#7E9CBA', '#94701D
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     FormsModule, IconComponent, CardComponent, KpiComponent, PageHeaderComponent,
-    EmptyComponent, DonutComponent, BarChartComponent, AreaChartComponent,
+    EmptyComponent, DonutComponent, BarChartComponent, AreaChartComponent, ListPaginationComponent,
   ],
   template: `
     <div class="fade-in max-w-6xl mx-auto">
@@ -137,6 +138,32 @@ const PALETTE = ['#1B3A5C', '#D4A843', '#2D5586', '#E2C05A', '#7E9CBA', '#94701D
               <bbc-area-chart [data]="attTrend()" [h]="180" color="#1B3A5C" stroke="#142C46" />
             </div>
           }
+          <div class="mb-4 grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3 md:grid-cols-[1.5fr_1fr_auto] md:items-end">
+            <label class="block">
+              <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Recherche' : 'Search' }}</span>
+              <div class="relative">
+                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-mute"><bbc-icon name="search" [s]="14" /></span>
+                <input [ngModel]="attendanceQuery()" (ngModelChange)="setAttendanceQuery($event)"
+                  [placeholder]="fr() ? 'Élève ou classe…' : 'Student or class…'"
+                  class="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm focus:border-brand-400 focus:outline-none" />
+              </div>
+            </label>
+            <label class="block">
+              <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Classe' : 'Class' }}</span>
+              <select [ngModel]="attendanceClass()" (ngModelChange)="setAttendanceClass($event)"
+                class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-brand-400 focus:outline-none">
+                <option value="">{{ fr() ? 'Toutes les classes' : 'All classes' }}</option>
+                @for (name of attendanceClasses(); track name) { <option [value]="name">{{ name }}</option> }
+              </select>
+            </label>
+            <button type="button" (click)="clearAttendanceFilters()" [disabled]="!attendanceQuery().trim() && !attendanceClass()"
+              class="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-mute hover:text-ink disabled:cursor-not-allowed disabled:opacity-40">
+              {{ fr() ? 'Effacer' : 'Clear' }}
+            </button>
+          </div>
+          @if (!filteredAttendance().length) {
+            <bbc-empty icon="calendar" [label]="fr() ? 'Aucun élève ne correspond aux filtres' : 'No student matches these filters'" />
+          } @else {
           <div class="overflow-x-auto">
             <table class="w-full text-sm">
               <thead>
@@ -150,7 +177,7 @@ const PALETTE = ['#1B3A5C', '#D4A843', '#2D5586', '#E2C05A', '#7E9CBA', '#94701D
                 </tr>
               </thead>
               <tbody>
-                @for (r of attendance(); track r.studentId) {
+                @for (r of pagedAttendance(); track r.studentId) {
                   <tr class="border-b border-slate-50 last:border-0 hover:bg-slate-50/50">
                     <td class="py-2.5 font-medium text-ink">{{ r.studentName }}</td>
                     <td class="py-2.5 text-mute">{{ r.className }}</td>
@@ -163,6 +190,10 @@ const PALETTE = ['#1B3A5C', '#D4A843', '#2D5586', '#E2C05A', '#7E9CBA', '#94701D
               </tbody>
             </table>
           </div>
+          <bbc-list-pagination class="mt-3 block" [total]="filteredAttendance().length" [page]="attendancePage()"
+            [pageSize]="attendancePageSize()" [language]="fr() ? 'fr' : 'en'"
+            (pageChange)="attendancePage.set($event)" (pageSizeChange)="setAttendancePageSize($event)" />
+          }
         } @else {
           <bbc-empty icon="calendar" [label]="fr() ? 'Aucune donnée de présence' : 'No attendance data'" />
         }
@@ -178,6 +209,10 @@ export class ReportsComponent {
   protected demographics = signal<Demographics | null>(null);
   protected attendance = signal<AttendanceRow[]>([]);
   protected month = signal<string>(this.currentMonth());
+  protected attendanceQuery = signal('');
+  protected attendanceClass = signal('');
+  protected attendancePage = signal(1);
+  protected attendancePageSize = signal(25);
 
   protected fr = () => this.i18n.lang() === 'fr';
   protected money = fmtMoney;
@@ -190,6 +225,7 @@ export class ReportsComponent {
   }
 
   protected loadAttendance(): void {
+    this.attendancePage.set(1);
     this.api.attendanceMonthly(this.month()).subscribe({ next: (rows) => this.attendance.set(rows), error: () => {} });
   }
 
@@ -220,6 +256,20 @@ export class ReportsComponent {
     if (!rows.length) return [];
     return rows.slice(0, 30).map((r) => ({ label: r.className, value: r.rate }));
   });
+
+  protected attendanceClasses = computed(() => [...new Set(this.attendance().map((row) => row.className).filter(Boolean))].sort());
+  protected filteredAttendance = computed(() => {
+    const q = this.attendanceQuery().trim().toLowerCase();
+    const cls = this.attendanceClass();
+    return this.attendance().filter((row) => (!cls || row.className === cls)
+      && (!q || `${row.studentName} ${row.className}`.toLowerCase().includes(q)));
+  });
+  protected pagedAttendance = computed(() => paginateRows(this.filteredAttendance(), this.attendancePage(), this.attendancePageSize()));
+
+  protected setAttendanceQuery(value: string): void { this.attendanceQuery.set(value); this.attendancePage.set(1); }
+  protected setAttendanceClass(value: string): void { this.attendanceClass.set(value || ''); this.attendancePage.set(1); }
+  protected setAttendancePageSize(value: number): void { this.attendancePageSize.set(value); this.attendancePage.set(1); }
+  protected clearAttendanceFilters(): void { this.attendanceQuery.set(''); this.attendanceClass.set(''); this.attendancePage.set(1); }
 
   protected entries(o: Record<string, number>): [string, number][] {
     return Object.entries(o);
