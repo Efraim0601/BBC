@@ -46,6 +46,8 @@ export class TimetableApi {
   conflicts():Observable<TeacherConflict[]>{return this.http.get<TeacherConflict[]>(`${this.base}/conflicts`);}
   saveSlot(body:SlotSaveBody):Observable<{slot:SlotView;conflicts:TeacherConflict[]}>{return this.http.put<any>(`${this.base}/slot`,body);}
   deleteSlot(className:string,dayIdx:number,slotIdx:number):Observable<void>{return this.http.delete<void>(`${this.base}?className=${encodeURIComponent(className)}&dayIdx=${dayIdx}&slotIdx=${slotIdx}`);}
+  publishClass(classId:string,version:number,reason:string):Observable<ClassRef>{return this.http.post<ClassRef>(`${this.base}/classes/${classId}/publish`,{version,reason});}
+  reopenClass(classId:string,version:number,reason:string):Observable<ClassRef>{return this.http.post<ClassRef>(`${this.base}/classes/${classId}/reopen`,{version,reason});}
   mySchedule():Observable<TeacherSchedule>{return this.http.get<TeacherSchedule>(`${this.base}/teachers/me`);}
   teacherSchedule(id:string):Observable<TeacherSchedule>{return this.http.get<TeacherSchedule>(`${this.base}/teachers/${id}`);}
   versions(sessionId:string):Observable<TimetableVersionView[]>{return this.http.get<TimetableVersionView[]>(`${this.base}/versions`,{params:{academicSessionId:sessionId}});}

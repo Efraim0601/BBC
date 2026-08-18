@@ -121,13 +121,15 @@ public class TimetableVersionService {
     public TimetableVersionView publish(UUID id, TimetableVersionActionRequest in) {
         policy.require("TIMETABLE_PUBLISH", schoolContext());
         UUID school = TenantContext.get();
+        UUID sessionId = jdbc.query("SELECT academic_session_id FROM timetable_version WHERE id=? AND school_id=?",
+                rs -> rs.next() ? rs.getObject(1, UUID.class) : null, id, school);
+        if (sessionId == null) throw ApiException.notFound("Version du planning");
+        jdbc.queryForObject("SELECT pg_advisory_xact_lock(hashtext(?))", Object.class,
+                school + ":timetable:" + sessionId);
         Map<String, Object> current = jdbc.queryForMap("SELECT * FROM timetable_version WHERE id=? AND school_id=? FOR UPDATE", id, school);
         assertActionVersion(in.version(), ((Number) current.get("version")).longValue(), "publier");
         if (!"DRAFT".equals(current.get("status"))) throw ApiException.conflict("Seul un brouillon de planning peut être publié");
-        UUID sessionId = (UUID) current.get("academic_session_id");
         LocalDate effectiveDate = localDate(current.get("effective_from"));
-        jdbc.queryForObject("SELECT pg_advisory_xact_lock(hashtext(?))", Object.class,
-                school + ":timetable-version-publish:" + sessionId);
         List<Map<String, Object>> assignmentConflicts = new ArrayList<>();
         Map<UUID, UUID> canonicalHomerooms = new LinkedHashMap<>();
         List<Map<String, Object>> slots = jdbc.queryForList(
@@ -199,6 +201,207 @@ public class TimetableVersionService {
         TimetableVersionView result = versionView(id);
         audit.record("TIMETABLE_VERSION_PUBLISHED", "TimetableVersion", id.toString(), current, result, in.reason());
         return result;
+    }
+
+    /**
+     * Publish one class without forcing every other draft class in the session
+     * to be complete.  The published version remains a full immutable snapshot
+     * of every class that was already published plus the class being published.
+     * A successor draft is copied before the snapshot is frozen so unfinished
+     * classes (and future reopen operations) keep their editable work.
+     */
+    @Transactional
+    public TimetableVersionView publishClass(UUID sessionId, UUID classId, long classConfigVersion, String reason) {
+        if (reason == null || reason.isBlank()) throw ApiException.badRequest("Le motif de publication est obligatoire.");
+        UUID school = TenantContext.get();
+        requireSession(sessionId);
+        jdbc.queryForObject("SELECT pg_advisory_xact_lock(hashtext(?))", Object.class,
+                school + ":timetable:" + sessionId);
+
+        Map<String, Object> config = jdbc.query("""
+                SELECT c.id,c.status,c.version,sc.name
+                  FROM timetable_class_config c
+                  JOIN school_class sc ON sc.id=c.class_id AND sc.school_id=c.school_id
+                 WHERE c.school_id=? AND c.academic_session_id=? AND c.class_id=?
+                 FOR UPDATE
+                """, rs -> {
+            if (!rs.next()) return null;
+            Map<String, Object> value = new LinkedHashMap<>();
+            value.put("id", rs.getObject("id", UUID.class));
+            value.put("status", rs.getString("status"));
+            value.put("version", rs.getLong("version"));
+            value.put("class_name", rs.getString("name"));
+            return value;
+        }, school, sessionId, classId);
+        if (config == null) throw ApiException.notFound("Configuration du planning de la classe");
+        long currentConfigVersion = ((Number) config.get("version")).longValue();
+        if (currentConfigVersion != classConfigVersion) {
+            throw ApiException.staleVersion("Le planning de cette classe a changé. Rechargez avant de publier.",
+                    currentConfigVersion, classConfigVersion);
+        }
+        if (!"DRAFT".equals(config.get("status"))) {
+            throw ApiException.conflict("Seul le planning brouillon de cette classe peut être publié.");
+        }
+
+        UUID draftId = currentDraftVersion(sessionId);
+        if (draftId == null) throw ApiException.badRequest("Aucune version brouillon ne contient ce planning.");
+        Map<String, Object> current = jdbc.queryForMap(
+                "SELECT * FROM timetable_version WHERE id=? AND school_id=? AND academic_session_id=? FOR UPDATE",
+                draftId, school, sessionId);
+        LocalDate effectiveDate = localDate(current.get("effective_from"));
+        List<Map<String, Object>> slots = jdbc.queryForList("""
+                SELECT id,class_id,subject_code,day_idx,slot_idx
+                  FROM timetable_slot
+                 WHERE school_id=? AND timetable_version_id=? AND class_id=?
+                 ORDER BY day_idx,slot_idx
+                """, school, draftId, classId);
+        if (slots.isEmpty()) throw ApiException.badRequest("Ajoutez au moins un cours avant de publier l'emploi du temps de cette classe.");
+
+        List<Map<String, Object>> assignmentConflicts = new ArrayList<>();
+        UUID canonicalHomeroom = null;
+        for (Map<String, Object> slot : slots) {
+            String subjectCode = (String) slot.get("subject_code");
+            TeachingAssignmentResolver.Resolution resolved = assignments.resolve(sessionId, classId,
+                    subjectCode, effectiveDate);
+            if (!resolved.available()) {
+                Map<String, Object> conflict = new LinkedHashMap<>();
+                conflict.put("resourceType", "ASSIGNMENT");
+                conflict.put("classId", classId);
+                conflict.put("class", config.get("class_name"));
+                conflict.put("subjectCode", Objects.toString(subjectCode, ""));
+                conflict.put("dayIdx", slot.get("day_idx"));
+                conflict.put("slotIdx", slot.get("slot_idx"));
+                conflict.put("code", resolved.code());
+                conflict.put("repair", "Repair the canonical teacher assignment in Academic Setup.");
+                assignmentConflicts.add(conflict);
+                continue;
+            }
+            jdbc.update("""
+                    UPDATE timetable_slot
+                       SET teacher_id=?, assignment_id=?, assignment_version=?
+                     WHERE id=? AND school_id=? AND timetable_version_id=?
+                    """, resolved.teacherId(), resolved.assignmentId(), resolved.assignmentVersion(),
+                    slot.get("id"), school, draftId);
+            if ("HOMEROOM".equals(resolved.source())) canonicalHomeroom = resolved.teacherId();
+        }
+        if (!assignmentConflicts.isEmpty()) {
+            throw ApiException.conflict("TIMETABLE_ASSIGNMENT_BLOCKED",
+                    "Cette classe contient des cours sans enseignant résolu.", assignmentConflicts);
+        }
+
+        // Preserve the complete editable workspace before removing unfinished
+        // classes from the immutable snapshot that is about to be published.
+        UUID successorDraftId = cloneDraftSuccessor(current, draftId, sessionId);
+        jdbc.update("""
+                DELETE FROM timetable_slot s
+                 USING timetable_class_config c
+                 WHERE s.school_id=? AND s.timetable_version_id=?
+                   AND c.school_id=s.school_id AND c.academic_session_id=? AND c.class_id=s.class_id
+                   AND c.status='DRAFT' AND c.class_id<>?
+                """, school, draftId, sessionId, classId);
+
+        if (canonicalHomeroom != null) {
+            jdbc.update("""
+                    UPDATE timetable_class_config
+                       SET homeroom_teacher_id=?,updated_at=now()
+                     WHERE school_id=? AND academic_session_id=? AND class_id=?
+                    """, canonicalHomeroom, school, sessionId, classId);
+        }
+        List<Map<String, Object>> resourceConflicts = resourceBlockers(sessionId, draftId, classId);
+        if (!resourceConflicts.isEmpty()) {
+            throw ApiException.conflict("TIMETABLE_RESOURCES_BLOCKED",
+                    "Cette classe contient des ressources indisponibles ou des salles trop petites.", resourceConflicts);
+        }
+        assertNoVersionConflicts(school, draftId);
+
+        jdbc.update("""
+                UPDATE timetable_version
+                   SET status='ARCHIVED',archive_reason=?,version=version+1,updated_at=now()
+                 WHERE school_id=? AND academic_session_id=? AND status='PUBLISHED'
+                """, "Replaced by version " + current.get("version_no"), school, sessionId);
+        int published = jdbc.update("""
+                UPDATE timetable_version
+                   SET status='PUBLISHED',published_at=now(),published_by=?,version=version+1,updated_at=now()
+                 WHERE id=? AND school_id=? AND status='DRAFT'
+                """, currentUser(), draftId, school);
+        if (published == 0) throw ApiException.conflict("La version du planning a changé. Rechargez avant de publier.");
+        int classPublished = jdbc.update("""
+                UPDATE timetable_class_config
+                   SET status='PUBLISHED',published_at=now(),published_by=?,version=version+1,updated_at=now()
+                 WHERE school_id=? AND academic_session_id=? AND class_id=? AND status='DRAFT' AND version=?
+                """, currentUser(), school, sessionId, classId, classConfigVersion);
+        if (classPublished == 0) throw ApiException.conflict("Le planning de cette classe a changé. Rechargez avant de publier.");
+        jdbc.update("""
+                UPDATE timetable_slot
+                   SET published_teacher_id=teacher_id,
+                       published_assignment_id=assignment_id,
+                       published_assignment_version=assignment_version
+                 WHERE school_id=? AND timetable_version_id=?
+                """, school, draftId);
+        TimetableVersionView result = versionView(draftId);
+        audit.record("TIMETABLE_CLASS_PUBLISHED", "SchoolClass", classId.toString(), config,
+                Map.of("publishedVersionId", draftId, "successorDraftVersionId", successorDraftId), reason.trim());
+        return result;
+    }
+
+    /** Reopen one published class into the already-preserved successor draft. */
+    @Transactional
+    public void reopenClass(UUID sessionId, UUID classId, long classConfigVersion, String reason) {
+        if (reason == null || reason.isBlank()) throw ApiException.badRequest("Le motif de réouverture est obligatoire.");
+        UUID school = TenantContext.get();
+        requireSession(sessionId);
+        jdbc.queryForObject("SELECT pg_advisory_xact_lock(hashtext(?))", Object.class,
+                school + ":timetable:" + sessionId);
+        Map<String, Object> config = jdbc.query("""
+                SELECT id,status,version FROM timetable_class_config
+                 WHERE school_id=? AND academic_session_id=? AND class_id=? FOR UPDATE
+                """, rs -> {
+            if (!rs.next()) return null;
+            Map<String, Object> value = new LinkedHashMap<>();
+            value.put("id", rs.getObject(1, UUID.class));
+            value.put("status", rs.getString(2));
+            value.put("version", rs.getLong(3));
+            return value;
+        }, school, sessionId, classId);
+        if (config == null) throw ApiException.notFound("Configuration du planning de la classe");
+        long currentConfigVersion = ((Number) config.get("version")).longValue();
+        if (currentConfigVersion != classConfigVersion) {
+            throw ApiException.staleVersion("Le planning de cette classe a changé. Rechargez avant de le rouvrir.",
+                    currentConfigVersion, classConfigVersion);
+        }
+        if (!"PUBLISHED".equals(config.get("status"))) {
+            throw ApiException.conflict("Seul un planning publié peut être rouvert.");
+        }
+        UUID draftId = ensureDraftVersion(sessionId);
+        UUID publishedId = jdbc.query("""
+                SELECT v.id FROM timetable_version v
+                 WHERE v.school_id=? AND v.academic_session_id=? AND v.status='PUBLISHED'
+                   AND EXISTS (SELECT 1 FROM timetable_slot s
+                                WHERE s.school_id=v.school_id AND s.timetable_version_id=v.id
+                                  AND s.class_id=?)
+                 ORDER BY v.version_no DESC LIMIT 1
+                """, rs -> rs.next() ? rs.getObject(1, UUID.class) : null, school, sessionId, classId);
+        if (publishedId == null) throw ApiException.conflict("Aucune version publiée ne contient cette classe.");
+        jdbc.update("""
+                INSERT INTO timetable_slot
+                    (id,school_id,class_id,academic_session_id,day_idx,slot_idx,subject_code,teacher_id,room,
+                     assignment_id,assignment_version,timetable_version_id)
+                SELECT gen_random_uuid(),s.school_id,s.class_id,s.academic_session_id,s.day_idx,s.slot_idx,
+                       s.subject_code,coalesce(s.published_teacher_id,s.teacher_id),s.room,
+                       coalesce(s.published_assignment_id,s.assignment_id),
+                       coalesce(s.published_assignment_version,s.assignment_version),?
+                  FROM timetable_slot s
+                 WHERE s.school_id=? AND s.timetable_version_id=? AND s.class_id=?
+                ON CONFLICT (school_id,timetable_version_id,class_id,day_idx,slot_idx) DO NOTHING
+                """, draftId, school, publishedId, classId);
+        int changed = jdbc.update("""
+                UPDATE timetable_class_config
+                   SET status='DRAFT',published_at=NULL,published_by=NULL,version=version+1,updated_at=now()
+                 WHERE school_id=? AND academic_session_id=? AND class_id=? AND status='PUBLISHED' AND version=?
+                """, school, sessionId, classId, classConfigVersion);
+        if (changed == 0) throw ApiException.conflict("Le planning de cette classe a changé. Rechargez avant de le rouvrir.");
+        audit.record("TIMETABLE_CLASS_REOPENED", "SchoolClass", classId.toString(), config,
+                Map.of("draftVersionId", draftId, "publishedVersionId", publishedId), reason.trim());
     }
 
     @Transactional
@@ -732,6 +935,59 @@ public class TimetableVersionService {
         return jdbc.query("SELECT id FROM timetable_version WHERE school_id=? AND academic_session_id=? AND status='DRAFT' ORDER BY version_no DESC LIMIT 1",rs->rs.next()?rs.getObject(1,UUID.class):null,TenantContext.get(),sessionId);
     }
 
+    private UUID cloneDraftSuccessor(Map<String, Object> sourceVersion, UUID sourceId, UUID sessionId) {
+        UUID school = TenantContext.get();
+        Integer nextValue = jdbc.queryForObject("""
+                SELECT coalesce(max(version_no),0)+1
+                  FROM timetable_version
+                 WHERE school_id=? AND academic_session_id=?
+                """, Integer.class, school, sessionId);
+        int next = nextValue == null ? 1 : nextValue;
+        UUID id = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO timetable_version
+                    (id,school_id,academic_session_id,version_no,status,effective_from,effective_to,
+                     timezone,copied_from_version_id)
+                VALUES (?,?,?,?,'DRAFT',?,?,?,?)
+                """, id, school, sessionId, next, localDate(sourceVersion.get("effective_from")),
+                localDate(sourceVersion.get("effective_to")), normalizeTimezone((String) sourceVersion.get("timezone")),
+                sourceId);
+        jdbc.update("""
+                INSERT INTO timetable_slot
+                    (id,school_id,class_id,academic_session_id,day_idx,slot_idx,subject_code,teacher_id,room,
+                     assignment_id,assignment_version,timetable_version_id)
+                SELECT gen_random_uuid(),school_id,class_id,academic_session_id,day_idx,slot_idx,subject_code,
+                       teacher_id,room,assignment_id,assignment_version,?
+                  FROM timetable_slot
+                 WHERE school_id=? AND timetable_version_id=?
+                """, id, school, sourceId);
+        return id;
+    }
+
+    private void assertNoVersionConflicts(UUID school, UUID versionId) {
+        Integer teacherConflicts = jdbc.queryForObject("""
+                SELECT count(*) FROM (
+                    SELECT day_idx,slot_idx,teacher_id FROM timetable_slot
+                     WHERE school_id=? AND timetable_version_id=? AND teacher_id IS NOT NULL
+                     GROUP BY day_idx,slot_idx,teacher_id HAVING count(*)>1
+                ) x
+                """, Integer.class, school, versionId);
+        Integer roomConflicts = jdbc.queryForObject("""
+                SELECT count(*) FROM (
+                    SELECT day_idx,slot_idx,lower(btrim(room)) room FROM timetable_slot
+                     WHERE school_id=? AND timetable_version_id=? AND room IS NOT NULL AND btrim(room)<>''
+                     GROUP BY day_idx,slot_idx,lower(btrim(room)) HAVING count(*)>1
+                ) x
+                """, Integer.class, school, versionId);
+        List<String> blockers = new ArrayList<>();
+        if (teacherConflicts != null && teacherConflicts > 0) blockers.add("TEACHER_DOUBLE_BOOKED");
+        if (roomConflicts != null && roomConflicts > 0) blockers.add("ROOM_DOUBLE_BOOKED");
+        if (!blockers.isEmpty()) {
+            throw ApiException.blockers("TIMETABLE_CONFLICTS",
+                    "Le planning de cette classe entre en conflit avec un planning déjà publié.", blockers);
+        }
+    }
+
     /** Create one new draft from the effective published version when a legacy class editor first writes. */
     @Transactional
     public UUID ensureDraftVersion(UUID sessionId) {
@@ -809,6 +1065,10 @@ public class TimetableVersionService {
     }
 
     private List<Map<String, Object>> resourceBlockers(UUID sessionId, UUID versionId) {
+        return resourceBlockers(sessionId, versionId, null);
+    }
+
+    private List<Map<String, Object>> resourceBlockers(UUID sessionId, UUID versionId, UUID classId) {
         UUID school = TenantContext.get();
         List<Map<String, Object>> result = new ArrayList<>();
         jdbc.query("""
@@ -820,7 +1080,9 @@ public class TimetableVersionService {
                   LEFT JOIN timetable_room_availability a ON a.room_id=r.id AND a.day_idx=s.day_idx AND a.slot_idx=s.slot_idx AND a.available=false
                   LEFT JOIN student_enrollment e ON e.school_id=s.school_id AND e.academic_session_id=?
                    AND e.school_class_id=s.class_id AND e.status='ACTIVE'
-                 WHERE s.school_id=? AND s.timetable_version_id=? AND s.room IS NOT NULL AND btrim(s.room)<>''
+                 WHERE s.school_id=? AND s.timetable_version_id=?
+                   AND (CAST(? AS uuid) IS NULL OR s.class_id=?)
+                   AND s.room IS NOT NULL AND btrim(s.room)<>''
                  GROUP BY s.id,c.id,c.name,s.subject_code,s.day_idx,s.slot_idx,s.room,r.id,r.active,a.id,r.capacity
                 """, rs -> {
             UUID roomId = rs.getObject("id", UUID.class);
@@ -838,7 +1100,7 @@ public class TimetableVersionService {
             blocker.put("code", !roomKnown ? "ROOM_NOT_REGISTERED" : !active ? "ROOM_INACTIVE" : unavailable ? "ROOM_UNAVAILABLE" : "ROOM_CAPACITY_EXCEEDED");
             blocker.put("repair", !roomKnown ? "Register this room/resource before publishing." : capacity != null && students > capacity ? "Choose a larger room." : "Update room availability or choose another room.");
             result.add(blocker);
-        }, sessionId, school, versionId);
+        }, sessionId, school, versionId, classId, classId);
         jdbc.query("""
                 SELECT s.id,c.id AS class_id,c.name,s.subject_code,s.day_idx,s.slot_idx,s.teacher_id,e.name AS teacher_name
                   FROM timetable_slot s
@@ -847,6 +1109,7 @@ public class TimetableVersionService {
                    AND a.day_idx=s.day_idx AND a.slot_idx=s.slot_idx AND a.available=false
                   LEFT JOIN employee e ON e.id=s.teacher_id
                  WHERE s.school_id=? AND s.timetable_version_id=?
+                   AND (CAST(? AS uuid) IS NULL OR s.class_id=?)
                 """, rs -> {
             Map<String, Object> blocker = new LinkedHashMap<>();
             blocker.put("resourceType", "TEACHER"); blocker.put("slotId", rs.getObject("id", UUID.class));
@@ -855,7 +1118,7 @@ public class TimetableVersionService {
             blocker.put("teacher", rs.getString("teacher_name")); blocker.put("dayIdx", rs.getInt("day_idx")); blocker.put("slotIdx", rs.getInt("slot_idx"));
             blocker.put("code", "TEACHER_UNAVAILABLE"); blocker.put("repair", "Choose another period or update teacher availability.");
             result.add(blocker);
-        }, school, versionId);
+        }, school, versionId, classId, classId);
         jdbc.query("""
                 SELECT s.teacher_id,e.name,s.day_idx,w.max_slots_per_day,count(*) AS slot_count
                   FROM timetable_slot s
@@ -916,7 +1179,8 @@ public class TimetableVersionService {
                                         AND q.valid_from<=v.effective_from
                                         AND (q.valid_to IS NULL OR q.valid_to>=v.effective_from)
                                       LIMIT 1) qualified ON true
-                 WHERE s.school_id=? AND s.timetable_version_id=? AND qualified.id IS NULL
+                 WHERE s.school_id=? AND s.timetable_version_id=?
+                   AND (CAST(? AS uuid) IS NULL OR s.class_id=?) AND qualified.id IS NULL
                 """, rs -> {
             Map<String, Object> blocker = new LinkedHashMap<>();
             blocker.put("resourceType", "TEACHER_QUALIFICATION"); blocker.put("slotId", rs.getObject(1, UUID.class));
@@ -925,7 +1189,7 @@ public class TimetableVersionService {
             blocker.put("teacher", rs.getString(6)); blocker.put("qualification", rs.getString(7));
             blocker.put("code", "TEACHER_QUALIFICATION_MISSING"); blocker.put("repair", "Add the qualification to the teacher or assign a qualified responsible teacher.");
             result.add(blocker);
-        }, school, versionId);
+        }, school, versionId, classId, classId);
         return result;
     }
 

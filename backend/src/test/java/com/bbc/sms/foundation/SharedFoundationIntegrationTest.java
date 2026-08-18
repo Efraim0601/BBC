@@ -554,6 +554,85 @@ class SharedFoundationIntegrationTest {
     }
 
     @Test
+    void classTimetablePublicationIgnoresIncompleteClassesAndPreservesTheirDraft() {
+        UUID academicId = UUID.randomUUID();
+        UUID ce1Id = UUID.randomUUID();
+        UUID incompleteClassId = UUID.randomUUID();
+        UUID teacherId = UUID.randomUUID();
+        UUID subjectId = UUID.randomUUID();
+        UUID assignmentId = UUID.randomUUID();
+        UUID versionId = UUID.randomUUID();
+        String sectionId = "p" + schoolId.toString().substring(0, 8);
+        jdbc.update("INSERT INTO section(id,school_id,label,subsystem,level) VALUES (?,?,?,'FR','primary')",
+                sectionId, schoolId, "Primary timetable");
+        jdbc.update("INSERT INTO school_class(id,school_id,section_id,name,subsystem,level) VALUES (?,?,?,'CE1 Publish','FR','primary')",
+                ce1Id, schoolId, sectionId);
+        jdbc.update("INSERT INTO school_class(id,school_id,section_id,name,subsystem,level) VALUES (?,?,?,'Class Without Teacher','FR','primary')",
+                incompleteClassId, schoolId, sectionId);
+        jdbc.update("INSERT INTO academic_session(id,school_id,code,label,start_date,end_date,status,is_current) VALUES (?,?, '2026-2027','2026-2027','2026-09-01','2027-07-31','OPEN',true)",
+                academicId, schoolId);
+        jdbc.update("INSERT INTO employee(id,school_id,code,name,type,active,level) VALUES (?,?,?,'CE1 Homeroom','Permanent',true,'primary')",
+                teacherId, schoolId, "CE1-" + schoolId.toString().substring(0, 8));
+        jdbc.update("INSERT INTO subject(id,school_id,code,label,coef,subsystem) VALUES (?,?,?,'{\"fr\":\"Français\",\"en\":\"French\"}'::jsonb,1,'FR')",
+                subjectId, schoolId, "FR-" + schoolId.toString().substring(0, 6));
+        jdbc.update("INSERT INTO academic_curriculum_subject(id,school_id,academic_session_id,class_id,subject_id) VALUES (?,?,?,?,?)",
+                UUID.randomUUID(), schoolId, academicId, ce1Id, subjectId);
+        jdbc.update("INSERT INTO academic_curriculum_subject(id,school_id,academic_session_id,class_id,subject_id) VALUES (?,?,?,?,?)",
+                UUID.randomUUID(), schoolId, academicId, incompleteClassId, subjectId);
+        jdbc.update("INSERT INTO class_teacher_assignment(id,school_id,academic_session_id,class_id,employee_id,role,effective_from,status,source) VALUES (?,?,?,?,?,'HOMEROOM','2026-09-01','ACTIVE','ACADEMIC_SETUP')",
+                assignmentId, schoolId, academicId, ce1Id, teacherId);
+        jdbc.update("INSERT INTO timetable_class_config(id,school_id,academic_session_id,class_id,model,status) VALUES (?,?,?,?,'HOMEROOM','DRAFT')",
+                UUID.randomUUID(), schoolId, academicId, ce1Id);
+        jdbc.update("INSERT INTO timetable_class_config(id,school_id,academic_session_id,class_id,model,status) VALUES (?,?,?,?,'HOMEROOM','DRAFT')",
+                UUID.randomUUID(), schoolId, academicId, incompleteClassId);
+        jdbc.update("INSERT INTO timetable_version(id,school_id,academic_session_id,version_no,status,effective_from,effective_to) VALUES (?,?,?,1,'DRAFT','2026-09-01','2027-07-31')",
+                versionId, schoolId, academicId);
+        String subjectCode = jdbc.queryForObject("SELECT code FROM subject WHERE id=?", String.class, subjectId);
+        jdbc.update("INSERT INTO timetable_slot(id,school_id,class_id,academic_session_id,day_idx,slot_idx,subject_code,timetable_version_id) VALUES (?,?,?,?,0,0,?,?)",
+                UUID.randomUUID(), schoolId, ce1Id, academicId, subjectCode, versionId);
+        jdbc.update("INSERT INTO timetable_slot(id,school_id,class_id,academic_session_id,day_idx,slot_idx,subject_code,timetable_version_id) VALUES (?,?,?,?,0,1,?,?)",
+                UUID.randomUUID(), schoolId, incompleteClassId, academicId, subjectCode, versionId);
+
+        var published = timetables.publishClass(academicId, ce1Id, 0L, "Publish CE1 only");
+
+        assertThat(published.id()).isEqualTo(versionId);
+        assertThat(published.status()).isEqualTo("PUBLISHED");
+        assertThat(published.classCount()).isEqualTo(1);
+        assertThat(published.slotCount()).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT status FROM timetable_class_config WHERE class_id=?", String.class, ce1Id)).isEqualTo("PUBLISHED");
+        assertThat(jdbc.queryForObject("SELECT status FROM timetable_class_config WHERE class_id=?", String.class, incompleteClassId)).isEqualTo("DRAFT");
+        UUID successorDraftId = timetables.currentDraftVersion(academicId);
+        assertThat(successorDraftId).isNotNull().isNotEqualTo(versionId);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM timetable_slot WHERE timetable_version_id=?", Integer.class, successorDraftId)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM timetable_slot WHERE timetable_version_id=? AND class_id=?", Integer.class, versionId, incompleteClassId)).isZero();
+        assertThat(timetables.versionForClass(academicId, ce1Id)).isEqualTo(versionId);
+        assertThat(timetables.versionForClass(academicId, incompleteClassId)).isEqualTo(successorDraftId);
+        assertThat(jdbc.queryForObject("SELECT published_teacher_id FROM timetable_slot WHERE timetable_version_id=? AND class_id=?", UUID.class, versionId, ce1Id)).isEqualTo(teacherId);
+
+        timetables.reopenClass(academicId, ce1Id, 1L, "Correct CE1 timetable");
+
+        assertThat(jdbc.queryForObject("SELECT status FROM timetable_class_config WHERE class_id=?", String.class, ce1Id)).isEqualTo("DRAFT");
+        assertThat(timetables.versionForClass(academicId, ce1Id)).isEqualTo(successorDraftId);
+
+        var republished = timetables.publishClass(academicId, ce1Id, 2L,
+                "Republish CE1 while the other class is still incomplete");
+
+        assertThat(republished.id()).isEqualTo(successorDraftId);
+        assertThat(republished.status()).isEqualTo("PUBLISHED");
+        assertThat(republished.classCount()).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT status FROM timetable_version WHERE id=?", String.class, versionId))
+                .isEqualTo("ARCHIVED");
+        UUID nextDraftId = timetables.currentDraftVersion(academicId);
+        assertThat(nextDraftId).isNotNull().isNotEqualTo(successorDraftId);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM timetable_slot WHERE timetable_version_id=? AND class_id=?",
+                Integer.class, nextDraftId, incompleteClassId)).isOne();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM timetable_slot WHERE timetable_version_id=? AND class_id=?",
+                Integer.class, successorDraftId, incompleteClassId)).isZero();
+        assertThat(timetables.versionForClass(academicId, ce1Id)).isEqualTo(successorDraftId);
+        assertThat(timetables.versionForClass(academicId, incompleteClassId)).isEqualTo(nextDraftId);
+    }
+
+    @Test
     void idempotencyReturnsStoredResponseAndRejectsChangedPayload() {
         AtomicInteger calls = new AtomicInteger();
         String first = idempotency.execute("test", "same-key", Map.of("amount", 1), String.class,

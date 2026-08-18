@@ -258,61 +258,22 @@ public class TimetableService {
 
     @Transactional
     public ClassRef publish(UUID classId, PlanActionRequest in) {
-        policy.require("TIMETABLE_PUBLISH", classContext(currentSession().getId(), classId));
-        throw ApiException.coded(org.springframework.http.HttpStatus.GONE, "TIMETABLE_VERSION_REQUIRED",
-                "Publiez une version complète depuis la bannière Version du planning.");
-        /*
-        UUID schoolId=TenantContext.get(); AcademicSession academic=currentSession(); SchoolClass cls=requireClass(schoolId,classId);
-        ClassRef current=toRef(cls,academic.getId());
-        UUID timetableVersionId = versions.ensureDraftVersion(academic.getId());
-        List<TimetableSlot> slots=slotRepo.findBySchoolIdAndAcademicSessionIdAndTimetableVersionIdAndClassId(schoolId,academic.getId(),timetableVersionId,classId);
-        if(slots.isEmpty()) throw ApiException.badRequest("Ajoutez au moins un cours avant de publier l'emploi du temps");
-        if("HOMEROOM".equals(current.model())&&current.homeroomTeacherId()==null)
-            throw ApiException.badRequest("Définissez d'abord l'enseignant titulaire");
-        for (TimetableSlot slot : slots) {
-            if (slot.getSubjectCode()==null || slot.getSubjectCode().isBlank())
-                throw ApiException.badRequest("Each timetable slot must have a subject before publication.");
-            String code=slot.getSubjectCode().trim().toUpperCase(Locale.ROOT);
-            SubjectTeacherView assignment=resolveSubjectTeacher(cls,academic,code);
-            if (assignment.teacherId()==null)
-                throw ApiException.badRequest("Cannot publish "+cls.getName()+": "+assignment.message());
-            SlotUpsert canonical=new SlotUpsert(cls.getName(),slot.getDayIdx(),slot.getSlotIdx(),code,assignment.teacherId(),slot.getRoom());
-            assertNoEffectiveTeacherConflict(schoolId,academic.getId(),timetableVersionId,cls,canonical);
-            slot.setSubjectCode(code);
-            slot.setTeacherId(assignment.teacherId());
-            slot.setAssignmentId(assignment.assignmentId());
-            slot.setAssignmentVersion(assignment.assignmentVersion());
-            slot.setPublishedTeacherId(assignment.teacherId());
-            slot.setPublishedAssignmentId(assignment.assignmentId());
-            slot.setPublishedAssignmentVersion(assignment.assignmentVersion());
-        }
-        slotRepo.flush();
-        if(slots.stream().anyMatch(s->s.getTeacherId()==null||s.getSubjectCode()==null||s.getSubjectCode().isBlank()))
-            throw ApiException.badRequest("Chaque cours doit avoir une matière et un enseignant avant publication");
-        int changed=jdbc.update("""
-          UPDATE timetable_class_config SET status='PUBLISHED',published_at=now(),published_by=?,version=version+1,updated_at=now()
-           WHERE school_id=? AND academic_session_id=? AND class_id=? AND version=? AND status='DRAFT'
-          """,actorId(),schoolId,academic.getId(),classId,in.version());
-        if(changed==0) throw ApiException.conflict("Ce planning a déjà changé ou est déjà publié. Rechargez la page.");
-        audit(classId,"TIMETABLE_PUBLISHED",in.reason()); return toRef(cls,academic.getId());
-        */
+        AcademicSession academic = currentSession();
+        policy.require("TIMETABLE_PUBLISH", classContext(academic.getId(), classId));
+        SchoolClass cls = requireClass(TenantContext.get(), classId);
+        teacherScope.assertClass(classId);
+        versions.publishClass(academic.getId(), classId, in.version(), in.reason());
+        return toRef(cls, academic.getId());
     }
 
     @Transactional
     public ClassRef reopen(UUID classId, PlanActionRequest in) {
-        policy.require("TIMETABLE_REOPEN", classContext(currentSession().getId(), classId));
-        throw ApiException.coded(org.springframework.http.HttpStatus.GONE, "TIMETABLE_VERSION_REQUIRED",
-                "Rouvrez une nouvelle version depuis la bannière Version du planning; l'historique publié reste immuable.");
-        /*
-        if(in.reason()==null||in.reason().isBlank()) throw ApiException.badRequest("Le motif de réouverture est obligatoire");
-        UUID schoolId=TenantContext.get(); AcademicSession academic=currentSession(); SchoolClass cls=requireClass(schoolId,classId);
-        int changed=jdbc.update("""
-          UPDATE timetable_class_config SET status='DRAFT',version=version+1,updated_at=now()
-           WHERE school_id=? AND academic_session_id=? AND class_id=? AND version=? AND status='PUBLISHED'
-          """,schoolId,academic.getId(),classId,in.version());
-        if(changed==0) throw ApiException.conflict("Seul un planning publié et à jour peut être rouvert");
-        audit(classId,"TIMETABLE_REOPENED",in.reason().trim()); return toRef(cls,academic.getId());
-        */
+        AcademicSession academic = currentSession();
+        policy.require("TIMETABLE_REOPEN", classContext(academic.getId(), classId));
+        SchoolClass cls = requireClass(TenantContext.get(), classId);
+        teacherScope.assertClass(classId);
+        versions.reopenClass(academic.getId(), classId, in.version(), in.reason());
+        return toRef(cls, academic.getId());
     }
 
     @Transactional(readOnly=true)
