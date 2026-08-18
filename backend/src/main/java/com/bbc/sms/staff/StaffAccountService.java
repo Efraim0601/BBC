@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.security.SecureRandom;
 import java.text.Normalizer;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -31,6 +32,11 @@ public class StaffAccountService {
     private static final int PW_LENGTH = 10;
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final String DEFAULT_ROLE = "teacher";
+    private static final List<String> ROLE_PRIORITY = List.of(
+            "principal", "accountant", "econome", "prefect", "form_teacher", "teacher");
+    private static final Set<String> GLOBAL_ROLES = Set.of(
+            "administrator", "admin", "school_admin", "prefect", "accountant", "econome",
+            "bursar", "cashier", "finance_officer");
 
     private final AppUserRepository users;
     private final SchoolRepository schools;
@@ -61,14 +67,14 @@ public class StaffAccountService {
             u.setSchoolId(e.getSchoolId());
             u.setEmployeeId(e.getId());
             u.setUsername(uniqueUsername(e));
-            u.setRoleCode(pickRole(e));
         }
         // Keep the account in step with the current record and (re)activate it.
         u.setDisplayName(e.getName());
         u.setInitials(e.getInitials());
+        u.setRoleCode(pickRole(e));
         u.setActive(true);
         u.setPasswordHash(encoder.encode(tempPassword));
-        users.save(u);
+        synchronizeAccess(users.saveAndFlush(u), e);
 
         String username = u.getUsername();
         String email = e.getEmail();
@@ -87,14 +93,64 @@ public class StaffAccountService {
         return new AccountResult(true, username, sent, message);
     }
 
+    /** Keep an existing login aligned after HR changes without rotating its password. */
+    @Transactional
+    public void syncAccount(Employee employee) {
+        AppUser user = users.findByEmployeeId(employee.getId()).orElse(null);
+        if (user == null) return;
+        user.setDisplayName(employee.getName());
+        user.setInitials(employee.getInitials());
+        user.setActive(employee.isActive());
+        synchronizeAccess(users.saveAndFlush(user), employee);
+    }
+
+    private void synchronizeAccess(AppUser user, Employee employee) {
+        String primaryRole = pickRole(employee);
+        user.setRoleCode(primaryRole);
+        users.saveAndFlush(user);
+
+        jdbc.update("DELETE FROM app_user_role WHERE school_id=? AND user_id=? "
+                        + "AND (is_primary=true OR role_code='principal_legacy_compat' OR role_code=?)",
+                user.getSchoolId(), user.getId(), primaryRole);
+        jdbc.update("""
+                INSERT INTO app_user_role(school_id,user_id,role_code,is_primary,reason)
+                VALUES (?,?,?,true,'Synchronized from staff record')
+                """, user.getSchoolId(), user.getId(), primaryRole);
+
+        String mode = scopeMode(primaryRole);
+        jdbc.update("UPDATE app_user SET parcours_scope_mode=? WHERE id=? AND school_id=?",
+                mode, user.getId(), user.getSchoolId());
+        jdbc.update("DELETE FROM app_user_parcours WHERE user_id=?", user.getId());
+        if ("EXPLICIT".equals(mode)) {
+            Set<String> levels = employee.getManagementLevels() == null
+                    ? Set.of() : employee.getManagementLevels();
+            for (String level : levels) {
+                for (String subsystem : List.of("FR", "EN")) {
+                    jdbc.update("""
+                            INSERT INTO app_user_parcours(user_id,level,subsystem)
+                            VALUES (?,?,?) ON CONFLICT DO NOTHING
+                            """, user.getId(), level, subsystem);
+                }
+            }
+        }
+    }
+
+    private String scopeMode(String role) {
+        if ("principal".equals(role)) return "EXPLICIT";
+        if (GLOBAL_ROLES.contains(role)) return "GLOBAL";
+        if (Set.of("teacher", "form_teacher").contains(role)) return "ASSIGNMENT_DERIVED";
+        return "NONE";
+    }
+
     /** Primary role of the employee, restricted to a role that actually exists. */
     private String pickRole(Employee e) {
         Set<String> roles = e.getRoles();
         if (roles != null && !roles.isEmpty()) {
             Set<String> valid = new HashSet<>(jdbc.queryForList("SELECT code FROM role", String.class));
-            for (String r : roles) {
-                if (r != null && valid.contains(r)) return r;
+            for (String preferred : ROLE_PRIORITY) {
+                if (roles.contains(preferred) && valid.contains(preferred)) return preferred;
             }
+            return roles.stream().filter(valid::contains).sorted().findFirst().orElse(DEFAULT_ROLE);
         }
         return DEFAULT_ROLE;
     }

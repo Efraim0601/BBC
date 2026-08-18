@@ -204,6 +204,7 @@ public class StaffApplicationService {
                 a.getPhone() == null ? "" : a.getPhone(),
                 in.formClass() != null ? in.formClass() : a.getFormClass(),
                 in.section(),
+                in.managementLevels(),
                 in.departmentId(),
                 in.monthlySalary(),
                 in.hourlyRate(),

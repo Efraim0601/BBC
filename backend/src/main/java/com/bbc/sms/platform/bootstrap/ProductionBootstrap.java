@@ -19,9 +19,9 @@ import java.time.LocalDate;
  * <p>When the {@code app_user} table is empty (fresh production schema) and an
  * admin password is supplied via configuration, this creates exactly one
  * tenant (school + current academic year), the reference roles, a sensible
- * default permission matrix, and a single administrator account with the
- * {@code principal} role (full write on every module — including Settings, so
- * the admin can configure everything else from the UI).
+ * default permission matrix, and a single school-wide account with the
+ * {@code administrator} role. Operational principals are separate accounts
+ * whose Nursery/Primary/Secondary access is assigned explicitly.
  *
  * <p>It is a no-op when the database already contains users (demo profile, or
  * any subsequent start), so it is safe to leave enabled in all profiles.
@@ -110,6 +110,7 @@ public class ProductionBootstrap implements ApplicationRunner {
 
         // Reference roles (idempotent — they may already exist globally).
         insertRole("principal", "Principal", "Principal");
+        insertRole("administrator", "Administrateur", "Administrator");
         insertRole("prefect", "Préfet d'études", "Dean of studies");
         insertRole("econome", "Économe", "Bursar");
         insertRole("form_teacher", "Prof. Principal", "Form Teacher");
@@ -121,6 +122,7 @@ public class ProductionBootstrap implements ApplicationRunner {
         grants(schoolId, "principal", "read", "dashboard", "presence", "students", "hr", "academic",
             "finance", "timetable", "events", "discipline", "reports", "settings", "journey",
             "alerts", "messages", "coursebook", "health", "documents", "classkit");
+        grants(schoolId, "administrator", "write", MODULES);
         grants(schoolId, "prefect", "write", "presence", "timetable", "events", "discipline", "journey", "alerts", "messages", "documents");
         grants(schoolId, "prefect", "read", "dashboard", "students", "academic", "reports", "coursebook", "health", "classkit");
         grants(schoolId, "econome", "write", "finance");
@@ -142,7 +144,7 @@ public class ProductionBootstrap implements ApplicationRunner {
             INSERT INTO app_user
                 (school_id, username, password_hash, display_name, initials, role_code,
                  parcours_scope_mode)
-            VALUES (?,?,?,?,?,'principal','GLOBAL')
+            VALUES (?,?,?,?,?,'administrator','GLOBAL')
             RETURNING id
             """, UUID.class, schoolId, adminUsername, encoder.encode(adminPassword),
             adminName, initialsOf(adminName));
@@ -163,7 +165,7 @@ public class ProductionBootstrap implements ApplicationRunner {
     private void seedPermissionPolicyV2(UUID schoolId, UUID adminUserId) {
         jdbc.update("""
             INSERT INTO app_user_role(school_id,user_id,role_code,is_primary,assigned_by,reason)
-            VALUES (?,?, 'principal',true,?, 'Fresh-school policy bootstrap')
+            VALUES (?,?, 'administrator',true,?, 'Fresh-school policy bootstrap')
             ON CONFLICT DO NOTHING
             """, schoolId, adminUserId, adminUserId);
         jdbc.update("""
@@ -198,6 +200,16 @@ public class ProductionBootstrap implements ApplicationRunner {
                 ON CONFLICT DO NOTHING
                 """, schoolId, mapping[0], mapping[1]);
         }
+        jdbc.update("""
+            INSERT INTO permission_role_action
+                (school_id,role_code,action_code,effect,scope_mode,is_permanent,reason)
+            SELECT ?,'administrator',code,'ALLOW',
+                   CASE WHEN upper(scope_type)='NONE' THEN 'NONE' ELSE 'SCHOOL_ALL' END,
+                   true,'Built-in administrator authority'
+              FROM permission_action
+             WHERE active=true
+            ON CONFLICT DO NOTHING
+            """, schoolId);
         jdbc.update("""
             INSERT INTO permission_user_action
                 (school_id,user_id,action_code,effect,scope_mode,is_permanent,reason)

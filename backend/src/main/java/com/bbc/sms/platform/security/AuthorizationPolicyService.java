@@ -31,6 +31,9 @@ import java.util.UUID;
  */
 @Service("policy")
 public class AuthorizationPolicyService {
+    private static final Set<String> ADMINISTRATOR_ONLY_ACTIONS = Set.of(
+            "PERMISSION_VIEW", "PERMISSION_MANAGE", "ROLE_MANAGE");
+
     record Action(String code, String module, String scopeType, String requiredLevel) {}
 
     record Rule(String source, String effect, String scopeMode, String scopePayload,
@@ -95,6 +98,20 @@ public class AuthorizationPolicyService {
                     "Ce compte est désactivé.", "This account is disabled.", version, null);
         }
         List<String> activeRoles = activeRoles(principal, tenant, effectiveDate(context));
+        if (ADMINISTRATOR_ONLY_ACTIONS.contains(action.code()) && !isAdministrator(activeRoles)) {
+            return deny(actionCode, "ADMINISTRATOR_ROLE_REQUIRED",
+                    "Le contrôle des accès est réservé à l’administrateur.",
+                    "Access Control is reserved for the administrator.", version,
+                    "Connectez-vous avec le compte administrateur de l’établissement.");
+        }
+        ParcoursContext.Scope requestedParcours = context.parcours() != null
+                ? context.parcours() : ParcoursContext.get();
+        if (requestedParcours != null && !parcours.isAllowed(principal.userId(), requestedParcours)) {
+            return deny(actionCode, "PARCOURS_SCOPE_MISMATCH",
+                    "Ce parcours ne fait pas partie des niveaux attribués à ce compte.",
+                    "This parcours is outside the levels assigned to this account.", version,
+                    "Choisissez un parcours autorisé ou demandez à l’administrateur de modifier l’affectation.");
+        }
         boolean parent = isParent(principal, activeRoles, tenant);
         boolean parentOnly = isParentOnly(principal, activeRoles, tenant);
         if ("SELF".equalsIgnoreCase(action.scopeType())) {
@@ -578,6 +595,11 @@ public class AuthorizationPolicyService {
     static boolean isTeacher(List<String> roles) {
         return roles.stream().map(AuthorizationPolicyService::normalizeRole)
                 .anyMatch(role -> role.equals("teacher") || role.equals("form_teacher"));
+    }
+
+    static boolean isAdministrator(List<String> roles) {
+        return roles.stream().map(AuthorizationPolicyService::normalizeRole)
+                .anyMatch(role -> Set.of("administrator", "admin", "school_admin").contains(role));
     }
 
     private static String normalizeRole(String role) {

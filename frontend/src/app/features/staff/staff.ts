@@ -761,6 +761,28 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                       }
                     </div>
                   </div>
+                  @if (finalizeRoles().includes('principal')) {
+                    <div class="p-3 rounded-lg border"
+                      [class]="finalizeScopeAttempted() && !finalizeManagementLevels().size ? 'border-red-300 bg-red-50' : 'border-brand-200 bg-brand-50/40'">
+                      <div class="text-xs font-semibold">
+                        {{ fr() ? 'Cycles dirigés' : 'Managed levels' }} <span class="text-red-600">*</span>
+                      </div>
+                      <div class="flex flex-wrap gap-1.5 mt-2">
+                        @for (level of managementLevelOptions(); track level.value) {
+                          <button type="button" (click)="toggleFinalizeManagementLevel(level.value)"
+                            class="px-2.5 py-1.5 text-xs font-semibold rounded-lg border"
+                            [class]="finalizeManagementLevels().has(level.value) ? 'border-brand-600 bg-brand-600 text-white' : 'border-slate-200 bg-white text-mute'">
+                            {{ level.label }}
+                          </button>
+                        }
+                      </div>
+                      @if (finalizeScopeAttempted() && !finalizeManagementLevels().size) {
+                        <div class="text-[11px] font-semibold text-red-700 mt-2">
+                          {{ fr() ? 'Sélectionnez au moins un cycle.' : 'Select at least one level.' }}
+                        </div>
+                      }
+                    </div>
+                  }
                   <label class="flex items-start gap-2 cursor-pointer" [class.opacity-50]="!fa.email">
                     <input type="checkbox" [ngModel]="finalizeCreateLogin()" (ngModelChange)="finalizeCreateLogin.set($event)"
                       [disabled]="!fa.email" class="mt-0.5 w-4 h-4 rounded border-slate-300 text-brand-600" />
@@ -1010,6 +1032,34 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                   {{ fr() ? 'Aucun rôle chargé — créez des rôles dans Paramètres → Rôles.' : 'No roles loaded — create roles in Settings → Roles.' }}
                 </div>
               }
+              @if (principalRole()) {
+                <div class="mt-4 p-4 rounded-xl border"
+                  [class]="principalScopeAttempted() && !draftManagementLevels().size ? 'border-red-300 bg-red-50/60' : 'border-brand-200 bg-brand-50/40'">
+                  <div class="text-xs font-semibold text-ink">
+                    {{ fr() ? 'Cycles dirigés' : 'Managed levels' }} <span class="text-red-600">*</span>
+                  </div>
+                  <div class="text-[11px] text-mute mt-1">
+                    {{ fr()
+                      ? 'Le principal ne pourra ouvrir que les cycles sélectionnés, dans les sous-systèmes francophone et anglophone.'
+                      : 'The principal will only be able to open the selected levels, in both the Francophone and Anglophone subsystems.' }}
+                  </div>
+                  <div class="flex flex-wrap gap-2 mt-3">
+                    @for (level of managementLevelOptions(); track level.value) {
+                      <button type="button" (click)="toggleManagementLevel(level.value)"
+                        class="h-9 px-3 text-xs font-semibold rounded-lg border transition"
+                        [class]="draftManagementLevels().has(level.value) ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-ink border-slate-200 hover:border-brand-300'">
+                        @if (draftManagementLevels().has(level.value)) { <bbc-icon name="check" [s]="12" /> }
+                        {{ level.label }}
+                      </button>
+                    }
+                  </div>
+                  @if (principalScopeAttempted() && !draftManagementLevels().size) {
+                    <div class="text-[11px] font-semibold text-red-700 mt-2">
+                      {{ fr() ? 'Sélectionnez au moins un cycle.' : 'Select at least one level.' }}
+                    </div>
+                  }
+                </div>
+              }
               @if (teachingRole()) {
                 <label class="block mt-3 max-w-xs">
                   <span class="text-xs font-semibold text-ink">{{ fr() ? 'Section (cycle)' : 'Section (cycle)' }} *</span>
@@ -1173,6 +1223,8 @@ export class StaffComponent {
   protected finalizeApp = signal<StaffApplicationView | null>(null);
   protected finalizeDraft: StaffApplicationFinalize = { type: 'Permanent', departmentId: null, monthlySalary: 350000, hourlyRate: 0, formClass: '', createLogin: false };
   protected finalizeRoles = signal<string[]>(['teacher']);
+  protected finalizeManagementLevels = signal<Set<string>>(new Set());
+  protected finalizeScopeAttempted = signal(false);
   protected finalizeCreateLogin = signal(false);
   protected finalizing = signal(false);
 
@@ -1209,6 +1261,8 @@ export class StaffComponent {
   protected get canWrite(): boolean { return this.auth.canAction('HR_MANAGE'); }
   protected draft: EmployeeUpsert = this.blank();
   protected draftRoles = signal<string[]>([]);
+  protected draftManagementLevels = signal<Set<string>>(new Set());
+  protected principalScopeAttempted = signal(false);
   /** Photo saisie au formulaire (data URL), envoyée après l'enregistrement. */
   protected photoDraft = signal<string | null>(null);
   private photoWasSet = false;
@@ -1226,6 +1280,12 @@ export class StaffComponent {
   /** Les rôles cloisonnés par section : eux seuls portent un cycle de rattachement. */
   protected teachingRole = computed(() =>
     this.draftRoles().some((r) => r === 'teacher' || r === 'form_teacher'));
+  protected principalRole = computed(() => this.draftRoles().includes('principal'));
+  protected managementLevelOptions = computed(() => [
+    { value: 'maternelle', label: this.fr() ? 'Maternelle' : 'Nursery' },
+    { value: 'primary', label: this.fr() ? 'Primaire' : 'Primary' },
+    { value: 'secondary', label: this.fr() ? 'Secondaire' : 'Secondary' },
+  ]);
   protected createLogin = signal(true);
   protected accountMsg = signal<{ text: string; ok: boolean } | null>(null);
   protected resetting = signal(false);
@@ -1266,10 +1326,10 @@ export class StaffComponent {
     { value: 'other', label: this.fr() ? 'Autre' : 'Other' },
   ]);
 
-  /** Staff-assignable roles from the DB catalogue (excludes parent portal role). */
+  /** Staff-assignable roles; the technical administrator account is never assigned here. */
   protected roleCatalog = computed(() =>
     this.roleDefs()
-      .filter((r) => r.code !== 'parent')
+      .filter((r) => !['parent', 'administrator', 'admin', 'school_admin'].includes(r.code))
       .map((r) => ({ value: r.code, label: this.fr() ? r.labelFr : (r.labelEn || r.labelFr) })),
   );
 
@@ -1565,6 +1625,8 @@ export class StaffComponent {
       createLogin: false,
     };
     this.finalizeRoles.set(['teacher']);
+    this.finalizeManagementLevels.set(new Set());
+    this.finalizeScopeAttempted.set(false);
     this.finalizeCreateLogin.set(!!a.email);
   }
 
@@ -1572,14 +1634,23 @@ export class StaffComponent {
     this.finalizeRoles.update((rs) => (rs.includes(role) ? rs.filter((r) => r !== role) : [...rs, role]));
   }
 
+  protected toggleFinalizeManagementLevel(level: string): void {
+    const next = new Set(this.finalizeManagementLevels());
+    next.has(level) ? next.delete(level) : next.add(level);
+    this.finalizeManagementLevels.set(next);
+  }
+
   protected doFinalize(): void {
     const a = this.finalizeApp();
     if (!a) return;
+    this.finalizeScopeAttempted.set(true);
+    if (this.finalizeRoles().includes('principal') && !this.finalizeManagementLevels().size) return;
     this.finalizing.set(true);
     this.appErr.set(null);
     const body: StaffApplicationFinalize = {
       ...this.finalizeDraft,
       roles: this.finalizeRoles(),
+      managementLevels: [...this.finalizeManagementLevels()],
       createLogin: !!a.email && this.finalizeCreateLogin(),
     };
     this.api.finalizeApplication(a.id, body).subscribe({
@@ -1660,6 +1731,8 @@ export class StaffComponent {
     this.photoDraft.set(null);
     this.photoWasSet = false;
     this.pickedClasses.set(new Set());
+    this.draftManagementLevels.set(new Set());
+    this.principalScopeAttempted.set(false);
     this.mode.set('edit');
   }
 
@@ -1735,6 +1808,8 @@ export class StaffComponent {
       roles: [...e.roles],
     };
     this.draftRoles.set([...e.roles]);
+    this.draftManagementLevels.set(new Set(e.managementLevels ?? []));
+    this.principalScopeAttempted.set(false);
     this.editId.set(e.id);
     this.mode.set('edit');
   }
@@ -1754,6 +1829,15 @@ export class StaffComponent {
 
   protected toggleRole(role: string): void {
     this.draftRoles.update((rs) => (rs.includes(role) ? rs.filter((r) => r !== role) : [...rs, role]));
+    if (role === 'principal' && !this.draftRoles().includes('principal')) {
+      this.principalScopeAttempted.set(false);
+    }
+  }
+
+  protected toggleManagementLevel(level: string): void {
+    const next = new Set(this.draftManagementLevels());
+    next.has(level) ? next.delete(level) : next.add(level);
+    this.draftManagementLevels.set(next);
   }
 
   protected closeEditor(): void {
@@ -1761,10 +1845,14 @@ export class StaffComponent {
     this.photoDraft.set(null);
     this.photoWasSet = false;
     this.pickedClasses.set(new Set());
+    this.draftManagementLevels.set(new Set());
+    this.principalScopeAttempted.set(false);
   }
 
   save(): void {
     if (!this.draft.name?.trim()) return;
+    this.principalScopeAttempted.set(true);
+    if (this.principalRole() && !this.draftManagementLevels().size) return;
     const email = this.draft.email?.trim() || '';
     const phone = this.draft.phone?.trim() || '';
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -1782,6 +1870,7 @@ export class StaffComponent {
       email: email || null as any,
       phone: phone || null as any,
       roles: this.draftRoles(),
+      managementLevels: [...this.draftManagementLevels()],
       createLogin: wantsLogin,
     };
     const id = this.editId();
@@ -2042,6 +2131,6 @@ export class StaffComponent {
 
   private blank(): EmployeeUpsert {
     return { name: '', sex: 'M', type: 'Permanent', email: '', phone: '', formClass: '', section: null,
-             departmentId: null, monthlySalary: 350000, hourlyRate: 0, roles: [] };
+             managementLevels: [], departmentId: null, monthlySalary: 350000, hourlyRate: 0, roles: [] };
   }
 }

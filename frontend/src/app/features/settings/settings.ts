@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@angular/core';
+import { Component, ChangeDetectionStrategy, effect, inject, signal, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { RouterLink } from '@angular/router';
@@ -40,9 +40,9 @@ type SettingsTab = 'academic' | 'sessions' | 'general' | 'perms' | 'roles' | 'ma
         </div>
       </bbc-page-header>
 
-      <bbc-tabs [tabs]="tabs()" [value]="tab()" (change)="onTab($any($event))" />
+      <bbc-tabs [tabs]="tabs()" [value]="activeTab()" (change)="onTab($any($event))" />
 
-      @switch (tab()) {
+      @switch (activeTab()) {
         <!-- ===================== ACADEMIC SETUP ===================== -->
         @case ('academic') {
           @if (canViewAcademicSetup()) {
@@ -630,10 +630,19 @@ export class SettingsComponent {
   protected matrix = signal<PermissionMatrix | null>(null);
   protected currentUser = this.auth.user;
   protected tab = signal<SettingsTab>('academic');
+  /** Access Control is an administrator-only surface, including its settings tabs. */
+  protected canViewAccessControl = computed(() =>
+    this.auth.canAction('PERMISSION_VIEW') || this.auth.canAction('ROLE_MANAGE'));
+  protected activeTab = computed<SettingsTab>(() => {
+    const current = this.tab();
+    return !this.canViewAccessControl() && (current === 'perms' || current === 'roles')
+      ? 'general' : current;
+  });
+  private matrixRequested = false;
 
   /** Enable only the V2 action that governs the active settings surface. */
   protected get canWrite(): boolean {
-    switch (this.tab()) {
+    switch (this.activeTab()) {
       case 'sessions': return this.auth.canAction('SESSION_MANAGE');
       case 'general': return this.auth.canAction('SCHOOL_PROFILE_MANAGE');
       case 'calendar': return this.auth.canAction('CALENDAR_MANAGE');
@@ -706,8 +715,10 @@ export class SettingsComponent {
     { id: 'general', label: this.fr() ? 'Général' : 'General' },
     { id: 'calendar', label: this.fr() ? 'Calendrier' : 'Calendar' },
     { id: 'discipline', label: this.fr() ? 'Discipline' : 'Discipline' },
-    { id: 'perms', label: this.fr() ? 'Permissions' : 'Permissions' },
-    { id: 'roles', label: this.fr() ? 'Rôles' : 'Roles' },
+    ...(this.canViewAccessControl() ? [
+      { id: 'perms', label: this.fr() ? 'Permissions' : 'Permissions' },
+      { id: 'roles', label: this.fr() ? 'Rôles' : 'Roles' },
+    ] : []),
     { id: 'mail', label: this.fr() ? 'Messagerie' : 'E-mail' },
   ]);
 
@@ -742,7 +753,12 @@ export class SettingsComponent {
   constructor() {
     const requestedTab = this.route.snapshot.queryParamMap.get('tab') as SettingsTab | null;
     if (requestedTab && ['academic', 'sessions', 'general', 'perms', 'roles', 'mail', 'calendar', 'discipline'].includes(requestedTab)) this.tab.set(requestedTab);
-    this.reload();
+    effect(() => {
+      if (this.canViewAccessControl() && !this.matrixRequested) {
+        this.matrixRequested = true;
+        this.reload();
+      }
+    });
     this.loadMail();
     this.loadSchool();
     this.loadHolidays();
@@ -750,6 +766,10 @@ export class SettingsComponent {
   }
 
   protected onTab(id: SettingsTab): void {
+    if ((id === 'perms' || id === 'roles') && !this.canViewAccessControl()) {
+      this.tab.set('general');
+      return;
+    }
     this.tab.set(id);
     this.router.navigate([], { relativeTo: this.route, queryParams: { ...this.route.snapshot.queryParams, tab: id }, queryParamsHandling: 'merge' });
   }

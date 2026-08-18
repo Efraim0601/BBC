@@ -20,6 +20,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -70,6 +71,9 @@ class ProductionBootstrapIntegrationTest {
 
     @Test
     void bootstrapAdminCanWriteSetupThroughTheProtectedEndpoint() throws Exception {
+        assertThat(jdbc.queryForObject(
+                "SELECT role_code FROM app_user WHERE username='admin'", String.class))
+                .isEqualTo("administrator");
         mockMvc.perform(post("/api/setup/sections")
                         .header("Authorization", "Bearer " + bootstrapAccessToken())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -77,6 +81,49 @@ class ProductionBootstrapIntegrationTest {
                                 {"label":"Bootstrap regression section","subsystem":"FR","level":"maternelle"}
                                 """))
                 .andExpect(status().isCreated());
+    }
+
+    @Test
+    void ordinaryPrincipalCannotOpenAccessControlOrLeaveAssignedParcours() throws Exception {
+        Map<String, Object> bootstrap = jdbc.queryForMap(
+                "SELECT school_id FROM app_user WHERE username='admin'");
+        UUID principalId = UUID.randomUUID();
+        UUID schoolId = (UUID) bootstrap.get("school_id");
+        jdbc.update("""
+                INSERT INTO app_user
+                    (id,school_id,username,password_hash,display_name,initials,role_code,parcours_scope_mode)
+                VALUES (?,?,?,'unused','Scoped Principal','SP','principal','EXPLICIT')
+                """, principalId, schoolId, "scoped-principal-" + principalId);
+        jdbc.update("""
+                INSERT INTO app_user_role(school_id,user_id,role_code,is_primary,reason)
+                VALUES (?,?,'principal',true,'Principal scope integration test')
+                """, schoolId, principalId);
+        jdbc.update("""
+                INSERT INTO app_user_parcours(user_id,level,subsystem)
+                VALUES (?,'primary','FR')
+                """, principalId);
+        String token = jwt.issueAccess(new AppUserPrincipal(
+                principalId, schoolId, "scoped-principal", "principal",
+                "Scoped Principal", "SP"));
+
+        mockMvc.perform(get("/api/access/catalog")
+                        .header("Authorization", "Bearer " + token)
+                        .header("X-Parcours", "primary:FR"))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(get("/api/setup/classes")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(get("/api/setup/classes")
+                        .header("Authorization", "Bearer " + token)
+                        .header("X-Parcours", "secondary:FR"))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(get("/api/setup/classes")
+                        .header("Authorization", "Bearer " + token)
+                        .header("X-Parcours", "primary:FR"))
+                .andExpect(status().isOk());
     }
 
     @Test
