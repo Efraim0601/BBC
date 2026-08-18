@@ -14,7 +14,7 @@ import { AssessmentDefaultsComponent } from './assessment-defaults/assessment-de
 import { CurriculumCopyComponent } from './curriculum-copy';
 import { defaultSubjects } from './subject-defaults';
 import { forkJoin } from 'rxjs';
-import { IconComponent, CardComponent, TabsComponent, EmptyComponent } from '../../core/ui';
+import { IconComponent, CardComponent, TabsComponent, EmptyComponent, ListPaginationComponent, paginateRows } from '../../core/ui';
 import { downloadCsv } from '../../core/csv';
 
 /**
@@ -26,7 +26,7 @@ import { downloadCsv } from '../../core/csv';
   selector: 'bbc-academic-setup',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, IconComponent, CardComponent, TabsComponent, EmptyComponent, AssessmentDefaultsComponent, CurriculumCopyComponent],
+  imports: [FormsModule, IconComponent, CardComponent, TabsComponent, EmptyComponent, ListPaginationComponent, AssessmentDefaultsComponent, CurriculumCopyComponent],
   template: `
     <bbc-tabs [tabs]="displayedSubTabs()" [value]="sub()" (change)="switchTo($any($event))" />
 
@@ -145,6 +145,41 @@ import { downloadCsv } from '../../core/csv';
             <div class="mb-3 text-xs rounded-lg px-3 py-2 bg-rose-50 text-rose-700 border border-rose-100">{{ e }}</div>
           }
 
+          <div class="mb-4 grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3 md:grid-cols-[1.5fr_1fr_1fr_auto] md:items-end">
+            <label class="block">
+              <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Recherche' : 'Search' }}</span>
+              <div class="relative">
+                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-mute"><bbc-icon name="search" [s]="14" /></span>
+                <input [ngModel]="classQuery()" (ngModelChange)="setClassQuery($event)"
+                  [placeholder]="fr() ? 'Classe ou section…' : 'Class or section…'"
+                  class="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm focus:border-brand-400 focus:outline-none" />
+              </div>
+            </label>
+            <label class="block">
+              <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Niveau' : 'Level' }}</span>
+              <select [ngModel]="classLevelFilter()" (ngModelChange)="setClassLevel($event)"
+                class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-brand-400 focus:outline-none">
+                <option value="">{{ fr() ? 'Tous les niveaux' : 'All levels' }}</option>
+                <option value="maternelle">{{ fr() ? 'Maternelle' : 'Kindergarten' }}</option>
+                <option value="primary">{{ fr() ? 'Primaire' : 'Primary' }}</option>
+                <option value="secondary">{{ fr() ? 'Secondaire' : 'Secondary' }}</option>
+              </select>
+            </label>
+            <label class="block">
+              <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Sous-système' : 'Subsystem' }}</span>
+              <select [ngModel]="classSubsystemFilter()" (ngModelChange)="setClassSubsystem($event)"
+                class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-brand-400 focus:outline-none">
+                <option value="">{{ fr() ? 'Tous les sous-systèmes' : 'All subsystems' }}</option>
+                <option value="FR">Francophone</option>
+                <option value="EN">Anglophone</option>
+              </select>
+            </label>
+            <button type="button" (click)="clearClassFilters()" [disabled]="!hasClassFilters()"
+              class="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-mute hover:text-ink disabled:cursor-not-allowed disabled:opacity-40">
+              {{ fr() ? 'Effacer' : 'Clear' }}
+            </button>
+          </div>
+
           @if (canWrite && clsForm()) {
             <form (ngSubmit)="saveClass()" class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4 p-3 rounded-lg bg-slate-50">
               <label class="block">
@@ -165,7 +200,10 @@ import { downloadCsv } from '../../core/csv';
             </form>
           }
 
-          @if (classes().length) {
+          @if (filteredClasses().length) {
+            <div class="mb-2 text-xs text-mute">
+              <strong class="text-ink">{{ filteredClasses().length }}</strong> {{ fr() ? 'classe(s) trouvée(s)' : 'class(es) found' }}
+            </div>
             <table class="min-w-full text-sm">
               <thead><tr class="border-b border-slate-100 text-[11px] uppercase text-mute text-left">
                 <th class="py-2 pr-3 font-semibold">{{ fr() ? 'Classe' : 'Class' }}</th>
@@ -176,7 +214,7 @@ import { downloadCsv } from '../../core/csv';
                 <th></th>
               </tr></thead>
               <tbody>
-                @for (c of classes(); track c.id) {
+                @for (c of pagedClasses(); track c.id) {
                   <tr class="border-b border-slate-50 hover:bg-slate-50/40">
                     <td class="py-2 pr-3 font-semibold text-ink">{{ c.name }}</td>
                     <td class="py-2 px-3 text-mute">{{ c.sectionLabel }}</td>
@@ -197,6 +235,12 @@ import { downloadCsv } from '../../core/csv';
                 }
               </tbody>
             </table>
+            <bbc-list-pagination [total]="filteredClasses().length" [page]="classPage()" [pageSize]="classPageSize()"
+              [language]="fr() ? 'fr' : 'en'" (pageChange)="classPage.set($event)" (pageSizeChange)="setClassPageSize($event)" />
+          } @else {
+            <bbc-empty icon="book" [label]="classes().length
+              ? (fr() ? 'Aucune classe ne correspond aux filtres.' : 'No class matches these filters.')
+              : (fr() ? 'Aucune classe.' : 'No classes.')" />
           }
 
           <!-- Teacher assignment panel (0..N teachers per class) -->
@@ -230,8 +274,6 @@ import { downloadCsv } from '../../core/csv';
                 <bbc-empty icon="users" [label]="fr() ? 'Aucun enseignant — ajoutez du personnel d’abord.' : 'No staff — add employees first.'" />
               }
             </div>
-          } @else {
-            <bbc-empty icon="book" [label]="fr() ? 'Aucune classe.' : 'No classes.'" />
           }
         </bbc-card>
       }
@@ -561,11 +603,29 @@ import { downloadCsv } from '../../core/csv';
           <!-- Subsystem filter -->
           <div class="flex items-center gap-1.5 mb-4 flex-wrap">
             @for (f of subjFilters; track f.value) {
-              <button (click)="subjFilter.set(f.value)"
+              <button (click)="setSubjectSubsystem(f.value)"
                 class="px-3 py-1.5 rounded-full text-xs font-semibold transition"
                 [class]="subjFilter() === f.value ? 'bg-brand-600 text-white' : 'bg-white text-mute border border-slate-200 hover:border-brand-300'">
                 {{ fr() ? f.fr : f.en }}
                 <span class="ml-1 opacity-70">{{ countFor(f.value) }}</span>
+              </button>
+            }
+          </div>
+
+          <div class="mb-4 flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3 sm:flex-row sm:items-end sm:justify-between">
+            <label class="block w-full sm:max-w-md">
+              <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Recherche' : 'Search' }}</span>
+              <div class="relative">
+                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-mute"><bbc-icon name="search" [s]="14" /></span>
+                <input [ngModel]="subjectQuery()" (ngModelChange)="setSubjectQuery($event)"
+                  [placeholder]="fr() ? 'Code ou nom de matière…' : 'Subject code or name…'"
+                  class="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm focus:border-brand-400 focus:outline-none" />
+              </div>
+            </label>
+            @if (subjectQuery()) {
+              <button type="button" (click)="setSubjectQuery('')"
+                class="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-mute hover:text-ink">
+                {{ fr() ? 'Effacer la recherche' : 'Clear search' }}
               </button>
             }
           </div>
@@ -608,6 +668,9 @@ import { downloadCsv } from '../../core/csv';
           }
 
           @if (filteredSubjects().length) {
+            <div class="mb-2 text-xs text-mute">
+              <strong class="text-ink">{{ filteredSubjects().length }}</strong> {{ fr() ? 'matière(s) trouvée(s)' : 'subject(s) found' }}
+            </div>
             <table class="min-w-full text-sm">
               <thead><tr class="border-b border-slate-100 text-[11px] uppercase text-mute text-left">
                 <th class="py-2 pr-3 font-semibold">{{ fr() ? 'Code' : 'Code' }}</th>
@@ -617,7 +680,7 @@ import { downloadCsv } from '../../core/csv';
                 <th></th>
               </tr></thead>
               <tbody>
-                @for (s of filteredSubjects(); track s.id) {
+                @for (s of pagedSubjects(); track s.id) {
                   <tr class="border-b border-slate-50 hover:bg-slate-50/40">
                     <td class="py-2 pr-3 font-mono font-semibold text-ink">{{ s.code }}</td>
                     <td class="py-2 px-3">{{ subjectLabel(s) }}</td>
@@ -638,6 +701,8 @@ import { downloadCsv } from '../../core/csv';
                 }
               </tbody>
             </table>
+            <bbc-list-pagination [total]="filteredSubjects().length" [page]="subjectPage()" [pageSize]="subjectPageSize()"
+              [language]="fr() ? 'fr' : 'en'" (pageChange)="subjectPage.set($event)" (pageSizeChange)="setSubjectPageSize($event)" />
           } @else {
             <div class="py-8 text-center">
               <bbc-empty icon="book" [label]="fr() ? 'Aucune matière dans cette liste.' : 'No subject in this list.'" />
@@ -906,6 +971,30 @@ export class AcademicSetupComponent {
   protected sections = signal<SectionView[]>([]);
   protected classes = signal<ClassView[]>([]);
   protected subjects = signal<SubjectView[]>([]);
+  protected classQuery = signal('');
+  protected classLevelFilter = signal<string | null>(null);
+  protected classSubsystemFilter = signal<string | null>(null);
+  protected classPage = signal(1);
+  protected classPageSize = signal(25);
+  protected subjectQuery = signal('');
+  protected subjectPage = signal(1);
+  protected subjectPageSize = signal(25);
+
+  protected filteredClasses = computed(() => {
+    const q = this.classQuery().trim().toLowerCase();
+    const level = this.classLevelFilter();
+    const subsystem = this.classSubsystemFilter();
+    return this.classes().filter((klass) => {
+      if (level && klass.level !== level) return false;
+      if (subsystem && klass.subsystem !== subsystem) return false;
+      if (q && !`${klass.name} ${klass.sectionLabel ?? ''} ${klass.level} ${klass.subsystem}`.toLowerCase().includes(q)) return false;
+      return true;
+    }).sort((a, b) => a.name.localeCompare(b.name, this.fr() ? 'fr' : 'en', { numeric: true, sensitivity: 'base' }));
+  });
+  protected pagedClasses = computed(() => paginateRows(this.filteredClasses(), this.classPage(), this.classPageSize()));
+  protected hasClassFilters = computed(() => !!(
+    this.classQuery().trim() || this.classLevelFilter() || this.classSubsystemFilter()
+  ));
   protected err = signal<string | null>(null);
 
   protected subTabs = computed(() => [
@@ -954,17 +1043,42 @@ export class AcademicSetupComponent {
 
   protected filteredSubjects = computed(() => {
     const f = this.subjFilter();
-    const all = this.subjects();
-    if (f === 'ALL') return all;
-    // FR/EN lists include subjects common to both (subsystem null).
-    return all.filter((s) => s.subsystem === f || !s.subsystem);
+    const q = this.subjectQuery().trim().toLowerCase();
+    let all = this.subjects();
+    if (f !== 'ALL') {
+      // FR/EN lists include subjects common to both (subsystem null).
+      all = all.filter((s) => s.subsystem === f || !s.subsystem);
+    }
+    if (q) {
+      all = all.filter((s) => `${s.code} ${s.label?.['fr'] ?? ''} ${s.label?.['en'] ?? ''}`.toLowerCase().includes(q));
+    }
+    return [...all].sort((a, b) => this.subjectLabel(a).localeCompare(this.subjectLabel(b), this.fr() ? 'fr' : 'en', { sensitivity: 'base' }));
   });
+  protected pagedSubjects = computed(() => paginateRows(this.filteredSubjects(), this.subjectPage(), this.subjectPageSize()));
 
   protected countFor(f: 'FR' | 'EN' | 'ALL'): number {
     const all = this.subjects();
     if (f === 'ALL') return all.length;
     return all.filter((s) => s.subsystem === f || !s.subsystem).length;
   }
+
+  protected setClassQuery(value: string): void { this.classQuery.set(value); this.classPage.set(1); }
+  protected setClassLevel(value: string | null): void { this.classLevelFilter.set(value || null); this.classPage.set(1); }
+  protected setClassSubsystem(value: string | null): void { this.classSubsystemFilter.set(value || null); this.classPage.set(1); }
+  protected setClassPageSize(value: number): void { this.classPageSize.set(value); this.classPage.set(1); }
+  protected clearClassFilters(): void {
+    this.classQuery.set('');
+    this.classLevelFilter.set(null);
+    this.classSubsystemFilter.set(null);
+    this.classPage.set(1);
+  }
+
+  protected setSubjectSubsystem(value: 'FR' | 'EN' | 'ALL'): void {
+    this.subjFilter.set(value);
+    this.subjectPage.set(1);
+  }
+  protected setSubjectQuery(value: string): void { this.subjectQuery.set(value); this.subjectPage.set(1); }
+  protected setSubjectPageSize(value: number): void { this.subjectPageSize.set(value); this.subjectPage.set(1); }
 
   /** How many standard subjects of the active list are not yet created (0 = all present). */
   protected missingDefaultsCount = computed(() => {

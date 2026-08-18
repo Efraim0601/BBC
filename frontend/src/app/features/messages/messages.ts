@@ -6,7 +6,7 @@ import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
 import {
   IconComponent, CardComponent, PageHeaderComponent, EmptyComponent, AvatarComponent, KpiComponent,
-  StudentClassPickerComponent,
+  StudentClassPickerComponent, ListPaginationComponent, paginateRows,
 } from '../../core/ui';
 
 interface CategoryMeta { fr: string; en: string; badge: string; icon: string; }
@@ -18,6 +18,7 @@ interface CategoryMeta { fr: string; en: string; badge: string; icon: string; }
   imports: [
     FormsModule, IconComponent, CardComponent, PageHeaderComponent, EmptyComponent,
     AvatarComponent, KpiComponent, StudentClassPickerComponent,
+    ListPaginationComponent,
   ],
   template: `
     <div class="fade-in max-w-6xl mx-auto">
@@ -96,12 +97,43 @@ interface CategoryMeta { fr: string; en: string; badge: string; icon: string; }
 
             <!-- Notices list -->
             <bbc-card [title]="fr() ? 'Correspondance' : 'Correspondence'"
-              [subtitle]="notices().length + (fr() ? ' note(s)' : ' notice(s)')">
+              [subtitle]="filteredNotices().length + (fr() ? ' note(s) affichée(s)' : ' notice(s) shown')">
               @if (notices().length === 0) {
                 <bbc-empty icon="mail" [label]="fr() ? 'Aucune note' : 'No notice'" />
               } @else {
+                <div class="mb-4 grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3 md:grid-cols-[1.5fr_1fr_1fr_auto] md:items-end">
+                  <label class="block">
+                    <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Recherche' : 'Search' }}</span>
+                    <input [ngModel]="noticeQuery()" (ngModelChange)="setNoticeQuery($event)"
+                      [placeholder]="fr() ? 'Objet, message ou expéditeur…' : 'Subject, message or sender…'"
+                      class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-brand-400 focus:outline-none" />
+                  </label>
+                  <label class="block">
+                    <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Catégorie' : 'Category' }}</span>
+                    <select [ngModel]="noticeCategory()" (ngModelChange)="setNoticeCategory($event)" class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm">
+                      <option value="">{{ fr() ? 'Toutes les catégories' : 'All categories' }}</option>
+                      @for (key of categoryKeys; track key) { <option [value]="key">{{ fr() ? META[key].fr : META[key].en }}</option> }
+                    </select>
+                  </label>
+                  <label class="block">
+                    <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Lecture' : 'Reading' }}</span>
+                    <select [ngModel]="noticeStatus()" (ngModelChange)="setNoticeStatus($event)" class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm">
+                      <option value="all">{{ fr() ? 'Tous les statuts' : 'All statuses' }}</option>
+                      <option value="pending">{{ fr() ? 'Accusé en attente' : 'Acknowledgement pending' }}</option>
+                      <option value="acknowledged">{{ fr() ? 'Lu / signé' : 'Read / signed' }}</option>
+                      <option value="none">{{ fr() ? 'Sans accusé requis' : 'No acknowledgement required' }}</option>
+                    </select>
+                  </label>
+                  <button type="button" (click)="clearNoticeFilters()" [disabled]="!hasNoticeFilters()"
+                    class="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-mute hover:text-ink disabled:cursor-not-allowed disabled:opacity-40">
+                    {{ fr() ? 'Effacer' : 'Clear' }}
+                  </button>
+                </div>
+                @if (!filteredNotices().length) {
+                  <bbc-empty icon="mail" [label]="fr() ? 'Aucune note ne correspond aux filtres' : 'No notice matches these filters'" />
+                } @else {
                 <div class="space-y-3">
-                  @for (n of notices(); track n.id) {
+                  @for (n of pagedNotices(); track n.id) {
                     <div class="p-3.5 rounded-lg border border-slate-100 hover:bg-slate-50/50 group">
                       <div class="flex items-start gap-2">
                         <div class="flex-1 min-w-0">
@@ -151,6 +183,9 @@ interface CategoryMeta { fr: string; en: string; badge: string; icon: string; }
                     </div>
                   }
                 </div>
+                <bbc-list-pagination class="mt-4 block" [total]="filteredNotices().length" [page]="noticePage()" [pageSize]="noticePageSize()"
+                  [language]="fr() ? 'fr' : 'en'" (pageChange)="noticePage.set($event)" (pageSizeChange)="setNoticePageSize($event)" />
+                }
               }
             </bbc-card>
           }
@@ -177,6 +212,11 @@ export class MessagesComponent {
   protected selectedStudent = signal<Student | null>(null);
   protected selectedHue = signal(210);
   protected notices = signal<NoticeView[]>([]);
+  protected noticeQuery = signal('');
+  protected noticeCategory = signal('');
+  protected noticeStatus = signal<'all' | 'pending' | 'acknowledged' | 'none'>('all');
+  protected noticePage = signal(1);
+  protected noticePageSize = signal(10);
 
   protected showForm = signal(false);
   protected draft: NoticeUpsert = this.blank();
@@ -190,12 +230,34 @@ export class MessagesComponent {
   protected signedCount = computed(() =>
     this.notices().filter((n) => n.acknowledged).length);
 
+  protected filteredNotices = computed(() => {
+    const q = this.noticeQuery().trim().toLowerCase();
+    const category = this.noticeCategory();
+    const status = this.noticeStatus();
+    return this.notices().filter((notice) => {
+      if (category && notice.category !== category) return false;
+      if (status === 'pending' && !(notice.requiresAck && !notice.acknowledged)) return false;
+      if (status === 'acknowledged' && !notice.acknowledged) return false;
+      if (status === 'none' && notice.requiresAck) return false;
+      return !q || `${notice.subject} ${notice.body} ${notice.senderName ?? ''}`.toLowerCase().includes(q);
+    });
+  });
+  protected pagedNotices = computed(() => paginateRows(this.filteredNotices(), this.noticePage(), this.noticePageSize()));
+  protected hasNoticeFilters = computed(() => !!(this.noticeQuery().trim() || this.noticeCategory() || this.noticeStatus() !== 'all'));
+
+  protected setNoticeQuery(value: string): void { this.noticeQuery.set(value); this.noticePage.set(1); }
+  protected setNoticeCategory(value: string): void { this.noticeCategory.set(value || ''); this.noticePage.set(1); }
+  protected setNoticeStatus(value: 'all' | 'pending' | 'acknowledged' | 'none'): void { this.noticeStatus.set(value); this.noticePage.set(1); }
+  protected setNoticePageSize(value: number): void { this.noticePageSize.set(value); this.noticePage.set(1); }
+  protected clearNoticeFilters(): void { this.noticeQuery.set(''); this.noticeCategory.set(''); this.noticeStatus.set('all'); this.noticePage.set(1); }
+
   protected select(s: Student): void {
     this.selectedId.set(s.id);
     this.selectedStudent.set(s);
     this.selectedHue.set(s.photoHue);
     this.showForm.set(false);
     this.draft = this.blank();
+    this.clearNoticeFilters();
     this.reload(s.id);
   }
 

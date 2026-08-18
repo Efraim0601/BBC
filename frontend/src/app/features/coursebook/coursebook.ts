@@ -6,6 +6,7 @@ import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
 import {
   IconComponent, CardComponent, PageHeaderComponent, EmptyComponent, KpiComponent,
+  ListPaginationComponent, paginateRows,
 } from '../../core/ui';
 
 interface DayGroup { date: string; entries: EntryView[]; }
@@ -16,6 +17,7 @@ interface DayGroup { date: string; entries: EntryView[]; }
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     FormsModule, IconComponent, CardComponent, PageHeaderComponent, EmptyComponent, KpiComponent,
+    ListPaginationComponent,
   ],
   template: `
     <div class="fade-in max-w-6xl mx-auto">
@@ -116,8 +118,43 @@ interface DayGroup { date: string; entries: EntryView[]; }
           <bbc-empty icon="calendar" [label]="fr() ? 'Aucune entrée pour cette classe' : 'No entry for this class'" />
         </bbc-card>
       } @else {
+        <bbc-card className="mb-4" [title]="fr() ? 'Retrouver une entrée' : 'Find an entry'"
+          [subtitle]="filteredEntries().length + (fr() ? ' entrée(s) trouvée(s)' : ' matching entries')">
+          <div class="grid grid-cols-1 gap-3 md:grid-cols-[1.5fr_1fr_1fr_1fr_auto] md:items-end">
+            <label class="block">
+              <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Recherche' : 'Search' }}</span>
+              <div class="relative">
+                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-mute"><bbc-icon name="search" [s]="14" /></span>
+                <input [ngModel]="query()" (ngModelChange)="setQuery($event)"
+                  [placeholder]="fr() ? 'Matière, cours ou devoir…' : 'Subject, lesson or homework…'"
+                  class="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm focus:border-brand-400 focus:outline-none" />
+              </div>
+            </label>
+            <label class="block">
+              <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Matière' : 'Subject' }}</span>
+              <select [ngModel]="subjectFilter()" (ngModelChange)="setSubjectFilter($event)"
+                class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-brand-400 focus:outline-none">
+                <option value="">{{ fr() ? 'Toutes les matières' : 'All subjects' }}</option>
+                @for (subject of entrySubjects(); track subject.code) { <option [value]="subject.code">{{ subject.label }}</option> }
+              </select>
+            </label>
+            <label class="block"><span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Du' : 'From' }}</span>
+              <input type="date" [ngModel]="dateFrom()" (ngModelChange)="setDateFrom($event)" class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm" />
+            </label>
+            <label class="block"><span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Au' : 'To' }}</span>
+              <input type="date" [ngModel]="dateTo()" (ngModelChange)="setDateTo($event)" class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm" />
+            </label>
+            <button type="button" (click)="clearFilters()" [disabled]="!hasFilters()"
+              class="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-mute hover:text-ink disabled:cursor-not-allowed disabled:opacity-40">
+              {{ fr() ? 'Effacer' : 'Clear' }}
+            </button>
+          </div>
+        </bbc-card>
+        @if (!filteredEntries().length) {
+          <bbc-card><bbc-empty icon="book" [label]="fr() ? 'Aucune entrée ne correspond aux filtres' : 'No entry matches these filters'" /></bbc-card>
+        } @else {
         <div class="space-y-4">
-          @for (g of groups(); track g.date) {
+          @for (g of pagedGroups(); track g.date) {
             <bbc-card [title]="formatDate(g.date)"
               [subtitle]="g.entries.length + (fr() ? ' matière(s)' : ' subject(s)')">
               <div class="space-y-3">
@@ -166,6 +203,9 @@ interface DayGroup { date: string; entries: EntryView[]; }
             </bbc-card>
           }
         </div>
+        <bbc-list-pagination class="mt-4 block" [total]="groups().length" [page]="page()" [pageSize]="pageSize()"
+          [language]="fr() ? 'fr' : 'en'" (pageChange)="page.set($event)" (pageSizeChange)="setPageSize($event)" />
+        }
       }
     </div>
   `,
@@ -179,6 +219,12 @@ export class CoursebookComponent {
   protected classes = signal<ClassRef[]>([]);
   protected selectedClass = signal<string>('');
   protected entries = signal<EntryView[]>([]);
+  protected query = signal('');
+  protected subjectFilter = signal('');
+  protected dateFrom = signal('');
+  protected dateTo = signal('');
+  protected page = signal(1);
+  protected pageSize = signal(10);
 
   protected showForm = signal(false);
   protected editingId = signal<string | null>(null);
@@ -198,9 +244,29 @@ export class CoursebookComponent {
     return all.filter((s) => !s.subsystem || s.subsystem === cls.subsystem);
   });
 
+  protected entrySubjects = computed(() => {
+    const subjects = new Map<string, string>();
+    for (const entry of this.entries()) subjects.set(entry.subjectCode, entry.subjectLabel || entry.subjectCode);
+    return [...subjects.entries()].map(([code, label]) => ({ code, label })).sort((a, b) => a.label.localeCompare(b.label));
+  });
+
+  protected hasFilters = computed(() => !!(this.query().trim() || this.subjectFilter() || this.dateFrom() || this.dateTo()));
+  protected filteredEntries = computed(() => {
+    const q = this.query().trim().toLowerCase();
+    const subject = this.subjectFilter();
+    const from = this.dateFrom();
+    const to = this.dateTo();
+    return this.entries().filter((entry) => {
+      if (subject && entry.subjectCode !== subject) return false;
+      if (from && entry.entryDate < from) return false;
+      if (to && entry.entryDate > to) return false;
+      return !q || `${entry.subjectCode} ${entry.subjectLabel} ${entry.content} ${entry.homework ?? ''}`.toLowerCase().includes(q);
+    });
+  });
+
   protected groups = computed<DayGroup[]>(() => {
     const map = new Map<string, EntryView[]>();
-    for (const e of this.entries()) {
+    for (const e of this.filteredEntries()) {
       const list = map.get(e.entryDate) ?? [];
       list.push(e);
       map.set(e.entryDate, list);
@@ -209,6 +275,7 @@ export class CoursebookComponent {
       .sort((a, b) => b[0].localeCompare(a[0]))
       .map(([date, list]) => ({ date, entries: list }));
   });
+  protected pagedGroups = computed(() => paginateRows(this.groups(), this.page(), this.pageSize()));
 
   constructor() {
     this.api.classes().subscribe({ next: (c) => this.classes.set(c), error: () => {} });
@@ -221,6 +288,7 @@ export class CoursebookComponent {
 
   protected selectClass(name: string): void {
     this.selectedClass.set(name);
+    this.clearFilters();
     this.cancel();
     if (!name) {
       this.entries.set([]);
@@ -236,6 +304,13 @@ export class CoursebookComponent {
     });
     this.reload();
   }
+
+  protected setQuery(value: string): void { this.query.set(value); this.page.set(1); }
+  protected setSubjectFilter(value: string): void { this.subjectFilter.set(value || ''); this.page.set(1); }
+  protected setDateFrom(value: string): void { this.dateFrom.set(value || ''); this.page.set(1); }
+  protected setDateTo(value: string): void { this.dateTo.set(value || ''); this.page.set(1); }
+  protected setPageSize(value: number): void { this.pageSize.set(value); this.page.set(1); }
+  protected clearFilters(): void { this.query.set(''); this.subjectFilter.set(''); this.dateFrom.set(''); this.dateTo.set(''); this.page.set(1); }
 
   protected toggleForm(): void {
     this.editingId.set(null);

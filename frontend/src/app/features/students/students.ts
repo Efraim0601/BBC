@@ -107,6 +107,7 @@ interface HeaderMap {
               <div class="text-xs text-mute">{{ fr() ? 'Cliquez une ligne pour ouvrir la fiche' : 'Click a row to open the profile' }}</div>
             </div>
             <bbc-data-table [columns]="columns()" [rows]="filtered()"
+              [pagination]="true" [initialPageSize]="25" [language]="fr() ? 'fr' : 'en'"
               [trackBy]="trackId" [activeId]="selectedId()"
               [emptyLabel]="fr() ? 'Aucun résultat' : 'No results'"
               (rowClick)="openDetails($event)">
