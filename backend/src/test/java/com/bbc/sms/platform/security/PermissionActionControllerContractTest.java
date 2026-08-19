@@ -216,20 +216,29 @@ class PermissionActionControllerContractTest {
     }
 
     @Test
-    void registrarClassOptionsUseProfileCreationWithoutOpeningAcademicSetup() throws Exception {
+    void studentDirectoryClassOptionsDoNotRequireStudentCreationAuthority() throws Exception {
         String controller = Files.readString(
                 Path.of("src/main/java/com/bbc/sms/student/StudentController.java"),
                 StandardCharsets.UTF_8);
-        String service = Files.readString(
+        String studentService = Files.readString(
+                Path.of("src/main/java/com/bbc/sms/student/StudentService.java"),
+                StandardCharsets.UTF_8);
+        String setupService = Files.readString(
                 Path.of("src/main/java/com/bbc/sms/setup/SetupService.java"),
                 StandardCharsets.UTF_8);
 
         assertThat(PermissionActions.CATALOG).containsKey("STUDENT_PROFILE_CREATE");
-        assertThat(controller)
+        int classOptionsStart = controller.indexOf("@GetMapping(\"/class-options\")");
+        int createStart = controller.indexOf("@GetMapping(\"/roster\")", classOptionsStart);
+        String classOptionsRoute = controller.substring(classOptionsStart, createStart);
+        assertThat(classOptionsRoute)
                 .contains("@GetMapping(\"/class-options\")")
-                .contains("@policy.canAction('STUDENT_PROFILE_CREATE') and @perm.staffOnly()");
-        assertThat(service)
+                .contains("@PreAuthorize(\"@perm.staffOnly()\")")
+                .doesNotContain("@policy.canAction('STUDENT_PROFILE_CREATE')");
+        assertThat(studentService).contains("listClassesForStudentDirectory()");
+        assertThat(setupService)
                 .contains("listClassesForStudentProfile()")
+                .contains("listClassesForStudentDirectory()")
                 .contains("requireSchool(\"STUDENT_PROFILE_CREATE\")");
     }
 

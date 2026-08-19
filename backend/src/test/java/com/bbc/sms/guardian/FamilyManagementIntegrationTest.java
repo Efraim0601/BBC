@@ -59,6 +59,24 @@ class FamilyManagementIntegrationTest {
   assertThat(guardians.search("awa@example.test").getFirst().linkedChildren()).isEqualTo(2);
  }
 
+ @Test void registrationAllowsNoEmailAndPortalAccessCanBeAddedLater(){
+  GuardianInput noEmail=new GuardianInput(null,"Parent sans email",null,null,"MOTHER","NO_PORTAL",null,true,true,1,true,true,true,true,true,true,false,false,null);
+  var registration=registrations.register(new RegistrationRequest(student("Lina","Toko"),List.of(noEmail)));
+  UUID guardianId=registration.guardians().getFirst().guardianId();
+  assertThat(registration.guardians().getFirst().email()).isNull();
+  assertThat(registration.guardians().getFirst().portalAccess()).isFalse();
+  assertThat(registration.guardians().getFirst().accountStatus()).isEqualTo("NO_PORTAL");
+  assertThat(jdbc.queryForObject("SELECT app_user_id FROM guardian WHERE id=?",UUID.class,guardianId)).isNull();
+
+  var updated=guardians.updatePortalAccess(registration.student().id(),guardianId,
+      new GuardianPortalAccessInput("later@example.test","SEND_INVITE",null));
+  assertThat(updated.email()).isEqualTo("later@example.test");
+  assertThat(updated.portalAccess()).isTrue();
+  assertThat(updated.accountStatus()).isEqualTo("INVITED");
+  assertThat(updated.invitationStatus()).isEqualTo("PENDING");
+  assertThat(jdbc.queryForObject("SELECT count(*) FROM app_user WHERE school_id=? AND normalized_email=?",Integer.class,school,"later@example.test")).isEqualTo(1);
+ }
+
  @Test void familyImportDryRunDoesNotMutateAndCommitIsRetrySafe(){
   var row=new FamilyImportRow("ROW-1","Lina","Toko","NIU-1","F",LocalDate.of(2015,2,3),"Douala",true,classId,List.of(new FamilyImportGuardian("M. Toko","father@example.test","6001","FATHER","SEND_INVITE"),new FamilyImportGuardian("Mme Toko","toko@example.test","6002","MOTHER","SEND_INVITE")));
   var preview=imports.dryRun(new FamilyImportRequest("test.csv",List.of(row)));

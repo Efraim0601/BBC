@@ -54,6 +54,7 @@ export interface GuardianInput {
   receivesAttendance?: boolean; receivesFinance?: boolean; receivesDiscipline?: boolean;
   receivesHealth?: boolean; portalAccess?: boolean; notes?: string | null;
 }
+export interface GuardianPortalAccessInput { email?: string | null; accessMode: GuardianAccessMode; initialPassword?: string | null; }
 export interface GuardianSearchView { id:string; displayName:string; maskedEmail?:string; maskedPhone?:string; linkedChildren:number; accountStatus:string; exactMatch:boolean; }
 export interface GuardianRelationshipView extends GuardianInput {
   relationshipId:string; guardianId:string; email?:string; phone?:string; effectiveFrom:string;
@@ -156,6 +157,7 @@ export class StudentApi {
   searchGuardians(q:string):Observable<GuardianSearchView[]>{return this.http.get<GuardianSearchView[]>(`${environment.apiUrl}/guardians/search`,{params:{q}});}
   guardians(studentId:string):Observable<GuardianRelationshipView[]>{return this.http.get<GuardianRelationshipView[]>(`${this.base}/${studentId}/guardians`);}
   addGuardian(studentId:string,body:GuardianInput):Observable<GuardianRelationshipView>{return this.http.post<GuardianRelationshipView>(`${this.base}/${studentId}/guardians`,body);}
+  updateGuardianPortalAccess(studentId:string,guardianId:string,body:GuardianPortalAccessInput):Observable<GuardianRelationshipView>{return this.http.put<GuardianRelationshipView>(`${this.base}/${studentId}/guardians/${guardianId}/portal-access`,body);}
   updateRelationship(id:string,body:Partial<GuardianRelationshipView>):Observable<GuardianRelationshipView>{return this.http.put<GuardianRelationshipView>(`${environment.apiUrl}/student-guardian-relationships/${id}`,body);}
   endRelationship(id:string,reason:string):Observable<void>{return this.http.delete<void>(`${environment.apiUrl}/student-guardian-relationships/${id}`,{params:{reason}});}
   resendInvite(id:string):Observable<unknown>{return this.http.post(`${environment.apiUrl}/guardians/${id}/resend-invite`,{});}

@@ -408,6 +408,7 @@ class SharedFoundationIntegrationTest {
 
         assertThat(rows).extracting(v -> v.id()).containsExactly(studentId);
         assertThat(rows.getFirst().className()).isEqualTo("6eme Directory");
+        assertThat(students.classOptions()).extracting(v -> v.id()).containsExactly(classId);
     }
 
     @Test

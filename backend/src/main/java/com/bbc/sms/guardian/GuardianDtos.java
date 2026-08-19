@@ -18,6 +18,10 @@ public final class GuardianDtos {
         Boolean receivesAttendance, Boolean receivesFinance, Boolean receivesDiscipline,
         Boolean receivesHealth, Boolean portalAccess, String notes) {}
 
+    /** Contact/access changes for an already-linked guardian. */
+    public record GuardianPortalAccessInput(String email, @NotBlank String accessMode,
+        String initialPassword) {}
+
     public record RelationshipUpsert(@NotBlank String relationshipType, Boolean legalGuardian,
         Boolean livesWith, Integer emergencyPriority, Boolean pickupAuthorized,
         Boolean financeResponsible, Boolean receivesAcademic, Boolean receivesAttendance,

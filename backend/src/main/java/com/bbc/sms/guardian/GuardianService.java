@@ -86,6 +86,48 @@ public class GuardianService {
         return out;
     }
 
+    /** Add an email and optionally provision portal access for an existing link. */
+    @Transactional
+    public GuardianRelationshipView updatePortalAccess(UUID studentId, UUID guardianId,
+                                                       GuardianPortalAccessInput in) {
+        requireStudentAction(studentId, "GUARDIAN_LINK_MANAGE");
+        UUID school = TenantContext.get();
+        UUID relationshipId = jdbc.query("""
+            SELECT id FROM student_guardian
+            WHERE school_id=? AND student_id=? AND guardian_id=? AND effective_to IS NULL
+            """, rs -> rs.next() ? rs.getObject(1, UUID.class) : null, school, studentId, guardianId);
+        if (relationshipId == null) throw ApiException.notFound("Relation familiale");
+
+        String mode = normalizeAccessMode(in.accessMode());
+        String email = normalEmail(in.email());
+        GuardianContact contact = guardianContact(guardianId);
+        if ("NO_PORTAL".equals(mode)) {
+            if (email != null) updateGuardianEmail(guardianId, email);
+            jdbc.update("""
+                UPDATE student_guardian SET portal_access=false,version=version+1
+                WHERE id=? AND school_id=?
+                """, relationshipId, school);
+            if (contact.appUserId() == null) {
+                jdbc.update("UPDATE guardian SET status='NO_PORTAL',updated_at=now() WHERE id=? AND school_id=?",
+                        guardianId, school);
+            }
+        } else {
+            if (email == null) throw ApiException.badRequest("E-mail requis pour l’accès portail");
+            updateGuardianEmail(guardianId, email);
+            jdbc.update("""
+                UPDATE student_guardian SET portal_access=true,version=version+1
+                WHERE id=? AND school_id=?
+                """, relationshipId, school);
+            provisionAccess(guardianId, contact.displayName(), email, in.initialPassword(), mode);
+        }
+
+        syncCompatibility(guardianId);
+        GuardianRelationshipView out = findRelationship(relationshipId);
+        audit.record("GUARDIAN_PORTAL_ACCESS_UPDATED", "StudentGuardian", relationshipId.toString(), null,
+                out, "Accès portail parent mis à jour");
+        return out;
+    }
+
     @Transactional
     public GuardianRelationshipView update(UUID relationshipId, RelationshipUpsert in) {
         requireRelationshipAction(relationshipId, "GUARDIAN_LINK_MANAGE");
@@ -141,16 +183,22 @@ public class GuardianService {
     }
 
     private void provisionAccess(UUID guardianId,GuardianInput in){
-        String mode=in.accessMode().trim().toUpperCase(Locale.ROOT);
+        provisionAccess(guardianId, in.displayName(), in.email(), in.initialPassword(), in.accessMode());
+    }
+
+    private void provisionAccess(UUID guardianId, String displayName, String rawEmail,
+                                 String initialPassword, String rawMode){
+        String mode=normalizeAccessMode(rawMode);
         if("NO_PORTAL".equals(mode)) return;
-        String email=normalEmail(in.email()); if(email==null) throw ApiException.badRequest("E-mail requis pour l’accès portail");
-        String password=in.initialPassword();
+        String email=normalEmail(rawEmail); if(email==null) throw ApiException.badRequest("E-mail requis pour l’accès portail");
+        updateGuardianEmail(guardianId, email);
+        String password=initialPassword;
         if("CREATE_ACCOUNT".equals(mode)) validatePassword(password);
         if(password==null||password.isBlank()) password=randomPassword();
         AppUser user=users.findBySchoolIdAndNormalizedEmail(TenantContext.get(),email).orElse(null);
         if(user==null){
-            user=new AppUser(); user.setSchoolId(TenantContext.get()); user.setUsername(email); user.setEmail(blank(in.email())); user.setNormalizedEmail(email);
-            user.setPasswordHash(encoder.encode(password)); user.setDisplayName(in.displayName().trim()); user.setInitials(initials(in.displayName())); user.setRoleCode("parent");
+            user=new AppUser(); user.setSchoolId(TenantContext.get()); user.setUsername(email); user.setEmail(blank(rawEmail)); user.setNormalizedEmail(email);
+            user.setPasswordHash(encoder.encode(password)); user.setDisplayName(displayName.trim()); user.setInitials(initials(displayName)); user.setRoleCode("parent");
             user.setMustChangePassword(!"CREATE_ACCOUNT".equals(mode)); user=users.saveAndFlush(user);
         } else if(!"parent".equals(user.getRoleCode())) throw ApiException.conflict("Cet e-mail appartient à un compte non-parent");
         jdbc.update("UPDATE guardian SET app_user_id=?,status=?,updated_at=now() WHERE id=? AND school_id=?",user.getId(),"SEND_INVITE".equals(mode)?"INVITED":"ACTIVE",guardianId,TenantContext.get());
@@ -173,7 +221,11 @@ public class GuardianService {
         return id;
     }
 
-    private RelationshipUpsert toRelationship(GuardianInput in){return new RelationshipUpsert(in.relationshipType(),in.legalGuardian(),in.livesWith(),in.emergencyPriority(),in.pickupAuthorized(),in.financeResponsible(),in.receivesAcademic(),in.receivesAttendance(),in.receivesFinance(),in.receivesDiscipline(),in.receivesHealth(),in.portalAccess(),LocalDate.now(),null,in.notes(),null);}
+    private RelationshipUpsert toRelationship(GuardianInput in){
+        boolean portal = !"NO_PORTAL".equals(normalizeAccessMode(in.accessMode()))
+                && normalEmail(in.email()) != null && bool(in.portalAccess(), true);
+        return new RelationshipUpsert(in.relationshipType(),in.legalGuardian(),in.livesWith(),in.emergencyPriority(),in.pickupAuthorized(),in.financeResponsible(),in.receivesAcademic(),in.receivesAttendance(),in.receivesFinance(),in.receivesDiscipline(),in.receivesHealth(),portal,LocalDate.now(),null,in.notes(),null);
+    }
     private GuardianRelationshipView findRelationship(UUID id){
         List<GuardianRelationshipView> rows=jdbc.query("""
           SELECT sg.*,g.display_name,g.email,g.phone,g.status,
@@ -195,6 +247,31 @@ public class GuardianService {
     }
     private Student requireStudent(UUID id){return students.findByIdAndSchoolId(id,TenantContext.get()).orElseThrow(()->ApiException.notFound("Élève"));}
     private void requireGuardian(UUID id){Integer n=jdbc.queryForObject("SELECT count(*) FROM guardian WHERE id=? AND school_id=? AND status<>'MERGED'",Integer.class,id,TenantContext.get());if(n==null||n==0)throw ApiException.notFound("Parent");}
+    private GuardianContact guardianContact(UUID id){
+        List<GuardianContact> rows=jdbc.query("SELECT app_user_id,email,display_name FROM guardian WHERE id=? AND school_id=? AND status<>'MERGED'",
+                (rs,i)->new GuardianContact((UUID)rs.getObject("app_user_id"),rs.getString("email"),rs.getString("display_name")),id,TenantContext.get());
+        if(rows.isEmpty()) throw ApiException.notFound("Parent");
+        return rows.getFirst();
+    }
+    private void updateGuardianEmail(UUID guardianId,String rawEmail){
+        String email=normalEmail(rawEmail); if(email==null) return;
+        GuardianContact current=guardianContact(guardianId);
+        if(current.appUserId()!=null && !email.equals(normalEmail(current.email())))
+            throw ApiException.conflict("Le compte parent possède déjà une autre adresse e-mail");
+        Integer duplicate=jdbc.queryForObject("""
+            SELECT count(*) FROM guardian
+            WHERE school_id=? AND normalized_email=? AND id<>? AND status<>'MERGED'
+            """,Integer.class,TenantContext.get(),email,guardianId);
+        if(duplicate!=null&&duplicate>0) throw ApiException.conflict("Cette adresse e-mail est déjà utilisée par un autre parent");
+        jdbc.update("UPDATE guardian SET email=?,normalized_email=?,updated_at=now() WHERE id=? AND school_id=?",
+                blank(rawEmail),email,guardianId,TenantContext.get());
+    }
+    private static String normalizeAccessMode(String raw){
+        String mode=raw==null?"":raw.trim().toUpperCase(Locale.ROOT);
+        if(!Set.of("SEND_INVITE","CREATE_ACCOUNT","NO_PORTAL").contains(mode))
+            throw ApiException.badRequest("Mode d’accès parent invalide");
+        return mode;
+    }
     private GuardianSearchView searchById(UUID id){return jdbc.queryForObject("SELECT g.id,g.display_name,g.email,g.phone,g.status,(SELECT count(*) FROM student_guardian sg WHERE sg.guardian_id=g.id AND sg.effective_to IS NULL) children FROM guardian g WHERE id=? AND school_id=?",(rs,i)->new GuardianSearchView((UUID)rs.getObject("id"),rs.getString("display_name"),maskEmail(rs.getString("email")),maskPhone(rs.getString("phone")),rs.getInt("children"),rs.getString("status"),true),id,TenantContext.get());}
     private void syncCompatibility(UUID guardianId){jdbc.update("""
       INSERT INTO parent_student(parent_user_id,student_id)
@@ -211,4 +288,5 @@ public class GuardianService {
     private static String initials(String n){String[] p=n.trim().split("\\s+");return (p[0].substring(0,1)+(p.length>1?p[p.length-1].substring(0,1):"A")).toUpperCase();}
     private static String maskEmail(String e){if(e==null)return null;int at=e.indexOf('@');if(at<2)return "***";return e.substring(0,1)+"***"+e.substring(at);}
     private static String maskPhone(String p){if(p==null)return null;String n=normalPhone(p);return n.length()<4?"***":"***"+n.substring(n.length()-4);}
+    private record GuardianContact(UUID appUserId,String email,String displayName){}
 }

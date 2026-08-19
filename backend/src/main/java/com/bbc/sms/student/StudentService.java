@@ -69,10 +69,10 @@ public class StudentService {
                 .map(this::toView).toList();
     }
 
-    /** Class options for the registrar's existing student-profile workflow. */
+    /** Class options for the student-directory filter. */
     @Transactional(readOnly = true)
     public List<ClassView> classOptions() {
-        return setup.listClassesForStudentProfile();
+        return setup.listClassesForStudentDirectory();
     }
 
     /**

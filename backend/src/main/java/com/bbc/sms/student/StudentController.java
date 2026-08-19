@@ -71,12 +71,15 @@ public class StudentController {
     }
 
     /**
-     * Read-only class options for student registration/import.  This is kept
-     * separate from academic setup so a registrar with STUDENT_PROFILE_CREATE
-     * can place a student without receiving class/subject administration.
+     * Read-only class options for the student directory filter.
+     *
+     * <p>This endpoint is only the staff envelope.  Student-directory access
+     * is resource-scoped, so the list endpoint and its service resolve the
+     * teacher's permitted classes/students instead of requiring the unrelated
+     * student-creation authority here.</p>
      */
     @GetMapping("/class-options")
-    @PreAuthorize("@policy.canAction('STUDENT_PROFILE_CREATE') and @perm.staffOnly()")
+    @PreAuthorize("@perm.staffOnly()")
     public List<ClassView> classOptions() {
         return service.classOptions();
     }

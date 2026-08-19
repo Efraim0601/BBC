@@ -36,6 +36,18 @@ describe('StudentApi family management', () => {
     http.verify();
   });
 
+  it('updates portal access for a guardian linked to a student', () => {
+    const { api, http } = setup();
+    api.updateGuardianPortalAccess('student-1', 'guardian-1', {
+      email: 'parent@example.test', accessMode: 'SEND_INVITE',
+    }).subscribe();
+    const request = http.expectOne(`${environment.apiUrl}/students/student-1/guardians/guardian-1/portal-access`);
+    expect(request.request.method).toBe('PUT');
+    expect(request.request.body).toEqual({ email: 'parent@example.test', accessMode: 'SEND_INVITE' });
+    request.flush({});
+    http.verify();
+  });
+
   it('requests the academic roster by session and class, not legacy class name', () => {
     const { api, http } = setup();
     api.listRoster('session-2026', 'class-ce1').subscribe();
@@ -45,7 +57,7 @@ describe('StudentApi family management', () => {
     http.verify();
   });
 
-  it('loads registrar class options through the student-profile read path', () => {
+  it('loads student-directory class options through the scoped read path', () => {
     const { api, http } = setup();
     api.listClassOptions().subscribe();
     const request = http.expectOne(`${environment.apiUrl}/students/class-options`);

@@ -23,6 +23,11 @@ public class GuardianController {
     public List<GuardianRelationshipView> list(@PathVariable UUID studentId){return guardians.list(studentId);}
     @PostMapping("/api/students/{studentId}/guardians") @ResponseStatus(HttpStatus.CREATED) @PreAuthorize("@perm.staffOnly()")
     public GuardianRelationshipView add(@PathVariable UUID studentId,@Valid @RequestBody GuardianInput in){return guardians.add(studentId,in);}
+    @PutMapping("/api/students/{studentId}/guardians/{guardianId}/portal-access") @PreAuthorize("@perm.staffOnly()")
+    public GuardianRelationshipView updatePortalAccess(@PathVariable UUID studentId, @PathVariable UUID guardianId,
+                                                       @Valid @RequestBody GuardianPortalAccessInput in){
+        return guardians.updatePortalAccess(studentId, guardianId, in);
+    }
     @PutMapping("/api/student-guardian-relationships/{id}") @PreAuthorize("@perm.staffOnly()")
     public GuardianRelationshipView update(@PathVariable UUID id,@Valid @RequestBody RelationshipUpsert in){return guardians.update(id,in);}
     @DeleteMapping("/api/student-guardian-relationships/{id}") @ResponseStatus(HttpStatus.NO_CONTENT) @PreAuthorize("@perm.staffOnly()")

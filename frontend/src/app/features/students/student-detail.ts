@@ -7,7 +7,7 @@ import { I18nService } from '../../core/i18n.service';
 import { PhotoApi } from '../../core/photo.api';
 import { AvatarComponent, CardComponent, IconComponent, PageHeaderComponent } from '../../core/ui';
 import { StudentEnrollmentPanelComponent } from './student-enrollment-panel';
-import { GuardianInput, GuardianRelationshipView, GuardianSearchView, StudentApi, StudentUpsert } from './students.api';
+import { GuardianAccessMode, GuardianInput, GuardianRelationshipView, GuardianSearchView, StudentApi, StudentUpsert } from './students.api';
 
 @Component({
   selector: 'bbc-student-detail',
@@ -46,6 +46,7 @@ import { GuardianInput, GuardianRelationshipView, GuardianSearchView, StudentApi
             <div class="p-5 mb-3 rounded-xl border border-slate-200 bg-slate-50/60">
               <div class="flex flex-wrap items-start gap-3"><div class="flex-1 min-w-48"><div class="font-bold text-base">{{g.displayName}}</div><div class="text-xs text-mute mt-1">{{g.relationshipType}} · {{g.email||g.phone||'—'}} · {{g.accountStatus}}</div></div>
                 @if(g.invitationStatus==='PENDING'){<button class="btn-secondary" (click)="resend(g)">{{fr()?'Renvoyer invitation':'Resend invite'}}</button>}
+                @if(!g.email || g.accountStatus==='NO_PORTAL'){<button class="btn-secondary" (click)="openPortalAccess(g)">{{fr()?'Ajouter e-mail / activer portail':'Add email / enable portal'}}</button>}
                 <button class="min-h-10 px-3 text-rose-700 text-xs font-bold border border-rose-200 bg-white rounded-lg hover:bg-rose-50" (click)="end(g)">{{fr()?'Terminer le lien':'End link'}}</button>
               </div>
               <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-2 mt-4 text-xs">
@@ -85,6 +86,21 @@ import { GuardianInput, GuardianRelationshipView, GuardianSearchView, StudentApi
         </div>
       }
 
+      @if(portalTarget();as target){
+        <div class="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
+          <form novalidate (ngSubmit)="savePortalAccess()" class="bg-white rounded-2xl shadow-xl border border-slate-200 p-6 w-full max-w-lg space-y-5">
+            <div class="flex justify-between gap-3"><div><h2 class="text-lg font-bold">{{fr()?'Ajouter un e-mail au parent':'Add an email to the guardian'}}</h2><p class="text-sm text-mute mt-1">{{target.displayName}} · {{fr()?'Vous pourrez activer le portail maintenant ou plus tard.':'Enable portal access now or leave it disabled.'}}</p></div><button type="button" class="text-2xl text-slate-500" (click)="closePortalAccess()">×</button></div>
+            <label><span class="label">E-mail@if(portalMode!=='NO_PORTAL'){<span class="required-mark">*</span>} <span class="text-mute">({{fr()?'facultatif sans portail':'optional without portal'}})</span></span><input [(ngModel)]="portalEmail" name="portalEmail" type="email" class="input w-full" placeholder="parent@example.com" [class.input-error]="portalAttempted()&&portalEmailInvalid()" [attr.aria-invalid]="portalAttempted()&&portalEmailInvalid()"/>@if(portalAttempted()&&portalEmailInvalid()){<span class="field-error">{{!portalEmail.trim()?(fr()?'Ajoutez un e-mail pour activer le portail.':'Add an email to enable portal access.'):(fr()?'Saisissez une adresse e-mail valide.':'Enter a valid email address.')}}</span>}</label>
+            <label><span class="label">{{fr()?'Mode d’accès':'Access mode'}}<span class="required-mark">*</span></span><select [(ngModel)]="portalMode" name="portalMode" class="input w-full"><option value="SEND_INVITE">{{fr()?'Envoyer une invitation sécurisée':'Send secure invitation'}}</option><option value="CREATE_ACCOUNT">{{fr()?'Créer avec mot de passe initial':'Create with initial password'}}</option><option value="NO_PORTAL">{{fr()?'Contact sans accès portail':'Contact without portal access'}}</option></select></label>
+            @if(portalMode==='CREATE_ACCOUNT'){
+              <label><span class="label">{{fr()?'Mot de passe initial':'Initial password'}}<span class="required-mark">*</span></span><input [(ngModel)]="portalPassword" name="portalPassword" type="password" class="input w-full" [class.input-error]="portalAttempted()&&!passwordValid(portalPassword)" [attr.aria-invalid]="portalAttempted()&&!passwordValid(portalPassword)"/><span class="field-help">{{fr()?'Au moins 8 caractères, une lettre et un chiffre.':'At least 8 characters, one letter and one number.'}}</span>@if(portalAttempted()&&!passwordValid(portalPassword)){<span class="field-error">{{fr()?'Le mot de passe ne respecte pas les règles indiquées.':'Password does not meet the stated rules.'}}</span>}</label>
+            }
+            @if(formError()){<div role="alert" class="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{{formError()}}</div>}
+            <div class="flex justify-end gap-2"><button type="button" class="btn-secondary" (click)="closePortalAccess()">{{fr()?'Annuler':'Cancel'}}</button><button class="btn-primary" [disabled]="saving()">{{saving()?(fr()?'Enregistrement…':'Saving…'):(fr()?'Enregistrer':'Save')}}</button></div>
+          </form>
+        </div>
+      }
+
       @if(editing()){
         <div class="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
           <form novalidate (ngSubmit)="saveStudent()" class="bg-white rounded-2xl shadow-xl border border-slate-200 p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto space-y-5">
@@ -116,8 +132,8 @@ import { GuardianInput, GuardianRelationshipView, GuardianSearchView, StudentApi
 export class StudentDetailComponent {
   private api=inject(StudentApi); private route=inject(ActivatedRoute); private photoApi=inject(PhotoApi); protected i18n=inject(I18nService);
   protected fr=()=>this.i18n.lang()==='fr'; protected student=signal<Student|null>(null); protected guardians=signal<GuardianRelationshipView[]>([]); protected classes=signal<ClassView[]>([]); protected photo=signal<string|null>(null); protected error=signal<string|null>(null); protected notice=signal<string|null>(null);
-  protected adding=signal(false); protected editing=signal(false); protected saving=signal(false); protected addAttempted=signal(false); protected editAttempted=signal(false); protected endAttempted=signal(false); protected formError=signal<string|null>(null); protected results=signal<GuardianSearchView[]>([]); protected searchQ='';
-  protected draft:GuardianInput=this.blank(); protected editDraft:StudentUpsert={firstName:'',lastName:'',sex:'M',repeats:false,classId:null}; protected endTarget=signal<GuardianRelationshipView|null>(null); protected endReason=''; private id=this.route.snapshot.paramMap.get('id')!;
+  protected adding=signal(false); protected editing=signal(false); protected saving=signal(false); protected addAttempted=signal(false); protected editAttempted=signal(false); protected endAttempted=signal(false); protected portalAttempted=signal(false); protected formError=signal<string|null>(null); protected results=signal<GuardianSearchView[]>([]); protected searchQ='';
+  protected draft:GuardianInput=this.blank(); protected editDraft:StudentUpsert={firstName:'',lastName:'',sex:'M',repeats:false,classId:null}; protected endTarget=signal<GuardianRelationshipView|null>(null); protected portalTarget=signal<GuardianRelationshipView|null>(null); protected portalEmail=''; protected portalMode:GuardianAccessMode='SEND_INVITE'; protected portalPassword=''; protected endReason=''; private id=this.route.snapshot.paramMap.get('id')!;
 
   constructor(){this.reload();this.api.listClassOptions().subscribe({next:c=>this.classes.set(c),error:()=>this.classes.set([])});this.photoApi.load('students',this.id).subscribe(p=>this.photo.set(p));}
   private reload(){this.api.get(this.id).subscribe({next:s=>this.student.set(s),error:e=>this.error.set(e.error?.message||'Élève introuvable')});this.api.guardians(this.id).subscribe({next:g=>this.guardians.set(g),error:()=>this.guardians.set([])});}
@@ -129,6 +145,10 @@ export class StudentDetailComponent {
   protected passwordValid(password?:string|null){return !!password&&password.length>=8&&/[A-Za-z]/.test(password)&&/\d/.test(password);}
   protected addValid(){return !!this.draft.displayName.trim()&&!!this.draft.relationshipType.trim()&&!this.emailRequiredInvalid()&&(this.draft.accessMode!=='CREATE_ACCOUNT'||this.passwordValid(this.draft.initialPassword));}
   protected addGuardian(){this.addAttempted.set(true);this.formError.set(null);if(!this.addValid())return;this.saving.set(true);this.api.addGuardian(this.id,this.draft).subscribe({next:()=>{this.saving.set(false);this.closeAdd();this.draft=this.blank();this.notice.set(this.fr()?'Le parent a été lié avec succès.':'Guardian linked successfully.');this.reload();},error:e=>{this.saving.set(false);this.formError.set(e.error?.message||'Erreur')}});}
+  protected openPortalAccess(g:GuardianRelationshipView){this.portalTarget.set(g);this.portalEmail=g.email||'';this.portalMode='SEND_INVITE';this.portalPassword='';this.portalAttempted.set(false);this.formError.set(null);}
+  protected closePortalAccess(){this.portalTarget.set(null);this.portalAttempted.set(false);this.portalEmail='';this.portalPassword='';this.formError.set(null);}
+  protected portalEmailInvalid(){if(this.portalMode==='NO_PORTAL')return false;const email=this.portalEmail.trim();return !email||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);}
+  protected savePortalAccess(){this.portalAttempted.set(true);this.formError.set(null);const target=this.portalTarget();if(!target||this.portalEmailInvalid()||(this.portalMode==='CREATE_ACCOUNT'&&!this.passwordValid(this.portalPassword)))return;this.saving.set(true);this.api.updateGuardianPortalAccess(this.id,target.guardianId,{email:this.portalEmail.trim()||null,accessMode:this.portalMode,initialPassword:this.portalPassword||null}).subscribe({next:()=>{this.saving.set(false);this.closePortalAccess();this.notice.set(this.fr()?'L’accès parent a été mis à jour.':'Parent access updated.');this.reload();},error:e=>{this.saving.set(false);this.formError.set(e.error?.message||'Erreur')}});}
   protected savePermissions(g:GuardianRelationshipView){this.notice.set(null);this.api.updateRelationship(g.relationshipId,{...g,effectiveFrom:g.effectiveFrom}).subscribe({next:()=>{this.notice.set(this.fr()?'Les droits du parent ont été enregistrés.':'Guardian permissions saved.');this.reload();},error:e=>this.error.set(e.error?.message)});}
   protected end(g:GuardianRelationshipView){this.endTarget.set(g);this.endReason='';this.endAttempted.set(false);}
   protected cancelEnd(){this.endTarget.set(null);this.endReason='';this.endAttempted.set(false);}
@@ -137,5 +157,5 @@ export class StudentDetailComponent {
   protected openEdit(s:Student){this.editDraft={firstName:s.firstName,lastName:s.lastName,niu:s.niu,sex:s.sex||'M',dob:s.dob,birthplace:s.birthplace,repeats:s.repeats,classId:s.classId,parentName:s.parentName,parentPhone:s.parentPhone,fatherName:s.fatherName,fatherPhone:s.fatherPhone,fatherEmail:s.fatherEmail,motherName:s.motherName,motherPhone:s.motherPhone,motherEmail:s.motherEmail,guardianName:s.guardianName,guardianPhone:s.guardianPhone,guardianEmail:s.guardianEmail,guardianRelation:s.guardianRelation};this.editAttempted.set(false);this.editing.set(true);}
   protected editValid(){return !!this.editDraft.lastName.trim()&&!!this.editDraft.firstName.trim();}
   protected saveStudent(){this.editAttempted.set(true);if(!this.editValid())return;this.saving.set(true);this.api.update(this.id,this.editDraft).subscribe({next:()=>{this.saving.set(false);this.editing.set(false);this.notice.set(this.fr()?'La fiche élève a été mise à jour.':'Student profile updated.');this.reload()},error:e=>{this.saving.set(false);this.error.set(e.error?.message)}});}
-  private blank():GuardianInput{return{displayName:'',email:'',phone:'',relationshipType:'GUARDIAN',accessMode:'SEND_INVITE',legalGuardian:true,pickupAuthorized:true,receivesAcademic:true,receivesAttendance:true,portalAccess:true};}
+  private blank():GuardianInput{return{displayName:'',email:'',phone:'',relationshipType:'GUARDIAN',accessMode:'NO_PORTAL',legalGuardian:true,pickupAuthorized:true,receivesAcademic:true,receivesAttendance:true,portalAccess:false};}
 }

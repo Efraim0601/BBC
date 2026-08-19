@@ -140,6 +140,20 @@ public class SetupService {
         return classViews();
     }
 
+    /**
+     * Class labels/IDs needed by the student-directory filter.
+     *
+     * <p>Unlike the registration/import picker, this read is not a student
+     * creation workflow and must not require STUDENT_PROFILE_CREATE.  The
+     * returned projection still uses the teacher's assignment-derived class
+     * scope, while the student directory applies its own resource-level
+     * STUDENT_DIRECTORY_VIEW decision to every row.</p>
+     */
+    @Transactional(readOnly = true)
+    public List<ClassView> listClassesForStudentDirectory() {
+        return classViews();
+    }
+
     private List<ClassView> classViews() {
         UUID schoolId = TenantContext.get();
         Map<String, Section> byId = sections.findBySchoolIdOrderByLabel(schoolId).stream()
