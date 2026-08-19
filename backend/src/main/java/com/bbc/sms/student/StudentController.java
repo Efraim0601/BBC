@@ -9,9 +9,11 @@ import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -73,6 +75,24 @@ public class StudentController {
         return service.get(id);
     }
 
+    /**
+     * Cet élève est-il déjà au registre ? Interrogé pendant la saisie, avant
+     * l'enregistrement, pour prévenir plutôt que refuser. Le refus, lui, reste posé
+     * sur la création et la modification : l'écran ne fait qu'annoncer à l'avance ce
+     * que le serveur ferait de toute façon.
+     */
+    @GetMapping("/duplicates")
+    @PreAuthorize("@perm.can('students','write') and @perm.staffOnly()")
+    public DuplicateCheckResult duplicates(@RequestParam(required = false) String lastName,
+                                           @RequestParam(required = false) String firstName,
+                                           @RequestParam(required = false) String niu,
+                                           @RequestParam(required = false)
+                                           @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dob,
+                                           @RequestParam(required = false) UUID classId,
+                                           @RequestParam(required = false) UUID excludeId) {
+        return service.checkDuplicates(lastName, firstName, dob, niu, classId, excludeId);
+    }
+
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("@perm.can('students','write') and @perm.staffOnly()")
@@ -91,6 +111,13 @@ public class StudentController {
     @PreAuthorize("@perm.can('students','write') and @perm.staffOnly()")
     public void delete(@PathVariable UUID id) {
         service.delete(id);
+    }
+
+    /** Suppression groupée depuis la liste ; rend le détail des fiches refusées. */
+    @PostMapping("/bulk-delete")
+    @PreAuthorize("@perm.can('students','write') and @perm.staffOnly()")
+    public BulkDeleteResult bulkDelete(@Valid @RequestBody BulkDeleteRequest in) {
+        return service.deleteAll(in.ids());
     }
 
     /** Bulk-import students into one class; returns a per-row created/failed report. */

@@ -110,6 +110,13 @@ public class StaffController {
         service.delete(id);
     }
 
+    /** Suppression groupée depuis l'annuaire ; rend le détail des fiches refusées. */
+    @PostMapping("/bulk-delete")
+    @PreAuthorize("@perm.can('hr','write')")
+    public BulkDeleteResult bulkDelete(@Valid @RequestBody BulkDeleteRequest in) {
+        return service.deleteAll(in.ids());
+    }
+
     /**
      * Create the employee's login account if missing, otherwise regenerate its
      * password; the new credentials are e-mailed to the employee. Doubles as the

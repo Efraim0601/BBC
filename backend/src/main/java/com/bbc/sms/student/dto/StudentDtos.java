@@ -61,7 +61,46 @@ public class StudentDtos {
             String guardianName,
             String guardianPhone,
             String guardianEmail,
-            String guardianRelation) {}
+            String guardianRelation,
+            /**
+             * Enregistrer malgré un homonyme déjà au fichier. Faux par défaut : la
+             * fiche est refusée (409) tant que l'utilisateur n'a pas confirmé, ce qui
+             * rend le contrôle actif pour tout appelant, écran ou non.
+             */
+            boolean allowDuplicate) {}
+
+    /**
+     * Une fiche déjà au fichier qui ressemble à celle en cours de saisie. Les
+     * drapeaux disent POURQUOI elle ressort — même NIU, même nom, même date de
+     * naissance, même classe — pour que l'écran puisse nuancer son message au lieu
+     * d'afficher un avertissement uniforme.
+     */
+    public record DuplicateMatch(
+            UUID id,
+            String matricule,
+            String name,
+            UUID classId,
+            String className,
+            String level,
+            String subsystem,
+            LocalDate dob,
+            String niu,
+            boolean sameClass,
+            boolean sameNiu,
+            boolean sameName,
+            boolean sameDob) {}
+
+    /**
+     * Ce que la recherche de doublons a trouvé. {@code blocking} distingue les cas
+     * où l'enregistrement sera refusé sans confirmation (NIU déjà attribué) de la
+     * simple mise en garde sur un homonyme.
+     */
+    public record DuplicateCheckResult(
+            boolean exists,
+            boolean sameClass,
+            boolean blocking,
+            String message,
+            List<DuplicateMatch> matches) {}
 
     public record ParentAccountView(
             UUID userId,
@@ -111,10 +150,33 @@ public class StudentDtos {
     public record StudentImportError(int row, String name, String message) {}
 
     /**
+     * Une ligne importée qui a bien créé une fiche, mais dont l'élève porte le nom
+     * d'un élève déjà inscrit dans une AUTRE classe. Le doute n'est pas tranchable
+     * automatiquement — un transfert de classe et un homonyme se ressemblent — donc
+     * la fiche est créée et le cas signalé, à charge de l'école de fusionner.
+     */
+    public record StudentImportWarning(int row, String name, String message) {}
+
+    /** Les élèves cochés dans la liste, à retirer d'un seul geste. */
+    public record BulkDeleteRequest(@NotEmpty List<UUID> ids) {}
+
+    public record BulkDeleteError(UUID id, String message) {}
+
+    /**
+     * Ce qu'une suppression groupée a réellement fait. Les échecs sont rendus
+     * fiche par fiche — une seule hors périmètre ne doit pas laisser croire que
+     * rien n'a été supprimé.
+     */
+    public record BulkDeleteResult(int deleted, int failed, List<BulkDeleteError> errors) {}
+
+    /**
      * What an import actually did. `updated` counts pupils already on file whose
      * empty fields the register filled in, `unchanged` those it had nothing to add
      * to — telling them apart is what lets a second run be read as "nothing left to
      * complete" rather than as a no-op failure.
+     *
+     * <p>{@code warnings} liste les fiches créées malgré un homonyme ailleurs dans
+     * l'établissement : rien n'a échoué, mais l'école doit y jeter un œil.
      */
     public record StudentImportResult(
             int created,
@@ -122,5 +184,6 @@ public class StudentDtos {
             int unchanged,
             int fieldsFilled,
             int failed,
-            List<StudentImportError> errors) {}
+            List<StudentImportError> errors,
+            List<StudentImportWarning> warnings) {}
 }

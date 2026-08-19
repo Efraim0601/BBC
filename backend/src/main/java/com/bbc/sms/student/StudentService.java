@@ -13,12 +13,16 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.text.Normalizer;
+import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
@@ -89,6 +93,7 @@ public class StudentService {
     @Transactional
     public StudentView create(StudentUpsert in) {
         UUID schoolId = TenantContext.get();
+        assertNoDuplicate(in, null);
         Student s = new Student();
         s.setSchoolId(schoolId);
         s.setMatricule(nextMatricule(schoolId));
@@ -101,8 +106,105 @@ public class StudentService {
     public StudentView update(UUID id, StudentUpsert in) {
         accessScope.assertStudent(id);
         Student s = find(id);
+        // Une fiche dont on ne touche ni le nom, ni le NIU, ni la classe ne crée
+        // aucun doublon nouveau : la contrôler redemanderait une confirmation à
+        // chaque correction d'un numéro de téléphone, pour un homonyme déjà assumé.
+        if (identityChanged(s, in)) assertNoDuplicate(in, id);
         apply(s, in);
         return toView(repo.save(s));
+    }
+
+    /** Le nom, le NIU ou la classe de la fiche diffèrent-ils de ce qui est enregistré ? */
+    private static boolean identityChanged(Student s, StudentUpsert in) {
+        if (!nameKey(s.getLastName(), s.getFirstName()).equals(nameKey(in.lastName(), in.firstName()))) return true;
+        if (!Objects.equals(blankToNull(s.getNiu()), blankToNull(in.niu()))) return true;
+        return !Objects.equals(s.getClassId(), in.classId());
+    }
+
+    // ---- Détection des doublons ---------------------------------------------
+
+    /**
+     * Les fiches déjà au registre qui ressemblent à celle qu'on saisit. L'écran
+     * l'interroge au fil de la frappe pour prévenir AVANT l'enregistrement ; la
+     * même recherche garde l'écriture juste en dessous, de sorte qu'un doublon
+     * reste impossible même sans passer par l'écran.
+     */
+    @Transactional(readOnly = true)
+    public DuplicateCheckResult checkDuplicates(String lastName, String firstName, LocalDate dob,
+                                                String niu, UUID classId, UUID excludeId) {
+        List<DuplicateMatch> matches = findDuplicates(lastName, firstName, dob, niu, classId, excludeId);
+        if (matches.isEmpty()) return new DuplicateCheckResult(false, false, false, null, List.of());
+        DuplicateMatch first = matches.get(0);
+        return new DuplicateCheckResult(true, first.sameClass(), first.sameNiu(),
+                duplicateMessage(first, blankToNull(niu)), matches);
+    }
+
+    /**
+     * Refuse l'écriture d'une fiche qui en redouble une autre.
+     *
+     * <p>Deux enfants peuvent réellement porter le même nom : l'homonyme n'est donc
+     * qu'un doute, levé par une confirmation explicite ({@code allowDuplicate}). Le
+     * NIU, lui, est l'identifiant officiel de l'élève — deux fiches ne peuvent pas
+     * le partager, et aucune confirmation ne lève ce refus.
+     */
+    private void assertNoDuplicate(StudentUpsert in, UUID excludeId) {
+        String niu = blankToNull(in.niu());
+        List<DuplicateMatch> matches =
+                findDuplicates(in.lastName(), in.firstName(), in.dob(), niu, in.classId(), excludeId);
+        if (matches.isEmpty()) return;
+        DuplicateMatch niuHit = matches.stream().filter(DuplicateMatch::sameNiu).findFirst().orElse(null);
+        if (niuHit != null) throw ApiException.conflict(duplicateMessage(niuHit, niu));
+        if (in.allowDuplicate()) return;
+        throw ApiException.conflict(duplicateMessage(matches.get(0), niu));
+    }
+
+    /**
+     * Balaye les élèves actifs de l'établissement — pas seulement ceux de la classe
+     * visée : le même enfant inscrit deux fois dans deux classes est précisément le
+     * doublon que l'école ne voit jamais. Une fiche retirée (suppression douce) ne
+     * compte pas, sinon une réinscription serait bloquée par son propre passé.
+     *
+     * <p>La comparaison des noms se fait sur la clé normalisée de l'import : accents,
+     * casse, tirets et espaces doubles ne doivent pas faire passer un doublon pour un
+     * nouvel élève.
+     */
+    private List<DuplicateMatch> findDuplicates(String lastName, String firstName, LocalDate dob,
+                                                String niu, UUID classId, UUID excludeId) {
+        String key = nameKey(lastName, firstName);
+        boolean hasName = !normalise(lastName).isEmpty() && !normalise(firstName).isEmpty();
+        String niuKey = blankToNull(niu);
+        if (!hasName && niuKey == null) return List.of();
+
+        List<DuplicateMatch> out = new ArrayList<>();
+        for (StudentRepository.DuplicateRow r : repo.findProjectedBySchoolIdAndActiveTrue(TenantContext.get())) {
+            if (excludeId != null && excludeId.equals(r.getId())) continue;   // la fiche qu'on modifie
+            String rowNiu = blankToNull(r.getNiu());
+            boolean sameNiu = niuKey != null && rowNiu != null && niuKey.equalsIgnoreCase(rowNiu);
+            boolean sameName = hasName && key.equals(nameKey(r.getLastName(), r.getFirstName()));
+            if (!sameNiu && !sameName) continue;
+            out.add(new DuplicateMatch(r.getId(), r.getMatricule(),
+                    displayName(r.getLastName(), r.getFirstName()),
+                    r.getClassId(), r.getClassName(), r.getLevel(), r.getSubsystem(), r.getDob(), rowNiu,
+                    classId != null && classId.equals(r.getClassId()),
+                    sameNiu, sameName, dob != null && dob.equals(r.getDob())));
+        }
+        // Le premier de la liste porte le message : d'abord le NIU (refus ferme),
+        // puis la même classe, puis la même date de naissance — du plus certain au
+        // plus douteux.
+        out.sort(Comparator.comparing(DuplicateMatch::sameNiu).reversed()
+                .thenComparing(Comparator.comparing(DuplicateMatch::sameClass).reversed())
+                .thenComparing(Comparator.comparing(DuplicateMatch::sameDob).reversed())
+                .thenComparing(DuplicateMatch::name));
+        return out;
+    }
+
+    /** Le message montré à l'utilisateur, adapté à ce qui a réellement concordé. */
+    private static String duplicateMessage(DuplicateMatch m, String niu) {
+        String who = m.name() + " (" + m.matricule()
+                + (m.className() == null || m.className().isBlank() ? "" : ", " + m.className()) + ")";
+        if (m.sameNiu()) return "Le NIU " + niu + " est déjà attribué à " + who + ".";
+        if (m.sameClass()) return "Cet élève existe déjà dans cette classe : " + who + ".";
+        return "Cet élève existe déjà dans la base de données : " + who + ".";
     }
 
     @Transactional
@@ -114,6 +216,30 @@ public class StudentService {
     }
 
     /**
+     * Retire d'un seul geste les élèves cochés dans la liste. Chaque identifiant
+     * est traité à part : une fiche hors périmètre ou déjà retirée est rapportée
+     * sans faire échouer les autres. Les contrôles précèdent toute écriture, la
+     * transaction reste donc saine malgré les erreurs collectées.
+     */
+    @Transactional
+    public BulkDeleteResult deleteAll(List<UUID> ids) {
+        int deleted = 0;
+        List<BulkDeleteError> errors = new ArrayList<>();
+        for (UUID id : new LinkedHashSet<>(ids)) {
+            try {
+                accessScope.assertStudent(id);
+                Student s = find(id);
+                s.setActive(false);
+                repo.save(s);
+                deleted++;
+            } catch (ApiException e) {
+                errors.add(new BulkDeleteError(id, e.getMessage()));
+            }
+        }
+        return new BulkDeleteResult(deleted, errors.size(), errors);
+    }
+
+    /**
      * Import a register into one class, in a way that survives being run twice.
      *
      * Each row is matched against the pupils already in the target class — by NIU
@@ -122,7 +248,10 @@ public class StudentService {
      * filled in, so a partial or out-of-date register can never erase what has
      * already been captured. A row matching nobody creates the pupil, as before.
      * Pupils created earlier in the same batch join the index immediately, so a
-     * register listing the same child twice still yields a single record.
+     * register listing the same child twice still yields a single record. Une ligne
+     * dont l'homonyme est inscrit dans une AUTRE classe crée bien la fiche — le
+     * transfert et l'homonyme ne se distinguent pas d'eux-mêmes — mais ressort en
+     * avertissement dans le bilan.
      *
      * That idempotence is also what makes the endpoint safe to retry: when a slow
      * link drops the connection mid-import, re-sending the same batch converges on
@@ -150,7 +279,20 @@ public class StudentService {
         Set<String> schoolNiu = new HashSet<>(repo.findActiveNiusBySchoolId(schoolId));
         Set<String> usedMatricules = new HashSet<>(repo.findMatriculesBySchoolId(schoolId));
 
+        // Nom → classe des élèves du RESTE de l'établissement. Un homonyme qui y dort
+        // n'arrête pas l'import — un changement de classe et deux enfants de même nom
+        // se ressemblent trop pour trancher tout seul — mais il est signalé, à charge
+        // de l'école de fusionner les deux fiches si c'est bien le même enfant.
+        Map<String, String> elsewhere = new HashMap<>();
+        for (StudentRepository.DuplicateRow r : repo.findProjectedBySchoolIdAndActiveTrue(schoolId)) {
+            if (cls.getId().equals(r.getClassId())) continue;
+            String where = blankToNull(r.getClassName());
+            elsewhere.putIfAbsent(nameKey(r.getLastName(), r.getFirstName()),
+                    where == null ? "sans classe" : where);
+        }
+
         long seq = repo.countBySchoolIdAndActiveTrue(schoolId) + 1001;
+        List<StudentImportWarning> warnings = new ArrayList<>();
         List<StudentImportError> errors = new ArrayList<>();
         int created = 0, updated = 0, unchanged = 0, fieldsFilled = 0;
         int lineNo = 0;
@@ -239,6 +381,13 @@ public class StudentService {
                 repo.save(s);
                 created++;
 
+                String other = elsewhere.get(key);
+                if (other != null) {
+                    warnings.add(new StudentImportWarning(lineNo, label,
+                            "Un élève de ce nom est déjà inscrit en « " + other
+                                    + " » — la fiche a été créée, à vérifier."));
+                }
+
                 // Index the newcomer so a second mention of the same child later in
                 // this very batch enriches it rather than adding another record.
                 byName.putIfAbsent(key, s);
@@ -250,7 +399,7 @@ public class StudentService {
                 errors.add(new StudentImportError(lineNo, label.isBlank() ? "?" : label, ex.getMessage()));
             }
         }
-        return new StudentImportResult(created, updated, unchanged, fieldsFilled, errors.size(), errors);
+        return new StudentImportResult(created, updated, unchanged, fieldsFilled, errors.size(), errors, warnings);
     }
 
     /**
@@ -452,8 +601,13 @@ public class StudentService {
         return code;
     }
 
+    /** L'élève tel qu'on le nomme partout : NOM de famille en capitales, puis prénom. */
+    private static String displayName(String lastName, String firstName) {
+        return (lastName == null ? "" : lastName.toUpperCase()) + " " + (firstName == null ? "" : firstName);
+    }
+
     private StudentView toView(Student s) {
-        String name = s.getLastName().toUpperCase() + " " + s.getFirstName();
+        String name = displayName(s.getLastName(), s.getFirstName());
         return new StudentView(s.getId(), s.getMatricule(), s.getNiu(), s.getFirstName(), s.getLastName(),
                 name, s.getSex(), s.getDob(), s.getBirthplace(), s.isRepeats(),
                 s.getClassId(), s.getClassName(), s.getSubsystem(), s.getLevel(),

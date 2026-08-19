@@ -20,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -329,6 +330,29 @@ public class StaffService {
         Employee e = find(id);
         e.setActive(false);   // soft delete — keeps payroll/academic history intact
         repo.save(e);
+    }
+
+    /**
+     * Retire d'un seul geste les employés cochés dans l'annuaire. Chaque
+     * identifiant est traité à part : une fiche hors section ou déjà retirée est
+     * rapportée sans faire échouer les autres. Les contrôles précèdent toute
+     * écriture, la transaction reste donc saine malgré les erreurs collectées.
+     */
+    @Transactional
+    public BulkDeleteResult deleteAll(List<UUID> ids) {
+        int deleted = 0;
+        List<BulkDeleteError> errors = new ArrayList<>();
+        for (UUID id : new LinkedHashSet<>(ids)) {
+            try {
+                Employee e = find(id);
+                e.setActive(false);
+                repo.save(e);
+                deleted++;
+            } catch (ApiException ex) {
+                errors.add(new BulkDeleteError(id, ex.getMessage()));
+            }
+        }
+        return new BulkDeleteResult(deleted, errors.size(), errors);
     }
 
     /** (Re)issue the employee's login credentials and e-mail them; admin action. */

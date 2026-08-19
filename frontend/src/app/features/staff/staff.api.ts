@@ -89,6 +89,18 @@ export interface StaffImportResult {
   errors: StaffImportError[];
 }
 
+export interface BulkDeleteError {
+  id: string;
+  message: string;
+}
+
+/** Bilan d'une suppression groupée — les refus sont rendus fiche par fiche. */
+export interface BulkDeleteResult {
+  deleted: number;
+  failed: number;
+  errors: BulkDeleteError[];
+}
+
 export interface StaffPortalMeta {
   schoolName: string;
   schoolCode: string;
@@ -165,6 +177,10 @@ export class StaffApi {
   }
   remove(id: string): Observable<void> {
     return this.http.delete<void>(`${this.base}/${id}`);
+  }
+  /** Retire en une requête tous les employés cochés dans l'annuaire. */
+  bulkDelete(ids: string[]): Observable<BulkDeleteResult> {
+    return this.http.post<BulkDeleteResult>(`${this.base}/bulk-delete`, { ids });
   }
   resetCredentials(id: string): Observable<AccountResult> {
     return this.http.post<AccountResult>(`${this.base}/${id}/reset-credentials`, {});

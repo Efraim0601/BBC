@@ -93,6 +93,18 @@ public class StaffDtos {
 
     public record StaffImportResult(int created, int failed, List<StaffImportError> errors) {}
 
+    /** Les employés cochés dans l'annuaire, à retirer d'un seul geste. */
+    public record BulkDeleteRequest(@NotEmpty List<UUID> ids) {}
+
+    public record BulkDeleteError(UUID id, String message) {}
+
+    /**
+     * Ce qu'une suppression groupée a réellement fait. Les échecs sont rendus
+     * fiche par fiche — une seule hors section ne doit pas laisser croire que
+     * rien n'a été supprimé.
+     */
+    public record BulkDeleteResult(int deleted, int failed, List<BulkDeleteError> errors) {}
+
     // ---- Staff self-registration portal ------------------------------------
 
     public record StaffPortalMeta(

@@ -1,7 +1,7 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed, effect } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
-import { StudentApi, StudentUpsert, ParentAccountView, ParentLinkRequest, StudentImportRow, StudentImportRequest, StudentImportResult } from './students.api';
+import { StudentApi, StudentUpsert, ParentAccountView, ParentLinkRequest, StudentImportRow, StudentImportRequest, StudentImportResult, DuplicateMatch } from './students.api';
 import { SetupApi, ClassView } from '../../core/setup.api';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
@@ -100,12 +100,38 @@ interface HeaderMap {
         <!-- High-density data table -->
         <bbc-card className="mb-5 overflow-hidden">
           <div class="-m-5">
-            <div class="flex items-center justify-between px-5 py-3 border-b border-slate-100">
-              <div class="text-sm font-semibold">{{ filtered().length }} {{ fr() ? 'résultats' : 'results' }}</div>
-              <div class="text-xs text-mute">{{ fr() ? 'Cliquez une ligne pour ouvrir la fiche' : 'Click a row to open the profile' }}</div>
-            </div>
+            @if (selectedCount()) {
+              <!-- Barre d'actions groupées : elle remplace l'en-tête tant qu'une sélection est active. -->
+              <div class="flex items-center justify-between gap-3 px-5 py-3 border-b border-slate-100 bg-brand-50">
+                <div class="text-sm font-semibold text-brand-800">
+                  {{ selectedCount() }} {{ fr() ? 'élève(s) sélectionné(s)' : 'student(s) selected' }}
+                </div>
+                <div class="flex items-center gap-2">
+                  <button (click)="clearSelection()"
+                    class="h-8 px-3 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
+                    {{ fr() ? 'Tout décocher' : 'Clear' }}
+                  </button>
+                  <button (click)="confirmBulk.set(true)"
+                    class="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-lg bg-rose-600 hover:bg-rose-700 text-white">
+                    <bbc-icon name="trash" [s]="14" /> {{ fr() ? 'Supprimer la sélection' : 'Delete selected' }}
+                  </button>
+                </div>
+              </div>
+            } @else {
+              <div class="flex items-center justify-between px-5 py-3 border-b border-slate-100">
+                <div class="text-sm font-semibold">{{ filtered().length }} {{ fr() ? 'résultats' : 'results' }}</div>
+                <div class="text-xs text-mute">
+                  {{ canWrite
+                      ? (fr() ? 'Cochez pour agir en groupe · cliquez une ligne pour la fiche' : 'Tick rows for bulk actions · click a row for the profile')
+                      : (fr() ? 'Cliquez une ligne pour ouvrir la fiche' : 'Click a row to open the profile') }}
+                </div>
+              </div>
+            }
             <bbc-data-table [columns]="columns()" [rows]="filtered()"
               [trackBy]="trackId" [activeId]="selectedId()"
+              [selectable]="canWrite" [selectedIds]="selection()"
+              [selectAllLabel]="fr() ? 'Tout sélectionner' : 'Select all'"
+              (selectionChange)="onSelectionChange($event)"
               [emptyLabel]="fr() ? 'Aucun résultat' : 'No results'"
               (rowClick)="selectedId.set($event.id)">
 
@@ -323,12 +349,12 @@ interface HeaderMap {
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <label class="block">
                     <span class="text-xs font-semibold text-ink">{{ fr() ? 'Nom' : 'Last name' }} *</span>
-                    <input [(ngModel)]="draft.lastName" name="lastName" required
+                    <input [(ngModel)]="draft.lastName" name="lastName" required (ngModelChange)="onIdentityChange()"
                       class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
                   </label>
                   <label class="block">
                     <span class="text-xs font-semibold text-ink">{{ fr() ? 'Prénom' : 'First name' }} *</span>
-                    <input [(ngModel)]="draft.firstName" name="firstName" required
+                    <input [(ngModel)]="draft.firstName" name="firstName" required (ngModelChange)="onIdentityChange()"
                       class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
                   </label>
                   <label class="block">
@@ -351,7 +377,8 @@ interface HeaderMap {
                   </label>
                   <label class="block">
                     <span class="text-xs font-semibold text-ink">NIU</span>
-                    <input [(ngModel)]="draft.niu" name="niu" placeholder="{{ fr() ? 'Identifiant unique (facultatif)' : 'Unique ID (optional)' }}"
+                    <input [(ngModel)]="draft.niu" name="niu" (ngModelChange)="onIdentityChange()"
+                      placeholder="{{ fr() ? 'Identifiant unique (facultatif)' : 'Unique ID (optional)' }}"
                       class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 font-mono focus:outline-none focus:border-brand-400" />
                   </label>
                   <label class="flex items-center gap-2 mt-6">
@@ -360,6 +387,45 @@ interface HeaderMap {
                     <span class="text-xs font-semibold text-ink">{{ fr() ? 'Redouble cette année' : 'Repeating this year' }}</span>
                   </label>
                 </div>
+
+                <!-- Doublon : l'alerte apparaît dès la frappe, avant tout enregistrement -->
+                @if (dupChecking()) {
+                  <div class="mt-3 text-[11px] text-mute">{{ fr() ? 'Vérification des doublons…' : 'Checking for duplicates…' }}</div>
+                } @else if (dupMatches().length) {
+                  <div class="mt-4 rounded-lg border p-3.5"
+                    [class]="dupBlocking() ? 'bg-rose-50 border-rose-200' : 'bg-amber-50 border-amber-200'">
+                    <div class="flex items-start gap-3">
+                      <div class="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
+                        [class]="dupBlocking() ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'">
+                        <bbc-icon name="alertTri" [s]="16" />
+                      </div>
+                      <div class="flex-1 min-w-0">
+                        <div class="text-sm font-semibold" [class]="dupBlocking() ? 'text-rose-800' : 'text-amber-800'">
+                          {{ dupTitle() }}
+                        </div>
+                        <div class="text-xs text-mute mt-0.5">{{ dupHint() }}</div>
+                        @for (m of dupMatches(); track m.id) {
+                          <div class="flex items-center gap-3 mt-2 p-2 rounded-lg bg-white border border-slate-200">
+                            <bbc-avatar [name]="m.name" [size]="30" />
+                            <div class="flex-1 min-w-0">
+                              <div class="text-sm font-semibold text-ink truncate">{{ m.name }}</div>
+                              <div class="text-[11px] text-mute">
+                                <span class="font-mono">{{ m.matricule }}</span>
+                                · {{ m.className || (fr() ? 'Non affecté' : 'Unassigned') }}
+                                @if (m.dob) { · {{ dobLabel(m.dob) }} }
+                                @if (m.sameNiu) { · <span class="text-rose-600 font-semibold">{{ fr() ? 'même NIU' : 'same ID' }}</span> }
+                              </div>
+                            </div>
+                            <button type="button" (click)="openExisting(m)"
+                              class="h-8 px-3 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50 shrink-0">
+                              {{ fr() ? 'Ouvrir la fiche' : 'Open record' }}
+                            </button>
+                          </div>
+                        }
+                      </div>
+                    </div>
+                  </div>
+                }
               </section>
 
               <!-- Schooling — class is a locked dropdown bound to a real class (review #1) -->
@@ -369,7 +435,7 @@ interface HeaderMap {
                   <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <label class="block">
                       <span class="text-xs font-semibold text-ink">{{ fr() ? 'Classe' : 'Class' }}</span>
-                      <select [(ngModel)]="draft.classId" name="classId"
+                      <select [(ngModel)]="draft.classId" name="classId" (ngModelChange)="onIdentityChange()"
                         class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400">
                         <option [ngValue]="null">{{ fr() ? '— Non affecté —' : '— Unassigned —' }}</option>
                         @for (c of classes(); track c.id) {
@@ -470,12 +536,16 @@ interface HeaderMap {
               </section>
             </div>
 
+            @if (saveError(); as e) {
+              <div class="text-sm rounded-lg px-3 py-2 bg-rose-50 text-rose-600 mt-6">{{ e }}</div>
+            }
+
             <div class="flex items-center justify-end gap-2 mt-8 pt-5 border-t border-slate-100">
               <button type="button" (click)="closeEditor()"
                 class="h-10 px-5 rounded-lg bg-slate-100 text-sm font-semibold text-ink hover:bg-slate-200">{{ i18n.t('cancel') }}</button>
-              <button type="submit" [disabled]="!draft.firstName || !draft.lastName"
+              <button type="submit" [disabled]="!draft.firstName || !draft.lastName || saving()"
                 class="h-10 px-6 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-semibold">
-                {{ fr() ? 'Enregistrer' : 'Save' }}
+                {{ saving() ? (fr() ? 'Enregistrement…' : 'Saving…') : (fr() ? 'Enregistrer' : 'Save') }}
               </button>
             </div>
           </bbc-card>
@@ -514,8 +584,31 @@ interface HeaderMap {
                     <div class="text-sm text-mute">{{ res.unchanged }} {{ fr() ? 'fiche(s) déjà complète(s) — rien à ajouter' : 'record(s) already complete — nothing to add' }}</div>
                   }
                   @if (res.failed) { <div class="text-sm text-amber-700">{{ res.failed }} {{ fr() ? 'ligne(s) ignorée(s)' : 'row(s) skipped' }}</div> }
+                  @if (res.warnings.length) {
+                    <div class="text-sm text-amber-700">
+                      {{ res.warnings.length }} {{ fr() ? 'doublon(s) possible(s) — voir ci-dessous' : 'possible duplicate(s) — see below' }}
+                    </div>
+                  }
                 </div>
               </div>
+              @if (res.warnings.length) {
+                <div class="rounded-lg border border-amber-200 overflow-hidden">
+                  <div class="px-3 py-2 bg-amber-50 text-xs font-semibold text-amber-800">
+                    {{ fr() ? 'Élèves déjà inscrits ailleurs — fiches créées, à vérifier' : 'Students already enrolled elsewhere — records created, please check' }}
+                  </div>
+                  <table class="w-full text-sm">
+                    <tbody>
+                      @for (w of res.warnings; track w.row) {
+                        <tr class="border-t border-amber-100">
+                          <td class="px-3 py-1.5 text-mute font-mono w-14">#{{ w.row }}</td>
+                          <td class="px-3 py-1.5 font-medium text-ink">{{ w.name }}</td>
+                          <td class="px-3 py-1.5 text-amber-700">{{ w.message }}</td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              }
               @if (res.errors.length) {
                 <div class="rounded-lg border border-slate-200 overflow-hidden">
                   <div class="px-3 py-2 bg-slate-50 text-xs font-semibold text-mute">{{ fr() ? 'Lignes ignorées' : 'Skipped rows' }}</div>
@@ -731,6 +824,48 @@ interface HeaderMap {
         </bbc-card>
       }
 
+      <!-- Doublon : confirmation avant d'enregistrer un homonyme -->
+      @if (dupPrompt()) {
+        <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 fade-in" (click)="dupPrompt.set(false)">
+          <div class="bg-white rounded-xl2 shadow-pop w-full max-w-lg p-6" (click)="$event.stopPropagation()">
+            <div class="flex items-start gap-3">
+              <div class="w-10 h-10 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+                <bbc-icon name="alertTri" [s]="18" />
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="text-[15px] font-semibold text-ink">
+                  {{ fr() ? 'Cet élève existe déjà dans la base de données' : 'This student already exists in the database' }}
+                </div>
+                <div class="text-sm text-mute mt-1">{{ dupHint() }}</div>
+                @for (m of dupMatches(); track m.id) {
+                  <div class="flex items-center gap-3 mt-2.5 p-2.5 rounded-lg bg-slate-50">
+                    <bbc-avatar [name]="m.name" [size]="32" />
+                    <div class="flex-1 min-w-0">
+                      <div class="text-sm font-semibold text-ink truncate">{{ m.name }}</div>
+                      <div class="text-[11px] text-mute">
+                        <span class="font-mono">{{ m.matricule }}</span>
+                        · {{ m.className || (fr() ? 'Non affecté' : 'Unassigned') }}
+                        @if (m.dob) { · {{ dobLabel(m.dob) }} }
+                      </div>
+                    </div>
+                    <button type="button" (click)="openExisting(m)"
+                      class="h-8 px-3 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50 shrink-0">
+                      {{ fr() ? 'Ouvrir la fiche' : 'Open record' }}
+                    </button>
+                  </div>
+                }
+              </div>
+            </div>
+            <div class="flex items-center justify-end gap-2 mt-5">
+              <button (click)="dupPrompt.set(false)" class="h-9 px-4 rounded-lg bg-slate-100 text-sm font-semibold text-ink hover:bg-slate-200">{{ i18n.t('cancel') }}</button>
+              <button (click)="saveAnyway()" class="h-9 px-4 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold">
+                {{ fr() ? 'Enregistrer quand même' : 'Save anyway' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      }
+
       <!-- Confirm delete -->
       @if (confirmDel(); as cd) {
         <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 fade-in" (click)="confirmDel.set(null)">
@@ -751,6 +886,37 @@ interface HeaderMap {
             <div class="flex items-center justify-end gap-2 mt-5">
               <button (click)="confirmDel.set(null)" class="h-9 px-4 rounded-lg bg-slate-100 text-sm font-semibold text-ink hover:bg-slate-200">{{ i18n.t('cancel') }}</button>
               <button (click)="remove(cd)" class="h-9 px-4 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-sm font-semibold">{{ fr() ? 'Supprimer' : 'Delete' }}</button>
+            </div>
+          </div>
+        </div>
+      }
+
+      <!-- Confirm bulk delete -->
+      @if (confirmBulk()) {
+        <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 fade-in" (click)="confirmBulk.set(false)">
+          <div class="bg-white rounded-xl2 shadow-pop w-full max-w-md p-6" (click)="$event.stopPropagation()">
+            <div class="flex items-start gap-3">
+              <div class="w-10 h-10 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                <bbc-icon name="trash" [s]="18" />
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="text-[15px] font-semibold text-ink">
+                  {{ fr() ? 'Supprimer ' + selectedCount() + ' élève(s) ?' : 'Delete ' + selectedCount() + ' student(s)?' }}
+                </div>
+                <div class="text-sm text-mute mt-1">
+                  {{ fr() ? 'Ces élèves et leurs données associées seront retirés du registre.' : 'These students and their related data will be removed from the registry.' }}
+                </div>
+                <div class="text-xs text-mute mt-2 break-words">{{ selectedNames() }}</div>
+              </div>
+            </div>
+            @if (bulkError(); as e) { <div class="text-xs rounded-lg px-3 py-2 bg-rose-50 text-rose-600 mt-3">{{ e }}</div> }
+            <div class="flex items-center justify-end gap-2 mt-5">
+              <button (click)="confirmBulk.set(false)" [disabled]="bulkBusy()"
+                class="h-9 px-4 rounded-lg bg-slate-100 text-sm font-semibold text-ink hover:bg-slate-200 disabled:opacity-50">{{ i18n.t('cancel') }}</button>
+              <button (click)="removeSelected()" [disabled]="bulkBusy()"
+                class="h-9 px-4 rounded-lg bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-sm font-semibold">
+                {{ bulkBusy() ? (fr() ? 'Suppression…' : 'Deleting…') : (fr() ? 'Supprimer' : 'Delete') }}
+              </button>
             </div>
           </div>
         </div>
@@ -791,6 +957,26 @@ export class StudentsComponent {
   protected mode = signal<'list' | 'edit' | 'import'>('list');
   protected editId = signal<string | null>(null);
   protected confirmDel = signal<Student | null>(null);
+  protected saving = signal(false);
+  protected saveError = signal<string | null>(null);
+
+  // Doublons : fiches déjà au registre qui ressemblent à celle en cours de saisie.
+  protected dupMatches = signal<DuplicateMatch[]>([]);
+  /** Vrai quand le NIU est déjà attribué : refus ferme, aucune confirmation ne le lève. */
+  protected dupBlocking = signal(false);
+  protected dupChecking = signal(false);
+  protected dupPrompt = signal(false);
+  private dupTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Numéro de la dernière interrogation ; une réponse plus ancienne est ignorée. */
+  private dupSeq = 0;
+  /** L'utilisateur a explicitement accepté l'homonyme (« Enregistrer quand même »). */
+  private dupConfirmed = false;
+
+  // Sélection multiple (actions groupées)
+  protected selection = signal<Set<string>>(new Set());
+  protected confirmBulk = signal(false);
+  protected bulkBusy = signal(false);
+  protected bulkError = signal<string | null>(null);
 
   // Bulk import
   protected importTarget = signal<'existing' | 'new'>('existing');
@@ -897,6 +1083,31 @@ export class StudentsComponent {
     return this.rows().find((s) => s.id === id) ?? null;
   });
 
+  // ---- Sélection multiple --------------------------------------------------
+  protected selectedCount = computed(() => this.selection().size);
+
+  /** Aperçu des fiches cochées dans la confirmation ; au-delà de cinq, on compte. */
+  protected selectedNames = computed(() => {
+    const ids = this.selection();
+    const names = this.rows().filter((s) => ids.has(s.id)).map((s) => s.name);
+    if (names.length <= 5) return names.join(' · ');
+    const rest = names.length - 5;
+    return `${names.slice(0, 5).join(' · ')} ${this.fr() ? `+ ${rest} autre(s)` : `+ ${rest} more`}`;
+  });
+
+  /**
+   * La sélection ne porte que sur ce que la liste montre : changer de filtre
+   * décoche ce qui disparaît, pour qu'une suppression groupée ne puisse jamais
+   * emporter une fiche restée hors écran.
+   */
+  private readonly pruneSelection = effect(() => {
+    const current = this.selection();
+    const visible = new Set(this.filtered().map((s) => s.id));
+    if (!current.size) return;
+    const next = new Set([...current].filter((id) => visible.has(id)));
+    if (next.size !== current.size) this.selection.set(next);
+  }, { allowSignalWrites: true });
+
   /** Charge (et libère) la photo de la fiche ouverte. */
   private readonly photoLoader = effect(() => {
     const id = this.selectedId();
@@ -972,6 +1183,8 @@ export class StudentsComponent {
     this.draft = this.blank();
     this.photoDraft.set(null);
     this.photoWasSet = false;
+    this.clearDuplicates();
+    this.saveError.set(null);
     this.mode.set('edit');
   }
 
@@ -979,6 +1192,8 @@ export class StudentsComponent {
     this.editId.set(s.id);
     this.photoDraft.set(null);
     this.photoWasSet = false;
+    this.clearDuplicates();
+    this.saveError.set(null);
     // Photo existante : affichée dans le composant de capture pour pouvoir la remplacer.
     this.photoApi.load('students', s.id).subscribe((url) => {
       if (url) { this.photoDraft.set(url); this.photoWasSet = true; }
@@ -1015,20 +1230,154 @@ export class StudentsComponent {
     this.draft = this.blank();
     this.photoDraft.set(null);
     this.photoWasSet = false;
+    this.clearDuplicates();
+    this.saveError.set(null);
+    this.saving.set(false);
   }
 
   save(): void {
-    if (!this.draft.firstName || !this.draft.lastName) return;
+    if (!this.draft.firstName || !this.draft.lastName || this.saving()) return;
     this.syncParentDisplay();
+    // Un homonyme connu passe d'abord par une confirmation. Le NIU déjà attribué,
+    // lui, n'a pas de confirmation à offrir : on laisse le serveur le refuser, son
+    // message dira lequel des deux élèves le porte déjà.
+    if (this.dupMatches().length && !this.dupBlocking() && !this.dupConfirmed) {
+      this.dupPrompt.set(true);
+      return;
+    }
+    this.submit();
+  }
+
+  /** « Enregistrer quand même » : l'homonyme est assumé, la fiche part avec l'accord. */
+  protected saveAnyway(): void {
+    this.dupConfirmed = true;
+    this.dupPrompt.set(false);
+    this.submit();
+  }
+
+  private submit(): void {
     const id = this.editId();
-    const req = id ? this.api.update(id, this.draft) : this.api.create(this.draft);
-    req.subscribe((s) => {
-      this.savePhoto(s.id, () => {
-        this.closeEditor();
-        this.selectedId.set(s.id);
-        this.reload();
-      });
+    const body: StudentUpsert = { ...this.draft, allowDuplicate: this.dupConfirmed };
+    this.saving.set(true);
+    this.saveError.set(null);
+    const req = id ? this.api.update(id, body) : this.api.create(body);
+    req.subscribe({
+      next: (s) => {
+        this.savePhoto(s.id, () => {
+          this.saving.set(false);
+          this.closeEditor();
+          this.selectedId.set(s.id);
+          this.reload();
+        });
+      },
+      error: (e) => {
+        this.saving.set(false);
+        this.saveError.set(this.saveErrorMessage(e));
+        // 409 : le serveur a vu un doublon que la vérification n'avait pas encore
+        // vu (fiche créée entre-temps par un collègue). On relit la situation pour
+        // que le bandeau montre de qui il s'agit — le prochain clic proposera la
+        // confirmation.
+        if (e instanceof HttpErrorResponse && e.status === 409) this.runDuplicateCheck();
+      },
     });
+  }
+
+  private saveErrorMessage(e: unknown): string {
+    const fr = this.fr();
+    if (e instanceof HttpErrorResponse) {
+      if (e.status === 0) return fr ? 'Connexion interrompue — réessayez.' : 'Connection lost — please retry.';
+      if (e.status === 401) return fr ? 'Session expirée — reconnectez-vous.' : 'Session expired — sign in again.';
+      if (e.status === 403) return fr ? 'Vous n’avez pas la permission d’enregistrer cette fiche.' : 'You do not have permission to save this record.';
+      const msg = e.error?.message;
+      if (typeof msg === 'string' && msg) return msg;
+      return (fr ? 'Enregistrement impossible' : 'Could not save') + ` (HTTP ${e.status}).`;
+    }
+    return fr ? 'Enregistrement impossible.' : 'Could not save.';
+  }
+
+  // ---- Détection des doublons ---------------------------------------------
+
+  /**
+   * Le nom, le prénom, le NIU ou la classe viennent de changer : l'élève saisi
+   * n'est plus celui qu'on venait de vérifier. L'accord donné à un homonyme tombe
+   * donc avec lui, et une nouvelle recherche est programmée.
+   */
+  protected onIdentityChange(): void {
+    this.dupConfirmed = false;
+    this.saveError.set(null);
+    if (this.dupTimer) clearTimeout(this.dupTimer);
+
+    const last = (this.draft.lastName || '').trim();
+    const first = (this.draft.firstName || '').trim();
+    const niu = (this.draft.niu || '').trim();
+    // Rien à chercher tant que l'identité n'est pas complète : un nom seul
+    // ressortirait la moitié de l'école.
+    if ((!last || !first) && !niu) {
+      this.dupSeq++;
+      this.clearDuplicates();
+      return;
+    }
+    this.dupChecking.set(true);
+    this.dupTimer = setTimeout(() => this.runDuplicateCheck(), 400);
+  }
+
+  private runDuplicateCheck(): void {
+    const seq = ++this.dupSeq;
+    this.api.checkDuplicates({
+      lastName: this.draft.lastName,
+      firstName: this.draft.firstName,
+      niu: this.draft.niu,
+      dob: this.draft.dob,
+      classId: this.draft.classId,
+      excludeId: this.editId(),
+    }).subscribe({
+      next: (res) => {
+        if (seq !== this.dupSeq) return;      // une frappe plus récente a pris la main
+        this.dupChecking.set(false);
+        this.dupMatches.set(res.matches);
+        this.dupBlocking.set(res.blocking);
+      },
+      // Une vérification qui échoue ne doit pas bloquer la saisie : le serveur
+      // refusera de toute façon à l'enregistrement.
+      error: () => { if (seq === this.dupSeq) this.clearDuplicates(); },
+    });
+  }
+
+  private clearDuplicates(): void {
+    if (this.dupTimer) { clearTimeout(this.dupTimer); this.dupTimer = null; }
+    this.dupChecking.set(false);
+    this.dupMatches.set([]);
+    this.dupBlocking.set(false);
+    this.dupPrompt.set(false);
+    this.dupConfirmed = false;
+  }
+
+  protected dupTitle(): string {
+    const fr = this.fr();
+    if (this.dupBlocking()) return fr ? 'Ce NIU est déjà attribué' : 'This student ID is already taken';
+    if (this.dupMatches().some((m) => m.sameClass)) {
+      return fr ? 'Cet élève existe déjà dans cette classe' : 'This student is already in this class';
+    }
+    return fr ? 'Cet élève existe déjà dans la base de données' : 'This student already exists in the database';
+  }
+
+  protected dupHint(): string {
+    const fr = this.fr();
+    if (this.dupBlocking()) {
+      return fr
+        ? 'Le NIU identifie officiellement un élève : corrigez-le ou ouvrez la fiche existante.'
+        : 'The student ID officially identifies one pupil: correct it or open the existing record.';
+    }
+    return fr
+      ? 'Vérifiez qu’il ne s’agit pas de la même personne. S’il s’agit bien de deux élèves différents, vous pourrez confirmer l’enregistrement.'
+      : 'Check this is not the same person. If these really are two different pupils, you can confirm the save.';
+  }
+
+  /** Quitte le formulaire pour la fiche déjà au registre — le geste utile face à un doublon. */
+  protected openExisting(m: DuplicateMatch): void {
+    this.dupPrompt.set(false);
+    this.closeEditor();
+    this.selectedId.set(m.id);
   }
 
   /**
@@ -1074,10 +1423,66 @@ export class StudentsComponent {
     });
   }
 
+  protected onSelectionChange(ids: Set<unknown>): void {
+    this.selection.set(new Set([...ids].map(String)));
+  }
+
+  protected clearSelection(): void {
+    this.selection.set(new Set());
+    this.bulkError.set(null);
+  }
+
+  /**
+   * Supprime toutes les fiches cochées en une requête. Le serveur traite chaque
+   * élève à part : ce qui passe est bel et bien supprimé, ce qui est refusé
+   * (fiche hors de votre périmètre) reste coché, avec le motif affiché.
+   */
+  protected removeSelected(): void {
+    const ids = [...this.selection()];
+    if (!ids.length || this.bulkBusy()) return;
+    this.bulkBusy.set(true);
+    this.bulkError.set(null);
+    this.api.bulkDelete(ids).subscribe({
+      next: (res) => {
+        this.bulkBusy.set(false);
+        const failedIds = new Set(res.errors.map((e) => e.id));
+        this.selection.set(new Set(ids.filter((id) => failedIds.has(id))));
+        const openId = this.selectedId();
+        if (openId && ids.includes(openId) && !failedIds.has(openId)) this.selectedId.set(null);
+        if (res.failed) {
+          this.bulkError.set(this.fr()
+            ? `${res.deleted} supprimé(s) · ${res.failed} refusé(s) : ${res.errors[0]?.message ?? ''}`
+            : `${res.deleted} deleted · ${res.failed} refused: ${res.errors[0]?.message ?? ''}`);
+        } else {
+          this.confirmBulk.set(false);
+        }
+        this.reload();
+      },
+      error: (e) => {
+        this.bulkBusy.set(false);
+        this.bulkError.set(this.bulkErrorMessage(e));
+      },
+    });
+  }
+
+  private bulkErrorMessage(e: unknown): string {
+    const fr = this.fr();
+    if (e instanceof HttpErrorResponse) {
+      if (e.status === 0) return fr ? 'Connexion interrompue — réessayez.' : 'Connection lost — please retry.';
+      if (e.status === 401) return fr ? 'Session expirée — reconnectez-vous.' : 'Session expired — sign in again.';
+      if (e.status === 403) return fr ? 'Vous n’avez pas la permission de supprimer ces élèves.' : 'You do not have permission to delete these students.';
+      const msg = e.error?.message;
+      if (typeof msg === 'string' && msg) return msg;
+      return (fr ? 'Suppression impossible' : 'Delete failed') + ` (HTTP ${e.status}).`;
+    }
+    return fr ? 'Suppression impossible.' : 'Delete failed.';
+  }
+
   private blank(): StudentUpsert {
     const s = this.activeScope();
     return {
       firstName: '', lastName: '', niu: '', sex: 'M', birthplace: '', repeats: false,
+      allowDuplicate: false,
       classId: null, parentName: '', parentPhone: '',
       fatherName: '', fatherPhone: '', fatherEmail: '',
       motherName: '', motherPhone: '', motherEmail: '',
@@ -1338,7 +1743,7 @@ export class StudentsComponent {
     this.importResult.set(null);
     this.importProgress.set({ done: 0, total: rows.length });
 
-    const merged: StudentImportResult = { created: 0, updated: 0, unchanged: 0, fieldsFilled: 0, failed: 0, errors: [] };
+    const merged: StudentImportResult = { created: 0, updated: 0, unchanged: 0, fieldsFilled: 0, failed: 0, errors: [], warnings: [] };
     let sent = 0;
 
     const sendFrom = (index: number): void => {
@@ -1365,6 +1770,7 @@ export class StudentsComponent {
           merged.failed += res.failed;
           // Row numbers come back per-request; shift them onto the file's numbering.
           merged.errors.push(...res.errors.map((e) => ({ ...e, row: e.row + base })));
+          merged.warnings.push(...res.warnings.map((w) => ({ ...w, row: w.row + base })));
           sent += slice.length;
           this.importProgress.set({ done: sent, total: rows.length });
           sendFrom(index + 1);

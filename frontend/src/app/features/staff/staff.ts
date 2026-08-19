@@ -93,12 +93,38 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
             <!-- High-density directory table -->
             <bbc-card className="mb-5 overflow-hidden">
               <div class="-m-5">
-                <div class="flex items-center justify-between px-5 py-3 border-b border-slate-100">
-                  <div class="text-sm font-semibold">{{ filtered().length }} {{ fr() ? 'employés' : 'employees' }}</div>
-                  <div class="text-xs text-mute">{{ fr() ? 'Cliquez une ligne pour la fiche' : 'Click a row for the profile' }}</div>
-                </div>
+                @if (selectedCount()) {
+                  <!-- Barre d'actions groupées : elle remplace l'en-tête tant qu'une sélection est active. -->
+                  <div class="flex items-center justify-between gap-3 px-5 py-3 border-b border-slate-100 bg-brand-50">
+                    <div class="text-sm font-semibold text-brand-800">
+                      {{ selectedCount() }} {{ fr() ? 'employé(s) sélectionné(s)' : 'employee(s) selected' }}
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <button (click)="clearSelection()"
+                        class="h-8 px-3 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
+                        {{ fr() ? 'Tout décocher' : 'Clear' }}
+                      </button>
+                      <button (click)="confirmBulk.set(true)"
+                        class="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-lg bg-rose-600 hover:bg-rose-700 text-white">
+                        <bbc-icon name="trash" [s]="14" /> {{ fr() ? 'Supprimer la sélection' : 'Delete selected' }}
+                      </button>
+                    </div>
+                  </div>
+                } @else {
+                  <div class="flex items-center justify-between px-5 py-3 border-b border-slate-100">
+                    <div class="text-sm font-semibold">{{ filtered().length }} {{ fr() ? 'employés' : 'employees' }}</div>
+                    <div class="text-xs text-mute">
+                      {{ canWrite
+                          ? (fr() ? 'Cochez pour agir en groupe · cliquez une ligne pour la fiche' : 'Tick rows for bulk actions · click a row for the profile')
+                          : (fr() ? 'Cliquez une ligne pour la fiche' : 'Click a row for the profile') }}
+                    </div>
+                  </div>
+                }
                 <bbc-data-table [columns]="columns()" [rows]="filtered()"
                   [trackBy]="trackId" [activeId]="selectedId()"
+                  [selectable]="canWrite" [selectedIds]="selection()"
+                  [selectAllLabel]="fr() ? 'Tout sélectionner' : 'Select all'"
+                  (selectionChange)="onSelectionChange($event)"
                   [emptyLabel]="fr() ? 'Aucun résultat' : 'No results'"
                   (rowClick)="select($event)">
 
@@ -1039,6 +1065,38 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
           </div>
         </bbc-card>
       }
+
+      <!-- Confirm bulk delete -->
+      @if (confirmBulk()) {
+        <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 fade-in" (click)="confirmBulk.set(false)">
+          <div class="bg-white rounded-xl2 shadow-pop w-full max-w-md p-6" (click)="$event.stopPropagation()">
+            <div class="flex items-start gap-3">
+              <div class="w-10 h-10 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                <bbc-icon name="trash" [s]="18" />
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="text-[15px] font-semibold text-ink">
+                  {{ fr() ? 'Supprimer ' + selectedCount() + ' employé(s) ?' : 'Delete ' + selectedCount() + ' employee(s)?' }}
+                </div>
+                <div class="text-sm text-mute mt-1">
+                  {{ fr() ? 'Ces fiches sortent de l’annuaire ; l’historique de paie et les classes enseignées restent intacts.'
+                          : 'These records leave the directory; payroll history and classes taught stay intact.' }}
+                </div>
+                <div class="text-xs text-mute mt-2 break-words">{{ selectedNames() }}</div>
+              </div>
+            </div>
+            @if (bulkError(); as e) { <div class="text-xs rounded-lg px-3 py-2 bg-rose-50 text-rose-600 mt-3">{{ e }}</div> }
+            <div class="flex items-center justify-end gap-2 mt-5">
+              <button (click)="confirmBulk.set(false)" [disabled]="bulkBusy()"
+                class="h-9 px-4 rounded-lg bg-slate-100 text-sm font-semibold text-ink hover:bg-slate-200 disabled:opacity-50">{{ i18n.t('cancel') }}</button>
+              <button (click)="removeSelected()" [disabled]="bulkBusy()"
+                class="h-9 px-4 rounded-lg bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-sm font-semibold">
+                {{ bulkBusy() ? (fr() ? 'Suppression…' : 'Deleting…') : (fr() ? 'Supprimer' : 'Delete') }}
+              </button>
+            </div>
+          </div>
+        </div>
+      }
     </div>
   `,
 })
@@ -1081,6 +1139,13 @@ export class StaffComponent {
   protected search = signal('');
   protected roleFilter = signal<string | null>(null);
   protected selectedId = signal<string | null>(null);
+
+  // Sélection multiple (actions groupées)
+  protected selection = signal<Set<string>>(new Set());
+  protected confirmBulk = signal(false);
+  protected bulkBusy = signal(false);
+  protected bulkError = signal<string | null>(null);
+
   protected mode = signal<'list' | 'edit' | 'import'>('list');
   protected editId = signal<string | null>(null);
   protected canWrite = this.auth.can('hr', 'write');
@@ -1174,6 +1239,31 @@ export class StaffComponent {
     const id = this.selectedId();
     return this.rows().find((e) => e.id === id) ?? this.filtered()[0] ?? null;
   });
+
+  // ---- Sélection multiple --------------------------------------------------
+  protected selectedCount = computed(() => this.selection().size);
+
+  /** Aperçu des fiches cochées dans la confirmation ; au-delà de cinq, on compte. */
+  protected selectedNames = computed(() => {
+    const ids = this.selection();
+    const names = this.rows().filter((e) => ids.has(e.id)).map((e) => e.name);
+    if (names.length <= 5) return names.join(' · ');
+    const rest = names.length - 5;
+    return `${names.slice(0, 5).join(' · ')} ${this.fr() ? `+ ${rest} autre(s)` : `+ ${rest} more`}`;
+  });
+
+  /**
+   * La sélection ne porte que sur ce que l'annuaire montre : changer de filtre
+   * décoche ce qui disparaît, pour qu'une suppression groupée ne puisse jamais
+   * emporter une fiche restée hors écran.
+   */
+  private readonly pruneSelection = effect(() => {
+    const current = this.selection();
+    const visible = new Set(this.filtered().map((e) => e.id));
+    if (!current.size) return;
+    const next = new Set([...current].filter((id) => visible.has(id)));
+    if (next.size !== current.size) this.selection.set(next);
+  }, { allowSignalWrites: true });
 
   /** Charge (et libère) la photo et les classes de la fiche ouverte. */
   private readonly photoLoader = effect(() => {
@@ -1633,6 +1723,61 @@ export class StaffComponent {
       if (this.selectedId() === e.id) this.selectedId.set(null);
       this.reload();
     });
+  }
+
+  protected onSelectionChange(ids: Set<unknown>): void {
+    this.selection.set(new Set([...ids].map(String)));
+  }
+
+  protected clearSelection(): void {
+    this.selection.set(new Set());
+    this.bulkError.set(null);
+  }
+
+  /**
+   * Supprime toutes les fiches cochées en une requête. Le serveur traite chaque
+   * employé à part : ce qui passe est bel et bien supprimé, ce qui est refusé
+   * (fiche hors de votre section) reste coché, avec le motif affiché.
+   */
+  protected removeSelected(): void {
+    const ids = [...this.selection()];
+    if (!ids.length || this.bulkBusy()) return;
+    this.bulkBusy.set(true);
+    this.bulkError.set(null);
+    this.api.bulkDelete(ids).subscribe({
+      next: (res) => {
+        this.bulkBusy.set(false);
+        const failedIds = new Set(res.errors.map((e) => e.id));
+        this.selection.set(new Set(ids.filter((id) => failedIds.has(id))));
+        const openId = this.selectedId();
+        if (openId && ids.includes(openId) && !failedIds.has(openId)) this.selectedId.set(null);
+        if (res.failed) {
+          this.bulkError.set(this.fr()
+            ? `${res.deleted} supprimé(s) · ${res.failed} refusé(s) : ${res.errors[0]?.message ?? ''}`
+            : `${res.deleted} deleted · ${res.failed} refused: ${res.errors[0]?.message ?? ''}`);
+        } else {
+          this.confirmBulk.set(false);
+        }
+        this.reload();
+      },
+      error: (err) => {
+        this.bulkBusy.set(false);
+        this.bulkError.set(this.bulkErrorMessage(err));
+      },
+    });
+  }
+
+  private bulkErrorMessage(e: unknown): string {
+    const fr = this.fr();
+    if (e instanceof HttpErrorResponse) {
+      if (e.status === 0) return fr ? 'Connexion interrompue — réessayez.' : 'Connection lost — please retry.';
+      if (e.status === 401) return fr ? 'Session expirée — reconnectez-vous.' : 'Session expired — sign in again.';
+      if (e.status === 403) return fr ? 'Vous n’avez pas la permission de supprimer ces employés.' : 'You do not have permission to delete these employees.';
+      const msg = e.error?.message;
+      if (typeof msg === 'string' && msg) return msg;
+      return (fr ? 'Suppression impossible' : 'Delete failed') + ` (HTTP ${e.status}).`;
+    }
+    return fr ? 'Suppression impossible.' : 'Delete failed.';
   }
 
   protected exportList(): void {

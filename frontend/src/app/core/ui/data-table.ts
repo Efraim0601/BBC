@@ -37,6 +37,13 @@ export class CellTemplateDirective {
       <table class="w-full text-sm border-collapse">
         <thead class="sticky top-0 z-10 bg-slate-50">
           <tr class="border-b border-slate-200">
+            @if (selectable()) {
+              <th class="pl-4 pr-1 py-2.5 w-9">
+                <input type="checkbox" class="w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-400 align-middle"
+                  [checked]="allSelected()" [indeterminate]="someSelected()"
+                  (change)="toggleAll()" [attr.aria-label]="selectAllLabel()" />
+              </th>
+            }
             @for (col of columns(); track col.key) {
               <th [style.width]="col.width"
                 class="px-4 py-2.5 text-[11px] uppercase tracking-wide font-bold text-mute select-none"
@@ -56,7 +63,14 @@ export class CellTemplateDirective {
           @for (row of sorted(); track trackBy()(row); let i = $index) {
             <tr (click)="rowClick.emit(row)"
               class="border-b border-slate-50 last:border-0 transition"
-              [class]="(rowClick ? 'cursor-pointer ' : '') + (isActive(row) ? 'bg-brand-50' : 'hover:bg-slate-50')">
+              [class]="(rowClick ? 'cursor-pointer ' : '') + (isActive(row) ? 'bg-brand-50' : isSelected(row) ? 'bg-brand-50/60' : 'hover:bg-slate-50')">
+              @if (selectable()) {
+                <!-- La case ne doit pas ouvrir la fiche : cocher et consulter sont deux gestes distincts. -->
+                <td class="pl-4 pr-1 py-2.5 align-middle" (click)="$event.stopPropagation()">
+                  <input type="checkbox" class="w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-400 align-middle"
+                    [checked]="isSelected(row)" (change)="toggleRow(row)" />
+                </td>
+              }
               @for (col of columns(); track col.key) {
                 <td class="px-4 py-2.5 align-middle" [class]="alignCls(col)">
                   @if (tplFor(col.key); as t) {
@@ -69,7 +83,7 @@ export class CellTemplateDirective {
             </tr>
           } @empty {
             <tr>
-              <td [attr.colspan]="columns().length" class="py-12">
+              <td [attr.colspan]="columns().length + (selectable() ? 1 : 0)" class="py-12">
                 <div class="flex flex-col items-center justify-center text-center">
                   <div class="w-12 h-12 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mb-2">
                     <bbc-icon name="search" />
@@ -93,7 +107,15 @@ export class DataTableComponent<T = any> {
   trackBy = input<(row: T) => unknown>((r: T) => r as unknown);
   activeId = input<unknown>(null);
 
+  /** Affiche la colonne de cases à cocher (actions groupées). */
+  selectable = input(false);
+  /** Identifiants cochés — la sélection est tenue par le parent, la table ne fait que l'afficher. */
+  selectedIds = input<ReadonlySet<unknown>>(new Set());
+  selectAllLabel = input('Tout sélectionner');
+
   rowClick = output<T>();
+  /** Nouvelle sélection après un clic sur une case (ou sur celle d'en-tête). */
+  selectionChange = output<Set<unknown>>();
 
   private cells = contentChildren(CellTemplateDirective);
 
@@ -140,5 +162,45 @@ export class DataTableComponent<T = any> {
   protected isActive(row: T): boolean {
     const id = this.activeId();
     return id != null && this.trackBy()(row) === id;
+  }
+
+  // ---- Sélection multiple --------------------------------------------------
+  protected isSelected(row: T): boolean {
+    return this.selectedIds().has(this.trackBy()(row));
+  }
+
+  /** Toutes les lignes affichées sont cochées — la case d'en-tête est pleine. */
+  protected allSelected = computed(() => {
+    const ids = this.selectedIds();
+    const rows = this.rows();
+    return rows.length > 0 && rows.every((r) => ids.has(this.trackBy()(r)));
+  });
+
+  /** Une partie seulement — la case d'en-tête passe en état indéterminé. */
+  protected someSelected = computed(() => {
+    const ids = this.selectedIds();
+    const rows = this.rows();
+    return rows.some((r) => ids.has(this.trackBy()(r))) && !this.allSelected();
+  });
+
+  protected toggleRow(row: T): void {
+    const next = new Set(this.selectedIds());
+    const id = this.trackBy()(row);
+    if (!next.delete(id)) next.add(id);
+    this.selectionChange.emit(next);
+  }
+
+  /**
+   * La case d'en-tête ne porte que sur les lignes visibles : après un filtre,
+   * « tout cocher » ne doit pas embarquer des fiches que l'écran ne montre pas.
+   */
+  protected toggleAll(): void {
+    const next = new Set(this.selectedIds());
+    const on = !this.allSelected();
+    for (const r of this.rows()) {
+      const id = this.trackBy()(r);
+      if (on) next.add(id); else next.delete(id);
+    }
+    this.selectionChange.emit(next);
   }
 }
