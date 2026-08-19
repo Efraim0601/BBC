@@ -115,6 +115,11 @@ export const routes: Routes = [
         loadComponent: () => import('./features/reports/reports').then((m) => m.ReportsComponent),
       },
       {
+        path: 'library',
+        canActivate: [permissionGuard('library')],
+        loadComponent: () => import('./features/library/library').then((m) => m.LibraryComponent),
+      },
+      {
         path: 'classkit',
         canActivate: [permissionGuard('classkit')],
         loadComponent: () => import('./features/classkit/classkit').then((m) => m.ClasskitComponent),

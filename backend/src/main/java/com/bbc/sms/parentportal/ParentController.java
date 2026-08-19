@@ -3,11 +3,16 @@ package com.bbc.sms.parentportal;
 import com.bbc.sms.classkit.dto.ClassKitDtos.ClassResourceView;
 import com.bbc.sms.finance.dto.FeeDtos.PaymentChannelView;
 import com.bbc.sms.finance.dto.FeeDtos.StudentFeeStatementView;
+import com.bbc.sms.library.LibraryController;
+import com.bbc.sms.library.LibraryService;
+import com.bbc.sms.library.dto.LibraryDtos.ResourceView;
 import com.bbc.sms.parentportal.dto.ParentDtos.*;
 import com.bbc.sms.platform.security.AppUserPrincipal;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.core.io.InputStreamResource;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
@@ -19,9 +24,11 @@ import java.util.UUID;
 public class ParentController {
 
     private final ParentService service;
+    private final LibraryService library;
 
-    public ParentController(ParentService service) {
+    public ParentController(ParentService service, LibraryService library) {
         this.service = service;
+        this.library = library;
     }
 
     @GetMapping("/children")
@@ -70,5 +77,26 @@ public class ParentController {
     @PreAuthorize("@perm.isParent()")
     public List<SuggestionView> mySuggestions(@AuthenticationPrincipal AppUserPrincipal principal) {
         return service.mySuggestions(principal);
+    }
+
+    // ---- Ressources mises a disposition par la direction ---------------------
+
+    /**
+     * Les documents publies qui s'adressent aux familles, bornes aux cycles ou
+     * ce parent a un enfant. Le service applique la meme regle que pour le
+     * personnel ; seul le destinataire change.
+     */
+    @GetMapping("/resources")
+    @PreAuthorize("@perm.isParent()")
+    public List<ResourceView> resources(@AuthenticationPrincipal AppUserPrincipal principal) {
+        return library.listForParent(principal.userId());
+    }
+
+    /** Le fichier, apres le meme controle que la liste — l'identifiant ne suffit pas. */
+    @GetMapping("/resources/{id}/file")
+    @PreAuthorize("@perm.isParent()")
+    public ResponseEntity<InputStreamResource> resourceFile(
+            @AuthenticationPrincipal AppUserPrincipal principal, @PathVariable UUID id) {
+        return LibraryController.serve(library.downloadForParent(principal.userId(), id));
     }
 }

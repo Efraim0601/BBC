@@ -17,7 +17,9 @@ import {
   ClassResourceView,
   StudentFeeStatementView,
   PaymentChannelView,
+  ResourceView,
 } from './parent.api';
+import { openBlob, fmtBytes } from '../library/library.api';
 
 interface CategoryOption {
   value: string;
@@ -381,6 +383,40 @@ const fmtMoney = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} FCFA`;
             </div>
           }
 
+          @case ('library') {
+            <bbc-card [title]="fr() ? 'Documents de l’école' : 'School documents'"
+              [subtitle]="fr() ? 'Mis à disposition des familles par la direction'
+                               : 'Made available to families by the administration'">
+              @if (!sharedResources().length) {
+                <bbc-empty icon="doc"
+                  [label]="fr() ? 'Aucun document pour le moment' : 'No document yet'" />
+              } @else {
+                <div class="space-y-2">
+                  @for (r of sharedResources(); track r.id) {
+                    <button type="button" (click)="openResource(r)"
+                      class="w-full flex items-start gap-3 p-3 rounded-lg border border-slate-100 hover:bg-slate-50/60 hover:border-brand-200 transition text-left">
+                      <span class="w-10 h-10 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center shrink-0">
+                        <bbc-icon name="doc" [s]="18" />
+                      </span>
+                      <span class="flex-1 min-w-0">
+                        <span class="block font-semibold text-ink">{{ r.title }}</span>
+                        @if (r.description) {
+                          <span class="block text-[12px] text-mute mt-0.5">{{ r.description }}</span>
+                        }
+                        <span class="block text-[11px] text-mute mt-1">
+                          {{ r.fileName }} · {{ resourceSize(r.byteSize) }} · {{ fmtDate(r.publishedAt ?? r.createdAt) }}
+                        </span>
+                      </span>
+                      <span class="w-8 h-8 rounded-lg text-mute flex items-center justify-center self-center shrink-0">
+                        <bbc-icon name="download" [s]="16" />
+                      </span>
+                    </button>
+                  }
+                </div>
+              }
+            </bbc-card>
+          }
+
           @case ('suggest') {
             <div class="grid grid-cols-12 gap-4">
               <bbc-card className="col-span-12 lg:col-span-6"
@@ -475,7 +511,9 @@ export class ParentComponent {
   protected suggestions = signal<SuggestionView[]>([]);
   protected supplies = signal<ClassResourceView | null>(null);
   protected books = signal<ClassResourceView | null>(null);
-  protected tab = signal<'overview' | 'fees' | 'grades' | 'resources' | 'suggest'>('overview');
+  protected tab = signal<'overview' | 'fees' | 'grades' | 'resources' | 'library' | 'suggest'>('overview');
+  /** Documents publiés par la direction à l'intention des familles. */
+  protected sharedResources = signal<ResourceView[]>([]);
   /** Situation de scolarité de l'enfant sélectionné (grille de sa classe). */
   protected statement = signal<StudentFeeStatementView | null>(null);
   protected channels = signal<PaymentChannelView[]>([]);
@@ -488,6 +526,7 @@ export class ParentComponent {
     { id: 'fees', label: this.fr() ? 'Frais & paiements' : 'Fees & payments' },
     { id: 'grades', label: this.fr() ? 'Notes' : 'Grades' },
     { id: 'resources', label: this.fr() ? 'Fournitures & manuels' : 'Supplies & textbooks' },
+    { id: 'library', label: this.fr() ? 'Documents de l’école' : 'School documents' },
     { id: 'suggest', label: this.fr() ? 'Boîte à suggestions' : 'Suggestion box' },
   ]);
 
@@ -595,9 +634,28 @@ export class ParentComponent {
 
   protected draft: SuggestionRequest = this.blank();
 
+  /** Poids lisible du fichier — « 1,4 Mo » plutôt que 1468006. */
+  protected resourceSize = (bytes: number) => fmtBytes(bytes, this.fr());
+
+  /**
+   * Ouvre un document de l'école. L'appel porte le jeton en en-tête, qu'un
+   * simple lien ne transmettrait pas : on récupère donc les octets puis on
+   * laisse le navigateur afficher ou enregistrer.
+   */
+  protected openResource(r: ResourceView): void {
+    this.api.sharedResourceFile(r.id).subscribe((b) => openBlob(b, r.fileName));
+  }
+
   constructor() {
     this.school.ensureLoaded();
     this.api.paymentChannels().subscribe({ next: (c) => this.channels.set(c), error: () => this.channels.set([]) });
+    // Les documents de l'école ne dépendent pas de l'enfant sélectionné : ils
+    // s'adressent aux familles, éventuellement bornés au cycle — c'est le
+    // serveur qui applique ce filtre, à partir des enfants du compte.
+    this.api.sharedResources().subscribe({
+      next: (r) => this.sharedResources.set(r),
+      error: () => this.sharedResources.set([]),
+    });
     this.api.children().subscribe((cs) => {
       this.children.set(cs);
       const first = cs[0];

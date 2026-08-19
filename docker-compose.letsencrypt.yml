@@ -33,6 +33,31 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # Stockage objet des fichiers de la bibliotheque de ressources (PDF, Word,
+  # images). Volontairement hors de Postgres : un PDF par circulaire ferait
+  # enfler le pg_dump. Contrepartie : le volume ci-dessous doit etre sauvegarde
+  # a cote de la base.
+  #   Console d'administration MinIO : tunnel SSH vers 127.0.0.1:29003
+  minio:
+    image: minio/minio:latest
+    security_opt:
+      - apparmor=unconfined
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${BBC_STORAGE_ACCESS_KEY:-bbc-storage}
+      MINIO_ROOT_PASSWORD: ${BBC_STORAGE_SECRET_KEY:-bbc-storage-secret}
+    volumes:
+      - bbc_prod_minio:/data
+    healthcheck:
+      test: ["CMD-SHELL", "mc ready local || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    ports:
+      - "127.0.0.1:29002:9000"
+      - "127.0.0.1:29003:9001"
+    restart: unless-stopped
+
   backend:
     build: ./backend
     security_opt:
@@ -40,8 +65,15 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      minio:
+        condition: service_healthy
     environment:
       DB_URL: jdbc:postgresql://db:5432/bbc_sms
+      # Stockage objet des fichiers de la bibliotheque (bucket PRIVE).
+      BBC_STORAGE_ENDPOINT: http://minio:9000
+      BBC_STORAGE_ACCESS_KEY: ${BBC_STORAGE_ACCESS_KEY:-bbc-storage}
+      BBC_STORAGE_SECRET_KEY: ${BBC_STORAGE_SECRET_KEY:-bbc-storage-secret}
+      BBC_STORAGE_BUCKET: ${BBC_STORAGE_BUCKET:-bbc-sms}
       DB_USER: bbc
       DB_PASSWORD: ${DB_PASSWORD:-bbc}
       # Same-origin behind the nginx TLS proxy; override for extra origins.
@@ -91,5 +123,6 @@ services:
 
 volumes:
   bbc_prod_pgdata:
+  bbc_prod_minio:
   certbot-etc:
   certbot-webroot:

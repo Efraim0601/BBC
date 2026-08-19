@@ -43,3 +43,19 @@ Guide_Utilisateur_BBC_SMS.docx
 # Outils Python (génération du guide)
 __pycache__/
 *.pyc
+
+# Sauvegardes de base (pg_dump) — DONNEES PERSONNELLES D'ELEVES.
+# Ne doivent jamais partir sur un depot distant.
+backups/
+*.sql.gz
+
+# Copies de secours de configuration prises avant une intervention
+.env.backup-*
+*.before-*
+*.avant-*
+
+# Documents de reference fournis par l'etablissement (~36 Mo de pdf/xlsx)
+documents/
+
+# Export d'atelier
+atelier-bbc-sms.zip

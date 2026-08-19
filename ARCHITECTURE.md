@@ -255,6 +255,12 @@ Le matériel est **sur site**, l'app est **dans le cloud** → on intercale un *
 - **Tests** : unitaires (services), intégration **Testcontainers** (Postgres réel), e2e front (Playwright/Cypress).
 - **Observabilité** : Spring Boot Actuator + Micrometer → Prometheus/Grafana ; logs structurés (JSON).
 - **Sauvegardes** : backups Postgres automatiques (managé) + test de restauration.
+  **Deux volumes à sauvegarder, pas un.** Le `pg_dump` ne contient PAS les fichiers
+  de la bibliothèque de ressources (module `library`), stockés dans **MinIO** — un
+  PDF par circulaire ferait enfler le dump jusqu'à le rendre inexploitable. Le
+  volume MinIO (`bbc_minio` / `bbc_prod_minio`) se sauvegarde à côté de la base.
+  Les photos de profil, elles, restent en base (`bytea`) : quelques dizaines de Ko
+  par personne, et elles suivent le dump.
 - **Config** : `application.yml` par profil (`dev`, `prod`) + secrets via variables d'env / vault.
 - **Migrations** : Flyway lancé au démarrage (jamais `hibernate ddl-auto=update` en prod).
 
@@ -275,8 +281,8 @@ Le matériel est **sur site**, l'app est **dans le cloud** → on intercale un *
             └────┬─────┘   └──────────────┘
         ┌────────┼─────────┐
    ┌────┴───┐ ┌──┴───┐ ┌───┴────┐
-   │Postgres│ │ S3   │ │ (futur)│
-   │ managé │ │ files│ │ Redis  │  ← cache/sessions si besoin
+   │Postgres│ │MinIO │ │ (futur)│
+   │ managé │ │ (S3) │ │ Redis  │  ← cache/sessions si besoin
    └────────┘ └──────┘ └────────┘
 
    École ── Agent local (présence) ──HTTPS──► /api/devices/...

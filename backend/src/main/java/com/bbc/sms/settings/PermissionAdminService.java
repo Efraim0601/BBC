@@ -22,7 +22,7 @@ public class PermissionAdminService {
             "dashboard", "presence", "students", "hr", "academic", "finance",
             "timetable", "events", "discipline", "reports", "settings", "journey",
             "alerts", "messages", "coursebook", "health", "documents", "classkit",
-            "promotion", "parent");
+            "promotion", "library", "parent");
 
     /** Modules a Parent role may hold — everything else is staff-only. */
     private static final Set<String> PARENT_ALLOWED_MODULES = Set.of("parent");

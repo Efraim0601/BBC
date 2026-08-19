@@ -11,6 +11,7 @@ import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.time.OffsetDateTime;
@@ -66,6 +67,18 @@ public class GlobalExceptionHandler {
             msg = "Une entrée avec ces valeurs existe déjà.";
         }
         return body(HttpStatus.BAD_REQUEST, msg);
+    }
+
+    /**
+     * Envoi trop volumineux — rejeté par le conteneur AVANT d'atteindre le
+     * service, qui n'a donc pas l'occasion de dire poliment non. Sans ce
+     * traitement, un utilisateur qui joint un fichier trop lourd reçoit une
+     * « erreur interne » là où il n'a commis qu'une erreur ordinaire.
+     */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ApiError> handleTooLarge(MaxUploadSizeExceededException ex) {
+        return body(HttpStatus.PAYLOAD_TOO_LARGE,
+            "Fichier trop lourd. La taille maximale par document est de 25 Mo.");
     }
 
     @ExceptionHandler(Exception.class)

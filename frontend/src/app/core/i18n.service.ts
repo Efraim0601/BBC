@@ -22,6 +22,7 @@ const DICT: Record<string, { fr: string; en: string }> = {
   classkit: { fr: 'Fournitures & livres', en: 'Supplies & books' },
   health: { fr: 'Santé', en: 'Health' },
   documents: { fr: 'Documents', en: 'Documents' },
+  library: { fr: 'Ressources', en: 'Resources' },
   hr: { fr: 'Personnel', en: 'Staff' },
   academic: { fr: 'Académique', en: 'Academic' },
   finance: { fr: 'Finance', en: 'Finance' },

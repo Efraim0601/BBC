@@ -30,6 +30,7 @@ export const NAV_ICONS = {
   heart: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.29 1.5 4.04 3 5.5l7 7Z"/></svg>',
   folder: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>',
   cap: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M2 9l10-5 10 5-10 5z"/><path d="M6 11v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/><path d="M22 9v5"/></svg>',
+  library: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 3h3v18H4z"/><path d="M9 3h3v18H9z"/><path d="m15.5 4.2 2.9.8-4.2 15.4-2.9-.8z"/></svg>',
   kit: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m7.5 4.27 9 5.15M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5M12 22V12"/></svg>',
 };
 
@@ -53,6 +54,7 @@ export const NAV_GROUPS: Group[] = [
     { id: 'timetable', route: '/timetable', iconBg: 'bg-cyan-100 text-cyan-700', color: 'from-cyan-500 to-cyan-700', svg: NAV_ICONS.calendar, subFr: 'Grilles, créneaux, conflits', subEn: 'Grids, slots, conflicts' },
     { id: 'events', route: '/events', iconBg: 'bg-pink-100 text-pink-700', color: 'from-pink-500 to-pink-700', svg: NAV_ICONS.bell, subFr: 'Annonces & notifications parents', subEn: 'Announcements & parent alerts' },
     { id: 'messages', route: '/messages', iconBg: 'bg-sky-100 text-sky-700', color: 'from-sky-500 to-sky-700', svg: NAV_ICONS.mail, subFr: 'Carnet de correspondance parents', subEn: 'Parent correspondence book' },
+    { id: 'library', route: '/library', iconBg: 'bg-indigo-100 text-indigo-700', color: 'from-indigo-500 to-indigo-700', svg: NAV_ICONS.library, subFr: 'Documents partagés · personnel & parents', subEn: 'Shared documents · staff & parents' },
     { id: 'classkit', route: '/classkit', iconBg: 'bg-fuchsia-100 text-fuchsia-700', color: 'from-fuchsia-500 to-fuchsia-700', svg: NAV_ICONS.kit, subFr: 'Fournitures & livres par classe', subEn: 'Supplies & books per class' },
   ]},
   { key: 'steering', labelFr: 'Pilotage', labelEn: 'Steering', mods: [

@@ -2,6 +2,9 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
+import { ResourceView } from '../library/library.api';
+
+export type { ResourceView } from '../library/library.api';
 
 export interface ChildView {
   studentId: string;
@@ -136,5 +139,15 @@ export class ParentApi {
   }
   mySuggestions(): Observable<SuggestionView[]> {
     return this.http.get<SuggestionView[]>(`${this.base}/suggestions`);
+  }
+
+  /** Les documents publiés par la direction à l'intention des familles. */
+  sharedResources(): Observable<ResourceView[]> {
+    return this.http.get<ResourceView[]>(`${this.base}/resources`);
+  }
+
+  /** Les octets d'un document — le jeton voyage en en-tête, d'où le blob. */
+  sharedResourceFile(id: string): Observable<Blob> {
+    return this.http.get(`${this.base}/resources/${id}/file`, { responseType: 'blob' });
   }
 }

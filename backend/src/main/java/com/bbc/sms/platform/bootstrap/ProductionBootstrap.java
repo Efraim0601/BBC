@@ -38,7 +38,7 @@ public class ProductionBootstrap implements ApplicationRunner {
         "dashboard", "presence", "students", "hr", "academic", "finance",
         "timetable", "events", "discipline", "reports", "settings", "journey",
         "alerts", "messages", "coursebook", "health", "documents", "classkit",
-        "promotion"
+        "promotion", "library"
     };
 
     private final JdbcTemplate jdbc;
@@ -96,13 +96,13 @@ public class ProductionBootstrap implements ApplicationRunner {
         // other roles get a sensible default the admin can refine in Settings.
         for (String m : MODULES) grant(schoolId, "principal", m, "write");
         grants(schoolId, "prefect", "write", "presence", "timetable", "events", "discipline", "journey", "promotion", "alerts", "messages", "documents");
-        grants(schoolId, "prefect", "read", "dashboard", "students", "academic", "reports", "coursebook", "health", "classkit");
+        grants(schoolId, "prefect", "read", "dashboard", "students", "academic", "reports", "coursebook", "health", "classkit", "library");
         grants(schoolId, "econome", "write", "finance");
-        grants(schoolId, "econome", "read", "dashboard", "students", "reports", "alerts");
+        grants(schoolId, "econome", "read", "dashboard", "students", "reports", "alerts", "library");
         grants(schoolId, "form_teacher", "write", "academic", "discipline", "coursebook", "messages", "classkit");
-        grants(schoolId, "form_teacher", "read", "dashboard", "presence", "students", "timetable", "events", "journey", "promotion", "alerts", "health", "documents");
+        grants(schoolId, "form_teacher", "read", "dashboard", "presence", "students", "timetable", "events", "journey", "promotion", "alerts", "health", "documents", "library");
         grants(schoolId, "teacher", "write", "academic", "coursebook");
-        grants(schoolId, "teacher", "read", "dashboard", "presence", "timetable", "events", "messages");
+        grants(schoolId, "teacher", "read", "dashboard", "presence", "timetable", "events", "messages", "library");
         grant(schoolId, "parent", "parent", "read");
         // Un admin de section administre son cycle comme l'admin principal
         // administre l'école : mêmes modules, cloisonnés par le verrou de section

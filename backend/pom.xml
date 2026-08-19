@@ -21,6 +21,7 @@
         <java.version>21</java.version>
         <jjwt.version>0.12.6</jjwt.version>
         <mapstruct.version>1.6.3</mapstruct.version>
+        <minio.version>8.5.17</minio.version>
     </properties>
 
     <dependencies>
@@ -66,6 +67,15 @@
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
             <scope>runtime</scope>
+        </dependency>
+
+        <!-- Stockage objet (MinIO) — les fichiers de la bibliotheque de ressources.
+             Volontairement hors de la base : un PDF par circulaire ferait enfler
+             le pg_dump. Le bucket est prive, l'API sert seule les octets. -->
+        <dependency>
+            <groupId>io.minio</groupId>
+            <artifactId>minio</artifactId>
+            <version>${minio.version}</version>
         </dependency>
 
         <!-- JWT -->

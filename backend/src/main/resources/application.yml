@@ -18,6 +18,14 @@ spring:
     enabled: true
     locations: classpath:db/migration
     baseline-on-migrate: true
+  servlet:
+    multipart:
+      # Bibliothèque de ressources : la limite qui fait foi est celle du service
+      # (LibraryService.MAX_BYTES = 25 Mo), qui sait répondre par un message clair.
+      # Ces plafonds-ci sont un garde-fou de conteneur, posé juste au-dessus pour
+      # laisser le service parler le premier ; au-delà, le refus est un 413.
+      max-file-size: 27MB
+      max-request-size: 32MB
 
 server:
   port: ${SERVER_PORT:8080}
@@ -33,6 +41,14 @@ bbc:
     refresh-token-days: ${BBC_REFRESH_TOKEN_DAYS:7}
   cors:
     allowed-origins: ${BBC_CORS_ORIGINS:http://localhost:4200}
+  # Stockage objet des fichiers de la bibliothèque (MinIO, compatible S3).
+  # Le bucket reste PRIVÉ : les octets ne sortent que par l'API, après contrôle
+  # des droits. Le volume MinIO doit être sauvegardé à côté du pg_dump.
+  storage:
+    endpoint: ${BBC_STORAGE_ENDPOINT:http://localhost:9000}
+    access-key: ${BBC_STORAGE_ACCESS_KEY:bbc-storage}
+    secret-key: ${BBC_STORAGE_SECRET_KEY:bbc-storage-secret}
+    bucket: ${BBC_STORAGE_BUCKET:bbc-sms}
   # First-run PRODUCTION bootstrap (skipped once any user exists, e.g. demo).
   # Set BBC_ADMIN_PASSWORD to create the initial school + admin on an empty DB.
   bootstrap:
