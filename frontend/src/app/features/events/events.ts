@@ -7,6 +7,7 @@ import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
 import {
   IconComponent, CardComponent, KpiComponent, PageHeaderComponent, EmptyComponent,
+  ListPaginationComponent, paginateRows,
 } from '../../core/ui';
 
 interface EventDraft {
@@ -39,7 +40,7 @@ const EVENT_TYPES: Record<string, TypeMeta> = {
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
-    NgTemplateOutlet, FormsModule, IconComponent, CardComponent, KpiComponent, PageHeaderComponent, EmptyComponent,
+    NgTemplateOutlet, FormsModule, IconComponent, CardComponent, KpiComponent, PageHeaderComponent, EmptyComponent, ListPaginationComponent,
   ],
   template: `
     <div class="fade-in max-w-6xl mx-auto">
@@ -66,6 +67,36 @@ const EVENT_TYPES: Record<string, TypeMeta> = {
           [value]="totalNotifiedParents()" [sub]="fr() ? 'parents' : 'parents'" />
       </div>
 
+      <bbc-card className="mb-5">
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-[1.5fr_1fr_1fr_auto] md:items-end">
+          <label class="block">
+            <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Recherche' : 'Search' }}</span>
+            <input [ngModel]="eventQuery()" (ngModelChange)="setEventQuery($event)"
+              [placeholder]="fr() ? 'Titre, description ou classe…' : 'Title, description or class…'"
+              class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-brand-400 focus:outline-none" />
+          </label>
+          <label class="block">
+            <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">Type</span>
+            <select [ngModel]="eventTypeFilter()" (ngModelChange)="setEventType($event)"
+              class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-brand-400 focus:outline-none">
+              <option value="">{{ fr() ? 'Tous les types' : 'All types' }}</option>
+              @for (type of eventTypeOptions(); track type.value) { <option [value]="type.value">{{ type.label }}</option> }
+            </select>
+          </label>
+          <label class="block">
+            <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Notification' : 'Notification' }}</span>
+            <select [ngModel]="notificationFilter()" (ngModelChange)="setNotificationFilter($event)"
+              class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-brand-400 focus:outline-none">
+              <option value="">{{ fr() ? 'Tous les statuts' : 'All statuses' }}</option>
+              <option value="notified">{{ fr() ? 'Notifiés' : 'Notified' }}</option>
+              <option value="pending">{{ fr() ? 'Non notifiés' : 'Not notified' }}</option>
+            </select>
+          </label>
+          <button type="button" (click)="clearEventFilters()" [disabled]="!eventQuery() && !eventTypeFilter() && !notificationFilter()"
+            class="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-mute hover:text-ink disabled:opacity-40">{{ fr() ? 'Effacer' : 'Clear' }}</button>
+        </div>
+      </bbc-card>
+
       <div class="grid grid-cols-12 gap-4">
         <div class="col-span-12 lg:col-span-7 space-y-4">
           <!-- Upcoming -->
@@ -78,9 +109,11 @@ const EVENT_TYPES: Record<string, TypeMeta> = {
           @if (upcoming().length === 0) {
             <bbc-card><bbc-empty icon="calendar" [label]="fr() ? 'Aucun événement à venir' : 'No upcoming events'" /></bbc-card>
           } @else {
-            @for (e of upcoming(); track e.id) {
+            @for (e of pagedUpcoming(); track e.id) {
               <ng-container *ngTemplateOutlet="eventCard; context: { $implicit: e, past: false }" />
             }
+            <bbc-list-pagination [total]="upcoming().length" [page]="upcomingPage()" [pageSize]="eventPageSize()"
+              [language]="fr() ? 'fr' : 'en'" (pageChange)="upcomingPage.set($event)" (pageSizeChange)="setEventPageSize($event)" />
           }
 
           <!-- Past -->
@@ -90,9 +123,11 @@ const EVENT_TYPES: Record<string, TypeMeta> = {
               <div class="flex-1 h-px bg-slate-200"></div>
               <span class="text-[11px] text-slate-400 font-semibold">{{ past().length }}</span>
             </div>
-            @for (e of past().slice(0, 5); track e.id) {
+            @for (e of pagedPast(); track e.id) {
               <ng-container *ngTemplateOutlet="eventCard; context: { $implicit: e, past: true }" />
             }
+            <bbc-list-pagination [total]="past().length" [page]="pastPage()" [pageSize]="eventPageSize()"
+              [language]="fr() ? 'fr' : 'en'" (pageChange)="pastPage.set($event)" (pageSizeChange)="setEventPageSize($event)" />
           }
         </div>
 
@@ -282,23 +317,52 @@ export class EventsComponent {
   protected selectedTargets = signal<string[]>([]);
   protected canWrite = this.auth.can('events', 'write');
   protected creating = signal(false);
+  protected eventQuery = signal('');
+  protected eventTypeFilter = signal<string | null>(null);
+  protected notificationFilter = signal<string | null>(null);
+  protected upcomingPage = signal(1);
+  protected pastPage = signal(1);
+  protected eventPageSize = signal(10);
   protected draft: EventDraft = this.blank();
 
   protected fr = () => this.i18n.lang() === 'fr';
 
   private todayKey = new Date().toISOString().slice(0, 10);
 
+  protected filteredRows = computed(() => {
+    const q = this.eventQuery().trim().toLowerCase();
+    const type = this.eventTypeFilter();
+    const notification = this.notificationFilter();
+    return this.rows().filter((event) => {
+      if (type && event.type !== type) return false;
+      if (notification === 'notified' && !event.notified) return false;
+      if (notification === 'pending' && event.notified) return false;
+      if (q && !`${event.title} ${event.description ?? ''} ${(event.targetClasses ?? []).join(' ')}`.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  });
+
   protected upcoming = computed(() =>
-    this.rows()
+    this.filteredRows()
       .filter((e) => (e.eventDate ?? '') >= this.todayKey)
       .sort((a, b) => (a.eventDate ?? '').localeCompare(b.eventDate ?? '')),
   );
 
   protected past = computed(() =>
-    this.rows()
+    this.filteredRows()
       .filter((e) => (e.eventDate ?? '') < this.todayKey)
       .sort((a, b) => (b.eventDate ?? '').localeCompare(a.eventDate ?? '')),
   );
+  protected pagedUpcoming = computed(() => paginateRows(this.upcoming(), this.upcomingPage(), this.eventPageSize()));
+  protected pagedPast = computed(() => paginateRows(this.past(), this.pastPage(), this.eventPageSize()));
+  protected eventTypeOptions = computed(() => Object.keys(EVENT_TYPES).map((value) => ({ value, label: this.typeLabel(value) })));
+
+  protected setEventQuery(value: string): void { this.eventQuery.set(value); this.resetEventPages(); }
+  protected setEventType(value: string | null): void { this.eventTypeFilter.set(value || null); this.resetEventPages(); }
+  protected setNotificationFilter(value: string | null): void { this.notificationFilter.set(value || null); this.resetEventPages(); }
+  protected setEventPageSize(value: number): void { this.eventPageSize.set(value); this.resetEventPages(); }
+  protected clearEventFilters(): void { this.eventQuery.set(''); this.eventTypeFilter.set(null); this.notificationFilter.set(null); this.resetEventPages(); }
+  private resetEventPages(): void { this.upcomingPage.set(1); this.pastPage.set(1); }
 
   protected notifiedCount = computed(() => this.rows().filter((e) => e.notified).length);
 

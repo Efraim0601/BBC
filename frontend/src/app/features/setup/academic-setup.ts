@@ -1,15 +1,20 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { ActivatedRoute, Router } from '@angular/router';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
 import { ScopeService } from '../../core/scope.service';
 import {
   SetupApi, SectionView, SectionUpsert, ClassView, ClassUpsert, SubjectView, SubjectUpsert, TeacherOption,
-  ClassCoefView, CoefImportRow, CoefImportResult,
+  ClassCoefView, CoefImportRow, CoefImportResult, CurriculumView, CurriculumSubjectView, SubjectGroupView, AssignmentImpactView,
 } from '../../core/setup.api';
+import { FoundationApi, AcademicSessionView, AcademicReportingPeriodView, DocumentDesignView } from '../../core/foundation.api';
+import { AcademicApi, AcademicReadinessView, AcademicAccessDelegation, AcademicAccessDelegationPreview, AcademicAccessDelegationRequest, SecondaryCompetencyModelView } from '../academic/academic.api';
+import { AssessmentDefaultsComponent } from './assessment-defaults/assessment-defaults';
+import { CurriculumCopyComponent } from './curriculum-copy';
 import { defaultSubjects } from './subject-defaults';
 import { forkJoin } from 'rxjs';
-import { IconComponent, CardComponent, TabsComponent, EmptyComponent } from '../../core/ui';
+import { IconComponent, CardComponent, TabsComponent, EmptyComponent, ListPaginationComponent, paginateRows } from '../../core/ui';
 import { downloadCsv } from '../../core/csv';
 
 /**
@@ -21,9 +26,9 @@ import { downloadCsv } from '../../core/csv';
   selector: 'bbc-academic-setup',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, IconComponent, CardComponent, TabsComponent, EmptyComponent],
+  imports: [FormsModule, IconComponent, CardComponent, TabsComponent, EmptyComponent, ListPaginationComponent, AssessmentDefaultsComponent, CurriculumCopyComponent],
   template: `
-    <bbc-tabs [tabs]="subTabs()" [value]="sub()" (change)="switchTo($any($event))" />
+    <bbc-tabs [tabs]="displayedSubTabs()" [value]="sub()" (change)="switchTo($any($event))" />
 
     @switch (sub()) {
       <!-- ===================== SECTIONS ===================== -->
@@ -140,6 +145,41 @@ import { downloadCsv } from '../../core/csv';
             <div class="mb-3 text-xs rounded-lg px-3 py-2 bg-rose-50 text-rose-700 border border-rose-100">{{ e }}</div>
           }
 
+          <div class="mb-4 grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3 md:grid-cols-[1.5fr_1fr_1fr_auto] md:items-end">
+            <label class="block">
+              <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Recherche' : 'Search' }}</span>
+              <div class="relative">
+                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-mute"><bbc-icon name="search" [s]="14" /></span>
+                <input [ngModel]="classQuery()" (ngModelChange)="setClassQuery($event)"
+                  [placeholder]="fr() ? 'Classe ou section…' : 'Class or section…'"
+                  class="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm focus:border-brand-400 focus:outline-none" />
+              </div>
+            </label>
+            <label class="block">
+              <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Niveau' : 'Level' }}</span>
+              <select [ngModel]="classLevelFilter()" (ngModelChange)="setClassLevel($event)"
+                class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-brand-400 focus:outline-none">
+                <option value="">{{ fr() ? 'Tous les niveaux' : 'All levels' }}</option>
+                <option value="maternelle">{{ fr() ? 'Maternelle' : 'Kindergarten' }}</option>
+                <option value="primary">{{ fr() ? 'Primaire' : 'Primary' }}</option>
+                <option value="secondary">{{ fr() ? 'Secondaire' : 'Secondary' }}</option>
+              </select>
+            </label>
+            <label class="block">
+              <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Sous-système' : 'Subsystem' }}</span>
+              <select [ngModel]="classSubsystemFilter()" (ngModelChange)="setClassSubsystem($event)"
+                class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-brand-400 focus:outline-none">
+                <option value="">{{ fr() ? 'Tous les sous-systèmes' : 'All subsystems' }}</option>
+                <option value="FR">Francophone</option>
+                <option value="EN">Anglophone</option>
+              </select>
+            </label>
+            <button type="button" (click)="clearClassFilters()" [disabled]="!hasClassFilters()"
+              class="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-mute hover:text-ink disabled:cursor-not-allowed disabled:opacity-40">
+              {{ fr() ? 'Effacer' : 'Clear' }}
+            </button>
+          </div>
+
           @if (canWrite && clsForm()) {
             <form (ngSubmit)="saveClass()" class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4 p-3 rounded-lg bg-slate-50">
               <label class="block">
@@ -160,7 +200,10 @@ import { downloadCsv } from '../../core/csv';
             </form>
           }
 
-          @if (classes().length) {
+          @if (filteredClasses().length) {
+            <div class="mb-2 text-xs text-mute">
+              <strong class="text-ink">{{ filteredClasses().length }}</strong> {{ fr() ? 'classe(s) trouvée(s)' : 'class(es) found' }}
+            </div>
             <table class="min-w-full text-sm">
               <thead><tr class="border-b border-slate-100 text-[11px] uppercase text-mute text-left">
                 <th class="py-2 pr-3 font-semibold">{{ fr() ? 'Classe' : 'Class' }}</th>
@@ -171,7 +214,7 @@ import { downloadCsv } from '../../core/csv';
                 <th></th>
               </tr></thead>
               <tbody>
-                @for (c of classes(); track c.id) {
+                @for (c of pagedClasses(); track c.id) {
                   <tr class="border-b border-slate-50 hover:bg-slate-50/40">
                     <td class="py-2 pr-3 font-semibold text-ink">{{ c.name }}</td>
                     <td class="py-2 px-3 text-mute">{{ c.sectionLabel }}</td>
@@ -192,6 +235,12 @@ import { downloadCsv } from '../../core/csv';
                 }
               </tbody>
             </table>
+            <bbc-list-pagination [total]="filteredClasses().length" [page]="classPage()" [pageSize]="classPageSize()"
+              [language]="fr() ? 'fr' : 'en'" (pageChange)="classPage.set($event)" (pageSizeChange)="setClassPageSize($event)" />
+          } @else {
+            <bbc-empty icon="book" [label]="classes().length
+              ? (fr() ? 'Aucune classe ne correspond aux filtres.' : 'No class matches these filters.')
+              : (fr() ? 'Aucune classe.' : 'No classes.')" />
           }
 
           <!-- Teacher assignment panel (0..N teachers per class) -->
@@ -210,7 +259,7 @@ import { downloadCsv } from '../../core/csv';
                       <input type="checkbox" [checked]="picked().has(t.id)" (change)="toggleTeacher(t.id)" [disabled]="!canWrite"
                         class="rounded border-slate-300 text-brand-600 focus:ring-brand-400" />
                       <span class="text-sm text-ink truncate">{{ t.name }}</span>
-                      <span class="ml-auto text-[11px] font-mono text-mute">{{ t.code }}</span>
+                      <span class="ml-auto text-[11px] text-mute">{{ t.code }} · {{ t.accountUsername || (fr() ? 'sans compte' : 'no account') }}{{ t.accountRole ? ' · ' + t.accountRole : '' }}</span>
                     </label>
                   }
                 </div>
@@ -225,8 +274,306 @@ import { downloadCsv } from '../../core/csv';
                 <bbc-empty icon="users" [label]="fr() ? 'Aucun enseignant — ajoutez du personnel d’abord.' : 'No staff — add employees first.'" />
               }
             </div>
+          }
+        </bbc-card>
+      }
+
+      <!-- ===================== ACADEMIC ACCESS ===================== -->
+      @case ('access-exceptions') {
+        <div class="space-y-4">
+          <bbc-card [title]="fr() ? 'Accès académique et exceptions' : 'Academic access and exceptions'"
+            [subtitle]="fr() ? 'Les affectations de programme restent séparées des délégations temporaires. Toute exception est bornée, prévisualisée et auditée.' : 'Curriculum assignments stay separate from temporary delegations. Every exception is scoped, previewed, time-bounded, and audited.'">
+            <div class="flex flex-wrap items-center gap-2 mb-4">
+              <label class="inline-flex items-center gap-2 text-xs font-semibold text-ink">{{ fr() ? 'Session' : 'Session' }}
+                <select [ngModel]="accessSessionId()" (ngModelChange)="selectAccessSession($event)" class="h-9 px-2 rounded-lg border border-slate-300 bg-white text-sm">
+                  @for (session of academicSessions(); track session.id) { <option [value]="session.id">{{ session.label }}{{ session.current ? ' · current' : '' }}</option> }
+                </select>
+              </label>
+              <button type="button" (click)="loadAcademicAccess()" class="h-9 px-3 rounded-lg border border-slate-300 bg-white text-xs font-semibold">{{ fr() ? 'Actualiser' : 'Refresh' }}</button>
+            </div>
+            @if (accessReadiness(); as readiness) {
+              <div class="grid grid-cols-2 md:grid-cols-5 gap-2 mb-4 text-xs">
+                <div class="rounded-lg border border-slate-200 bg-slate-50 p-3"><div class="text-mute">{{ fr() ? 'Problèmes' : 'Issues' }}</div><div class="text-xl font-bold text-ink">{{ readiness.issueCount }}</div></div>
+                <div class="rounded-lg border border-rose-200 bg-rose-50 p-3"><div class="text-rose-700">{{ fr() ? 'Titulaires manquants' : 'Missing homerooms' }}</div><div class="text-xl font-bold text-rose-800">{{ readiness.missingHomeroomCount }}</div></div>
+                <div class="rounded-lg border border-amber-200 bg-amber-50 p-3"><div class="text-amber-700">{{ fr() ? 'Responsables manquants' : 'Missing responsible' }}</div><div class="text-xl font-bold text-amber-800">{{ readiness.missingResponsibleCount }}</div></div>
+                <div class="rounded-lg border border-amber-200 bg-amber-50 p-3"><div class="text-amber-700">{{ fr() ? 'Noms ambigus' : 'Duplicate names' }}</div><div class="text-xl font-bold text-amber-800">{{ readiness.duplicateNameCount }}</div></div>
+                <div class="rounded-lg border border-slate-200 bg-white p-3"><div class="text-mute">{{ fr() ? 'Comptes manquants' : 'Unlinked accounts' }}</div><div class="text-xl font-bold text-ink">{{ readiness.unlinkedTeacherCount }}</div></div>
+              </div>
+              @if (readiness.issues.length) {
+                <div class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950">
+                  <div class="font-bold mb-2">{{ fr() ? 'Réparations prioritaires' : 'Priority repairs' }}</div>
+                  <div class="space-y-1 max-h-44 overflow-y-auto">@for (issue of readiness.issues; track issue.code + issue.classId + issue.subjectCode + issue.employeeId) { <div class="flex flex-wrap gap-2 items-center"><span class="font-mono font-bold">{{ issue.code }}</span><span>{{ fr() ? issue.messageFr : issue.messageEn }}</span><span class="font-semibold">{{ issue.employeeName || issue.className || issue.subjectCode }}</span></div> }</div>
+                </div>
+              } @else {
+                <div class="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">{{ fr() ? 'La configuration est prête pour la résolution académique.' : 'The configuration is ready for academic access resolution.' }}</div>
+              }
+            } @else {
+              <div class="text-sm text-mute">{{ fr() ? 'Chargement de la préparation…' : 'Loading readiness…' }}</div>
+            }
+          </bbc-card>
+
+          @if (canWrite) {
+            <bbc-card [title]="fr() ? 'Créer une délégation temporaire' : 'Create a temporary delegation'"
+              [subtitle]="fr() ? 'Une exception doit rester limitée à une session, une classe, une capacité et une période datée.' : 'Every exception is limited to one session, class, capability, and dated period.'">
+              <form (ngSubmit)="previewDelegation()" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+                <label class="block xl:col-span-2"><span class="text-xs font-semibold">{{ fr() ? 'Enseignant / identité' : 'Teacher / identity' }} *</span>
+                  <select [(ngModel)]="delegationDraft.employeeId" name="delegationEmployee" required class="field mt-1">
+                    <option value="">{{ fr() ? 'Choisir un enseignant' : 'Choose a teacher' }}</option>
+                    @for (teacher of allTeachers(); track teacher.id) {
+                      <option [value]="teacher.id">{{ teacher.name }} · {{ teacher.code }} · {{ teacher.accountUsername || (fr() ? 'Compte non lié' : 'No linked account') }} · {{ teacher.accountRole || '—' }}</option>
+                    }
+                  </select>
+                </label>
+                <label class="block"><span class="text-xs font-semibold">{{ fr() ? 'Classe' : 'Class' }} *</span>
+                  <select [(ngModel)]="delegationDraft.classId" name="delegationClass" required class="field mt-1">
+                    <option value="">{{ fr() ? 'Choisir une classe' : 'Choose a class' }}</option>
+                    @for (klass of classes(); track klass.id) { <option [value]="klass.id">{{ klass.name }} · {{ levelLabel(klass.level) }}</option> }
+                  </select>
+                </label>
+                <label class="block"><span class="text-xs font-semibold">{{ fr() ? 'Capacité' : 'Capability' }} *</span>
+                  <select [(ngModel)]="delegationDraft.capabilityCode" name="delegationCapability" required class="field mt-1">
+                    @for (capability of delegationCapabilities; track capability.code) { <option [value]="capability.code">{{ fr() ? capability.fr : capability.en }}</option> }
+                  </select>
+                </label>
+                <label class="block"><span class="text-xs font-semibold">{{ fr() ? 'Matière (optionnelle)' : 'Subject (optional)' }}</span>
+                  <select [ngModel]="delegationDraft.subjectCode || ''" (ngModelChange)="setDelegationSubject($event)" name="delegationSubject" class="field mt-1">
+                    <option value="">{{ fr() ? 'Classe entière' : 'Whole class' }}</option>
+                    @for (subject of subjects(); track subject.id) { <option [value]="subject.code">{{ subject.code }} · {{ subjectLabel(subject) }}</option> }
+                  </select>
+                </label>
+                <label class="block"><span class="text-xs font-semibold">{{ fr() ? 'Du' : 'From' }} *</span><input [(ngModel)]="delegationDraft.effectiveFrom" name="delegationFrom" type="date" required class="field mt-1" /></label>
+                <label class="block"><span class="text-xs font-semibold">{{ fr() ? 'Au (obligatoire pour modifier)' : 'To (required for edits)' }}</span><input [(ngModel)]="delegationDraft.effectiveTo" name="delegationTo" type="date" class="field mt-1" /></label>
+                <label class="block md:col-span-2"><span class="text-xs font-semibold">{{ fr() ? 'Motif' : 'Reason' }} *</span><input [(ngModel)]="delegationDraft.reason" name="delegationReason" required minlength="3" maxlength="500" class="field mt-1" [placeholder]="fr() ? 'Ex. Remplacement daté après mutation.' : 'E.g. Dated substitution after transfer.'" /></label>
+                <div class="md:col-span-2 xl:col-span-4 flex items-center justify-between gap-3 pt-1">
+                  <span class="text-xs text-mute">{{ fr() ? 'La prévisualisation montre le périmètre et les avertissements avant création.' : 'Preview the exact scope and warnings before creating the grant.' }}</span>
+                  <button type="submit" [disabled]="delegationBusy()" class="btn-primary">{{ delegationBusy() ? '…' : (fr() ? 'Prévisualiser' : 'Preview') }}</button>
+                </div>
+              </form>
+              @if (delegationPreview(); as preview) {
+                <div class="mt-4 rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-950">
+                  <div class="font-bold">{{ fr() ? 'Aperçu d’impact' : 'Impact preview' }} · {{ preview.employeeName }} · {{ preview.employeeCode }}</div>
+                  <div class="mt-1 text-xs">{{ preview.capabilityCode }} · {{ preview.subjectCode || (fr() ? 'classe entière' : 'whole class') }} · {{ preview.effectiveFrom }} → {{ preview.effectiveTo || '∞' }}</div>
+                  @if (preview.warnings.length) { <div class="mt-2 text-amber-800">{{ fr() ? 'Avertissements :' : 'Warnings:' }} {{ preview.warnings.join(' · ') }}</div> }
+                  @if (preview.blockers.length) { <div class="mt-2 text-rose-800">{{ fr() ? 'Bloqueurs :' : 'Blockers:' }} {{ preview.blockers.join(' · ') }}</div> }
+                  <div class="flex justify-end gap-2 mt-3"><button type="button" (click)="delegationPreview.set(null)" class="btn-secondary">{{ fr() ? 'Annuler' : 'Cancel' }}</button><button type="button" (click)="createDelegation()" [disabled]="delegationBusy() || preview.blockers.length > 0" class="btn-primary">{{ fr() ? 'Créer et auditer' : 'Create and audit' }}</button></div>
+                </div>
+              }
+            </bbc-card>
+          }
+
+          <bbc-card [title]="fr() ? 'Délégations d’accès actives' : 'Active access delegations'"
+            [subtitle]="fr() ? 'Une délégation ne remplace jamais l’affectation curriculaire et expire automatiquement.' : 'A delegation never replaces the curriculum assignment and expires automatically.'">
+            @if (accessDelegations().length) {
+              <div class="overflow-x-auto"><table class="min-w-full text-xs"><thead><tr class="border-b border-slate-200 text-left uppercase text-mute"><th class="py-2 pr-3">{{ fr() ? 'Enseignant / compte' : 'Teacher / account' }}</th><th class="py-2 px-3">{{ fr() ? 'Classe / matière' : 'Class / subject' }}</th><th class="py-2 px-3">{{ fr() ? 'Capacité' : 'Capability' }}</th><th class="py-2 px-3">{{ fr() ? 'Période' : 'Period' }}</th><th class="py-2 px-3">{{ fr() ? 'État' : 'Status' }}</th><th></th></tr></thead><tbody>@for (grant of accessDelegations(); track grant.id) { <tr class="border-b border-slate-100"><td class="py-2 pr-3"><div class="font-semibold">{{ grant.employeeName }} · {{ grant.employeeCode }}</div><div class="text-mute">{{ grant.accountUsername || (fr() ? 'Compte non lié' : 'No linked account') }} · {{ grant.accountRole || '—' }}</div></td><td class="py-2 px-3">{{ grant.className }} · {{ grant.subjectCode || (fr() ? 'Classe entière' : 'Whole class') }}</td><td class="py-2 px-3 font-mono">{{ grant.capabilityCode }}</td><td class="py-2 px-3">{{ grant.effectiveFrom }} → {{ grant.effectiveTo || '∞' }}</td><td class="py-2 px-3"><span class="chip">{{ grant.status }}</span></td><td class="py-2 pl-3 text-right">@if (canWrite && grant.status === 'ACTIVE') { <button type="button" (click)="revokeAcademicDelegation(grant)" class="text-rose-700 font-semibold">{{ fr() ? 'Révoquer' : 'Revoke' }}</button> }</td></tr> }</tbody></table></div>
+            } @else { <bbc-empty icon="shield" [label]="fr() ? 'Aucune délégation temporaire.' : 'No temporary delegations.'" /> }
+          </bbc-card>
+        </div>
+      }
+
+      <!-- ===================== CLASS SUBJECTS ===================== -->
+      @case ('class-subjects') {
+        <bbc-card [title]="fr() ? 'Matières par classe' : 'Class subjects'"
+          [subtitle]="fr() ? 'Affectez les matières enseignées et définissez le coefficient utilisé sur les bulletins de chaque classe.' : 'Assign the subjects taught and define the coefficient used on each class bulletin.'">
+          <div action class="flex items-center gap-2">
+            <label class="inline-flex items-center gap-2 text-xs font-semibold text-ink">
+              {{ fr() ? 'Session' : 'Session' }}
+              <select [ngModel]="curriculumSessionId()" (ngModelChange)="selectCurriculumSession($event)" class="h-9 px-2 rounded-lg border border-slate-300 bg-white text-sm">
+                <option value="">{{ fr() ? 'Choisir' : 'Choose' }}</option>
+                @for (session of academicSessions(); track session.id) { <option [value]="session.id">{{ session.label }}{{ session.current ? ' · current' : '' }}</option> }
+              </select>
+            </label>
+            @if (canWrite) {
+              <label class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50 cursor-pointer"
+                [title]="fr() ? 'Optionnel : import en masse depuis un fichier officiel' : 'Optional: bulk import from an official file'">
+                <bbc-icon name="download" [s]="16" /> {{ fr() ? 'Import en masse (optionnel)' : 'Bulk import (optional)' }}
+                <input type="file" accept=".csv,.xls,.xlsx,.xlsm,text/csv,text/plain" (change)="onCoefFile($event)" class="hidden" />
+              </label>
+            }
+          </div>
+
+          @if (assignmentFocusCode()) {
+            <div class="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-3 text-sm text-rose-900" role="alert">
+              <div class="font-bold">{{ fr() ? 'Réparation demandée pour ' + assignmentFocusCode() : 'Repair requested for ' + assignmentFocusCode() }}</div>
+              <div class="mt-1">{{ fr() ? 'Choisissez un enseignant RESPONSIBLE pour cette matière, puis utilisez Enregistrer.' : 'Choose a RESPONSIBLE teacher for this subject, then use Save.' }}</div>
+            </div>
+          }
+
+          <bbc-curriculum-copy [targetSessionId]="curriculumSessionId()" [sessions]="academicSessions()" [classId]="assignmentClassId()" [canWrite]="canWrite" (applied)="refreshCurriculum()" />
+
+          <div class="mb-5 rounded-xl border border-brand-100 bg-brand-50/40 p-4">
+            <div class="mb-3">
+              <div class="font-semibold text-ink">{{ fr() ? 'Ajouter une matière à une classe' : 'Add a subject to a class' }}</div>
+              <div class="text-xs text-mute mt-1">{{ fr() ? 'Le coefficient de la matière est proposé automatiquement. Vous pouvez le modifier pour cette classe uniquement.' : 'The subject default is proposed automatically. You can override it for this class only.' }}</div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+              <label class="block">
+                <span class="text-xs font-semibold text-ink">{{ fr() ? 'Classe' : 'Class' }} *</span>
+                <select [ngModel]="assignmentClassId()" (ngModelChange)="selectAssignmentClass($event)"
+                  class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-300 bg-white focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100">
+                  <option value="">{{ fr() ? 'Choisir une classe' : 'Choose a class' }}</option>
+                  @for (c of classes(); track c.id) { <option [value]="c.id">{{ c.name }} · {{ c.subsystem }}</option> }
+                </select>
+              </label>
+              <label class="block">
+                <span class="text-xs font-semibold text-ink">{{ fr() ? 'Matière à ajouter' : 'Subject to add' }} *</span>
+                <select [ngModel]="assignmentSubjectId()" (ngModelChange)="selectAssignmentSubject($event)"
+                  [disabled]="!assignmentClassId() || !availableAssignmentSubjects().length"
+                  class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-300 bg-white focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 disabled:bg-slate-100">
+                  <option value="">{{ availableAssignmentSubjects().length ? (fr() ? 'Choisir une matière' : 'Choose a subject') : (fr() ? 'Toutes les matières sont affectées' : 'All subjects are assigned') }}</option>
+                  @for (s of availableAssignmentSubjects(); track s.id) { <option [value]="s.id">{{ subjectLabel(s) }} · {{ s.code }}</option> }
+                </select>
+              </label>
+              <label class="block">
+                <span class="text-xs font-semibold text-ink">{{ fr() ? 'Coefficient pour cette classe' : 'Coefficient for this class' }} *</span>
+                <input type="number" min="1" step="1" [ngModel]="assignmentCoef()" (ngModelChange)="assignmentCoef.set(+$event)"
+                  [disabled]="!assignmentSubjectId()"
+                  class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-300 bg-white focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 disabled:bg-slate-100" />
+                @if (selectedAssignmentSubject(); as subject) {
+                  <span class="text-[11px] text-mute mt-1 block">{{ fr() ? 'Défaut matière :' : 'Subject default:' }} {{ subject.coef }}</span>
+                }
+              </label>
+              <button type="button" (click)="addAssignment()" [disabled]="!canWrite || !assignmentClassId() || !assignmentSubjectId() || assignmentCoef() < 1"
+                class="h-10 px-4 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-semibold inline-flex items-center justify-center gap-2">
+                <bbc-icon name="plus" [s]="16" /> {{ fr() ? 'Ajouter à la classe' : 'Add to class' }}
+              </button>
+            </div>
+          </div>
+
+          @if (assignmentClassId() && curriculum()) {
+            <div class="mb-5 rounded-xl border border-slate-200 bg-white p-4">
+              <div class="flex items-start justify-between gap-3 mb-3">
+                <div>
+                  <div class="font-semibold text-ink">{{ fr() ? 'Groupes de matières' : 'Subject groups' }}</div>
+                  <div class="text-xs text-mute mt-1">{{ fr() ? 'Les groupes structurent les sous-totaux et la présentation du bulletin de cette session.' : 'Groups control subtotals and report-card presentation for this session.' }}</div>
+                </div>
+              </div>
+              <div class="grid grid-cols-1 md:grid-cols-5 gap-2 items-end">
+                <label><span class="meta">Code *</span><input [(ngModel)]="groupCode" class="field" placeholder="SCIENCES" /></label>
+                <label><span class="meta">{{ fr() ? 'Libellé FR' : 'French label' }} *</span><input [(ngModel)]="groupFr" class="field" placeholder="Sciences" /></label>
+                <label><span class="meta">{{ fr() ? 'Libellé EN' : 'English label' }}</span><input [(ngModel)]="groupEn" class="field" placeholder="Science" /></label>
+                <label><span class="meta">{{ fr() ? 'Ordre' : 'Order' }} *</span><input type="number" min="1" [(ngModel)]="groupOrder" class="field" /></label>
+                <button type="button" (click)="createGroup()" [disabled]="!canWrite" class="h-10 rounded-lg bg-brand-600 text-white text-sm font-semibold disabled:opacity-50">{{ fr() ? 'Créer le groupe' : 'Create group' }}</button>
+              </div>
+              @if (curriculum()?.groups?.length) {
+                <div class="flex flex-wrap gap-2 mt-3">
+                  @for (group of (curriculum()?.groups ?? []); track group.id) {
+                    <span class="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                      {{ group.displayOrder }} · {{ groupLabel(group) }}
+                      @if (canWrite) {
+                        @if (pendingGroupRemoval() === group.id) { <button type="button" (click)="removeGroup(group)" class="text-rose-700 font-bold">{{ fr() ? 'Confirmer' : 'Confirm' }}</button><button type="button" (click)="pendingGroupRemoval.set(null)" class="text-slate-500">×</button> }
+                        @else { <button type="button" (click)="askRemoveGroup(group)" class="text-slate-400 hover:text-rose-600">×</button> }
+                      }
+                    </span>
+                  }
+                </div>
+              }
+              @if (groupNotice(); as notice) { <div class="mt-3 text-sm rounded-lg px-3 py-2" [class]="notice.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'">{{ notice.text }}</div> }
+            </div>
+          }
+
+          @if (assignmentClassId()) {
+            <div class="flex items-center justify-between mb-3">
+              <div>
+                <div class="font-semibold text-ink">{{ fr() ? 'Matières affectées' : 'Assigned subjects' }}</div>
+                <div class="text-xs text-mute">{{ selectedAssignmentClass()?.name }} · {{ assignmentRows().length }} {{ fr() ? 'matière(s)' : 'subject(s)' }}</div>
+              </div>
+            </div>
+            @if (assignmentRows().length) {
+              <div class="rounded-lg border border-slate-200 overflow-auto">
+                <table class="w-full text-sm">
+                  <thead class="bg-slate-50 text-[11px] uppercase text-mute text-left">
+                    <tr>
+                      <th class="px-3 py-2 font-semibold">{{ fr() ? 'Matière' : 'Subject' }}</th>
+                      <th class="px-3 py-2 font-semibold">{{ fr() ? 'Code' : 'Code' }}</th>
+                      <th class="px-3 py-2 font-semibold text-center">{{ fr() ? 'Défaut' : 'Default' }}</th>
+                      <th class="px-3 py-2 font-semibold text-center">{{ fr() ? 'Coef de la classe' : 'Class coefficient' }}</th>
+                      <th class="px-3 py-2 font-semibold text-right">{{ fr() ? 'Action' : 'Action' }}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (row of assignmentRows(); track row.subjectId) {
+                      <tr class="border-t border-slate-100">
+                        <td class="px-3 py-2 font-semibold text-ink">{{ assignmentSubjectLabel(row) }}</td>
+                        <td class="px-3 py-2 font-mono text-xs">{{ row.subjectCode }}</td>
+                        <td class="px-3 py-2 text-center text-mute">{{ row.defaultCoef }}</td>
+                        <td class="px-3 py-2 text-center">
+                          <input type="number" min="1" step="1" [ngModel]="draftCoefficient(row)" (ngModelChange)="setDraftCoefficient(row, $event)"
+                            [name]="'class-coef-' + row.subjectId" [disabled]="!canWrite"
+                            class="w-24 h-9 px-2 text-center rounded-lg border border-slate-300 bg-white focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 disabled:bg-slate-100" />
+                        </td>
+                        <td class="px-3 py-2 text-right whitespace-nowrap">
+                          @if (canWrite) {
+                            <button type="button" (click)="saveAssignment(row)" class="h-8 px-2.5 rounded-lg text-xs font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100">{{ fr() ? 'Enregistrer' : 'Save' }}</button>
+                            @if (pendingCoefficientRemoval() === assignmentKey(row)) {
+                              <button type="button" (click)="removeAssignment(row)" class="h-8 px-2.5 rounded-lg text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 ml-1">{{ fr() ? 'Confirmer' : 'Confirm' }}</button>
+                              <button type="button" (click)="pendingCoefficientRemoval.set(null)" class="h-8 px-2 rounded-lg text-xs text-mute hover:text-ink ml-1">{{ fr() ? 'Annuler' : 'Cancel' }}</button>
+                            } @else {
+                              <button type="button" (click)="askRemoveAssignment(row)" class="h-8 px-2.5 rounded-lg text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 ml-1">{{ fr() ? 'Retirer' : 'Remove' }}</button>
+                            }
+                          }
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            } @else {
+              <div class="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-mute">
+                {{ fr() ? 'Aucune matière affectée. Utilisez le formulaire ci-dessus pour commencer.' : 'No subject assigned yet. Use the form above to get started.' }}
+              </div>
+            }
           } @else {
-            <bbc-empty icon="book" [label]="fr() ? 'Aucune classe.' : 'No classes.'" />
+            <div class="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-mute">
+              {{ fr() ? 'Choisissez une classe pour voir et gérer ses matières.' : 'Choose a class to view and manage its subjects.' }}
+            </div>
+          }
+
+          @if (assignmentRows().length) {
+            @if (selectedAssignmentClass()?.level !== 'secondary') {
+              <div class="mb-3 rounded-xl border border-brand-200 bg-brand-50/60 p-4">
+                <div class="font-semibold text-ink">{{ fr() ? 'Titulaire de classe' : 'Homeroom teacher' }} <b class="text-rose-600">*</b></div>
+                <div class="text-xs text-mute mt-1 mb-3">{{ fr() ? 'Une classe primaire utilise un seul titulaire daté. Toutes les matières héritent automatiquement de cette affectation.' : 'A primary class uses one dated homeroom assignment. Every subject inherits this authority automatically.' }}</div>
+                <div class="flex flex-col md:flex-row md:items-end gap-3">
+                    <label class="block flex-1"><span class="meta">{{ fr() ? 'Enseignant titulaire' : 'Homeroom teacher' }} <b class="text-rose-600">*</b></span><select class="field" [class.invalid]="!curriculum()?.homeroomTeacher" [ngModel]="curriculum()?.homeroomTeacher?.employeeId ?? ''" (ngModelChange)="prepareHomeroom($event)" [disabled]="!canWrite"><option value="">{{ fr() ? 'Choisir un titulaire' : 'Choose a homeroom teacher' }}</option>@for (teacher of allTeachers(); track teacher.id) { <option [value]="teacher.id">{{ teacher.name }} · {{ teacher.code }} · {{ teacher.accountUsername || (fr() ? 'sans compte' : 'no account') }}{{ teacher.accountRole ? ' · ' + teacher.accountRole : '' }}</option> }</select></label>
+                  <div class="text-xs text-slate-600 md:max-w-sm">{{ fr() ? 'Le planning et la saisie des notes sont verrouillés tant que cette affectation est absente.' : 'Timetable and grade entry remain blocked while this assignment is missing.' }}</div>
+                </div>
+                @if (!curriculum()?.homeroomTeacher) { <div class="mt-2 text-xs text-rose-700">{{ fr() ? 'Affectation titulaire manquante — action requise.' : 'Homeroom assignment missing — repair required.' }}</div> }
+              </div>
+            } @else {
+              <div class="mb-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">{{ fr() ? 'Classe secondaire : choisissez un enseignant RESPONSIBLE dans chaque ligne de matière. Le planning ne propose aucune autre autorité.' : 'Secondary class: choose one RESPONSIBLE teacher in each subject row. The timetable exposes no other authority.' }}</div>
+            }
+            <div class="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <div class="font-semibold text-ink">{{ fr() ? 'Règles du bulletin et enseignant responsable' : 'Report-card rules and responsible teacher' }}</div>
+              <div class="text-xs text-mute mt-1 mb-3">{{ fr() ? 'Ces valeurs sont enregistrées pour la combinaison session + classe + matière. Le coefficient ci-dessus est celui qui sera calculé sur le bulletin.' : 'These values are saved for the session + class + subject combination. The coefficient above is the one used on the report card.' }}</div>
+              <div class="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"><span class="font-bold">{{ fr() ? 'Règle de passage :' : 'Promotion rule:' }}</span> {{ fr() ? 'Obligatoire contrôle la complétude des notes : il faut saisir une note, une absence ou une exemption pour valider le résultat. Cela ne rend pas la matière décisive pour le passage. Le passage utilise la moyenne annuelle globale, calculée sur toutes les matières incluses, et la décision du conseil.' : 'Required controls result completeness: a mark, absence, or exemption must be entered before the result can be validated. It does not make this subject independently decisive for promotion. Promotion uses the overall annual average across included subjects and the council decision.' }}</div>
+              <div class="space-y-2">
+                  @for (row of assignmentRows(); track row.subjectId) {
+                    <div class="grid grid-cols-1 md:grid-cols-8 gap-2 items-center rounded-lg bg-white border p-2" [class.border-rose-300]="assignmentFocusCode() === row.subjectCode.toUpperCase()" [class.border-slate-200]="assignmentFocusCode() !== row.subjectCode.toUpperCase()">
+                    <div class="font-semibold text-sm md:col-span-2">{{ row.subjectCode }} · {{ assignmentSubjectLabel(row) }}</div>
+                    <label><span class="meta">{{ fr() ? 'Groupe' : 'Group' }}</span><select [ngModel]="row.groupId ?? ''" (ngModelChange)="setSubjectGroup(row, $event)" class="field"><option value="">{{ fr() ? 'Aucun' : 'None' }}</option>@for (group of (curriculum()?.groups ?? []); track group.id) { <option [value]="group.id">{{ groupLabel(group) }}</option> }</select></label>
+                    <label><span class="meta">{{ fr() ? 'Barème' : 'Max score' }}</span><input type="number" min="1" [ngModel]="row.maxScore" (ngModelChange)="row.maxScore = +$event" class="field" /></label>
+                    <label><span class="meta">{{ fr() ? 'Seuil indicatif' : 'Subject reference threshold' }}</span><input type="number" min="0" [ngModel]="row.passThreshold" (ngModelChange)="row.passThreshold = +$event" class="field" /><span class="text-[11px] text-mute">{{ fr() ? 'Référence matière, pas le seuil de passage.' : 'Subject reference; not the promotion threshold.' }}</span></label>
+                    <label class="flex items-start gap-2 text-xs font-semibold pt-2"><input type="checkbox" [ngModel]="row.mandatory" (ngModelChange)="row.mandatory = $event" /> <span>{{ fr() ? 'Obligatoire pour compléter le résultat' : 'Required for result completeness' }}</span></label>
+                    <label class="flex items-center gap-2 text-xs font-semibold pt-4"><input type="checkbox" [ngModel]="row.remarkRequired" (ngModelChange)="row.remarkRequired = $event" /> {{ fr() ? 'Remarque' : 'Remark' }}</label>
+                    @if (selectedAssignmentClass()?.level === 'secondary') {
+                      <div class="flex items-end gap-1"><select [ngModel]="row.responsibleTeacher?.employeeId ?? ''" (ngModelChange)="prepareSubjectTeacher(row, $event)" class="field" [class.invalid]="!row.responsibleTeacher" [disabled]="!canWrite"><option value="">{{ fr() ? 'Enseignant RESPONSIBLE' : 'RESPONSIBLE teacher' }}</option>@for (teacher of allTeachers(); track teacher.id) { <option [value]="teacher.id">{{ teacher.name }} · {{ teacher.code }} · {{ teacher.accountUsername || (fr() ? 'sans compte' : 'no account') }}{{ teacher.accountRole ? ' · ' + teacher.accountRole : '' }}</option> }</select><button type="button" (click)="saveAssignment(row)" [disabled]="!canWrite" class="h-10 px-2 rounded-lg bg-brand-50 text-brand-700 text-xs font-bold">{{ fr() ? 'Sauver' : 'Save' }}</button></div>
+                    } @else {
+                      <div><span class="meta">{{ fr() ? 'Enseignant hérité' : 'Inherited teacher' }}</span><div class="field bg-slate-100 text-slate-600 cursor-not-allowed">{{ curriculum()?.homeroomTeacher?.employeeName ?? (fr() ? 'Affectation manquante' : 'Assignment missing') }}</div><div class="text-[11px] text-slate-500 mt-1">{{ fr() ? 'Hérité du titulaire de classe — non modifiable ici.' : 'Inherited from homeroom — not editable here.' }}</div></div>
+                    }
+                  </div>
+                }
+              </div>
+            </div>
+          }
+
+          @if (assignmentNotice(); as notice) {
+            <div class="mt-3 text-sm rounded-lg px-3 py-2" [class]="notice.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'">{{ notice.text }}</div>
+          }
+          @if (coefResult(); as result) {
+            <div class="mt-3 text-xs rounded-lg px-3 py-2 bg-slate-50 text-mute">{{ result.applied }} {{ fr() ? 'affectation(s) importée(s).' : 'assignment(s) imported.' }}</div>
+          }
+          @if (coefError(); as importError) {
+            <div class="mt-3 text-sm rounded-lg px-3 py-2 bg-rose-50 text-rose-700">{{ importError }}</div>
           }
         </bbc-card>
       }
@@ -256,11 +603,29 @@ import { downloadCsv } from '../../core/csv';
           <!-- Subsystem filter -->
           <div class="flex items-center gap-1.5 mb-4 flex-wrap">
             @for (f of subjFilters; track f.value) {
-              <button (click)="subjFilter.set(f.value)"
+              <button (click)="setSubjectSubsystem(f.value)"
                 class="px-3 py-1.5 rounded-full text-xs font-semibold transition"
                 [class]="subjFilter() === f.value ? 'bg-brand-600 text-white' : 'bg-white text-mute border border-slate-200 hover:border-brand-300'">
                 {{ fr() ? f.fr : f.en }}
                 <span class="ml-1 opacity-70">{{ countFor(f.value) }}</span>
+              </button>
+            }
+          </div>
+
+          <div class="mb-4 flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3 sm:flex-row sm:items-end sm:justify-between">
+            <label class="block w-full sm:max-w-md">
+              <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Recherche' : 'Search' }}</span>
+              <div class="relative">
+                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-mute"><bbc-icon name="search" [s]="14" /></span>
+                <input [ngModel]="subjectQuery()" (ngModelChange)="setSubjectQuery($event)"
+                  [placeholder]="fr() ? 'Code ou nom de matière…' : 'Subject code or name…'"
+                  class="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm focus:border-brand-400 focus:outline-none" />
+              </div>
+            </label>
+            @if (subjectQuery()) {
+              <button type="button" (click)="setSubjectQuery('')"
+                class="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-mute hover:text-ink">
+                {{ fr() ? 'Effacer la recherche' : 'Clear search' }}
               </button>
             }
           </div>
@@ -303,6 +668,9 @@ import { downloadCsv } from '../../core/csv';
           }
 
           @if (filteredSubjects().length) {
+            <div class="mb-2 text-xs text-mute">
+              <strong class="text-ink">{{ filteredSubjects().length }}</strong> {{ fr() ? 'matière(s) trouvée(s)' : 'subject(s) found' }}
+            </div>
             <table class="min-w-full text-sm">
               <thead><tr class="border-b border-slate-100 text-[11px] uppercase text-mute text-left">
                 <th class="py-2 pr-3 font-semibold">{{ fr() ? 'Code' : 'Code' }}</th>
@@ -312,7 +680,7 @@ import { downloadCsv } from '../../core/csv';
                 <th></th>
               </tr></thead>
               <tbody>
-                @for (s of filteredSubjects(); track s.id) {
+                @for (s of pagedSubjects(); track s.id) {
                   <tr class="border-b border-slate-50 hover:bg-slate-50/40">
                     <td class="py-2 pr-3 font-mono font-semibold text-ink">{{ s.code }}</td>
                     <td class="py-2 px-3">{{ subjectLabel(s) }}</td>
@@ -333,6 +701,8 @@ import { downloadCsv } from '../../core/csv';
                 }
               </tbody>
             </table>
+            <bbc-list-pagination [total]="filteredSubjects().length" [page]="subjectPage()" [pageSize]="subjectPageSize()"
+              [language]="fr() ? 'fr' : 'en'" (pageChange)="subjectPage.set($event)" (pageSizeChange)="setSubjectPageSize($event)" />
           } @else {
             <div class="py-8 text-center">
               <bbc-empty icon="book" [label]="fr() ? 'Aucune matière dans cette liste.' : 'No subject in this list.'" />
@@ -346,74 +716,192 @@ import { downloadCsv } from '../../core/csv';
           }
         </bbc-card>
 
-        <!-- Per-class coefficients -->
-        <bbc-card className="mt-5"
-          [title]="fr() ? 'Coefficients par classe' : 'Per-class coefficients'"
-          [subtitle]="fr() ? 'Chaque matière peut peser différemment selon la classe (6e…Tle / Form 1…U6)' : 'A subject can weigh differently per class (6e…Tle / Form 1…U6)'">
-          <div action class="flex items-center gap-2">
-            @if (canWrite) {
-              <label class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-brand-600 hover:bg-brand-700 text-white cursor-pointer">
-                <bbc-icon name="download" [s]="16" /> {{ fr() ? 'Importer (Excel/CSV)' : 'Import (Excel/CSV)' }}
-                <input type="file" accept=".csv,.xls,.xlsx,.xlsm,text/csv,text/plain" (change)="onCoefFile($event)" class="hidden" />
-              </label>
-            }
+      }
+
+      <!-- ===================== SECONDARY COMPETENCIES ===================== -->
+      @case ('assessments') {
+        <bbc-assessment-defaults />
+      }
+
+      @case ('competencies') {
+        <bbc-card [title]="fr() ? 'Compétences du secondaire' : 'Secondary competencies'"
+          [subtitle]="fr() ? 'Définissez manuellement les compétences évaluées ou importez les notes par fichier CSV. Chaque modèle est versionné par session, période, classe et matière.' : 'Define assessed competencies manually or import marks from CSV. Each model is versioned by session, period, class and subject.'">
+          <div class="mb-4 rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-950 leading-relaxed">
+            <strong>{{ fr() ? 'Flux conseillé :' : 'Recommended flow:' }}</strong>
+            {{ fr() ? 'choisissez une classe secondaire, une matière et une période, créez les descriptions puis publiez le modèle. Les notes peuvent ensuite être saisies ou importées avec les colonnes studentId, competencyCode, mark, valueStatus.' : 'choose a secondary class, subject and period, create descriptions, then publish the model. Marks can then be entered or imported with studentId, competencyCode, mark, valueStatus columns.' }}
           </div>
-
-          @if (coefResult(); as r) {
-            <div class="mb-4 flex items-center gap-3 p-3 rounded-lg" [class]="r.skipped ? 'bg-amber-50' : 'bg-emerald-50'">
-              <div class="text-sm">
-                <span class="font-semibold text-ink">{{ r.applied }}</span> {{ fr() ? 'coefficient(s) enregistré(s)' : 'coefficient(s) saved' }}
-                @if (r.subjectsCreated) { · {{ r.subjectsCreated }} {{ fr() ? 'matière(s) créée(s)' : 'subject(s) created' }} }
-                @if (r.skipped) { · <span class="text-amber-700">{{ r.skipped }} {{ fr() ? 'ligne(s) ignorée(s)' : 'row(s) skipped' }}</span> }
-              </div>
-            </div>
-            @if (r.errors.length) {
-              <div class="mb-4 rounded-lg border border-slate-200 overflow-auto max-h-40 text-xs">
-                @for (e of r.errors; track e.row) {
-                  <div class="flex gap-2 px-3 py-1 border-t border-slate-100 first:border-0">
-                    <span class="font-mono text-mute w-10">#{{ e.row }}</span>
-                    <span class="font-medium text-ink w-40 shrink-0">{{ e.label }}</span>
-                    <span class="text-rose-600">{{ e.message }}</span>
-                  </div>
-                }
-              </div>
-            }
-          }
-
-          @if (coefRows().length) {
-            <div class="rounded-lg border border-slate-200 overflow-auto max-h-96">
-              <table class="w-full text-sm">
-                <thead class="bg-slate-50 sticky top-0 text-[11px] uppercase text-mute text-left">
-                  <tr>
-                    <th class="px-3 py-2 font-semibold">{{ fr() ? 'Classe' : 'Class' }}</th>
-                    <th class="px-3 py-2 font-semibold">{{ fr() ? 'Système' : 'System' }}</th>
-                    <th class="px-3 py-2 font-semibold">{{ fr() ? 'Matière' : 'Subject' }}</th>
-                    <th class="px-3 py-2 font-semibold text-center">{{ fr() ? 'Coef' : 'Coef' }}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  @for (c of coefRows(); track c.classId + c.subjectId) {
-                    <tr class="border-t border-slate-100">
-                      <td class="px-3 py-1.5 font-medium text-ink">{{ c.className }}</td>
-                      <td class="px-3 py-1.5">{{ c.subsystem }}</td>
-                      <td class="px-3 py-1.5 font-mono text-xs">{{ c.subjectCode }}</td>
-                      <td class="px-3 py-1.5 text-center font-semibold">{{ c.coef }}</td>
-                    </tr>
+          <div class="grid grid-cols-1 md:grid-cols-5 gap-3">
+            <label class="block"><span class="field-label">{{ fr() ? 'Session' : 'Session' }} *</span>
+              <select [ngModel]="competencySessionId()" (ngModelChange)="selectCompetencySession($event)" class="field" required>
+                <option value="">{{ fr() ? 'Choisir' : 'Choose' }}</option>
+                @for (session of academicSessions(); track session.id) { <option [value]="session.id">{{ session.label }}</option> }
+              </select>
+            </label>
+            <label class="block"><span class="field-label">{{ fr() ? 'Période' : 'Period' }} *</span>
+              <select [ngModel]="competencyPeriodId()" (ngModelChange)="selectCompetencyPeriod($event)" class="field" required>
+                <option value="">{{ fr() ? 'Choisir' : 'Choose' }}</option>
+                @for (period of competencyPeriods(); track period.id) { <option [value]="period.id">{{ period.code }} · {{ period.label }}</option> }
+              </select>
+            </label>
+            <label class="block"><span class="field-label">{{ fr() ? 'Classe secondaire' : 'Secondary class' }} *</span>
+              <select [ngModel]="competencyClassId()" (ngModelChange)="selectCompetencyClass($event)" class="field" required>
+                <option value="">{{ fr() ? 'Choisir' : 'Choose' }}</option>
+                @for (klass of secondaryClasses(); track klass.id) { <option [value]="klass.id">{{ klass.name }} · {{ klass.subsystem }}</option> }
+              </select>
+            </label>
+            <label class="block"><span class="field-label">{{ fr() ? 'Matière' : 'Subject' }} *</span>
+              <select [ngModel]="competencySubjectId()" (ngModelChange)="selectCompetencySubject($event)" class="field" required>
+                <option value="">{{ fr() ? 'Choisir' : 'Choose' }}</option>
+                @for (subject of secondarySubjects(); track subject.id) { <option [value]="subject.id">{{ subject.code }} · {{ subjectLabel(subject) }}</option> }
+              </select>
+            </label>
+            <label class="block"><span class="field-label">{{ fr() ? 'Langue du modèle' : 'Model language' }} *</span>
+              <select [ngModel]="competencyLocale()" (ngModelChange)="competencyLocale.set($event); loadCompetencyModels()" class="field" required>
+                <option value="fr">Français</option><option value="en">English</option>
+              </select>
+            </label>
+          </div>
+          @if (competencyNotice(); as notice) { <div class="mt-3 rounded-lg border px-3 py-2 text-sm" [class]="notice.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-800'">{{ notice.text }}</div> }
+          @if (!secondaryClasses().length) {
+            <div class="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">{{ fr() ? 'Aucune classe secondaire n’est configurée. Créez d’abord une section et une classe secondaire.' : 'No secondary class is configured. Create a secondary section and class first.' }}</div>
+          } @else if (competencyClassId() && competencySubjectId() && competencyPeriodId()) {
+            <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 mt-5">
+              <section class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div class="flex items-start justify-between gap-3"><div><h3 class="font-semibold text-ink">{{ fr() ? 'Saisie manuelle du modèle' : 'Manual model entry' }}</h3><p class="text-xs text-mute mt-1">{{ fr() ? 'Les champs obligatoires sont signalés par *.' : 'Required fields are marked with *.' }}</p></div><button type="button" (click)="addCompetencyRow()" class="btn-secondary">+ {{ fr() ? 'Compétence' : 'Competency' }}</button></div>
+                <label class="block mt-3"><span class="field-label">{{ fr() ? 'Nom du modèle' : 'Model name' }} *</span><input [(ngModel)]="competencyName" class="field" required [placeholder]="fr() ? 'Évaluations du trimestre' : 'Term competencies'" /></label>
+                <div class="space-y-2 mt-3">
+                  @for (row of competencyRows; track $index; let i = $index) {
+                    <div class="grid grid-cols-[90px_1fr_80px_32px] gap-2 items-start">
+                      <input [(ngModel)]="row.code" [name]="'competency-code-' + i" class="field" required placeholder="CODE" aria-label="{{ fr() ? 'Code' : 'Code' }}" />
+                      <textarea [(ngModel)]="row.description" [name]="'competency-description-' + i" class="field min-h-[42px]" required rows="2" placeholder="{{ fr() ? 'Description de la compétence évaluée' : 'Assessed competency description' }}"></textarea>
+                      <input [(ngModel)]="row.maxScore" [name]="'competency-max-' + i" class="field" type="number" min="1" max="100" required aria-label="{{ fr() ? 'Barème' : 'Max score' }}" />
+                      <button type="button" (click)="removeCompetencyRow(i)" class="h-10 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-rose-600" [disabled]="competencyRows.length === 1" aria-label="{{ fr() ? 'Supprimer' : 'Remove' }}">×</button>
+                    </div>
                   }
-                </tbody>
-              </table>
+                </div>
+                <div class="flex justify-end mt-4"><button type="button" (click)="saveCompetencyModel()" [disabled]="competencyBusy() || !canWrite" class="btn-primary">{{ competencyBusy() ? '…' : (fr() ? 'Enregistrer le brouillon' : 'Save draft') }}</button></div>
+              </section>
+              <section class="rounded-xl border border-slate-200 bg-white p-4">
+                <div class="flex items-start justify-between gap-3"><div><h3 class="font-semibold text-ink">{{ fr() ? 'Versions et import des notes' : 'Versions and mark import' }}</h3><p class="text-xs text-mute mt-1">{{ fr() ? 'Publiez une version, puis importez un CSV sans supprimer la saisie manuelle.' : 'Publish a version, then import CSV marks without removing manual entry.' }}</p></div><label class="btn-secondary cursor-pointer">{{ fr() ? 'Importer CSV' : 'Import CSV' }}<input type="file" accept=".csv,text/csv,text/plain" class="hidden" (change)="onCompetencyMarksFile($event)" /></label></div>
+                @if (competencyModels().length) {
+                  <div class="space-y-2 mt-3">
+                    @for (model of competencyModels(); track model.id) {
+                      <div class="rounded-lg border border-slate-200 p-3" [class.border-brand-300]="competencyModelId() === model.id">
+                        <button type="button" (click)="competencyModelId.set(model.id)" class="w-full text-left"><div class="flex items-center justify-between gap-2"><strong>{{ model.name }}</strong><span class="chip" [class]="model.status === 'PUBLISHED' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'">v{{ model.version }} · {{ model.status }}</span></div><div class="text-xs text-mute mt-1">{{ model.competencies.length }} {{ fr() ? 'compétences' : 'competencies' }} · {{ model.source }}</div></button>
+                        @if (canWrite && model.status === 'DRAFT') { <button type="button" (click)="publishCompetencyModel(model)" class="mt-2 text-xs font-semibold text-brand-700">{{ fr() ? 'Publier cette version' : 'Publish this version' }}</button> }
+                      </div>
+                    }
+                  </div>
+                } @else { <div class="mt-4 rounded-lg border border-dashed border-slate-300 p-4 text-sm text-mute">{{ fr() ? 'Aucun modèle pour cette sélection. Créez le premier à gauche.' : 'No model for this selection. Create the first one on the left.' }}</div> }
+                <div class="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-mute"><strong class="text-ink">CSV :</strong> studentId, competencyCode, mark, valueStatus. {{ fr() ? 'Les statuts acceptés sont SCORED, ABSENT, EXEMPT et MISSING.' : 'Accepted statuses are SCORED, ABSENT, EXEMPT and MISSING.' }}</div>
+              </section>
             </div>
           } @else {
-            <div class="text-sm text-mute p-4 rounded-lg bg-slate-50">
-              {{ fr()
-                ? 'Aucun coefficient par classe. Importez le fichier « Coefficients_BBC_2026-2027.xlsx » (dossier bulletins templates). Les classes citées doivent déjà exister.'
-                : 'No per-class coefficient yet. Import “Coefficients_BBC_2026-2027.xlsx” (bulletins templates folder). The named classes must already exist.' }}
-            </div>
+            <div class="mt-5 rounded-lg border border-dashed border-slate-300 p-5 text-center text-sm text-mute">{{ fr() ? 'Choisissez les quatre champs de contexte pour gérer un modèle secondaire.' : 'Choose the four context fields to manage a secondary model.' }}</div>
           }
-
-          @if (coefError(); as e) { <div class="mt-3 text-xs rounded-lg px-3 py-2 bg-rose-50 text-rose-600">{{ e }}</div> }
         </bbc-card>
       }
+
+      <!-- ===================== DOCUMENT DESIGN ===================== -->
+      @case ('design') {
+        <bbc-card [title]="fr() ? 'Modèles de bulletins et identité de l’établissement' : 'Report templates and school identity'"
+          [subtitle]="fr() ? 'Cette page contrôle l’apparence des documents officiels. Elle ne modifie ni les notes, ni les coefficients, ni les décisions.' : 'This page controls the appearance of official documents. It does not change marks, coefficients, or decisions.'">
+          <div class="mb-4 rounded-xl border border-brand-200 bg-brand-50 px-4 py-4 text-sm text-brand-950 leading-relaxed">
+            <div class="flex items-start gap-3">
+              <div class="mt-0.5 text-brand-700"><bbc-icon name="doc" [s]="20" /></div>
+              <div>
+                <strong>{{ fr() ? 'À quoi sert cette page ?' : 'What is this page for?' }}</strong>
+                <p class="mt-1">{{ fr() ? 'Elle détermine ce qui apparaît sur un PDF officiel : identité de l’établissement, mise en page, langue, niveau et zones de signature.' : 'It controls what appears on an official PDF: school identity, layout, language, level, and signature areas.' }}</p>
+              </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
+              <div class="rounded-lg border border-brand-100 bg-white/70 p-3"><div class="flex items-center gap-2 font-bold"><span class="flex h-6 w-6 items-center justify-center rounded-full bg-brand-700 text-white text-xs">1</span>{{ fr() ? 'Préparer' : 'Prepare' }}</div><p class="mt-2 text-xs">{{ fr() ? 'Modifiez d’abord le profil de l’établissement si son identité change.' : 'First update the school profile if its identity changes.' }}</p></div>
+              <div class="rounded-lg border border-brand-100 bg-white/70 p-3"><div class="flex items-center gap-2 font-bold"><span class="flex h-6 w-6 items-center justify-center rounded-full bg-brand-700 text-white text-xs">2</span>{{ fr() ? 'Publier' : 'Publish' }}</div><p class="mt-2 text-xs">{{ fr() ? 'Créez une version avec un motif obligatoire et contrôlable.' : 'Create a version with a required, auditable reason.' }}</p></div>
+              <div class="rounded-lg border border-brand-100 bg-white/70 p-3"><div class="flex items-center gap-2 font-bold"><span class="flex h-6 w-6 items-center justify-center rounded-full bg-brand-700 text-white text-xs">3</span>{{ fr() ? 'Générer' : 'Generate' }}</div><p class="mt-2 text-xs">{{ fr() ? 'Les nouveaux documents utilisent la version publiée ; les anciens restent inchangés.' : 'New documents use the published version; older documents stay unchanged.' }}</p></div>
+            </div>
+          </div>
+          <div class="mb-5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 leading-relaxed">
+            <strong>{{ fr() ? 'Important :' : 'Important:' }}</strong>
+            {{ fr() ? 'Cette page est un registre de versions, pas encore un éditeur visuel. Le bouton de modèle copie la définition existante dans une nouvelle version ; le bouton de marque photographie le profil actuel de l’établissement. Si rien n’a changé, ne publiez pas.' : 'This page is a version ledger, not yet a visual editor. The template button copies the existing definition into a new version; the branding button captures the current school profile. If nothing changed, do not publish.' }}
+          </div>
+          @if (documentDesign(); as design) {
+            <div class="space-y-6">
+              <section>
+                <div class="flex flex-wrap items-start justify-between gap-3 mb-3">
+                  <div class="flex items-start gap-2"><span class="flex h-7 w-7 items-center justify-center rounded-full bg-slate-800 text-white text-xs font-bold">1</span><div><h3 class="font-semibold text-ink">{{ fr() ? 'Mise en page des documents' : 'Document layout' }}</h3><p class="text-xs text-mute mt-1">{{ fr() ? 'Ces lignes indiquent quel format le système associe à chaque bulletin ou certificat.' : 'These rows show which format the system associates with each report card or certificate.' }}</p></div></div>
+                  <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-mute">{{ fr() ? 'Les résultats scolaires ne changent pas ici.' : 'Academic results are not changed here.' }}</div>
+                </div>
+                <div class="overflow-x-auto rounded-lg border border-slate-200">
+                  <table class="min-w-full text-xs"><thead class="bg-slate-50"><tr class="text-left"><th class="p-2">{{ fr() ? 'Document' : 'Document' }}</th><th class="p-2">{{ fr() ? 'Utilisé pour' : 'Used for' }}</th><th class="p-2">{{ fr() ? 'Version active' : 'Active version' }}</th><th class="p-2">{{ fr() ? 'Référence technique' : 'Technical reference' }}</th><th class="p-2"></th></tr></thead><tbody>
+                    @for (template of design.templates; track template.id) {
+                      <tr class="border-t border-slate-100 align-top"><td class="p-2"><strong>{{ template.name }}</strong><div class="text-slate-500 mt-0.5">{{ designTemplateTypeLabel(template) }}</div></td><td class="p-2"><div class="font-semibold text-ink">{{ designProductLabel(template) }}</div><div class="text-slate-500">{{ designLocaleLabel(template.locale) }} · {{ designSubsystemLabel(template.subsystem) }}</div><div class="text-slate-500 mt-0.5">{{ designFamilyLabel(template.referenceFamily) }}</div></td><td class="p-2"><span class="chip bg-emerald-50 text-emerald-700">v{{ template.version }} · {{ designStatusLabel(template.status) }}</span><div class="text-slate-500 mt-1">{{ fr() ? 'Utilisée pour les nouveaux documents' : 'Used for new documents' }}</div></td><td class="p-2"><div class="font-mono" [title]="template.checksum || ''">{{ template.checksum ? template.checksum.slice(0, 12) + '…' : '—' }}</div><div class="text-slate-500 mt-1">{{ fr() ? 'Contrôle d’intégrité' : 'Integrity check' }}</div></td><td class="p-2 text-right whitespace-nowrap">@if (canWrite && template.status === 'PUBLISHED') { <button type="button" (click)="openDesignPublish('template', template.id, template.name)" class="text-brand-700 font-semibold" [title]="fr() ? 'Copier la définition actuelle dans une nouvelle version' : 'Copy the current definition into a new version'">{{ fr() ? 'Créer une version' : 'Create version' }}</button> }</td></tr>
+                    } @empty { <tr><td colspan="5" class="p-4 text-center text-mute">{{ fr() ? 'Aucun modèle versionné.' : 'No versioned templates.' }}</td></tr> }
+                  </tbody></table>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
+                  @for (template of design.templates; track template.id) {
+                    <article class="rounded-xl border border-slate-200 bg-slate-50 p-3" aria-label="Report card live sample preview">
+                      <div class="flex items-center justify-between gap-2 mb-2"><strong class="text-sm">{{ template.name }}</strong><span class="chip bg-white text-slate-600">{{ template.locale.toUpperCase() }} · v{{ template.version }}</span></div>
+                      <div class="rounded-lg border border-slate-300 bg-white p-3 shadow-inner min-h-[150px]">
+                        <div class="flex items-start justify-between border-b border-slate-200 pb-2"><div><div class="text-[9px] uppercase tracking-wide text-slate-500">{{ fr() ? 'République du Cameroun · établissement' : 'Republic of Cameroon · school' }}</div><div class="font-bold text-xs mt-1">{{ template.referenceFamily === 'SECONDARY' ? (fr() ? 'Bulletin secondaire' : 'Secondary report card') : (fr() ? 'Bulletin scolaire' : 'School report card') }}</div></div><div class="h-8 w-8 rounded bg-brand-100"></div></div>
+                        <div class="grid grid-cols-3 gap-1 mt-3"><div class="h-2 rounded bg-slate-200"></div><div class="h-2 rounded bg-slate-200"></div><div class="h-2 rounded bg-slate-200"></div></div>
+                        <div class="mt-2 space-y-1">@for (row of [1,2,3,4]; track row) { <div class="grid grid-cols-6 gap-1"><div class="col-span-2 h-2 rounded bg-slate-100"></div><div class="h-2 rounded bg-slate-100"></div><div class="h-2 rounded bg-slate-100"></div><div class="h-2 rounded bg-slate-100"></div><div class="h-2 rounded bg-slate-100"></div></div> }</div>
+                        <div class="mt-3 flex justify-between"><span class="h-2 w-20 rounded bg-brand-100"></span><span class="h-2 w-12 rounded bg-slate-200"></span></div>
+                      </div>
+                      <p class="text-[11px] text-mute mt-2">{{ template.referenceFamily === 'SECONDARY' ? (fr() ? 'Aperçu : compétences, notes /20, coefficient, produit, cote et appréciation.' : 'Preview: competencies, marks /20, coefficient, product, grade and remarks.') : (fr() ? 'Aperçu primaire conservé.' : 'Primary preview preserved.') }}</p>
+                    </article>
+                  }
+                </div>
+              </section>
+              <section>
+                <div class="flex flex-wrap items-start justify-between gap-3 mb-3"><div class="flex items-start gap-2"><span class="flex h-7 w-7 items-center justify-center rounded-full bg-slate-800 text-white text-xs font-bold">2</span><div><h3 class="font-semibold text-ink">{{ fr() ? 'Identité imprimée de l’établissement' : 'School identity printed on documents' }}</h3><p class="text-xs text-mute mt-1">{{ fr() ? 'Nom, ville, ministère, logo, cachet et titres des signataires utilisés sur les nouveaux PDF.' : 'Name, city, ministry, logo, stamp, and signatory titles used on new PDFs.' }}</p></div></div>@if (canWrite) { <button type="button" (click)="openDesignPublish('branding', undefined, fr() ? 'Identité de l’établissement' : 'School identity')" class="btn-primary">{{ fr() ? 'Publier après modification' : 'Publish after a change' }}</button> }</div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  @for (branding of design.branding; track branding.id) {
+                    <div class="rounded-lg border border-slate-200 bg-white p-4"><div class="flex items-start justify-between gap-2"><div><strong>{{ branding.schoolName }}</strong><div class="text-xs text-mute mt-1">{{ branding.address || '—' }}</div><div class="text-xs text-mute">{{ branding.city || '—' }} · {{ branding.country || '—' }}</div><div class="text-xs mt-2" [class]="branding.logoConfigured ? 'text-emerald-700' : 'text-amber-700'">{{ branding.logoConfigured ? (fr() ? 'Logo configuré' : 'Logo configured') : (fr() ? 'Logo non configuré' : 'Logo not configured') }}</div></div><span class="chip" [class]="branding.status === 'PUBLISHED' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'">{{ designLocaleLabel(branding.locale) }} · v{{ branding.version }} · {{ designStatusLabel(branding.status) }}</span></div><div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-4 text-xs"><div class="rounded-lg bg-slate-50 p-2"><div class="text-slate-500">{{ fr() ? 'Principal / signataire' : 'Principal / signatory' }}</div><div class="font-semibold mt-1">{{ branding.principalName || (fr() ? 'Non renseigné' : 'Not configured') }}</div><div class="text-slate-500">{{ branding.principalTitle || '—' }}</div></div><div class="rounded-lg bg-slate-50 p-2"><div class="text-slate-500">{{ fr() ? 'Version publiée le' : 'Published on' }}</div><div class="font-semibold mt-1">{{ branding.publishedAt || branding.createdAt }}</div></div></div><details class="mt-3 text-[11px] text-slate-500"><summary class="cursor-pointer font-semibold">{{ fr() ? 'Afficher la référence technique' : 'Show technical reference' }}</summary><div class="font-mono break-all mt-2">{{ branding.contentHash }}</div></details></div>
+                  } @empty { <div class="rounded-lg border border-dashed border-slate-300 p-4 text-sm text-mute">{{ fr() ? 'Aucune version de marque.' : 'No branding version.' }}</div> }
+                </div>
+              </section>
+              <div class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950 leading-relaxed"><strong>{{ fr() ? 'Après publication :' : 'After publishing:' }}</strong> {{ fr() ? 'un bulletin ou certificat généré ensuite reprend cette version et son identité. Un document déjà publié conserve son ancienne version, même si le profil ou le modèle change plus tard.' : 'a report card or certificate generated afterward uses this version and identity. An already published document keeps its old version, even if the profile or template changes later.' }}</div>
+            </div>
+          } @else {
+            <div class="py-8 text-center text-mute">{{ fr() ? 'Chargement des versions…' : 'Loading versions…' }}</div>
+          }
+        </bbc-card>
+      }
+    }
+
+    @if (assignmentImpact(); as impact) {
+      <div class="fixed inset-0 z-50 bg-slate-950/40 flex items-center justify-center p-4" role="presentation">
+        <section class="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-xl p-5" role="dialog" aria-modal="true" aria-labelledby="assignment-impact-title">
+          <h2 id="assignment-impact-title" class="text-lg font-bold text-ink">{{ fr() ? 'Vérifier les conséquences de l’affectation' : 'Review assignment consequences' }}</h2>
+          <p class="text-sm text-mute mt-2">{{ fr() ? 'La modification est préparée mais aucune donnée n’a encore été changée.' : 'The change is prepared, but no data has been changed yet.' }}</p>
+          <div class="grid grid-cols-2 gap-3 mt-4 text-center text-sm">
+            <div class="rounded-lg border border-slate-200 bg-slate-50 p-3"><strong class="block text-xl">{{ impact.draftSlotCount }}</strong>{{ fr() ? 'créneaux brouillon à actualiser' : 'draft slots to refresh' }}</div>
+            <div class="rounded-lg border p-3" [class]="impact.publishedScheduleDrift ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-emerald-200 bg-emerald-50 text-emerald-900'"><strong class="block text-xl">{{ impact.publishedSlotCount }}</strong>{{ fr() ? 'créneaux publiés concernés' : 'published slots affected' }}</div>
+          </div>
+          @if (impact.warnings.length) { <div class="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"><strong>{{ fr() ? 'Conséquences :' : 'Consequences:' }}</strong><ul class="list-disc pl-5 mt-1">@for (warning of impact.warnings; track warning) { <li>{{ warning === 'PUBLISHED_SCHEDULE_DRIFT' ? (fr() ? 'La version publiée reste inchangée et sera signalée en dérive. Créez un nouveau brouillon pour appliquer le nouvel enseignant.' : 'The published version stays unchanged and will report drift. Create a new draft to apply the new teacher.') : (fr() ? 'Les brouillons concernés devront être actualisés.' : 'Affected drafts will need to be refreshed.') }}</li> }</ul></div> }
+          @if (impact.blockers.length) { <div class="mt-3 rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm text-rose-800"><strong>{{ fr() ? 'Correction requise :' : 'Repair required:' }}</strong> {{ impact.blockers.join(' · ') }}</div> }
+          <div class="flex justify-end gap-2 mt-5"><button (click)="cancelAssignmentImpact()" class="h-9 px-4 rounded-lg border border-slate-300 bg-white text-sm font-semibold">{{ fr() ? 'Annuler — ne rien changer' : 'Cancel — make no change' }}</button><button (click)="confirmAssignmentImpact()" [disabled]="impact.blockers.length > 0 || assignmentBusy()" class="h-9 px-4 rounded-lg bg-brand-600 text-white text-sm font-semibold disabled:opacity-50">{{ assignmentBusy() ? '…' : (fr() ? 'Confirmer l’affectation' : 'Confirm assignment') }}</button></div>
+        </section>
+      </div>
+    }
+
+    @if (designPublish(); as request) {
+      <div class="fixed inset-0 z-50 bg-slate-950/40 flex items-center justify-center p-4" role="presentation">
+        <section class="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-xl p-5" role="dialog" aria-modal="true" aria-labelledby="design-publish-title">
+          <h2 id="design-publish-title" class="text-lg font-bold text-ink">{{ fr() ? 'Vérifier la publication de version' : 'Review version publication' }}</h2>
+          <p class="text-sm text-mute mt-2">{{ request.label }}</p>
+          <div class="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-950 leading-relaxed"><strong>{{ fr() ? 'Conséquence :' : 'Consequence:' }}</strong> {{ request.kind === 'branding' ? (fr() ? 'La version publiée actuelle sera conservée dans l’historique et une nouvelle version de marque sera créée à partir du profil de l’établissement.' : 'The current published version will remain in history and a new branding version will be created from the school profile.') : (fr() ? 'Le modèle est copié dans un nouveau numéro de version. Les snapshots déjà publiés continuent de référencer leur modèle d’origine.' : 'The template is copied into a new version number. Existing published snapshots continue to reference their original template.') }}</div>
+          <label class="block mt-4"><span class="text-xs font-semibold text-slate-700">{{ fr() ? 'Motif obligatoire' : 'Required reason' }} <span class="text-rose-600">*</span></span><textarea [(ngModel)]="designReason" rows="3" class="field mt-1.5" [class.invalid]="!designReason.trim()" [placeholder]="fr() ? 'Expliquez pourquoi cette version est publiée…' : 'Explain why this version is being published…'"></textarea></label>
+          @if (!designReason.trim()) { <div class="mt-1 text-xs text-rose-600">{{ fr() ? 'Le motif est obligatoire.' : 'A reason is required.' }}</div> }
+          @if (request.kind === 'branding') {
+            <label class="block mt-4"><span class="text-xs font-semibold text-slate-700">{{ fr() ? 'Logo de l’établissement (PNG/JPEG, 512 Ko maximum)' : 'School logo (PNG/JPEG, 512 KB maximum)' }}</span><input type="file" accept="image/png,image/jpeg" (change)="onDesignLogoFile($event)" class="mt-1.5 block w-full text-sm" [disabled]="designBusy()" /></label>
+            @if (designLogoAsset; as logo) { <div class="mt-2 flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 p-2"><img [src]="designLogoPreview()" [alt]="fr() ? 'Aperçu du logo' : 'Logo preview'" class="h-12 w-12 rounded object-contain bg-white border border-slate-200" /><div class="text-xs text-mute"><div class="font-semibold text-ink">{{ logo.name }}</div><div>{{ logo.contentType }}</div></div></div> }
+            <div class="mt-1 text-xs text-mute">{{ fr() ? 'Sans nouveau fichier, le logo publié est conservé dans la nouvelle version.' : 'Without a new file, the published logo is carried into the new version.' }}</div>
+          }
+          <div class="flex justify-end gap-2 mt-5"><button type="button" (click)="cancelDesignPublish()" class="btn-secondary">{{ fr() ? 'Annuler — ne rien changer' : 'Cancel — make no change' }}</button><button type="button" (click)="confirmDesignPublish()" [disabled]="!designReason.trim() || designBusy()" class="btn-primary">{{ designBusy() ? '…' : (fr() ? 'Confirmer la publication' : 'Confirm publication') }}</button></div>
+        </section>
+      </div>
     }
 
     @if (err(); as e) {
@@ -425,10 +913,42 @@ export class AcademicSetupComponent {
   protected i18n = inject(I18nService);
   private auth = inject(AuthService);
   private api = inject(SetupApi);
+  private academicApi = inject(AcademicApi);
+  private foundation = inject(FoundationApi);
   private scopeSvc = inject(ScopeService);
+  private route = inject(ActivatedRoute);
+  private router = inject(Router);
+  private repairReturnUrl: string | null = null;
 
   protected fr = () => this.i18n.lang() === 'fr';
-  protected canWrite = this.auth.can('settings', 'write');
+  /**
+   * Setup writes are governed by the server-authoritative V2 action model.
+   * The legacy settings:write bit is intentionally not sufficient here: the
+   * fresh bootstrap administrator is granted narrowly-scoped setup exceptions
+   * while ordinary role templates remain unchanged.
+   */
+  protected get canWrite(): boolean {
+    const action = {
+      sections: 'CLASS_MANAGE',
+      classes: 'CLASS_MANAGE',
+      subjects: 'SUBJECT_MANAGE',
+      'class-subjects': 'CURRICULUM_CLASS_MANAGE',
+      'access-exceptions': 'ACADEMIC_ACCESS_DELEGATE',
+      assessments: 'ACADEMIC_ASSESSMENT_MANAGE',
+      competencies: 'ACADEMIC_ASSESSMENT_MANAGE',
+      design: 'DOCUMENT_DESIGN_PUBLISH',
+    }[this.sub()];
+    if (this.auth.canAction(action)) return true;
+    // Resource-scoped setup actions are deliberately reported by the server
+    // as CONTEXT_REQUIRED: the selected class/session/subject is evaluated by
+    // the service when the mutation is submitted. Keep the UI usable for a
+    // bootstrap administrator with that potential grant without turning the
+    // contextual capability into a context-free authorization bypass.
+    if (this.auth.actionState(action) !== 'CONTEXT_REQUIRED') return false;
+    return this.sub() === 'class-subjects'
+      ? !!this.assignmentClassId()
+      : this.sub() === 'assessments' || this.sub() === 'access-exceptions' || this.sub() === 'competencies';
+  }
   protected activeScope = computed(() => this.scopeSvc.scope());
 
   protected scopeBanner = computed(() => {
@@ -447,17 +967,47 @@ export class AcademicSetupComponent {
       : `Active parcours: ${lvl} · ${sub}. Other parcours data is hidden — switch from the top bar.`;
   });
 
-  protected sub = signal<'sections' | 'classes' | 'subjects'>('sections');
+  protected sub = signal<'sections' | 'classes' | 'subjects' | 'class-subjects' | 'access-exceptions' | 'assessments' | 'competencies' | 'design'>('sections');
   protected sections = signal<SectionView[]>([]);
   protected classes = signal<ClassView[]>([]);
   protected subjects = signal<SubjectView[]>([]);
+  protected classQuery = signal('');
+  protected classLevelFilter = signal<string | null>(null);
+  protected classSubsystemFilter = signal<string | null>(null);
+  protected classPage = signal(1);
+  protected classPageSize = signal(25);
+  protected subjectQuery = signal('');
+  protected subjectPage = signal(1);
+  protected subjectPageSize = signal(25);
+
+  protected filteredClasses = computed(() => {
+    const q = this.classQuery().trim().toLowerCase();
+    const level = this.classLevelFilter();
+    const subsystem = this.classSubsystemFilter();
+    return this.classes().filter((klass) => {
+      if (level && klass.level !== level) return false;
+      if (subsystem && klass.subsystem !== subsystem) return false;
+      if (q && !`${klass.name} ${klass.sectionLabel ?? ''} ${klass.level} ${klass.subsystem}`.toLowerCase().includes(q)) return false;
+      return true;
+    }).sort((a, b) => a.name.localeCompare(b.name, this.fr() ? 'fr' : 'en', { numeric: true, sensitivity: 'base' }));
+  });
+  protected pagedClasses = computed(() => paginateRows(this.filteredClasses(), this.classPage(), this.classPageSize()));
+  protected hasClassFilters = computed(() => !!(
+    this.classQuery().trim() || this.classLevelFilter() || this.classSubsystemFilter()
+  ));
   protected err = signal<string | null>(null);
 
   protected subTabs = computed(() => [
     { id: 'sections', label: this.fr() ? 'Sections' : 'Sections' },
     { id: 'classes', label: this.fr() ? 'Classes' : 'Classes' },
     { id: 'subjects', label: this.fr() ? 'Matières' : 'Subjects' },
+    { id: 'class-subjects', label: this.fr() ? 'Matières par classe' : 'Class subjects' },
+    { id: 'access-exceptions', label: this.fr() ? 'Exceptions d’accès' : 'Access exceptions' },
+    { id: 'competencies', label: this.fr() ? 'Compétences secondaire' : 'Secondary competencies' },
+    { id: 'design', label: this.fr() ? 'Modèles / marque' : 'Templates / branding' },
   ]);
+  protected displayedSubTabs = computed(() => this.subTabs().map((tab) =>
+    tab.id === 'competencies' ? { id: 'assessments', label: this.fr() ? 'Évaluations' : 'Evaluations' } : tab));
 
   // Section form
   protected secForm = signal(false);
@@ -493,17 +1043,42 @@ export class AcademicSetupComponent {
 
   protected filteredSubjects = computed(() => {
     const f = this.subjFilter();
-    const all = this.subjects();
-    if (f === 'ALL') return all;
-    // FR/EN lists include subjects common to both (subsystem null).
-    return all.filter((s) => s.subsystem === f || !s.subsystem);
+    const q = this.subjectQuery().trim().toLowerCase();
+    let all = this.subjects();
+    if (f !== 'ALL') {
+      // FR/EN lists include subjects common to both (subsystem null).
+      all = all.filter((s) => s.subsystem === f || !s.subsystem);
+    }
+    if (q) {
+      all = all.filter((s) => `${s.code} ${s.label?.['fr'] ?? ''} ${s.label?.['en'] ?? ''}`.toLowerCase().includes(q));
+    }
+    return [...all].sort((a, b) => this.subjectLabel(a).localeCompare(this.subjectLabel(b), this.fr() ? 'fr' : 'en', { sensitivity: 'base' }));
   });
+  protected pagedSubjects = computed(() => paginateRows(this.filteredSubjects(), this.subjectPage(), this.subjectPageSize()));
 
   protected countFor(f: 'FR' | 'EN' | 'ALL'): number {
     const all = this.subjects();
     if (f === 'ALL') return all.length;
     return all.filter((s) => s.subsystem === f || !s.subsystem).length;
   }
+
+  protected setClassQuery(value: string): void { this.classQuery.set(value); this.classPage.set(1); }
+  protected setClassLevel(value: string | null): void { this.classLevelFilter.set(value || null); this.classPage.set(1); }
+  protected setClassSubsystem(value: string | null): void { this.classSubsystemFilter.set(value || null); this.classPage.set(1); }
+  protected setClassPageSize(value: number): void { this.classPageSize.set(value); this.classPage.set(1); }
+  protected clearClassFilters(): void {
+    this.classQuery.set('');
+    this.classLevelFilter.set(null);
+    this.classSubsystemFilter.set(null);
+    this.classPage.set(1);
+  }
+
+  protected setSubjectSubsystem(value: 'FR' | 'EN' | 'ALL'): void {
+    this.subjFilter.set(value);
+    this.subjectPage.set(1);
+  }
+  protected setSubjectQuery(value: string): void { this.subjectQuery.set(value); this.subjectPage.set(1); }
+  protected setSubjectPageSize(value: number): void { this.subjectPageSize.set(value); this.subjectPage.set(1); }
 
   /** How many standard subjects of the active list are not yet created (0 = all present). */
   protected missingDefaultsCount = computed(() => {
@@ -519,18 +1094,339 @@ export class AcademicSetupComponent {
   protected coefRows = signal<ClassCoefView[]>([]);
   protected coefResult = signal<CoefImportResult | null>(null);
   protected coefError = signal<string | null>(null);
+  protected assignmentClassId = signal('');
+  protected assignmentFocusCode = signal('');
+  protected assignmentSubjectId = signal('');
+  protected assignmentCoef = signal(1);
+  protected assignmentNotice = signal<{ ok: boolean; text: string } | null>(null);
+  protected assignmentImpact = signal<AssignmentImpactView | null>(null);
+  protected assignmentBusy = signal(false);
+  private pendingAssignment: { role: 'HOMEROOM' | 'RESPONSIBLE'; employeeId: string; row?: CurriculumSubjectView } | null = null;
+  protected pendingCoefficientRemoval = signal<string | null>(null);
+  protected coefficientDrafts: Record<string, number> = {};
+  protected academicSessions = signal<AcademicSessionView[]>([]);
+  protected curriculumSessionId = signal('');
+  protected curriculum = signal<CurriculumView | null>(null);
+  protected groupCode = '';
+  protected groupFr = '';
+  protected groupEn = '';
+  protected groupOrder = 1;
+  protected groupNotice = signal<{ ok: boolean; text: string } | null>(null);
+  protected pendingGroupRemoval = signal<string | null>(null);
+  protected documentDesign = signal<DocumentDesignView | null>(null);
+  protected designPublish = signal<{ kind: 'template' | 'branding'; id?: string; label: string } | null>(null);
+  protected designReason = '';
+  protected designLogoAsset: { contentType: string; base64: string; name: string } | null = null;
+  protected designBusy = signal(false);
+
+  protected competencyPeriods = signal<AcademicReportingPeriodView[]>([]);
+  protected competencySessionId = signal('');
+  protected competencyPeriodId = signal('');
+  protected competencyClassId = signal('');
+  protected competencySubjectId = signal('');
+  protected competencyLocale = signal<'fr' | 'en'>('fr');
+  protected competencyName = '';
+  protected competencyRows: Array<{ code: string; description: string; maxScore: number }> = [
+    { code: 'UNDERSTAND', description: '', maxScore: 20 },
+    { code: 'APPLY', description: '', maxScore: 20 },
+  ];
+  protected competencyModels = signal<SecondaryCompetencyModelView[]>([]);
+  protected competencyModelId = signal('');
+  protected competencyBusy = signal(false);
+  protected competencyNotice = signal<{ ok: boolean; text: string } | null>(null);
+  protected accessSessionId = signal('');
+  protected accessReadiness = signal<AcademicReadinessView | null>(null);
+  protected accessDelegations = signal<AcademicAccessDelegation[]>([]);
+  protected delegationPreview = signal<AcademicAccessDelegationPreview | null>(null);
+  protected delegationBusy = signal(false);
+  protected delegationDraft: AcademicAccessDelegationRequest = {
+    academicSessionId: '', employeeId: '', classId: '', subjectId: null, subjectCode: null,
+    capabilityCode: 'SUBJECT_GRADE_EDIT', effectiveFrom: '', effectiveTo: null,
+    reason: '', source: 'MANUAL',
+  };
+  protected readonly delegationCapabilities = [
+    { code: 'SUBJECT_GRADE_VIEW', fr: 'Voir les notes et remarques d’une matière', en: 'View one subject’s marks and remarks' },
+    { code: 'SUBJECT_GRADE_EDIT', fr: 'Modifier les notes et remarques d’une matière', en: 'Edit one subject’s marks and remarks' },
+    { code: 'SUBJECT_GRADE_SUBMIT', fr: 'Soumettre une feuille de matière', en: 'Submit one subject sheet' },
+    { code: 'ASSESSMENT_VIEW', fr: 'Voir les évaluations d’une matière', en: 'View one subject’s assessments' },
+    { code: 'ASSESSMENT_MANAGE', fr: 'Gérer les évaluations d’une matière', en: 'Manage one subject’s assessments' },
+    { code: 'CLASS_RESULTS_VIEW', fr: 'Voir les résultats complets d’une classe', en: 'View complete class results' },
+    { code: 'CLASS_REPORT_CARD_VIEW', fr: 'Voir les bulletins d’une classe', en: 'View class report-card data' },
+    { code: 'COUNCIL_INPUT_EDIT', fr: 'Modifier les éléments du conseil', en: 'Edit class-council inputs' },
+  ];
+
+  protected secondaryClasses = computed(() => this.classes().filter((klass) => klass.level.toLowerCase() === 'secondary'));
+  protected secondarySubjects = computed(() => {
+    const klass = this.secondaryClasses().find((item) => item.id === this.competencyClassId());
+    return this.subjects().filter((subject) => !klass || !subject.subsystem || subject.subsystem === klass.subsystem);
+  });
+
+  protected selectedAssignmentClass = computed(() =>
+    this.classes().find((c) => c.id === this.assignmentClassId()) ?? null,
+  );
+  protected selectedAssignmentSubject = computed(() =>
+    this.subjects().find((s) => s.id === this.assignmentSubjectId()) ?? null,
+  );
+  protected assignmentRows = computed<CurriculumSubjectView[]>(() => this.curriculum()?.subjects ?? []);
+  protected availableAssignmentSubjects = computed(() => {
+    const selectedClass = this.selectedAssignmentClass();
+    if (!selectedClass) return [];
+    const assigned = new Set(this.assignmentRows().map((row) => row.subjectId));
+    return this.subjects()
+      .filter((s) => (s.subsystem == null || s.subsystem === selectedClass.subsystem) && !assigned.has(s.id))
+      .sort((a, b) => this.subjectLabel(a).localeCompare(this.subjectLabel(b)));
+  });
 
   constructor() {
+    const params = this.route.snapshot.queryParamMap;
+    const requestedSubtab = params.get('subtab');
+    if (requestedSubtab === 'sections' || requestedSubtab === 'classes' || requestedSubtab === 'subjects'
+      || requestedSubtab === 'class-subjects' || requestedSubtab === 'access-exceptions' || requestedSubtab === 'assessments' || requestedSubtab === 'competencies' || requestedSubtab === 'design') {
+      this.sub.set(requestedSubtab === 'competencies' ? 'assessments' : requestedSubtab);
+    }
+    const requestedSessionId = params.get('sessionId');
+    const requestedClassId = params.get('classId');
+    const requestedSubjectCode = params.get('subjectCode');
+    const requestedReturnUrl = params.get('returnUrl');
+    if (requestedSessionId) this.curriculumSessionId.set(requestedSessionId);
+    if (requestedClassId) this.assignmentClassId.set(requestedClassId);
+    if (requestedSubjectCode) this.assignmentFocusCode.set(requestedSubjectCode.toUpperCase());
+    if (requestedReturnUrl?.startsWith('/') && !requestedReturnUrl.startsWith('//')) this.repairReturnUrl = requestedReturnUrl;
     this.loadSections();
     this.loadClasses();
     this.loadSubjects();
     this.loadCoefficients();
+    if (this.sub() === 'design') this.maybeLoadDocumentDesign();
+    this.foundation.listSessions().subscribe((rows) => {
+      this.academicSessions.set(rows);
+      const current = rows.find((s) => s.id === this.curriculumSessionId())
+        ?? rows.find((s) => s.current) ?? rows.find((s) => s.status === 'OPEN') ?? rows[0];
+      if (current) {
+        this.curriculumSessionId.set(current.id);
+        this.accessSessionId.set(current.id);
+        this.loadCurriculum();
+        this.selectCompetencySession(current.id);
+        if (this.sub() === 'access-exceptions') this.loadAcademicAccess();
+      }
+    });
   }
 
   private loadCoefficients(): void {
-    this.api.listCoefficients().subscribe((r) => this.coefRows.set(
-      r.sort((a, b) => a.className.localeCompare(b.className) || a.subjectCode.localeCompare(b.subjectCode)),
-    ));
+    this.api.listCoefficients().subscribe((r) => {
+      this.coefRows.set(r.sort((a, b) => a.className.localeCompare(b.className) || a.subjectCode.localeCompare(b.subjectCode)));
+      this.syncCoefficientDrafts();
+    });
+  }
+
+  protected selectAssignmentClass(classId: string): void {
+    this.assignmentClassId.set(classId);
+    this.assignmentSubjectId.set('');
+    this.assignmentCoef.set(1);
+    this.pendingCoefficientRemoval.set(null);
+    this.assignmentNotice.set(null);
+    this.syncCoefficientDrafts();
+    const selected = this.classes().find((c) => c.id === classId);
+    if (selected) this.api.assignableTeachers(selected.level).subscribe((teachers) => this.allTeachers.set(teachers));
+    this.loadCurriculum();
+  }
+
+  protected selectCurriculumSession(sessionId: string): void {
+    this.curriculumSessionId.set(sessionId);
+    this.curriculum.set(null);
+    this.assignmentNotice.set(null);
+    this.groupNotice.set(null);
+    this.loadCurriculum();
+  }
+
+  protected refreshCurriculum(): void { this.loadCurriculum(); }
+
+  private loadCurriculum(): void {
+    const sessionId = this.curriculumSessionId();
+    const classId = this.assignmentClassId();
+    if (!sessionId || !classId) { this.curriculum.set(null); return; }
+    this.api.curriculum(sessionId, classId).subscribe({
+      next: (value) => { this.curriculum.set({ ...value, subjects: value.subjects.map((row) => ({ ...row, classId: value.classId, className: value.className, defaultCoef: this.subjects().find((s) => s.id === row.subjectId)?.coef ?? row.coefficient })) }); this.syncCoefficientDrafts(); },
+      error: (e) => this.assignmentError(e),
+    });
+  }
+
+  protected selectAssignmentSubject(subjectId: string): void {
+    this.assignmentSubjectId.set(subjectId);
+    const subject = this.subjects().find((s) => s.id === subjectId);
+    this.assignmentCoef.set(subject?.coef ?? 1);
+  }
+
+  protected assignmentSubjectLabel(row: CurriculumSubjectView): string {
+    return row.subjectLabel || row.subjectCode;
+  }
+
+  protected assignmentKey(row: CurriculumSubjectView): string { return `${this.assignmentClassId()}:${row.subjectId}`; }
+
+  protected draftCoefficient(row: CurriculumSubjectView): number {
+    return this.coefficientDrafts[this.assignmentKey(row)] ?? row.coefficient;
+  }
+
+  protected setDraftCoefficient(row: CurriculumSubjectView, raw: number | string): void {
+    this.coefficientDrafts = { ...this.coefficientDrafts, [this.assignmentKey(row)]: Number(raw) };
+  }
+
+  private syncCoefficientDrafts(): void {
+    const next: Record<string, number> = {};
+    for (const row of this.assignmentRows()) next[this.assignmentKey(row)] = row.coefficient;
+    this.coefficientDrafts = next;
+  }
+
+  private setAssignmentNotice(ok: boolean, text: string): void {
+    this.assignmentNotice.set({ ok, text });
+  }
+
+  private assignmentError(e: any): void {
+    this.setAssignmentNotice(false, e?.error?.message ?? (this.fr() ? 'Affectation impossible.' : 'Assignment failed.'));
+  }
+
+  protected addAssignment(): void {
+    const classId = this.assignmentClassId();
+    const subjectId = this.assignmentSubjectId();
+    const coef = Number(this.assignmentCoef());
+    if (!classId || !subjectId || !Number.isInteger(coef) || coef < 1) {
+      this.setAssignmentNotice(false, this.fr() ? 'Choisissez une classe, une matière et un coefficient valide.' : 'Choose a class, subject, and valid coefficient.');
+      return;
+    }
+    const sessionId = this.curriculumSessionId();
+    if (!sessionId) { this.setAssignmentNotice(false, this.fr() ? 'Choisissez d’abord une session académique.' : 'Choose an academic session first.'); return; }
+    this.assignmentNotice.set(null);
+    this.api.upsertCurriculumSubject({ academicSessionId: sessionId, classId, subjectId, coefficient: coef }).subscribe({
+      next: (row) => {
+        this.curriculum.update((current) => current ? { ...current, subjects: [...current.subjects.filter((x) => x.subjectId !== row.subjectId), row].sort((a, b) => a.displayOrder - b.displayOrder) } : current);
+        this.assignmentSubjectId.set('');
+        this.assignmentCoef.set(1);
+        this.setAssignmentNotice(true, this.fr() ? `Matière ${row.subjectCode} ajoutée à ${row.className}.` : `${row.subjectCode} added to ${row.className}.`);
+      },
+      error: (e) => this.assignmentError(e),
+    });
+  }
+
+  protected saveAssignment(row: CurriculumSubjectView): void {
+    const coef = Number(this.draftCoefficient(row));
+    if (!Number.isInteger(coef) || coef < 1) {
+      this.setAssignmentNotice(false, this.fr() ? 'Le coefficient doit être un entier supérieur ou égal à 1.' : 'The coefficient must be a whole number of at least 1.');
+      return;
+    }
+    this.api.upsertCurriculumSubject({ academicSessionId: this.curriculumSessionId(), classId: this.assignmentClassId(), subjectId: row.subjectId, groupId: row.groupId, displayOrder: row.displayOrder, coefficient: coef, maxScore: row.maxScore, mandatory: row.mandatory, passThreshold: row.passThreshold, showSubjectRank: row.showSubjectRank, remarkRequired: row.remarkRequired, version: row.version }).subscribe({
+      next: (updated) => {
+        this.curriculum.update((current) => current ? { ...current, subjects: current.subjects.map((x) => x.subjectId === updated.subjectId ? updated : x) } : current);
+        this.setAssignmentNotice(true, this.fr() ? `Coefficient ${updated.subjectCode} enregistré pour ${updated.className}.` : `${updated.subjectCode} coefficient saved for ${updated.className}.`);
+      },
+      error: (e) => this.assignmentError(e),
+    });
+  }
+
+  protected askRemoveAssignment(row: CurriculumSubjectView): void {
+    this.pendingCoefficientRemoval.set(this.assignmentKey(row));
+    this.assignmentNotice.set(null);
+  }
+
+  protected removeAssignment(row: CurriculumSubjectView): void {
+    this.api.deleteCurriculumSubject(this.curriculumSessionId(), this.assignmentClassId(), row.subjectId).subscribe({
+      next: () => {
+        this.curriculum.update((current) => current ? { ...current, subjects: current.subjects.filter((currentRow) => currentRow.subjectId !== row.subjectId) } : current);
+        this.pendingCoefficientRemoval.set(null);
+        this.syncCoefficientDrafts();
+        this.setAssignmentNotice(true, this.fr() ? `Matière ${row.subjectCode} retirée de ${row.className}.` : `${row.subjectCode} removed from ${row.className}.`);
+      },
+      error: (e) => this.assignmentError(e),
+    });
+  }
+
+  /** Read an Excel/CSV coefficient file (long format) and import it. */
+  protected groupLabel(group: SubjectGroupView): string {
+    return (this.fr() ? group.label?.['fr'] : group.label?.['en']) || group.label?.['fr'] || group.label?.['en'] || group.code;
+  }
+
+  protected setSubjectGroup(row: CurriculumSubjectView, groupId: string): void {
+    const group = this.curriculum()?.groups.find((g) => g.id === groupId);
+    this.curriculum.update((current) => current ? { ...current, subjects: current.subjects.map((x) => x.subjectId === row.subjectId ? { ...x, groupId: groupId || null, groupCode: group?.code ?? null } : x) } : current);
+  }
+
+  protected prepareSubjectTeacher(row: CurriculumSubjectView, employeeId: string): void {
+    if (!employeeId || !this.canWrite) return;
+    this.assignmentBusy.set(true);
+    this.api.assignmentImpactPreview({
+      academicSessionId: this.curriculumSessionId(), classId: this.assignmentClassId(), subjectId: row.subjectId,
+      employeeId, role: 'RESPONSIBLE',
+    }).subscribe({
+      next: (impact) => { this.assignmentBusy.set(false); this.pendingAssignment = { role: 'RESPONSIBLE', employeeId, row }; this.assignmentImpact.set(impact); },
+      error: (e) => { this.assignmentBusy.set(false); this.assignmentError(e); },
+    });
+  }
+
+  protected prepareHomeroom(employeeId: string): void {
+    if (!employeeId || !this.canWrite) return;
+    this.assignmentBusy.set(true);
+    this.api.assignmentImpactPreview({
+      academicSessionId: this.curriculumSessionId(), classId: this.assignmentClassId(), employeeId, role: 'HOMEROOM',
+    }).subscribe({
+      next: (impact) => { this.assignmentBusy.set(false); this.pendingAssignment = { role: 'HOMEROOM', employeeId }; this.assignmentImpact.set(impact); },
+      error: (e) => { this.assignmentBusy.set(false); this.assignmentError(e); },
+    });
+  }
+
+  protected cancelAssignmentImpact(): void {
+    this.assignmentImpact.set(null);
+    this.pendingAssignment = null;
+    this.assignmentBusy.set(false);
+  }
+
+  protected confirmAssignmentImpact(): void {
+    const pending = this.pendingAssignment;
+    if (!pending || this.assignmentBusy()) return;
+    this.assignmentBusy.set(true);
+    if (pending.role === 'RESPONSIBLE' && pending.row) this.saveSubjectTeacher(pending.row, pending.employeeId);
+    else this.saveHomeroom(pending.employeeId);
+  }
+
+  protected saveSubjectTeacher(row: CurriculumSubjectView, employeeId: string): void {
+    if (!employeeId) return;
+    this.api.upsertCurriculumTeacher({ academicSessionId: this.curriculumSessionId(), classId: this.assignmentClassId(), subjectId: row.subjectId, employeeId, role: 'RESPONSIBLE', source: 'MANUAL' }).subscribe({
+      next: (teacher) => { this.curriculum.update((current) => current ? { ...current, subjects: current.subjects.map((x) => x.subjectId === row.subjectId ? { ...x, responsibleTeacher: teacher } : x) } : current); this.assignmentBusy.set(false); this.cancelAssignmentImpact(); this.returnToGradeEntryIfRequested(); },
+      error: (e) => { this.assignmentBusy.set(false); this.assignmentError(e); },
+    });
+  }
+
+  protected saveHomeroom(employeeId: string): void {
+    if (!employeeId || !this.canWrite) return;
+    this.api.upsertHomeroom({
+      academicSessionId: this.curriculumSessionId(),
+      classId: this.assignmentClassId(),
+      employeeId,
+      version: this.curriculum()?.homeroomTeacher?.version,
+    }).subscribe({
+      next: (teacher) => { this.curriculum.update((current) => current ? { ...current, homeroomTeacher: teacher } : current); this.assignmentBusy.set(false); this.cancelAssignmentImpact(); this.returnToGradeEntryIfRequested(); },
+      error: (e) => { this.assignmentBusy.set(false); this.assignmentError(e); },
+    });
+  }
+
+  private returnToGradeEntryIfRequested(): void {
+    const url = this.repairReturnUrl;
+    if (!url) return;
+    this.repairReturnUrl = null;
+    void this.router.navigateByUrl(url);
+  }
+
+  protected createGroup(): void {
+    const sessionId = this.curriculumSessionId();
+    if (!sessionId || !this.groupCode.trim() || !this.groupFr.trim() || this.groupOrder < 1) {
+      this.groupNotice.set({ ok: false, text: this.fr() ? 'Code, libellé et ordre du groupe sont obligatoires.' : 'Group code, label, and order are required.' }); return;
+    }
+    this.api.createCurriculumGroup({ academicSessionId: sessionId, code: this.groupCode, label: { fr: this.groupFr, en: this.groupEn || this.groupFr }, displayOrder: this.groupOrder, showSubtotal: true, showRank: false, averagePolicy: 'WEIGHTED_COEFFICIENT' }).subscribe({
+      next: (group) => { this.curriculum.update((current) => current ? { ...current, groups: [...current.groups, group].sort((a, b) => a.displayOrder - b.displayOrder) } : current); this.groupCode = ''; this.groupFr = ''; this.groupEn = ''; this.groupOrder = (this.curriculum()?.groups.length ?? 0) + 1; this.groupNotice.set({ ok: true, text: this.fr() ? `Groupe ${group.code} créé.` : `Group ${group.code} created.` }); },
+      error: (e) => this.groupNotice.set({ ok: false, text: e?.error?.message ?? (this.fr() ? 'Création du groupe impossible.' : 'Could not create group.') }),
+    });
+  }
+
+  protected askRemoveGroup(group: SubjectGroupView): void { this.pendingGroupRemoval.set(group.id); }
+  protected removeGroup(group: SubjectGroupView): void {
+    this.api.deleteCurriculumGroup(group.id).subscribe({ next: () => { this.curriculum.update((current) => current ? { ...current, groups: current.groups.filter((x) => x.id !== group.id), subjects: current.subjects.map((x) => x.groupId === group.id ? { ...x, groupId: null, groupCode: null } : x) } : current); this.pendingGroupRemoval.set(null); }, error: (e) => this.groupNotice.set({ ok: false, text: e?.error?.message ?? (this.fr() ? 'Suppression impossible.' : 'Could not delete group.') }) });
   }
 
   /** Read an Excel/CSV coefficient file (long format) and import it. */
@@ -594,9 +1490,243 @@ export class AcademicSetupComponent {
     return out;
   }
 
-  protected switchTo(t: 'sections' | 'classes' | 'subjects'): void {
-    this.sub.set(t);
+  protected switchTo(t: 'sections' | 'classes' | 'subjects' | 'class-subjects' | 'access-exceptions' | 'assessments' | 'competencies' | 'design'): void {
+    this.sub.set(t === 'competencies' ? 'assessments' : t);
     this.secForm.set(false); this.clsForm.set(false); this.subjForm.set(false);
+    this.assignmentNotice.set(null);
+    this.err.set(null);
+    if (t === 'access-exceptions') this.loadAcademicAccess();
+    if (t === 'design') this.maybeLoadDocumentDesign();
+  }
+
+  protected selectAccessSession(sessionId: string): void {
+    this.accessSessionId.set(sessionId);
+    this.loadAcademicAccess();
+  }
+
+  protected loadAcademicAccess(): void {
+    const sessionId = this.accessSessionId() || this.curriculumSessionId();
+    if (!sessionId) return;
+    this.delegationDraft.academicSessionId = sessionId;
+    if (!this.delegationDraft.effectiveFrom) {
+      this.delegationDraft.effectiveFrom = this.academicSessions().find((session) => session.id === sessionId)?.startDate ?? '';
+    }
+    this.api.assignableTeachers(null).subscribe({ next: (teachers) => this.allTeachers.set(teachers), error: (error) => this.fail(error) });
+    this.academicApi.academicAccessReadiness(sessionId).subscribe({
+      next: (value) => this.accessReadiness.set(value),
+      error: (error) => this.fail(error),
+    });
+    this.academicApi.academicAccessDelegations({ sessionId }).subscribe({
+      next: (value) => this.accessDelegations.set(value),
+      error: (error) => this.fail(error),
+    });
+  }
+
+  protected setDelegationSubject(code: string): void {
+    const subject = this.subjects().find((item) => item.code.toUpperCase() === (code || '').toUpperCase());
+    this.delegationDraft.subjectCode = subject?.code ?? null;
+    this.delegationDraft.subjectId = subject?.id ?? null;
+  }
+
+  protected previewDelegation(): void {
+    const sessionId = this.accessSessionId() || this.curriculumSessionId();
+    if (!sessionId || !this.delegationDraft.employeeId || !this.delegationDraft.classId
+      || !this.delegationDraft.effectiveFrom || !this.delegationDraft.reason.trim()) return;
+    this.delegationDraft.academicSessionId = sessionId;
+    this.delegationBusy.set(true);
+    this.academicApi.previewAcademicDelegation(this.delegationDraft).subscribe({
+      next: (preview) => { this.delegationPreview.set(preview); this.delegationBusy.set(false); },
+      error: (error) => { this.delegationBusy.set(false); this.fail(error); },
+    });
+  }
+
+  protected createDelegation(): void {
+    const preview = this.delegationPreview();
+    if (!preview) return;
+    this.delegationBusy.set(true);
+    this.academicApi.createAcademicDelegation(this.delegationDraft).subscribe({
+      next: () => {
+        this.delegationBusy.set(false);
+        this.delegationPreview.set(null);
+        this.delegationDraft.reason = '';
+        this.loadAcademicAccess();
+      },
+      error: (error) => { this.delegationBusy.set(false); this.fail(error); },
+    });
+  }
+
+  protected revokeAcademicDelegation(grant: AcademicAccessDelegation): void {
+    if (!this.canWrite) return;
+    const reason = window.prompt(this.fr() ? 'Motif de révocation' : 'Revocation reason', this.fr() ? 'Fin du remplacement' : 'Substitution ended');
+    if (!reason?.trim()) return;
+    this.academicApi.revokeAcademicDelegation(grant.id, reason.trim(), grant.version).subscribe({
+      next: () => this.loadAcademicAccess(), error: (error) => this.fail(error),
+    });
+  }
+
+  private loadDocumentDesign(): void {
+    this.foundation.documentDesign().subscribe({ next: (design) => this.documentDesign.set(design), error: (error) => this.fail(error) });
+  }
+
+  private maybeLoadDocumentDesign(): void {
+    const loadIfAllowed = (): void => {
+      if (this.auth.canAction('DOCUMENT_DESIGN_PUBLISH')) this.loadDocumentDesign();
+    };
+    if (this.auth.capabilities()) {
+      loadIfAllowed();
+      return;
+    }
+    this.auth.loadCapabilities().subscribe({ next: loadIfAllowed, error: () => undefined });
+  }
+
+  protected selectCompetencySession(sessionId: string): void {
+    this.competencySessionId.set(sessionId);
+    this.competencyPeriodId.set('');
+    this.competencyModels.set([]);
+    this.competencyModelId.set('');
+    if (!sessionId) { this.competencyPeriods.set([]); return; }
+    this.foundation.reportingPeriods(sessionId).subscribe({
+      next: (periods) => {
+        this.competencyPeriods.set(periods);
+        const first = periods.find((period) => period.code === 'S1') ?? periods[0];
+        if (first) { this.competencyPeriodId.set(first.id); this.loadCompetencyModels(); }
+      },
+      error: (error) => this.fail(error),
+    });
+  }
+
+  protected selectCompetencyPeriod(periodId: string): void { this.competencyPeriodId.set(periodId); this.loadCompetencyModels(); }
+  protected selectCompetencyClass(classId: string): void {
+    this.competencyClassId.set(classId);
+    const klass = this.secondaryClasses().find((item) => item.id === classId);
+    if (klass && this.competencyLocale() !== (klass.subsystem === 'EN' ? 'en' : 'fr')) this.competencyLocale.set(klass.subsystem === 'EN' ? 'en' : 'fr');
+    this.competencySubjectId.set('');
+    this.loadCompetencyModels();
+  }
+  protected selectCompetencySubject(subjectId: string): void { this.competencySubjectId.set(subjectId); this.loadCompetencyModels(); }
+
+  protected loadCompetencyModels(): void {
+    const reportingPeriodId = this.competencyPeriodId();
+    const classId = this.competencyClassId();
+    const subjectId = this.competencySubjectId();
+    if (!reportingPeriodId || !classId || !subjectId) { this.competencyModels.set([]); this.competencyModelId.set(''); return; }
+    this.academicApi.secondaryCompetencyModels({ reportingPeriodId, classId, subjectId, locale: this.competencyLocale() }).subscribe({
+      next: (models) => {
+        this.competencyModels.set(models);
+        const selected = models.find((model) => model.status === 'DRAFT') ?? models.find((model) => model.status === 'PUBLISHED') ?? models[0];
+        this.competencyModelId.set(selected?.id ?? '');
+      },
+      error: (error) => this.fail(error),
+    });
+  }
+
+  protected addCompetencyRow(): void { this.competencyRows = [...this.competencyRows, { code: '', description: '', maxScore: 20 }]; }
+  protected removeCompetencyRow(index: number): void { if (this.competencyRows.length > 1) this.competencyRows = this.competencyRows.filter((_, i) => i !== index); }
+
+  protected saveCompetencyModel(): void {
+    const sessionId = this.competencySessionId();
+    const reportingPeriodId = this.competencyPeriodId();
+    const classId = this.competencyClassId();
+    const subjectId = this.competencySubjectId();
+    const rows = this.competencyRows.map((row, index) => ({ code: row.code.trim(), description: row.description.trim(), maxScore: Number(row.maxScore), displayOrder: index + 1 }));
+    if (!this.canWrite || !sessionId || !reportingPeriodId || !classId || !subjectId || !this.competencyName.trim() || rows.some((row) => !row.code || !row.description || !Number.isFinite(row.maxScore) || row.maxScore <= 0)) {
+      this.competencyNotice.set({ ok: false, text: this.fr() ? 'Renseignez tous les champs obligatoires du modèle.' : 'Complete all required model fields.' });
+      return;
+    }
+    this.competencyBusy.set(true);
+    this.academicApi.createSecondaryCompetencyModel({ academicSessionId: sessionId, reportingPeriodId, classId, subjectId, locale: this.competencyLocale(), name: this.competencyName.trim(), competencies: rows }).subscribe({
+      next: () => { this.competencyBusy.set(false); this.competencyNotice.set({ ok: true, text: this.fr() ? 'Brouillon de modèle enregistré. Publiez-le pour l’utiliser dans un bulletin.' : 'Model draft saved. Publish it before using it in a report card.' }); this.loadCompetencyModels(); },
+      error: (error) => { this.competencyBusy.set(false); this.fail(error); },
+    });
+  }
+
+  protected publishCompetencyModel(model: SecondaryCompetencyModelView): void {
+    if (!this.canWrite || this.competencyBusy()) return;
+    this.competencyBusy.set(true);
+    this.academicApi.publishSecondaryCompetencyModel(model.id, this.fr() ? 'Publication du modèle de compétences secondaire' : 'Publish secondary competency model').subscribe({
+      next: () => { this.competencyBusy.set(false); this.competencyNotice.set({ ok: true, text: this.fr() ? 'Modèle publié. Les nouveaux snapshots utiliseront cette version.' : 'Model published. New snapshots will use this version.' }); this.loadCompetencyModels(); },
+      error: (error) => { this.competencyBusy.set(false); this.fail(error); },
+    });
+  }
+
+  protected onCompetencyMarksFile(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    const modelId = this.competencyModelId();
+    const reportingPeriodId = this.competencyPeriodId();
+    if (!file || !modelId || !reportingPeriodId) { this.competencyNotice.set({ ok: false, text: this.fr() ? 'Choisissez une version de modèle avant l’import.' : 'Choose a model version before importing.' }); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const lines = String(reader.result ?? '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+      if (!lines.length) { this.competencyNotice.set({ ok: false, text: this.fr() ? 'Le fichier CSV est vide.' : 'The CSV file is empty.' }); return; }
+      const cells = (line: string) => line.split(/[;,]/).map((value) => value.trim());
+      const header = cells(lines[0]).map((value) => value.toLowerCase());
+      const index = (name: string, fallback: number) => { const found = header.indexOf(name); return found >= 0 ? found : fallback; };
+      const studentIndex = index('studentid', 0), competencyIndex = index('competencycode', 1), markIndex = index('mark', 2), statusIndex = index('valuestatus', 3);
+      const data = (header.includes('studentid') || header.includes('competencycode')) ? lines.slice(1) : lines;
+      const rows = data.map((line) => { const row = cells(line); const rawMark = row[markIndex] ?? ''; return { studentId: row[studentIndex] ?? '', competencyCode: row[competencyIndex] ?? '', mark: rawMark === '' ? null : Number(rawMark), valueStatus: row[statusIndex] || undefined }; }).filter((row) => row.studentId && row.competencyCode);
+      if (!rows.length || rows.some((row) => row.mark !== null && !Number.isFinite(row.mark))) { this.competencyNotice.set({ ok: false, text: this.fr() ? 'Aucune ligne valide trouvée. Utilisez studentId, competencyCode, mark, valueStatus.' : 'No valid rows found. Use studentId, competencyCode, mark, valueStatus.' }); return; }
+      this.competencyBusy.set(true);
+      this.academicApi.importSecondaryCompetencyMarks({ modelId, reportingPeriodId, rows }).subscribe({
+        next: (saved) => { this.competencyBusy.set(false); this.competencyNotice.set({ ok: true, text: `${saved.length} ${this.fr() ? 'note(s) importée(s).' : 'mark(s) imported.'}` }); input.value = ''; },
+        error: (error) => { this.competencyBusy.set(false); this.fail(error); },
+      });
+    };
+    reader.readAsText(file);
+  }
+
+  protected openDesignPublish(kind: 'template' | 'branding', id: string | undefined, label: string): void {
+    this.designPublish.set({ kind, id, label });
+    this.designReason = '';
+    this.designLogoAsset = null;
+  }
+
+  protected cancelDesignPublish(): void {
+    this.designPublish.set(null);
+    this.designReason = '';
+    this.designLogoAsset = null;
+  }
+
+  protected designLogoPreview(): string | null {
+    return this.designLogoAsset ? `data:${this.designLogoAsset.contentType};base64,${this.designLogoAsset.base64}` : null;
+  }
+
+  protected onDesignLogoFile(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    if (!['image/png', 'image/jpeg'].includes(file.type) || file.size > 512 * 1024) {
+      this.fail({ error: { message: this.fr() ? 'Logo: choisissez un PNG/JPEG de 512 Ko maximum.' : 'Logo: choose a PNG/JPEG of 512 KB or less.' } });
+      input.value = '';
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const raw = String(reader.result ?? '');
+      const comma = raw.indexOf(',');
+      if (comma < 0) {
+        this.fail({ error: { message: this.fr() ? 'Logo illisible.' : 'The logo could not be read.' } });
+        return;
+      }
+      this.designLogoAsset = { contentType: file.type, base64: raw.substring(comma + 1), name: file.name };
+    };
+    reader.readAsDataURL(file);
+  }
+
+  protected confirmDesignPublish(): void {
+    const request = this.designPublish();
+    const reason = this.designReason.trim();
+    if (!request || !reason || !this.canWrite) return;
+    this.designBusy.set(true);
+    const complete = () => { this.designBusy.set(false); this.cancelDesignPublish(); this.loadDocumentDesign(); };
+    const failed = (error: any) => { this.designBusy.set(false); this.fail(error); };
+    if (request.kind === 'template' && request.id) {
+      this.foundation.publishDocumentTemplate(request.id, reason).subscribe({ next: complete, error: failed });
+    } else {
+      this.foundation.publishDocumentBranding('fr', reason, this.designLogoAsset ? {
+        contentType: this.designLogoAsset.contentType, base64: this.designLogoAsset.base64,
+      } : null).subscribe({ next: complete, error: failed });
+    }
   }
 
   protected levelLabel(l: string): string {
@@ -604,6 +1734,47 @@ export class AcademicSetupComponent {
       case 'maternelle': return this.fr() ? 'Maternelle' : 'Kindergarten';
       case 'secondary': return this.fr() ? 'Secondaire' : 'Secondary';
       default: return this.fr() ? 'Primaire' : 'Primary';
+    }
+  }
+  protected designTemplateTypeLabel(template: DocumentDesignView['templates'][number]): string {
+    switch ((template.type || '').toUpperCase()) {
+      case 'REPORT_CARD': return this.fr() ? 'Bulletin scolaire' : 'Report card';
+      case 'ENROLLMENT_CERTIFICATE': return this.fr() ? 'Certificat de scolarité' : 'Enrollment certificate';
+      default: return template.type || (this.fr() ? 'Document' : 'Document');
+    }
+  }
+  protected designProductLabel(template: DocumentDesignView['templates'][number]): string {
+    switch ((template.product || '').toUpperCase()) {
+      case 'SEQUENCE': return this.fr() ? 'Bulletin de séquence' : 'Sequence report card';
+      case 'TERM': return this.fr() ? 'Résultat trimestriel' : 'Term result';
+      case 'ANNUAL': return this.fr() ? 'Résultat annuel' : 'Annual result';
+      default: return this.fr() ? 'Document générique' : 'Generic document';
+    }
+  }
+  protected designLocaleLabel(locale: string | null | undefined): string {
+    return (locale || '').toLowerCase() === 'en'
+      ? (this.fr() ? 'Anglais' : 'English')
+      : (this.fr() ? 'Français' : 'French');
+  }
+  protected designSubsystemLabel(subsystem: string | null | undefined): string {
+    const value = (subsystem || '').toUpperCase();
+    if (value === 'PRI' || value === 'PRIMARY') return this.fr() ? 'Primaire' : 'Primary';
+    if (value === 'SEC' || value === 'SECONDARY') return this.fr() ? 'Secondaire' : 'Secondary';
+    return this.fr() ? 'Tous niveaux' : 'All levels';
+  }
+  protected designFamilyLabel(family: string | null | undefined): string {
+    const value = (family || '').toUpperCase();
+    if (value === 'REFERENCE') return this.fr() ? 'Modèle de référence' : 'Reference template';
+    if (value === 'GENERIC') return this.fr() ? 'Modèle générique' : 'Generic template';
+    if (value === 'SECONDARY') return this.fr() ? 'Modèle secondaire' : 'Secondary template';
+    return family || (this.fr() ? 'Modèle' : 'Template');
+  }
+  protected designStatusLabel(status: string | null | undefined): string {
+    switch ((status || '').toUpperCase()) {
+      case 'PUBLISHED': return this.fr() ? 'Publiée' : 'Published';
+      case 'RETIRED': return this.fr() ? 'Retirée' : 'Retired';
+      case 'DRAFT': return this.fr() ? 'Brouillon' : 'Draft';
+      default: return status || (this.fr() ? 'Inconnue' : 'Unknown');
     }
   }
   protected subjectLabel(s: SubjectView): string {
@@ -620,7 +1791,13 @@ export class AcademicSetupComponent {
     }
   };
   private loadSections(): void { this.api.listSections().subscribe((r) => this.sections.set(r)); }
-  private loadClasses(): void { this.api.listClasses().subscribe((r) => this.classes.set(r)); }
+  private loadClasses(): void {
+    this.api.listClasses().subscribe((r) => {
+      this.classes.set(r);
+      const selected = r.find((klass) => klass.id === this.assignmentClassId());
+      if (selected) this.api.assignableTeachers(selected.level).subscribe((teachers) => this.allTeachers.set(teachers));
+    });
+  }
   private loadSubjects(): void { this.api.listSubjects().subscribe((r) => this.subjects.set(r)); }
 
   // ---- Sections ----

@@ -12,8 +12,10 @@ export interface ChildView {
   name: string;
   className: string;
   balance: number;
-  feeStatus: 'paid' | 'partial' | 'unpaid';
+  feeStatus: 'paid' | 'partial' | 'unpaid' | null;
   attendanceRate: number;
+  financeVisible: boolean;
+  attendanceVisible: boolean;
 }
 
 export interface GradeView {
@@ -24,6 +26,18 @@ export interface GradeView {
   coef: number;
   sequence: number;
   mark: number;
+}
+
+export interface PublishedBulletinView {
+  id: string; reportingPeriodCode: string; reportingPeriodLabel: string; className: string | null;
+  lines: Array<{ subjectLabel: string; mark: number; coefficient: number; teacherRemark: string | null; appreciation: string }>;
+  average: number; rank: number | null; classSize: number; state: string; complete: boolean;
+  attendance: { absentCount: number; excusedCount: number; lateCount: number; lateMinutes: number } | null;
+}
+
+export interface ParentJourneyEventView {
+  id: string; eventType: string; sessionLabel: string | null; className: string | null;
+  average: number | null; decision: string | null; occurredAt: string | null; sourceId: string | null;
 }
 
 /** Une tranche vue par le parent : ce qui est couvert, ce qui reste, l'échéance. */
@@ -114,6 +128,50 @@ export interface ClassResourceView {
   items: ResourceItem[];
 }
 
+export interface ParentAttendanceView {
+  studentId: string;
+  total: number;
+  present: number;
+  late: number;
+  absent: number;
+  excused: number;
+  attendanceRate: number;
+  records: Array<{ id: string; date: string; status: string; lateMinutes: number }>;
+}
+
+export interface ParentDisciplineView {
+  id: string;
+  incidentDate: string;
+  type: string;
+  description: string;
+  sanction: string | null;
+}
+
+export interface ParentHealthView {
+  studentId: string;
+  visits: Array<{ id: string; visitDate: string; reason: string; treatment: string }>;
+}
+
+export interface ParentEventView {
+  id: string;
+  title: string;
+  type: string;
+  eventDate: string;
+  description: string;
+}
+
+export interface ParentNoticeView {
+  id: string;
+  category: string;
+  subject: string;
+  body: string;
+  requiresAck: boolean;
+  acknowledged: boolean;
+  acknowledgedAt: string | null;
+  senderName: string;
+  createdAt: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ParentApi {
   private http = inject(HttpClient);
@@ -125,8 +183,32 @@ export class ParentApi {
   grades(studentId: string): Observable<GradeView[]> {
     return this.http.get<GradeView[]>(`${this.base}/children/${studentId}/grades`);
   }
+  latestPublishedBulletin(studentId: string): Observable<PublishedBulletinView> {
+    return this.http.get<PublishedBulletinView>(`${this.base}/children/${studentId}/bulletins/latest`);
+  }
+  journey(studentId: string): Observable<ParentJourneyEventView[]> {
+    return this.http.get<ParentJourneyEventView[]>(`${this.base}/children/${studentId}/journey`);
+  }
   resources(studentId: string, kind: ResourceKind): Observable<ClassResourceView> {
     return this.http.get<ClassResourceView>(`${this.base}/children/${studentId}/resources/${kind}`);
+  }
+  attendance(studentId: string): Observable<ParentAttendanceView> {
+    return this.http.get<ParentAttendanceView>(`${this.base}/children/${studentId}/attendance`);
+  }
+  discipline(studentId: string): Observable<ParentDisciplineView[]> {
+    return this.http.get<ParentDisciplineView[]>(`${this.base}/children/${studentId}/discipline`);
+  }
+  health(studentId: string): Observable<ParentHealthView> {
+    return this.http.get<ParentHealthView>(`${this.base}/children/${studentId}/health`);
+  }
+  events(studentId: string): Observable<ParentEventView[]> {
+    return this.http.get<ParentEventView[]>(`${this.base}/children/${studentId}/events`);
+  }
+  messages(studentId: string): Observable<ParentNoticeView[]> {
+    return this.http.get<ParentNoticeView[]>(`${this.base}/children/${studentId}/messages`);
+  }
+  acknowledgeMessage(studentId: string, messageId: string, signedBy: string): Observable<ParentNoticeView> {
+    return this.http.post<ParentNoticeView>(`${this.base}/children/${studentId}/messages/${messageId}/ack`, { signedBy });
   }
   fees(studentId: string): Observable<StudentFeeStatementView> {
     return this.http.get<StudentFeeStatementView>(`${this.base}/children/${studentId}/fees`);

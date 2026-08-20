@@ -7,7 +7,7 @@ import com.bbc.sms.journey.JourneyEntry;
 import com.bbc.sms.journey.JourneyRepository;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AppUserPrincipal;
-import com.bbc.sms.platform.security.AccessScopeService;
+import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.promotion.dto.PromotionDtos.*;
 import com.bbc.sms.student.Student;
@@ -68,14 +68,14 @@ public class PromotionService {
     private final PromotionBatchRepository batches;
     private final PromotionDecisionRepository decisions;
     private final ProgressionService progression;
-    private final AccessScopeService accessScope;
+    private final TeacherScopeService teacherScope;
     private final JdbcTemplate jdbc;
 
     public PromotionService(SchoolClassRepository classes, StudentRepository students,
                             SubjectRepository subjects, BulletinService bulletins,
                             JourneyRepository journeys, PromotionBatchRepository batches,
                             PromotionDecisionRepository decisions, ProgressionService progression,
-                            AccessScopeService accessScope, JdbcTemplate jdbc) {
+                            TeacherScopeService teacherScope, JdbcTemplate jdbc) {
         this.classes = classes;
         this.students = students;
         this.subjects = subjects;
@@ -84,7 +84,7 @@ public class PromotionService {
         this.batches = batches;
         this.decisions = decisions;
         this.progression = progression;
-        this.accessScope = accessScope;
+        this.teacherScope = teacherScope;
         this.jdbc = jdbc;
     }
 
@@ -95,7 +95,7 @@ public class PromotionService {
     @Transactional(readOnly = true)
     public PromotionPreview preview(UUID classId, String academicYear) {
         UUID schoolId = TenantContext.get();
-        accessScope.assertClass(classId);
+        teacherScope.assertClass(classId);
         SchoolClass cls = classes.findByIdAndSchoolId(classId, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Classe"));
 
@@ -173,7 +173,7 @@ public class PromotionService {
     @Transactional
     public PromotionResult apply(PromotionApply in) {
         UUID schoolId = TenantContext.get();
-        accessScope.assertClass(in.classId());
+        teacherScope.assertClass(in.classId());
         SchoolClass cls = classes.findByIdAndSchoolId(in.classId(), schoolId)
                 .orElseThrow(() -> ApiException.notFound("Classe"));
 

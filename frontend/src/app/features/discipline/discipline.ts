@@ -9,6 +9,7 @@ import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
 import {
   IconComponent, CardComponent, PageHeaderComponent, EmptyComponent, AvatarComponent,
+  ListPaginationComponent, paginateRows,
 } from '../../core/ui';
 
 const FALLBACK_TYPES = ['Retard', 'Absence', 'Conduite', 'Tenue'];
@@ -26,6 +27,7 @@ const FALLBACK_SANCTIONS = [
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     FormsModule, IconComponent, CardComponent, PageHeaderComponent, EmptyComponent, AvatarComponent,
+    ListPaginationComponent,
   ],
   template: `
     <div class="fade-in max-w-6xl mx-auto">
@@ -47,6 +49,38 @@ const FALLBACK_SANCTIONS = [
           [subtitle]="rows().length + (fr() ? ' incidents enregistrés' : ' incidents recorded')">
           <div action class="inline-flex items-center gap-1.5 text-xs font-semibold text-rose-600">
             <bbc-icon name="shield" [s]="14" /> {{ fr() ? 'Conduite' : 'Conduct' }}
+          </div>
+
+          <div class="mb-4 grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3 md:grid-cols-[1.5fr_1fr_1fr_auto] md:items-end">
+            <label class="block">
+              <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Recherche' : 'Search' }}</span>
+              <div class="relative">
+                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-mute"><bbc-icon name="search" [s]="14" /></span>
+                <input [ngModel]="query()" (ngModelChange)="setQuery($event)"
+                  [placeholder]="fr() ? 'Élève, classe, incident ou sanction…' : 'Student, class, incident or sanction…'"
+                  class="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm focus:border-brand-400 focus:outline-none" />
+              </div>
+            </label>
+            <label class="block">
+              <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Classe' : 'Class' }}</span>
+              <select [ngModel]="classFilter()" (ngModelChange)="setClassFilter($event)"
+                class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-brand-400 focus:outline-none">
+                <option value="">{{ fr() ? 'Toutes les classes' : 'All classes' }}</option>
+                @for (name of classOptions(); track name) { <option [value]="name">{{ name }}</option> }
+              </select>
+            </label>
+            <label class="block">
+              <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Type' : 'Type' }}</span>
+              <select [ngModel]="typeFilter()" (ngModelChange)="setTypeFilter($event)"
+                class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-brand-400 focus:outline-none">
+                <option value="">{{ fr() ? 'Tous les types' : 'All types' }}</option>
+                @for (type of incidentTypeOptions(); track type) { <option [value]="type">{{ type }}</option> }
+              </select>
+            </label>
+            <button type="button" (click)="clearFilters()" [disabled]="!hasFilters()"
+              class="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-mute hover:text-ink disabled:cursor-not-allowed disabled:opacity-40">
+              {{ fr() ? 'Effacer' : 'Clear' }}
+            </button>
           </div>
 
           @if (canWrite && showForm()) {
@@ -110,11 +144,13 @@ const FALLBACK_SANCTIONS = [
             </div>
           }
 
-          @if (rows().length === 0) {
-            <bbc-empty icon="shield" [label]="fr() ? 'Aucun incident — bravo' : 'No incidents — well done'" />
+          @if (filteredRows().length === 0) {
+            <bbc-empty icon="shield" [label]="hasFilters()
+              ? (fr() ? 'Aucun incident ne correspond aux filtres' : 'No incident matches these filters')
+              : (fr() ? 'Aucun incident — bravo' : 'No incidents — well done')" />
           } @else {
             <div class="space-y-2">
-              @for (i of rows(); track i.id) {
+              @for (i of pagedRows(); track i.id) {
                 <div class="flex items-start gap-3 p-3 rounded-lg border border-slate-100 hover:bg-slate-50/50 group">
                   <bbc-avatar [name]="i.studentName || '?'" [hue]="200" />
                   <div class="flex-1 min-w-0">
@@ -148,6 +184,8 @@ const FALLBACK_SANCTIONS = [
                 </div>
               }
             </div>
+            <bbc-list-pagination class="mt-4 block" [total]="filteredRows().length" [page]="page()" [pageSize]="pageSize()"
+              [language]="fr() ? 'fr' : 'en'" (pageChange)="page.set($event)" (pageSizeChange)="setPageSize($event)" />
           }
         </bbc-card>
 
@@ -220,6 +258,11 @@ export class DisciplineComponent {
   private auth = inject(AuthService);
 
   protected rows = signal<IncidentView[]>([]);
+  protected query = signal('');
+  protected classFilter = signal('');
+  protected typeFilter = signal('');
+  protected page = signal(1);
+  protected pageSize = signal(25);
   protected canWrite = this.auth.can('discipline', 'write');
   protected draft: IncidentUpsert = this.blank();
   protected lookup = signal<StudentLookup | null>(null);
@@ -240,6 +283,22 @@ export class DisciplineComponent {
   private catalogSanctions = signal<CatalogItemView[]>([]);
 
   protected fr = () => this.i18n.lang() === 'fr';
+
+  protected classOptions = computed(() => [...new Set(this.rows().map((row) => row.className).filter((name): name is string => !!name))].sort());
+  protected incidentTypeOptions = computed(() => [...new Set(this.rows().map((row) => row.type).filter(Boolean))].sort());
+  protected filteredRows = computed(() => {
+    const q = this.query().trim().toLowerCase();
+    const cls = this.classFilter();
+    const type = this.typeFilter();
+    return this.rows().filter((row) => {
+      if (cls && row.className !== cls) return false;
+      if (type && row.type !== type) return false;
+      if (!q) return true;
+      return `${row.studentName ?? ''} ${row.className ?? ''} ${row.type ?? ''} ${row.description ?? ''} ${row.sanction ?? ''}`.toLowerCase().includes(q);
+    });
+  });
+  protected pagedRows = computed(() => paginateRows(this.filteredRows(), this.page(), this.pageSize()));
+  protected hasFilters = computed(() => !!(this.query().trim() || this.classFilter() || this.typeFilter()));
 
   protected typeOptions = computed(() => {
     const items = this.catalogTypes().filter((c) => c.active);
@@ -290,6 +349,12 @@ export class DisciplineComponent {
     this.loadCatalog();
     this.setupApi.listClasses().subscribe({ next: (c) => this.setupClasses.set(c), error: () => {} });
   }
+
+  protected setQuery(value: string): void { this.query.set(value); this.page.set(1); }
+  protected setClassFilter(value: string): void { this.classFilter.set(value || ''); this.page.set(1); }
+  protected setTypeFilter(value: string): void { this.typeFilter.set(value || ''); this.page.set(1); }
+  protected setPageSize(value: number): void { this.pageSize.set(value); this.page.set(1); }
+  protected clearFilters(): void { this.query.set(''); this.classFilter.set(''); this.typeFilter.set(''); this.page.set(1); }
 
   private reload(): void {
     this.api.list().subscribe((r) => this.rows.set(r));

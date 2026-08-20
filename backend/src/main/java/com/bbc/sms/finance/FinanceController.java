@@ -18,20 +18,20 @@ public class FinanceController {
     public FinanceController(FinanceService service) { this.service = service; }
 
     @GetMapping("/payments")
-    @PreAuthorize("@perm.can('finance','read')")
+    @PreAuthorize("@policy.canAction('FINANCE_OVERVIEW_VIEW')")
     public List<PaymentView> listPayments() {
         return service.listPayments();
     }
 
     @PostMapping("/payments")
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("@perm.can('finance','write')")
+    @PreAuthorize("@perm.canAction('PAYMENT_COLLECT')")
     public PaymentView recordPayment(@Valid @RequestBody PaymentRequest in) {
         return service.recordPayment(in);
     }
 
     @GetMapping("/expenses")
-    @PreAuthorize("@perm.can('finance','read')")
+    @PreAuthorize("@policy.canAction('FINANCE_EXPENSE_VIEW')")
     public List<ExpenseView> listExpenses() {
         return service.listExpenses();
     }
@@ -39,20 +39,20 @@ public class FinanceController {
     /** Une dépense engage l'établissement, non un cycle : admin principal seul. */
     @PostMapping("/expenses")
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("@perm.can('finance','write') and @perm.schoolWide()")
+    @PreAuthorize("@policy.canAction('FINANCE_EXPENSE_CREATE') and @perm.schoolWide()")
     public ExpenseView addExpense(@Valid @RequestBody ExpenseRequest in) {
         return service.addExpense(in);
     }
 
     @DeleteMapping("/expenses/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize("@perm.can('finance','write') and @perm.schoolWide()")
+    @PreAuthorize("@policy.canAction('FINANCE_EXPENSE_DELETE') and @perm.schoolWide()")
     public void deleteExpense(@PathVariable UUID id) {
         service.deleteExpense(id);
     }
 
     @GetMapping("/summary")
-    @PreAuthorize("@perm.can('finance','read')")
+    @PreAuthorize("@policy.canAction('FINANCE_OVERVIEW_VIEW')")
     public FinanceSummary summary() {
         return service.summary();
     }

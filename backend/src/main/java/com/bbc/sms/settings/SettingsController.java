@@ -10,6 +10,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -35,48 +36,59 @@ public class SettingsController {
     private final MailService mailService;
     private final SchoolProfileService schoolProfile;
     private final DisciplineCatalogService catalogs;
+    private final com.bbc.sms.platform.security.PermissionService permissionService;
     private final AdminAccountService admins;
 
     public SettingsController(PermissionAdminService service, MailAdminService mailAdmin,
                               MailService mailService, SchoolProfileService schoolProfile,
-                              DisciplineCatalogService catalogs, AdminAccountService admins) {
+                              DisciplineCatalogService catalogs,
+                              com.bbc.sms.platform.security.PermissionService permissionService,
+                              AdminAccountService admins) {
         this.service = service;
         this.mailAdmin = mailAdmin;
         this.mailService = mailService;
         this.schoolProfile = schoolProfile;
         this.catalogs = catalogs;
+        this.permissionService = permissionService;
         this.admins = admins;
+    }
+
+    @GetMapping("/permission-actions")
+    @PreAuthorize("@policy.canAction('PERMISSION_VIEW')")
+    public Map<String, Boolean> permissionActions() {
+        return permissionService.currentActions();
     }
 
     // ---- School profile ------------------------------------------------------
 
     @GetMapping("/school")
+    @PreAuthorize("@policy.canAction('SCHOOL_PROFILE_VIEW')")
     public SchoolProfileView getSchool() {
         return schoolProfile.get();
     }
 
     @PutMapping("/school")
-    @PreAuthorize(SCHOOL_WIDE)
+    @PreAuthorize("@policy.canAction('SCHOOL_PROFILE_MANAGE') and @perm.schoolWide()")
     public SchoolProfileView updateSchool(@Valid @RequestBody SchoolProfileUpdate in) {
         return schoolProfile.update(in);
     }
 
     @GetMapping("/holidays")
-    @PreAuthorize("@perm.can('settings','read') or @perm.can('presence','read')")
+    @PreAuthorize("@policy.canAction('CALENDAR_VIEW')")
     public List<HolidayView> holidays() {
         return schoolProfile.listHolidays();
     }
 
     @PostMapping("/holidays")
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize(SCHOOL_WIDE)
+    @PreAuthorize("@policy.canAction('CALENDAR_MANAGE') and @perm.schoolWide()")
     public HolidayView addHoliday(@Valid @RequestBody HolidayUpsert in) {
         return schoolProfile.addHoliday(in);
     }
 
     @DeleteMapping("/holidays/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize(SCHOOL_WIDE)
+    @PreAuthorize("@policy.canAction('CALENDAR_MANAGE') and @perm.schoolWide()")
     public void deleteHoliday(@PathVariable UUID id) {
         schoolProfile.deleteHoliday(id);
     }
@@ -85,39 +97,39 @@ public class SettingsController {
 
     /** Role catalogue for staff assignment and settings — labels only, no matrix. */
     @GetMapping("/roles")
-    @PreAuthorize("@perm.can('settings','read') or @perm.can('hr','read')")
+    @PreAuthorize("@policy.canAction('ROLE_VIEW')")
     public List<RoleView> listRoles() {
         return service.listRoles();
     }
 
     @GetMapping("/permissions")
-    @PreAuthorize(SCHOOL_WIDE_READ)
+    @PreAuthorize("@policy.canAction('PERMISSION_VIEW') and @perm.schoolWide()")
     public PermissionMatrix getMatrix() {
         return service.getMatrix();
     }
 
     @PutMapping("/permissions")
-    @PreAuthorize(SCHOOL_WIDE)
+    @PreAuthorize("@policy.canAction('PERMISSION_MANAGE') and @perm.schoolWide()")
     public PermissionMatrix update(@Valid @RequestBody UpdateRequest req) {
         return service.update(req);
     }
 
     @PostMapping("/roles")
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize(SCHOOL_WIDE)
+    @PreAuthorize("@policy.canAction('ROLE_MANAGE') and @perm.schoolWide()")
     public RoleView createRole(@Valid @RequestBody RoleUpsert in) {
         return service.createRole(in);
     }
 
     @PutMapping("/roles/{code}")
-    @PreAuthorize(SCHOOL_WIDE)
+    @PreAuthorize("@policy.canAction('ROLE_MANAGE') and @perm.schoolWide()")
     public RoleView updateRole(@PathVariable String code, @Valid @RequestBody RoleUpsert in) {
         return service.updateRole(code, in);
     }
 
     @DeleteMapping("/roles/{code}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize(SCHOOL_WIDE)
+    @PreAuthorize("@policy.canAction('ROLE_MANAGE') and @perm.schoolWide()")
     public void deleteRole(@PathVariable String code) {
         service.deleteRole(code);
     }
@@ -125,27 +137,27 @@ public class SettingsController {
     // ---- Discipline catalogs -------------------------------------------------
 
     @GetMapping("/discipline-catalog")
-    @PreAuthorize("@perm.can('settings','read') or @perm.can('discipline','read')")
+    @PreAuthorize("@policy.canAction('DISCIPLINE_CATALOG_VIEW')")
     public List<CatalogItemView> catalog(@RequestParam(required = false) String kind) {
         return catalogs.list(kind);
     }
 
     @PostMapping("/discipline-catalog")
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize(SCHOOL_WIDE)
+    @PreAuthorize("@policy.canAction('DISCIPLINE_CATALOG_MANAGE') and @perm.schoolWide()")
     public CatalogItemView createCatalog(@Valid @RequestBody CatalogItemUpsert in) {
         return catalogs.create(in);
     }
 
     @PutMapping("/discipline-catalog/{id}")
-    @PreAuthorize(SCHOOL_WIDE)
+    @PreAuthorize("@policy.canAction('DISCIPLINE_CATALOG_MANAGE') and @perm.schoolWide()")
     public CatalogItemView updateCatalog(@PathVariable UUID id, @Valid @RequestBody CatalogItemUpsert in) {
         return catalogs.update(id, in);
     }
 
     @DeleteMapping("/discipline-catalog/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize(SCHOOL_WIDE)
+    @PreAuthorize("@policy.canAction('DISCIPLINE_CATALOG_MANAGE') and @perm.schoolWide()")
     public void deleteCatalog(@PathVariable UUID id) {
         catalogs.delete(id);
     }
@@ -153,19 +165,19 @@ public class SettingsController {
     // ---- SMTP / mail configuration -----------------------------------------
 
     @GetMapping("/mail")
-    @PreAuthorize(SCHOOL_WIDE_READ)
+    @PreAuthorize("@policy.canAction('MAIL_CONFIG_VIEW') and @perm.schoolWide()")
     public MailConfigView getMail() {
         return mailAdmin.get();
     }
 
     @PutMapping("/mail")
-    @PreAuthorize(SCHOOL_WIDE)
+    @PreAuthorize("@policy.canAction('MAIL_CONFIG_MANAGE') and @perm.schoolWide()")
     public MailConfigView updateMail(@Valid @RequestBody MailConfigUpdate in) {
         return mailAdmin.update(in);
     }
 
     @PostMapping("/mail/test")
-    @PreAuthorize(SCHOOL_WIDE)
+    @PreAuthorize("@policy.canAction('MAIL_CONFIG_MANAGE') and @perm.schoolWide()")
     public void testMail(@Valid @RequestBody TestMailRequest req) {
         mailService.sendTest(TenantContext.get(), req.to());
     }

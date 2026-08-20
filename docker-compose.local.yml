@@ -1,0 +1,51 @@
+# Local-only override for this machine: remaps host ports to avoid
+# conflicts with the TEFO-CBS local stack (which occupies 5433 and 8081).
+#
+# NOTE: `!override` is required — without it, Compose APPENDS port mappings
+# to the base file's instead of replacing them (verified on v2.39.4).
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.demo.yml -f docker-compose.local.yml up -d --build
+#
+# Resulting mapping:
+#   Frontend : http://localhost:8082
+#   API      : http://localhost:8080  (Swagger: /swagger-ui.html)
+#   Postgres : localhost:5434  (bbc / bbc, db bbc_sms)
+services:
+  db:
+    ports: !override
+      - "5434:5432"
+
+  backend:
+    environment:
+      BBC_CORS_ORIGINS: http://localhost:4200,http://localhost:8081,http://localhost:8082,http://localhost:8083
+    ports: !override
+      - "8083:8080"
+
+  frontend:
+    ports: !override
+      - "8082:80"
+
+  # Standalone replica of the PRODUCTION database (bbcomplex.com).
+  # Restored from output/bbc_prod_2026-08-10.dump — original prod schema + data.
+  # Intentionally isolated: separate volume, separate port, no demo profile.
+  proddb:
+    image: postgres:16-alpine
+    container_name: bbcomplex-proddb
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: bbc_sms
+      POSTGRES_USER: bbc
+      POSTGRES_PASSWORD: bbc
+    ports:
+      - "5435:5432"
+    volumes:
+      - proddb_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bbc -d bbc_sms"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  proddb_pgdata:

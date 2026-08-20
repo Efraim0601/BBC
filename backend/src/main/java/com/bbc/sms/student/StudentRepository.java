@@ -7,6 +7,7 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.Collection;
 
 public interface StudentRepository extends JpaRepository<Student, UUID> {
 
@@ -33,6 +34,7 @@ public interface StudentRepository extends JpaRepository<Student, UUID> {
 
     List<Student> findBySchoolIdAndActiveTrueOrderByLastNameAsc(UUID schoolId);
     List<Student> findBySchoolIdAndClassNameAndActiveTrueOrderByLastNameAsc(UUID schoolId, String className);
+    List<Student> findBySchoolIdAndIdInAndActiveTrue(UUID schoolId, Collection<UUID> ids);
     List<Student> findBySchoolIdAndClassIdAndActiveTrue(UUID schoolId, UUID classId);
 
     /**

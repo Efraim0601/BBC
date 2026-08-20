@@ -3,7 +3,7 @@ package com.bbc.sms.library;
 import com.bbc.sms.library.dto.LibraryDtos.ResourceUpsert;
 import com.bbc.sms.library.dto.LibraryDtos.ResourceView;
 import com.bbc.sms.platform.common.ApiException;
-import com.bbc.sms.platform.security.AccessScopeService;
+import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.security.AppUserPrincipal;
 import com.bbc.sms.platform.security.PermissionService;
 import com.bbc.sms.platform.security.SectionRoles;
@@ -88,18 +88,18 @@ public class LibraryService {
 
     private final SharedResourceRepository repo;
     private final ObjectStorage storage;
-    private final AccessScopeService accessScope;
+    private final TeacherScopeService teacherScope;
     private final PermissionService perm;
     private final JdbcTemplate jdbc;
 
     public LibraryService(SharedResourceRepository repo,
                           ObjectStorage storage,
-                          AccessScopeService accessScope,
+                          TeacherScopeService teacherScope,
                           PermissionService perm,
                           JdbcTemplate jdbc) {
         this.repo = repo;
         this.storage = storage;
-        this.accessScope = accessScope;
+        this.teacherScope = teacherScope;
         this.perm = perm;
         this.jdbc = jdbc;
     }
@@ -119,7 +119,7 @@ public class LibraryService {
     @Transactional(readOnly = true)
     public List<ResourceView> list() {
         boolean canWrite = perm.can("library", "write");
-        String viewerSection = accessScope.section();
+        String viewerSection = teacherScope.section();
         return repo.findBySchoolIdOrderByCreatedAtDesc(TenantContext.get()).stream()
                 .filter(r -> inScope(r, viewerSection))
                 .filter(r -> canWrite || (r.isPublished() && !"parents".equals(r.getAudience())))
@@ -132,7 +132,7 @@ public class LibraryService {
     public Download download(UUID id) {
         SharedResource r = require(id);
         boolean canWrite = perm.can("library", "write");
-        String viewerSection = accessScope.section();
+        String viewerSection = teacherScope.section();
         if (!inScope(r, viewerSection)) throw denied();
         if (!canWrite && (!r.isPublished() || "parents".equals(r.getAudience()))) throw denied();
         return open(r);
@@ -246,7 +246,7 @@ public class LibraryService {
      * désigner un cycle qui n'est pas le sien.
      */
     private String resolveSection(String requested) {
-        String locked = accessScope.adminSection();
+        String locked = teacherScope.adminSection();
         if (locked != null) return locked;
         if (requested == null || requested.isBlank()) return null;   // toute l'école
         String section = requested.trim().toLowerCase(Locale.ROOT);
@@ -267,7 +267,7 @@ public class LibraryService {
     }
 
     private void assertEditable(SharedResource r) {
-        if (!editable(r, accessScope.section())) {
+        if (!editable(r, teacherScope.section())) {
             throw new ApiException(HttpStatus.FORBIDDEN,
                     "Cette ressource ne relève pas de votre section");
         }

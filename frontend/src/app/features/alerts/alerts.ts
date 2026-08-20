@@ -1,9 +1,11 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import { AlertsApi, AlertView } from './alerts.api';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
 import {
   IconComponent, CardComponent, PageHeaderComponent, EmptyComponent, AvatarComponent, KpiComponent,
+  ListPaginationComponent, paginateRows,
 } from '../../core/ui';
 
 interface TypeMeta { fr: string; en: string; icon: string; }
@@ -13,7 +15,7 @@ interface TypeMeta { fr: string; en: string; icon: string; }
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
-    IconComponent, CardComponent, PageHeaderComponent, EmptyComponent, AvatarComponent, KpiComponent,
+    FormsModule, IconComponent, CardComponent, PageHeaderComponent, EmptyComponent, AvatarComponent, KpiComponent, ListPaginationComponent,
   ],
   template: `
     <div class="fade-in max-w-6xl mx-auto">
@@ -39,13 +41,13 @@ interface TypeMeta { fr: string; en: string; icon: string; }
 
       <!-- Type filter -->
       <div class="flex flex-wrap items-center gap-1.5 mb-3">
-        <button (click)="typeFilter.set(null)"
+        <button (click)="setTypeFilter(null)"
           class="text-xs font-semibold px-3 h-8 rounded-full transition"
           [class]="typeFilter() === null ? 'bg-brand-600 text-white' : 'bg-white text-mute border border-slate-200 hover:border-brand-300'">
           {{ fr() ? 'Toutes' : 'All' }} ({{ alerts().length }})
         </button>
         @for (t of typeKeys; track t) {
-          <button (click)="typeFilter.set(t)"
+          <button (click)="setTypeFilter(t)"
             class="inline-flex items-center gap-1.5 text-xs font-semibold px-3 h-8 rounded-full transition"
             [class]="typeFilter() === t ? 'bg-brand-600 text-white' : 'bg-white text-mute border border-slate-200 hover:border-brand-300'">
             <bbc-icon [name]="TYPE[t].icon" [s]="13" />
@@ -58,11 +60,34 @@ interface TypeMeta { fr: string; en: string; icon: string; }
       <bbc-card
         [title]="fr() ? 'Alertes ouvertes' : 'Open alerts'"
         [subtitle]="filtered().length + (fr() ? ' alertes' : ' alerts')">
-        @if (filtered().length === 0) {
+        <div class="mb-4 grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3 sm:grid-cols-[1.5fr_1fr_auto] sm:items-end">
+          <label class="block">
+            <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Recherche' : 'Search' }}</span>
+            <input [ngModel]="query()" (ngModelChange)="setQuery($event)"
+              [placeholder]="fr() ? 'Élève, classe, titre ou détail…' : 'Student, class, title or detail…'"
+              class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-brand-400 focus:outline-none" />
+          </label>
+          <label class="block">
+            <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Traitement' : 'Handling' }}</span>
+            <select [ngModel]="statusFilter()" (ngModelChange)="setStatusFilter($event)"
+              class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-brand-400 focus:outline-none">
+              <option value="">{{ fr() ? 'Tous les statuts' : 'All statuses' }}</option>
+              <option value="open">{{ fr() ? 'À traiter' : 'Needs action' }}</option>
+              <option value="ack">{{ fr() ? 'Pris en compte' : 'Acknowledged' }}</option>
+            </select>
+          </label>
+          <button type="button" (click)="clearFilters()" [disabled]="!query() && !statusFilter() && !typeFilter()"
+            class="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-mute hover:text-ink disabled:opacity-40">
+            {{ fr() ? 'Effacer' : 'Clear' }}
+          </button>
+        </div>
+        @if (alertsUnavailable()) {
+          <bbc-empty icon="shield" [label]="fr() ? 'Les alertes ne sont pas disponibles pour ce profil.' : 'Alerts are not available for this profile.'" />
+        } @else if (filtered().length === 0) {
           <bbc-empty icon="check" [label]="fr() ? 'Aucune alerte — tout va bien' : 'No alerts — all clear'" />
         } @else {
           <div class="space-y-2">
-            @for (a of filtered(); track a.id) {
+            @for (a of pagedAlerts(); track a.id) {
               <div class="flex items-start gap-3 p-3 rounded-lg border border-slate-100 hover:bg-slate-50/50 group">
                 <bbc-avatar [name]="a.studentName || '?'" [hue]="hueFor(a.severity)" />
                 <div class="flex-1 min-w-0">
@@ -102,6 +127,10 @@ interface TypeMeta { fr: string; en: string; icon: string; }
               </div>
             }
           </div>
+          <div class="-mx-5 -mb-5 mt-3">
+            <bbc-list-pagination [total]="filtered().length" [page]="page()" [pageSize]="pageSize()"
+              [language]="fr() ? 'fr' : 'en'" (pageChange)="page.set($event)" (pageSizeChange)="setPageSize($event)" />
+          </div>
         }
       </bbc-card>
     </div>
@@ -121,7 +150,12 @@ export class AlertsComponent {
   };
 
   protected alerts = signal<AlertView[]>([]);
+  protected alertsUnavailable = signal(false);
   protected typeFilter = signal<string | null>(null);
+  protected query = signal('');
+  protected statusFilter = signal<string | null>(null);
+  protected page = signal(1);
+  protected pageSize = signal(25);
   protected scanning = signal(false);
 
   protected canWrite = this.auth.can('alerts', 'write');
@@ -129,16 +163,32 @@ export class AlertsComponent {
 
   protected filtered = computed(() => {
     const t = this.typeFilter();
-    const list = this.alerts();
-    return t ? list.filter((a) => a.type === t) : list;
+    const q = this.query().trim().toLowerCase();
+    const status = this.statusFilter();
+    return this.alerts().filter((a) => {
+      if (t && a.type !== t) return false;
+      if (status && a.status !== status) return false;
+      if (q && !`${a.studentName ?? ''} ${a.className ?? ''} ${a.title} ${a.detail ?? ''}`.toLowerCase().includes(q)) return false;
+      return true;
+    });
   });
+  protected pagedAlerts = computed(() => paginateRows(this.filtered(), this.page(), this.pageSize()));
+
+  protected setTypeFilter(value: string | null): void { this.typeFilter.set(value); this.page.set(1); }
+  protected setQuery(value: string): void { this.query.set(value); this.page.set(1); }
+  protected setStatusFilter(value: string | null): void { this.statusFilter.set(value || null); this.page.set(1); }
+  protected setPageSize(value: number): void { this.pageSize.set(value); this.page.set(1); }
+  protected clearFilters(): void { this.typeFilter.set(null); this.query.set(''); this.statusFilter.set(null); this.page.set(1); }
 
   constructor() {
     this.reload();
   }
 
   private reload(): void {
-    this.api.list().subscribe((r) => this.alerts.set(r));
+    this.api.list().subscribe({
+      next: (r) => { this.alertsUnavailable.set(false); this.alerts.set(r); },
+      error: () => this.alertsUnavailable.set(true),
+    });
   }
 
   protected rescan(): void {

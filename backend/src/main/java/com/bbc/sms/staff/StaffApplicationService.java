@@ -5,6 +5,8 @@ import com.bbc.sms.identity.SchoolRepository;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.mail.MailService;
 import com.bbc.sms.platform.security.AppUserPrincipal;
+import com.bbc.sms.platform.security.AuthorizationPolicyService;
+import com.bbc.sms.platform.security.PolicyResourceContext;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.staff.dto.StaffDtos.*;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -30,25 +32,30 @@ public class StaffApplicationService {
     private final EmployeeRepository employees;
     private final StaffService staff;
     private final MailService mail;
+    private final AuthorizationPolicyService policy;
 
     public StaffApplicationService(StaffApplicationRepository apps, SchoolRepository schools,
-                                   EmployeeRepository employees, StaffService staff, MailService mail) {
+                                   EmployeeRepository employees, StaffService staff, MailService mail,
+                                   AuthorizationPolicyService policy) {
         this.apps = apps;
         this.schools = schools;
         this.employees = employees;
         this.staff = staff;
         this.mail = mail;
+        this.policy = policy;
     }
 
     // ---- Portal settings (admin) -------------------------------------------
 
     @Transactional(readOnly = true)
     public StaffPortalSettingsView getPortalSettings() {
+        requireSchool("HR_VIEW");
         return toSettings(currentSchool());
     }
 
     @Transactional
     public StaffPortalSettingsView updatePortalSettings(StaffPortalSettingsUpdate in) {
+        requireSchool("HR_MANAGE");
         School s = currentSchool();
         if (in.enabled()) {
             ensurePortalCredentials(s);
@@ -61,6 +68,7 @@ public class StaffApplicationService {
 
     @Transactional
     public StaffPortalSettingsView regeneratePortalToken() {
+        requireSchool("HR_MANAGE");
         School s = currentSchool();
         ensurePortalCredentials(s);
         s.setStaffPortalToken(randomToken());
@@ -131,6 +139,7 @@ public class StaffApplicationService {
 
     @Transactional(readOnly = true)
     public List<StaffApplicationView> list(String status) {
+        requireSchool("HR_VIEW");
         UUID schoolId = TenantContext.get();
         List<StaffApplication> list = (status == null || status.isBlank())
                 ? apps.findBySchoolIdOrderBySubmittedAtDesc(schoolId)
@@ -140,6 +149,7 @@ public class StaffApplicationService {
 
     @Transactional
     public StaffApplicationView accept(UUID id) {
+        requireSchool("HR_MANAGE");
         StaffApplication a = findApp(id);
         if (!"pending".equals(a.getStatus())) {
             throw ApiException.badRequest("Seules les candidatures en attente peuvent être acceptées");
@@ -156,6 +166,7 @@ public class StaffApplicationService {
 
     @Transactional
     public StaffApplicationView reject(UUID id, StaffApplicationReject in) {
+        requireSchool("HR_MANAGE");
         StaffApplication a = findApp(id);
         if (!"pending".equals(a.getStatus()) && !"accepted".equals(a.getStatus())) {
             throw ApiException.badRequest("Cette candidature ne peut plus être refusée");
@@ -176,6 +187,7 @@ public class StaffApplicationService {
 
     @Transactional
     public StaffApplicationView finalize(UUID id, StaffApplicationFinalize in) {
+        requireSchool("HR_MANAGE");
         StaffApplication a = findApp(id);
         if (!"accepted".equals(a.getStatus())) {
             throw ApiException.badRequest("Acceptez d'abord la candidature avant de finaliser");
@@ -192,6 +204,7 @@ public class StaffApplicationService {
                 a.getPhone() == null ? "" : a.getPhone(),
                 in.formClass() != null ? in.formClass() : a.getFormClass(),
                 in.section(),
+                in.managementLevels(),
                 in.departmentId(),
                 in.monthlySalary(),
                 in.hourlyRate(),
@@ -314,5 +327,10 @@ public class StaffApplicationService {
         if (c.startsWith("vac") || c.startsWith("contract") || c.contains("horaire")) return "Vacataire";
         if (c.startsWith("perm") || c.startsWith("titulaire") || c.startsWith("full")) return "Permanent";
         throw ApiException.badRequest("Type invalide (Permanent ou Vacataire)");
+    }
+
+    private void requireSchool(String action) {
+        policy.require(action, new PolicyResourceContext(TenantContext.get(), null, java.time.LocalDate.now(),
+                null, null, null, null, null, null, null, null, null));
     }
 }

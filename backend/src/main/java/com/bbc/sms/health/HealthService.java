@@ -2,11 +2,11 @@ package com.bbc.sms.health;
 
 import com.bbc.sms.health.dto.HealthDtos.*;
 import com.bbc.sms.platform.common.ApiException;
-import com.bbc.sms.platform.security.AccessScopeService;
+import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.security.AppUserPrincipal;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.student.Student;
-import com.bbc.sms.student.StudentRepository;
+import com.bbc.sms.student.StudentService;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -25,27 +25,25 @@ public class HealthService {
     private final HealthRecordRepository records;
     private final InfirmaryVisitRepository visits;
     private final StudentActivityRepository activities;
-    private final StudentRepository students;
-    private final AccessScopeService accessScope;
+    private final StudentService studentAccess;
+    private final TeacherScopeService teacherScope;
 
     public HealthService(HealthRecordRepository records,
                          InfirmaryVisitRepository visits,
                          StudentActivityRepository activities,
-                         StudentRepository students,
-                         AccessScopeService accessScope) {
+                         StudentService studentAccess, TeacherScopeService teacherScope) {
         this.records = records;
         this.visits = visits;
         this.activities = activities;
-        this.students = students;
-        this.accessScope = accessScope;
+        this.studentAccess = studentAccess;
+        this.teacherScope = teacherScope;
     }
 
     @Transactional(readOnly = true)
     public StudentHealth forStudent(UUID studentId) {
-        accessScope.assertStudent(studentId);
+        teacherScope.assertSectionStudent(studentId);
+        Student student = studentAccess.requireAction(studentId, "HEALTH_CONFIDENTIAL_VIEW");
         UUID schoolId = TenantContext.get();
-        Student student = students.findByIdAndSchoolId(studentId, schoolId)
-                .orElseThrow(() -> ApiException.notFound("Élève"));
 
         HealthRecordView record = records.findBySchoolIdAndStudentId(schoolId, studentId)
                 .map(this::toView).orElse(null);
@@ -65,10 +63,9 @@ public class HealthService {
 
     @Transactional
     public HealthRecordView upsertRecord(UUID studentId, HealthRecordUpsert in) {
-        accessScope.assertStudent(studentId);
+        teacherScope.assertSectionStudent(studentId);
+        studentAccess.requireAction(studentId, "HEALTH_MANAGE");
         UUID schoolId = TenantContext.get();
-        students.findByIdAndSchoolId(studentId, schoolId)
-                .orElseThrow(() -> ApiException.notFound("Élève"));
 
         HealthRecord r = records.findBySchoolIdAndStudentId(schoolId, studentId)
                 .orElseGet(HealthRecord::new);
@@ -88,10 +85,9 @@ public class HealthService {
 
     @Transactional
     public VisitView addVisit(UUID studentId, VisitUpsert in) {
-        accessScope.assertStudent(studentId);
+        teacherScope.assertSectionStudent(studentId);
+        studentAccess.requireAction(studentId, "HEALTH_MANAGE");
         UUID schoolId = TenantContext.get();
-        students.findByIdAndSchoolId(studentId, schoolId)
-                .orElseThrow(() -> ApiException.notFound("Élève"));
 
         InfirmaryVisit v = new InfirmaryVisit();
         v.setSchoolId(schoolId);
@@ -107,15 +103,15 @@ public class HealthService {
     public void deleteVisit(UUID id) {
         InfirmaryVisit v = visits.findByIdAndSchoolId(id, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Passage à l'infirmerie"));
+        studentAccess.requireAction(v.getStudentId(), "HEALTH_MANAGE");
         visits.delete(v);
     }
 
     @Transactional
     public ActivityView addActivity(UUID studentId, ActivityUpsert in) {
-        accessScope.assertStudent(studentId);
+        teacherScope.assertSectionStudent(studentId);
+        studentAccess.requireAction(studentId, "HEALTH_MANAGE");
         UUID schoolId = TenantContext.get();
-        students.findByIdAndSchoolId(studentId, schoolId)
-                .orElseThrow(() -> ApiException.notFound("Élève"));
 
         String category = in.category() == null ? "" : in.category().trim().toLowerCase();
         if (!CATEGORIES.contains(category)) {
@@ -136,6 +132,7 @@ public class HealthService {
     public void deleteActivity(UUID id) {
         StudentActivity a = activities.findByIdAndSchoolId(id, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Activité"));
+        studentAccess.requireAction(a.getStudentId(), "HEALTH_MANAGE");
         activities.delete(a);
     }
 

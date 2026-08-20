@@ -5,6 +5,7 @@ import jakarta.validation.constraints.NotNull;
 
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
@@ -55,4 +56,57 @@ public class AttendanceDtos {
             boolean online,
             OffsetDateTime lastSeenAt,
             Long minutesSinceLastSeen) {}
+
+    /**
+     * Device registration is a staff setup operation.  The generated API key
+     * is returned only in the registration response and is never included in
+     * the reader-health view.
+     */
+    public record DeviceRegistrationRequest(
+            @NotBlank String label,
+            String location,
+            String model) {}
+
+    public record DeviceRegistrationView(
+            UUID id,
+            String label,
+            String location,
+            String model,
+            String apiKey) {}
+
+    public record PolicyView(UUID id, String level, String model, int lateAfterMinutes,
+                             BigDecimal chronicAbsencePercent, boolean requireAbsenceReason) {}
+    public record PolicyRequest(@NotBlank String model, int lateAfterMinutes,
+                                BigDecimal chronicAbsencePercent, boolean requireAbsenceReason) {}
+
+    public record AttendanceClass(UUID id, String name, String level, String subsystem, String model, int enrolledCount) {}
+    public record SessionSummary(UUID id, UUID classId, String className, LocalDate date,
+                                 String model, String periodKey, String subjectCode, String status,
+                                 long version, int total, int marked) {}
+    public record RosterMark(UUID studentId, String matricule, String studentName, String status,
+                             String reason, String note, int lateMinutes, String source) {}
+    public record RosterView(SessionSummary session, List<RosterMark> marks, List<SessionEventView> events) {}
+    public record SessionEventView(String action, String actor, String reason,
+                                   OffsetDateTime occurredAt) {}
+    public record MarkInput(@NotNull UUID studentId, @NotBlank String status,
+                            String reason, String note, int lateMinutes) {}
+    public record BulkMarkRequest(@NotNull UUID sessionId, long version, @NotNull List<MarkInput> marks) {}
+    public record ActionRequest(long version, String reason) {}
+    public record GenerationResult(boolean preview, LocalDate from, LocalDate to,
+                                   int expectedSessions, int synchronizedSessions) {}
+    public record StudentAnalytics(UUID studentId, String matricule, String studentName, String className,
+                                   int expected, int present, int late, int absent, int excused,
+                                   int unmarked, BigDecimal attendancePercent) {}
+    public record AnalyticsView(LocalDate from, LocalDate to, int expected, int present, int late,
+                                int absent, int excused, int unmarked, BigDecimal attendancePercent,
+                                List<StudentAnalytics> students) {}
+    public record DeviceReconciliation(UUID deviceRecordId, UUID studentId, String matricule,
+                                       String studentName, String className, LocalDate date,
+                                       String status, String checkInTime, boolean reconciled,
+                                       UUID sessionId) {}
+    public record ReconcileRequest(@NotNull UUID deviceRecordId, @NotNull UUID sessionId) {}
+    public record AlertScanResult(int createdOrUpdated, BigDecimal thresholdPercent) {}
+    public record NotificationView(UUID id, UUID sessionId, UUID studentId, String studentName,
+                                   String guardianName, String channel, String recipient,
+                                   String status, int attemptCount, OffsetDateTime createdAt) {}
 }

@@ -1,8 +1,9 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed, effect } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
+import { Router } from '@angular/router';
 import { StudentApi, StudentUpsert, ParentAccountView, ParentLinkRequest, StudentImportRow, StudentImportRequest, StudentImportResult, DuplicateMatch } from './students.api';
-import { SetupApi, ClassView } from '../../core/setup.api';
+import { ClassView } from '../../core/setup.api';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
 import { ScopeService } from '../../core/scope.service';
@@ -14,6 +15,7 @@ import {
   DataTableComponent, CellTemplateDirective, Column, PhotoCaptureComponent,
 } from '../../core/ui';
 import { PhotoApi } from '../../core/photo.api';
+import { StudentEnrollmentPanelComponent } from './student-enrollment-panel';
 
 /** Column index per field of an import file; -1 when the column is absent. */
 interface HeaderMap {
@@ -32,7 +34,7 @@ interface HeaderMap {
   imports: [
     FormsModule, IconComponent, CardComponent, PageHeaderComponent,
     AvatarComponent, ChipFilterComponent, StatusPillComponent,
-    DataTableComponent, CellTemplateDirective, PhotoCaptureComponent,
+    DataTableComponent, CellTemplateDirective, PhotoCaptureComponent, StudentEnrollmentPanelComponent,
   ],
   template: `
     <div class="fade-in max-w-7xl mx-auto">
@@ -128,12 +130,13 @@ interface HeaderMap {
               </div>
             }
             <bbc-data-table [columns]="columns()" [rows]="filtered()"
+              [pagination]="true" [initialPageSize]="25" [language]="fr() ? 'fr' : 'en'"
               [trackBy]="trackId" [activeId]="selectedId()"
               [selectable]="canWrite" [selectedIds]="selection()"
               [selectAllLabel]="fr() ? 'Tout sélectionner' : 'Select all'"
               (selectionChange)="onSelectionChange($event)"
               [emptyLabel]="fr() ? 'Aucun résultat' : 'No results'"
-              (rowClick)="selectedId.set($event.id)">
+              (rowClick)="openDetails($event)">
 
               <ng-template bbcCell="name" let-s>
                 <div class="flex items-center gap-3">
@@ -203,6 +206,8 @@ interface HeaderMap {
             </div>
 
             <div class="p-6 space-y-5">
+              <bbc-student-enrollment-panel [student]="sel" [classes]="classes()" />
+
               <!-- Parent -->
               <div>
                 <div class="text-[11px] uppercase tracking-wider text-mute font-semibold mb-2">{{ fr() ? 'Informations parent' : 'Parent info' }}</div>
@@ -928,9 +933,9 @@ export class StudentsComponent {
   protected i18n = inject(I18nService);
   private api = inject(StudentApi);
   private photoApi = inject(PhotoApi);
-  private setupApi = inject(SetupApi);
   private auth = inject(AuthService);
   private scopeSvc = inject(ScopeService);
+  private router = inject(Router);
 
   protected fr = () => this.i18n.lang() === 'fr';
   protected activeScope = computed(() => this.scopeSvc.scope());
@@ -994,7 +999,14 @@ export class StudentsComponent {
   protected importError = signal<string | null>(null);
   protected importProgress = signal<{ done: number; total: number } | null>(null);
 
-  protected canWrite = this.auth.can('students', 'write');
+  /** Action-authorized registrar users may use scoped student controls even
+   * when the legacy module matrix intentionally has no students entry. */
+  protected get canWrite(): boolean {
+    return this.auth.can('students', 'write')
+      || this.auth.canModuleOrAction('students', 'STUDENT_PROFILE_CREATE')
+      || this.auth.canModuleOrAction('students', 'STUDENT_PROFILE_EDIT')
+      || this.auth.canModuleOrAction('students', 'GUARDIAN_LINK_MANAGE');
+  }
   protected draft: StudentUpsert = this.blank();
   /**
    * Photo saisie dans le formulaire (data URL) ; envoyée APRÈS l'enregistrement,
@@ -1125,7 +1137,10 @@ export class StudentsComponent {
 
   constructor() {
     this.reload();
-    this.setupApi.listClasses().subscribe((c) => this.classes.set(c));
+    this.api.listClassOptions().subscribe({
+      next: (c) => this.classes.set(c),
+      error: () => this.classes.set([]),
+    });
 
     // Load the linked parent accounts whenever the selected student changes.
     effect(() => {
@@ -1140,7 +1155,6 @@ export class StudentsComponent {
   private reload(): void {
     this.api.list().subscribe((r) => {
       this.rows.set(r);
-      if (!this.selectedId() && r.length) this.selectedId.set(r[0].id);
     });
   }
 
@@ -1179,13 +1193,7 @@ export class StudentsComponent {
   }
 
   openCreate(): void {
-    this.editId.set(null);
-    this.draft = this.blank();
-    this.photoDraft.set(null);
-    this.photoWasSet = false;
-    this.clearDuplicates();
-    this.saveError.set(null);
-    this.mode.set('edit');
+    this.router.navigate(['/students/new']);
   }
 
   openEdit(s: Student): void {
@@ -1563,13 +1571,10 @@ export class StudentsComponent {
     this.importTarget() === 'existing' ? !!this.importClassId() : !!this.newClassName().trim());
 
   protected openImport(): void {
-    this.resetImport();
-    // Carry list filters into the import picker and pre-select the filtered class.
-    this.importSubFilter.set(this.subFilter());
-    this.importLevelFilter.set(this.levelFilter());
-    if (this.classFilter()) this.importClassId.set(this.classFilter());
-    this.mode.set('import');
+    this.router.navigate(['/students/import-family']);
   }
+
+  protected openDetails(student: Student): void { this.router.navigate(['/students', student.id]); }
 
   protected closeImport(): void {
     this.mode.set('list');
@@ -1752,7 +1757,10 @@ export class StudentsComponent {
         this.importProgress.set(null);
         this.importResult.set(merged);
         this.reload();
-        this.setupApi.listClasses().subscribe((c) => this.classes.set(c));
+        this.api.listClassOptions().subscribe({
+          next: (c) => this.classes.set(c),
+          error: () => this.classes.set([]),
+        });
         return;
       }
       const slice = chunks[index];

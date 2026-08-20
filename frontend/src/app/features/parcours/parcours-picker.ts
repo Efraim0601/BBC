@@ -164,14 +164,20 @@ export class ParcoursPickerComponent {
   }
 
   /**
-   * Admins (empty allow-list) may browse without a parcours filter.
+   * Global-scope users may browse without a parcours filter. Keep the empty-list
+   * fallback for legacy API payloads.
    *
    * <p>Un administrateur de section y a droit aussi : « tous » ne lève alors que
    * le choix du sous-système, le serveur maintenant le verrou sur son cycle
    * quelle que soit l'absence d'en-tête.
    */
-  protected canSeeAll = computed(
-    () => (this.auth.user()?.allowedParcours ?? []).length === 0 || this.auth.section() !== null);
+  protected canSeeAll = computed(() => {
+    const user = this.auth.user();
+    if (!user) return false;
+    if (this.auth.section() !== null) return true;
+    return user.parcoursScopeMode === 'GLOBAL'
+      || (user.parcoursScopeMode == null && (user.allowedParcours ?? []).length === 0);
+  });
 
   /** Le raccourci « tous » ne promet que ce que le compte peut réellement voir. */
   protected allLabel = computed(() => {

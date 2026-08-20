@@ -1,9 +1,10 @@
 import {
-  Component, ChangeDetectionStrategy, input, output, computed, signal,
+  Component, ChangeDetectionStrategy, input, output, computed, signal, effect,
   Directive, TemplateRef, contentChildren,
 } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { IconComponent } from './icon';
+import { ListPaginationComponent, paginateRows } from './list-pagination';
 
 /**
  * Column definition for {@link DataTableComponent}.
@@ -31,7 +32,7 @@ export class CellTemplateDirective {
   selector: 'bbc-data-table',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NgTemplateOutlet, IconComponent],
+  imports: [NgTemplateOutlet, IconComponent, ListPaginationComponent],
   template: `
     <div class="overflow-x-auto scroll-y" [style.max-height]="maxHeight()">
       <table class="w-full text-sm border-collapse">
@@ -60,7 +61,7 @@ export class CellTemplateDirective {
           </tr>
         </thead>
         <tbody>
-          @for (row of sorted(); track trackBy()(row); let i = $index) {
+          @for (row of visibleRows(); track trackBy()(row); let i = $index) {
             <tr (click)="rowClick.emit(row)"
               class="border-b border-slate-50 last:border-0 transition"
               [class]="(rowClick ? 'cursor-pointer ' : '') + (isActive(row) ? 'bg-brand-50' : isSelected(row) ? 'bg-brand-50/60' : 'hover:bg-slate-50')">
@@ -96,6 +97,15 @@ export class CellTemplateDirective {
         </tbody>
       </table>
     </div>
+    @if (pagination() && sorted().length) {
+      <bbc-list-pagination
+        [total]="sorted().length"
+        [page]="currentPage()"
+        [pageSize]="rowsPerPage()"
+        [language]="language()"
+        (pageChange)="currentPage.set($event)"
+        (pageSizeChange)="changePageSize($event)" />
+    }
   `,
 })
 export class DataTableComponent<T = any> {
@@ -103,6 +113,9 @@ export class DataTableComponent<T = any> {
   rows = input.required<T[]>();
   emptyLabel = input('Aucun résultat');
   maxHeight = input('640px');
+  pagination = input(false);
+  initialPageSize = input(25);
+  language = input<'fr' | 'en'>('fr');
   /** Identity for change tracking + active-row matching. */
   trackBy = input<(row: T) => unknown>((r: T) => r as unknown);
   activeId = input<unknown>(null);
@@ -121,6 +134,8 @@ export class DataTableComponent<T = any> {
 
   protected sortKey = signal<string | null>(null);
   protected sortDir = signal<'asc' | 'desc'>('asc');
+  protected currentPage = signal(1);
+  protected rowsPerPage = signal(25);
 
   protected sorted = computed<T[]>(() => {
     const key = this.sortKey();
@@ -137,6 +152,20 @@ export class DataTableComponent<T = any> {
     });
   });
 
+  protected visibleRows = computed(() => this.pagination()
+    ? paginateRows(this.sorted(), this.currentPage(), this.rowsPerPage())
+    : this.sorted());
+
+  private readonly resetPage = effect(() => {
+    this.rows();
+    this.currentPage.set(1);
+  }, { allowSignalWrites: true });
+
+  private readonly syncInitialPageSize = effect(() => {
+    this.rowsPerPage.set(Math.max(1, this.initialPageSize()));
+    this.currentPage.set(1);
+  }, { allowSignalWrites: true });
+
   protected toggleSort(key: string): void {
     if (this.sortKey() === key) {
       this.sortDir.set(this.sortDir() === 'asc' ? 'desc' : 'asc');
@@ -144,6 +173,11 @@ export class DataTableComponent<T = any> {
       this.sortKey.set(key);
       this.sortDir.set('asc');
     }
+  }
+
+  protected changePageSize(size: number): void {
+    this.rowsPerPage.set(size);
+    this.currentPage.set(1);
   }
 
   protected tplFor(key: string): TemplateRef<unknown> | null {

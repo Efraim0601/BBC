@@ -19,43 +19,43 @@ public class StaffApplicationController {
     }
 
     @GetMapping("/portal")
-    @PreAuthorize("@perm.can('hr','read') or @perm.can('settings','read')")
+    @PreAuthorize("@policy.canAction('HR_VIEW')")
     public StaffPortalSettingsView getPortal() {
         return service.getPortalSettings();
     }
 
     @PutMapping("/portal")
-    @PreAuthorize("@perm.can('hr','write') or @perm.can('settings','write')")
+    @PreAuthorize("@policy.canAction('HR_MANAGE')")
     public StaffPortalSettingsView updatePortal(@Valid @RequestBody StaffPortalSettingsUpdate in) {
         return service.updatePortalSettings(in);
     }
 
     @PostMapping("/portal/regenerate-token")
-    @PreAuthorize("@perm.can('hr','write') or @perm.can('settings','write')")
+    @PreAuthorize("@policy.canAction('HR_MANAGE')")
     public StaffPortalSettingsView regenerateToken() {
         return service.regeneratePortalToken();
     }
 
     @GetMapping("/applications")
-    @PreAuthorize("@perm.can('hr','read')")
+    @PreAuthorize("@policy.canAction('HR_VIEW')")
     public List<StaffApplicationView> list(@RequestParam(required = false) String status) {
         return service.list(status);
     }
 
     @PostMapping("/applications/{id}/accept")
-    @PreAuthorize("@perm.can('hr','write')")
+    @PreAuthorize("@policy.canAction('HR_MANAGE')")
     public StaffApplicationView accept(@PathVariable UUID id) {
         return service.accept(id);
     }
 
     @PostMapping("/applications/{id}/reject")
-    @PreAuthorize("@perm.can('hr','write')")
+    @PreAuthorize("@policy.canAction('HR_MANAGE')")
     public StaffApplicationView reject(@PathVariable UUID id, @Valid @RequestBody StaffApplicationReject in) {
         return service.reject(id, in);
     }
 
     @PostMapping("/applications/{id}/finalize")
-    @PreAuthorize("@perm.can('hr','write')")
+    @PreAuthorize("@policy.canAction('HR_MANAGE')")
     public StaffApplicationView finalize(@PathVariable UUID id, @Valid @RequestBody StaffApplicationFinalize in) {
         return service.finalize(id, in);
     }

@@ -3,7 +3,7 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Router } from '@angular/router';
 import { Observable, finalize, shareReplay, throwError, tap } from 'rxjs';
 import { environment } from '../../environments/environment';
-import { Level, TokenResponse, UserView } from './models';
+import { ActionEffect, CapabilityView, Level, TokenResponse, UserView } from './models';
 import { ScopeService } from './scope.service';
 
 const ACCESS_KEY = 'bbc-access';
@@ -25,14 +25,24 @@ export class AuthService {
   // Signals — the single source of truth the whole UI reacts to.
   readonly user = signal<UserView | null>(this.restoreUser());
   readonly isLoggedIn = computed(() => this.user() !== null);
+  /** Server-authoritative action capabilities; null means they are not loaded. */
+  readonly capabilities = signal<CapabilityView | null>(null);
+  readonly capabilitiesLoading = signal(false);
+  readonly capabilitiesError = signal(false);
 
   /** Shared in-flight refresh so parallel 401s don't race and wipe the session. */
   private refreshInFlight$: Observable<TokenResponse> | null = null;
+  private capabilitiesInFlight$: Observable<CapabilityView> | null = null;
+  /** Prevent a response started for a previous persona/session from winning a later login. */
+  private capabilitiesGeneration = 0;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     // After a page reload, keep the session alive if tokens are still present.
-    queueMicrotask(() => this.ensureSessionKeepAlive());
+    queueMicrotask(() => {
+      this.ensureSessionKeepAlive();
+      if (this.user()) this.loadCapabilities().subscribe({ error: () => undefined });
+    });
   }
 
   private restoreUser(): UserView | null {
@@ -92,12 +102,16 @@ export class AuthService {
   /** @param reason optional cause (e.g. 'expired') surfaced on the login screen. */
   logout(reason?: string): void {
     this.clearRefreshTimer();
+    this.capabilitiesGeneration += 1;
+    this.capabilitiesInFlight$ = null;
     localStorage.removeItem(ACCESS_KEY);
     localStorage.removeItem(REFRESH_KEY);
     localStorage.removeItem(USER_KEY);
     localStorage.removeItem(EXPIRES_KEY);
     this.scope.clear();
     this.user.set(null);
+    this.capabilities.set(null);
+    this.capabilitiesError.set(false);
     this.router.navigate(['/login'], reason ? { queryParams: { reason } } : undefined);
   }
 
@@ -106,7 +120,64 @@ export class AuthService {
     const u = this.user();
     if (!u) return false;
     const rank = { none: 0, read: 1, write: 2 };
-    return rank[u.permissions[module] ?? 'none'] >= rank[level];
+    const permissionKey = module === 'finance-accounting' ? 'finance' : module;
+    return rank[u.permissions[permissionKey] ?? 'none'] >= rank[level];
+  }
+
+  /**
+   * Resource-scoped modules can be present in the server action policy even
+   * when the legacy module matrix is intentionally empty.  CONTEXT_REQUIRED
+   * is sufficient to open the module; the API still performs the resource
+   * decision for every student/class/relationship request.
+   */
+  canModuleOrAction(module: string, actionCode: string, level: Level = 'read'): boolean {
+    if (this.can(module, level)) return true;
+    const state = this.actionState(actionCode);
+    return state === 'ALLOW' || state === 'CONTEXT_REQUIRED';
+  }
+
+  /** Fetch the staged policy result. Failure stays closed until an explicit retry. */
+  loadCapabilities(): Observable<CapabilityView> {
+    if (this.capabilitiesInFlight$) return this.capabilitiesInFlight$;
+    if (!this.user()) return throwError(() => new HttpErrorResponse({ status: 401, statusText: 'Not logged in' }));
+    const generation = this.capabilitiesGeneration;
+    this.capabilitiesLoading.set(true);
+    this.capabilitiesError.set(false);
+    this.capabilitiesInFlight$ = this.http.get<CapabilityView>(`${environment.apiUrl}/access/me/capabilities`).pipe(
+      tap((value) => {
+        if (generation === this.capabilitiesGeneration) this.capabilities.set(value);
+      }),
+      finalize(() => {
+        if (generation === this.capabilitiesGeneration) {
+          this.capabilitiesLoading.set(false);
+          this.capabilitiesInFlight$ = null;
+        }
+      }),
+      shareReplay({ bufferSize: 1, refCount: true }),
+    );
+    this.capabilitiesInFlight$.subscribe({
+      error: () => {
+        if (generation === this.capabilitiesGeneration) this.capabilitiesError.set(true);
+      },
+    });
+    return this.capabilitiesInFlight$;
+  }
+
+  retryCapabilities(): void {
+    this.capabilities.set(null);
+    this.loadCapabilities().subscribe({ error: () => undefined });
+  }
+
+  /** Contextual actions intentionally remain visible as CONTEXT_REQUIRED. */
+  actionState(actionCode: string): ActionEffect {
+    if (!this.user()) return 'DENY';
+    if (!this.capabilities()) return this.capabilitiesLoading() ? 'LOADING' : 'DENY';
+    return (this.capabilities()!.actions.find((x) => x.actionCode === actionCode)?.effect ?? 'DENY') as ActionEffect;
+  }
+
+  /** Only an evaluated, context-free ALLOW may enable a global control. */
+  canAction(actionCode: string): boolean {
+    return this.actionState(actionCode) === 'ALLOW';
   }
 
   /**
@@ -123,11 +194,15 @@ export class AuthService {
   readonly section = computed(() => this.user()?.section ?? null);
 
   private persist(res: TokenResponse): void {
+    this.capabilitiesGeneration += 1;
+    this.capabilitiesInFlight$ = null;
     localStorage.setItem(ACCESS_KEY, res.accessToken);
     localStorage.setItem(REFRESH_KEY, res.refreshToken);
     localStorage.setItem(USER_KEY, JSON.stringify(res.user));
     localStorage.setItem(EXPIRES_KEY, String(Date.now() + res.expiresInMs));
     this.user.set(res.user);
+    this.capabilities.set(null);
+    this.loadCapabilities().subscribe({ error: () => undefined });
     this.scheduleProactiveRefresh();
   }
 

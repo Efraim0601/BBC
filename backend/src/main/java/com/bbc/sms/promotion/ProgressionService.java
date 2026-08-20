@@ -2,7 +2,7 @@ package com.bbc.sms.promotion;
 
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AppUserPrincipal;
-import com.bbc.sms.platform.security.AccessScopeService;
+import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.tenant.ParcoursContext;
 import com.bbc.sms.platform.tenant.ParcoursContext.Scope;
 import com.bbc.sms.platform.tenant.TenantContext;
@@ -46,17 +46,17 @@ public class ProgressionService {
     private final SectionRepository sections;
     private final StudentRepository students;
     private final PromotionRuleRepository rules;
-    private final AccessScopeService accessScope;
+    private final TeacherScopeService teacherScope;
     private final JdbcTemplate jdbc;
 
     public ProgressionService(SchoolClassRepository classes, SectionRepository sections,
                               StudentRepository students, PromotionRuleRepository rules,
-                              AccessScopeService accessScope, JdbcTemplate jdbc) {
+                              TeacherScopeService teacherScope, JdbcTemplate jdbc) {
         this.classes = classes;
         this.sections = sections;
         this.students = students;
         this.rules = rules;
-        this.accessScope = accessScope;
+        this.teacherScope = teacherScope;
         this.jdbc = jdbc;
     }
 
@@ -79,7 +79,7 @@ public class ProgressionService {
         for (SchoolClass c : classes.findBySchoolIdOrderByName(schoolId)) all.put(c.getId(), c);
 
         Scope scope = ParcoursContext.get();
-        Set<UUID> allowed = accessScope.allowedClassIds();
+        Set<UUID> allowed = teacherScope.allowedClassIds();
 
         return all.values().stream()
                 .filter(c -> allowed == null || allowed.contains(c.getId()))
@@ -163,7 +163,7 @@ public class ProgressionService {
         List<SchoolClass> all = classes.findBySchoolIdOrderByName(schoolId);
         // Un admin de cycle ne réécrit l'enchaînement que de ses propres classes,
         // même si les cibles, elles, se cherchent dans toute l'école.
-        Set<UUID> allowed = accessScope.allowedClassIds();
+        Set<UUID> allowed = teacherScope.allowedClassIds();
         List<SchoolClass> editable = all.stream()
                 .filter(c -> allowed == null || allowed.contains(c.getId()))
                 .filter(c -> StudentService.inScope(scope, c.getLevel(), c.getSubsystem()))
@@ -280,7 +280,7 @@ public class ProgressionService {
         }
         // Un admin de cycle fixe les seuils de son cycle. La règle générale de
         // l'école (sans niveau) s'appliquerait aux trois : elle lui est fermée.
-        if (accessScope.adminSection() != null) accessScope.assertSection(level);
+        if (teacherScope.adminSection() != null) teacherScope.assertSection(level);
 
         r.setClassId(classId);
         r.setLevel(level);
@@ -303,7 +303,7 @@ public class ProgressionService {
         UUID schoolId = TenantContext.get();
         PromotionRule r = rules.findByIdAndSchoolId(id, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Règle de passage"));
-        if (accessScope.adminSection() != null) accessScope.assertSection(r.getLevel());
+        if (teacherScope.adminSection() != null) teacherScope.assertSection(r.getLevel());
         if (r.specificity() == 0) {
             throw ApiException.badRequest("La règle générale de l'école ne peut pas être supprimée");
         }

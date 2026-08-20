@@ -59,3 +59,10 @@ documents/
 
 # Export d'atelier
 atelier-bbc-sms.zip
+
+# Local generated validation and presentation build outputs
+/output/
+/tmp/
+/qa/e2e-runs/
+/marble_deck_build/
+*.inspect.ndjson

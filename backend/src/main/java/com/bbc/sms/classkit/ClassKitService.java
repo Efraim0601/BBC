@@ -2,7 +2,9 @@ package com.bbc.sms.classkit;
 
 import com.bbc.sms.classkit.dto.ClassKitDtos.*;
 import com.bbc.sms.platform.common.ApiException;
-import com.bbc.sms.platform.security.AccessScopeService;
+import com.bbc.sms.platform.security.AuthorizationPolicyService;
+import com.bbc.sms.platform.security.PolicyResourceContext;
+import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.timetable.SchoolClass;
 import com.bbc.sms.timetable.SchoolClassRepository;
@@ -29,15 +31,18 @@ public class ClassKitService {
     private final SchoolClassRepository classes;
     private final AccessScopeService accessScope;
     private final JdbcTemplate jdbc;
+    private final AuthorizationPolicyService policy;
 
     public ClassKitService(ClassResourceItemRepository items,
                            SchoolClassRepository classes,
-                           AccessScopeService accessScope,
-                           JdbcTemplate jdbc) {
+                           TeacherScopeService teacherScope,
+                           JdbcTemplate jdbc,
+                           AuthorizationPolicyService policy) {
         this.items = items;
         this.classes = classes;
         this.accessScope = accessScope;
         this.jdbc = jdbc;
+        this.policy = policy;
     }
 
     private static String requireKind(String kind) {
@@ -59,6 +64,7 @@ public class ClassKitService {
         UUID schoolId = TenantContext.get();
         requireKind(kind);
         SchoolClass cls = requireClass(schoolId, classId);
+        requirePolicy("CLASSKIT_VIEW", cls.getId());
         return view(schoolId, cls, kind);
     }
 
@@ -79,6 +85,7 @@ public class ClassKitService {
         UUID schoolId = TenantContext.get();
         requireKind(kind);
         requireClass(schoolId, classId);
+        requirePolicy("CLASSKIT_MANAGE", classId);
         ClassResourceItem it = new ClassResourceItem();
         it.setSchoolId(schoolId);
         it.setClassId(classId);
@@ -97,7 +104,8 @@ public class ClassKitService {
         UUID schoolId = TenantContext.get();
         ClassResourceItem it = items.findByIdAndSchoolId(itemId, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Élément"));
-        accessScope.assertClass(it.getClassId());
+        teacherScope.assertClass(it.getClassId());
+        requirePolicy("CLASSKIT_MANAGE", it.getClassId());
         apply(it, in);
         return toView(items.save(it));
     }
@@ -107,7 +115,8 @@ public class ClassKitService {
         UUID schoolId = TenantContext.get();
         ClassResourceItem it = items.findByIdAndSchoolId(itemId, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Élément"));
-        accessScope.assertClass(it.getClassId());
+        teacherScope.assertClass(it.getClassId());
+        requirePolicy("CLASSKIT_MANAGE", it.getClassId());
         items.delete(it);
     }
 
@@ -116,6 +125,7 @@ public class ClassKitService {
         UUID schoolId = TenantContext.get();
         requireKind(kind);
         SchoolClass cls = requireClass(schoolId, classId);
+        requirePolicy("CLASSKIT_MANAGE", cls.getId());
         jdbc.update(
                 "INSERT INTO class_resource_publication (school_id, class_id, kind, published, published_at) "
               + "VALUES (?,?,?,?,?) "
@@ -177,5 +187,10 @@ public class ClassKitService {
     private ItemView toView(ClassResourceItem it) {
         return new ItemView(it.getId(), it.getLabel(), it.getQuantity(), it.getPrice(), it.getNote(),
                 it.getSubjectCode(), it.getAuthor(), it.getMandatory());
+    }
+
+    private void requirePolicy(String action, UUID classId) {
+        policy.require(action, new PolicyResourceContext(TenantContext.get(), null, java.time.LocalDate.now(),
+                null, classId, null, null, null, null, null, null, null));
     }
 }

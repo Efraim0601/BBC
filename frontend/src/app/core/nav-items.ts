@@ -62,6 +62,17 @@ export const NAV_GROUPS: Group[] = [
     { id: 'alerts', route: '/alerts', iconBg: 'bg-amber-100 text-amber-700', color: 'from-amber-500 to-amber-700', svg: NAV_ICONS.alert, subFr: 'Élèves à risque · alertes auto', subEn: 'At-risk students · auto alerts' },
     { id: 'reports', route: '/reports', iconBg: 'bg-indigo-100 text-indigo-700', color: 'from-indigo-500 to-indigo-700', svg: NAV_ICONS.chart, subFr: 'Analytique école entière', subEn: 'School-wide analytics' },
     { id: 'settings', route: '/settings', iconBg: 'bg-slate-100 text-slate-700', color: 'from-slate-500 to-slate-700', svg: NAV_ICONS.settings, subFr: 'Configuration, rôles, lecteur', subEn: 'Config, roles, reader' },
+    { id: 'access-control', route: '/access-control', iconBg: 'bg-indigo-100 text-indigo-700', color: 'from-indigo-500 to-indigo-700', svg: NAV_ICONS.shield, subFr: 'Profils, exceptions, aperçus auditables', subEn: 'Profiles, exceptions, auditable previews' },
+  ]},
+  { key: 'accounting', labelFr: 'Comptabilité', labelEn: 'Accounting', mods: [
+    { id: 'finance-accounting', route: '/finance/accounting', iconBg: 'bg-gold-50 text-gold-700', color: 'from-gold-400 to-gold-700', svg: NAV_ICONS.wallet, subFr: 'Comptes, journaux, rapprochement', subEn: 'Accounts, journals, reconciliation' },
+    { id: 'finance-fee-types', route: '/finance/fee-types', iconBg: 'bg-emerald-50 text-emerald-700', color: 'from-emerald-500 to-emerald-700', svg: NAV_ICONS.wallet, subFr: 'Catalogue des types de frais', subEn: 'Fee type catalogue' },
+    { id: 'finance-plans', route: '/finance/plans', iconBg: 'bg-indigo-50 text-indigo-700', color: 'from-indigo-500 to-indigo-700', svg: NAV_ICONS.wallet, subFr: 'Plans versionnés par session et classe', subEn: 'Versioned session and class plans' },
+    { id: 'finance-charges', route: '/finance/charges', iconBg: 'bg-amber-50 text-amber-700', color: 'from-amber-500 to-amber-700', svg: NAV_ICONS.wallet, subFr: 'Charges, échéances & débiteurs', subEn: 'Charges, installments & debtors' },
+    { id: 'finance-collections', route: '/finance/collections', iconBg: 'bg-emerald-50 text-emerald-700', color: 'from-emerald-500 to-emerald-700', svg: NAV_ICONS.wallet, subFr: 'Encaissements, caisse & remboursements', subEn: 'Collections, cashier & refunds' },
+    { id: 'finance-documents', route: '/finance/documents', iconBg: 'bg-sky-50 text-sky-700', color: 'from-sky-500 to-sky-700', svg: NAV_ICONS.folder, subFr: 'Factures, reçus & PDFs vérifiables', subEn: 'Invoices, receipts & verifiable PDFs' },
+    { id: 'finance-payroll', route: '/finance/payroll', iconBg: 'bg-violet-50 text-violet-700', color: 'from-violet-500 to-violet-700', svg: NAV_ICONS.wallet, subFr: 'Runs de paie, paiements & bulletins', subEn: 'Payroll runs, payments & payslips' },
+    { id: 'finance-reports', route: '/finance/reports', iconBg: 'bg-indigo-50 text-indigo-700', color: 'from-indigo-500 to-indigo-700', svg: NAV_ICONS.chart, subFr: 'Rapports réconciliés & auditables', subEn: 'Reconciled & auditable reports' },
   ]},
 ];
 

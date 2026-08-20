@@ -23,11 +23,16 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtAuthFilter jwtAuthFilter;
+    private final ParcoursScopeEnforcementFilter parcoursScopeEnforcementFilter;
 
     @Value("${bbc.cors.allowed-origins}")
     private String allowedOrigins;
 
-    public SecurityConfig(JwtAuthFilter jwtAuthFilter) { this.jwtAuthFilter = jwtAuthFilter; }
+    public SecurityConfig(JwtAuthFilter jwtAuthFilter,
+                          ParcoursScopeEnforcementFilter parcoursScopeEnforcementFilter) {
+        this.jwtAuthFilter = jwtAuthFilter;
+        this.parcoursScopeEnforcementFilter = parcoursScopeEnforcementFilter;
+    }
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
@@ -38,6 +43,8 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/auth/**").permitAll()
                 .requestMatchers("/api/public/staff-portal/**").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/public/report-card-verification/**").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/official-documents/verify/**").permitAll()
                 .requestMatchers("/api/devices/*/attendance").permitAll()  // device API-key checked in service
                 .requestMatchers("/ws/**").permitAll()                      // STOMP handshake authenticates via token
                 .requestMatchers("/actuator/health", "/swagger-ui/**", "/v3/api-docs/**").permitAll()
@@ -52,7 +59,8 @@ public class SecurityConfig {
                 res.getWriter().write("{\"status\":401,\"error\":\"Unauthorized\","
                         + "\"message\":\"Session expirée ou authentification requise.\"}");
             }))
-            .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
+            .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
+            .addFilterAfter(parcoursScopeEnforcementFilter, JwtAuthFilter.class);
         return http.build();
     }
 

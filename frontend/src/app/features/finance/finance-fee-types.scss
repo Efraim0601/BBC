@@ -1,0 +1,32 @@
+:host { display: block; }
+
+.fee-shell { color: #152f4b; }
+.fee-tabs { scrollbar-width: thin; }
+.fee-tabs::-webkit-scrollbar { height: 8px; }
+.fee-tabs::-webkit-scrollbar-thumb { background: #c7d2e0; border-radius: 999px; }
+
+.fee-table th, .fee-table td { white-space: nowrap; }
+.fee-card { min-width: 0; }
+
+.fee-drawer-backdrop {
+  position: fixed; inset: 0; z-index: 40; display: flex; justify-content: flex-end;
+  background: rgba(15, 23, 42, .46); padding: 0;
+}
+.fee-drawer {
+  width: min(760px, 100%); height: 100%; overflow-y: auto; background: #fff;
+  padding: 1.25rem; box-shadow: -16px 0 40px rgba(15, 23, 42, .18);
+}
+.fee-modal-backdrop {
+  position: fixed; inset: 0; z-index: 50; display: grid; place-items: center;
+  overflow-y: auto; padding: 1rem; background: rgba(15, 23, 42, .5);
+}
+.fee-modal { width: min(620px, 100%); max-height: calc(100vh - 2rem); overflow-y: auto; }
+
+.account-option { display: flex; min-height: 2.75rem; align-items: center; justify-content: space-between; gap: .75rem; }
+.account-option:disabled { cursor: not-allowed; opacity: .55; }
+.fee-section { border: 1px solid #e2e8f0; border-radius: .85rem; background: #f8fafc; padding: 1rem; }
+
+@media (max-width: 640px) {
+  .fee-drawer { padding: 1rem; }
+  .fee-table { min-width: 960px; }
+}

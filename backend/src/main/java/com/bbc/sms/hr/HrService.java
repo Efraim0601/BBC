@@ -2,6 +2,8 @@ package com.bbc.sms.hr;
 
 import com.bbc.sms.hr.dto.HrDtos.*;
 import com.bbc.sms.platform.common.ApiException;
+import com.bbc.sms.platform.security.AuthorizationPolicyService;
+import com.bbc.sms.platform.security.PolicyResourceContext;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.staff.Employee;
 import com.bbc.sms.staff.EmployeeRepository;
@@ -22,17 +24,21 @@ public class HrService {
     private final DepartmentRepository departments;
     private final LeaveRequestRepository leaves;
     private final EmployeeRepository employees;
+    private final AuthorizationPolicyService policy;
 
-    public HrService(DepartmentRepository departments, LeaveRequestRepository leaves, EmployeeRepository employees) {
+    public HrService(DepartmentRepository departments, LeaveRequestRepository leaves, EmployeeRepository employees,
+                     AuthorizationPolicyService policy) {
         this.departments = departments;
         this.leaves = leaves;
         this.employees = employees;
+        this.policy = policy;
     }
 
     // ---- Departments --------------------------------------------------------
 
     @Transactional(readOnly = true)
     public List<DepartmentView> listDepartments() {
+        requireSchool("HR_VIEW");
         UUID schoolId = TenantContext.get();
         Map<UUID, String> names = employeeNames(schoolId);
         return departments.findBySchoolIdOrderByName(schoolId).stream()
@@ -42,6 +48,7 @@ public class HrService {
 
     @Transactional
     public DepartmentView createDepartment(DepartmentUpsert in) {
+        requireSchool("HR_MANAGE");
         UUID schoolId = TenantContext.get();
         String name = in.name().trim();
         if (departments.existsBySchoolIdAndName(schoolId, name)) {
@@ -56,6 +63,7 @@ public class HrService {
 
     @Transactional
     public DepartmentView updateDepartment(UUID id, DepartmentUpsert in) {
+        requireSchool("HR_MANAGE");
         UUID schoolId = TenantContext.get();
         Department d = departments.findByIdAndSchoolId(id, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Département"));
@@ -70,6 +78,7 @@ public class HrService {
 
     @Transactional
     public void deleteDepartment(UUID id) {
+        requireSchool("HR_MANAGE");
         UUID schoolId = TenantContext.get();
         Department d = departments.findByIdAndSchoolId(id, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Département"));
@@ -83,6 +92,7 @@ public class HrService {
 
     @Transactional(readOnly = true)
     public List<LeaveView> listLeaves() {
+        requireSchool("HR_VIEW");
         UUID schoolId = TenantContext.get();
         Map<UUID, String> names = employeeNames(schoolId);
         return leaves.findBySchoolIdOrderByCreatedAtDesc(schoolId).stream()
@@ -92,6 +102,7 @@ public class HrService {
 
     @Transactional
     public LeaveView createLeave(LeaveCreate in) {
+        requireSchool("HR_MANAGE");
         UUID schoolId = TenantContext.get();
         employees.findByIdAndSchoolId(in.employeeId(), schoolId)
                 .orElseThrow(() -> ApiException.badRequest("Employé inconnu"));
@@ -112,6 +123,7 @@ public class HrService {
 
     @Transactional
     public LeaveView decideLeave(UUID id, LeaveDecision in) {
+        requireSchool("HR_MANAGE");
         UUID schoolId = TenantContext.get();
         LeaveRequest l = leaves.findByIdAndSchoolId(id, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Demande de congé"));
@@ -149,5 +161,10 @@ public class HrService {
         return new LeaveView(l.getId(), l.getEmployeeId(), names.get(l.getEmployeeId()),
                 l.getType(), l.getStartDate(), l.getEndDate(), l.getDays(), l.getReason(),
                 l.getStatus(), l.getDecidedAt());
+    }
+
+    private void requireSchool(String action) {
+        policy.require(action, new PolicyResourceContext(TenantContext.get(), null, java.time.LocalDate.now(),
+                null, null, null, null, null, null, null, null, null));
     }
 }

@@ -8,6 +8,8 @@ import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AccessScopeService;
 import com.bbc.sms.platform.security.SectionRoles;
 import com.bbc.sms.platform.mail.MailService;
+import com.bbc.sms.platform.security.AuthorizationPolicyService;
+import com.bbc.sms.platform.security.PolicyResourceContext;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.setup.SetupService;
 import com.bbc.sms.staff.dto.StaffDtos.*;
@@ -39,6 +41,8 @@ public class StaffService {
             Map.entry("bursar", "econome"),
             Map.entry("enseignant", "teacher"),
             Map.entry("prof", "teacher"),
+            Map.entry("enseignant secondaire", "secondary_teacher"),
+            Map.entry("secondary teacher", "secondary_teacher"),
             Map.entry("pp", "form_teacher"),
             Map.entry("professeur principal", "form_teacher"),
             Map.entry("proviseur", "principal"),
@@ -54,11 +58,12 @@ public class StaffService {
     private final SetupService setup;
     private final AccessScopeService accessScope;
     private final JdbcTemplate jdbc;
+    private final AuthorizationPolicyService policy;
 
     public StaffService(EmployeeRepository repo, DepartmentRepository departments, MailService mail,
                         StaffAccountService accounts, AppUserRepository users,
-                        SchoolClassRepository classes, SetupService setup,
-                        AccessScopeService accessScope, JdbcTemplate jdbc) {
+                        SchoolClassRepository classes, SetupService setup, JdbcTemplate jdbc,
+                        AuthorizationPolicyService policy, TeacherScopeService teacherScope) {
         this.repo = repo;
         this.departments = departments;
         this.mail = mail;
@@ -68,6 +73,7 @@ public class StaffService {
         this.setup = setup;
         this.accessScope = accessScope;
         this.jdbc = jdbc;
+        this.policy = policy;
     }
 
     // ---- Classes d'un enseignant ------------------------------------------
@@ -76,6 +82,7 @@ public class StaffService {
 
     @Transactional(readOnly = true)
     public List<TeacherClassView> classesOf(UUID employeeId) {
+        requireSchool("HR_VIEW");
         UUID schoolId = TenantContext.get();
         find(employeeId);
         return jdbc.query("""
@@ -101,6 +108,8 @@ public class StaffService {
     @Transactional
     public List<TeacherClassView> setClasses(UUID employeeId, List<UUID> classIds) {
         UUID schoolId = TenantContext.get();
+        policy.require("HR_MANAGE", new PolicyResourceContext(schoolId, null, java.time.LocalDate.now(),
+                null, null, null, null, null, null, null, null, null));
         Employee e = find(employeeId);
         List<UUID> wanted = classIds == null ? List.of() : classIds.stream().distinct().toList();
 
@@ -108,6 +117,9 @@ public class StaffService {
         for (UUID classId : wanted) {
             SchoolClass c = classes.findByIdAndSchoolId(classId, schoolId)
                     .orElseThrow(() -> ApiException.badRequest("Classe inconnue"));
+            policy.require("TEACHING_CLASS_ASSIGNMENT_MANAGE",
+                    new PolicyResourceContext(schoolId, null, java.time.LocalDate.now(), null,
+                            classId, null, null, null, null, null, null, c.getLevel()));
             setup.bindTeacherSection(e.getId(), c.getLevel());
         }
         jdbc.update("DELETE FROM teacher_class tc USING school_class c "
@@ -116,19 +128,26 @@ public class StaffService {
         for (UUID classId : wanted) {
             jdbc.update("INSERT INTO teacher_class (employee_id, class_id) VALUES (?, ?)", employeeId, classId);
         }
+        // Class assignment is the authoritative source for a teacher's
+        // parcours envelope. Keep the linked login in assignment-derived mode
+        // so @parcours.allows() can expose exactly the assigned class scopes;
+        // an empty assignment remains restrictive because it derives no rows.
+        jdbc.update("UPDATE app_user SET parcours_scope_mode='ASSIGNMENT_DERIVED' "
+                  + "WHERE school_id=? AND employee_id=?", schoolId, employeeId);
         return classesOf(employeeId);
     }
 
     @Transactional(readOnly = true)
     public List<EmployeeView> list() {
+        requireSchool("HR_VIEW");
         UUID schoolId = TenantContext.get();
         Map<UUID, String> deptNames = new HashMap<>();
         for (Department d : departments.findBySchoolIdOrderByName(schoolId)) deptNames.put(d.getId(), d.getName());
-        Map<UUID, String> logins = loginUsernames(schoolId);
-        String section = accessScope.adminSection();
+        Map<UUID, AppUser> loginAccounts = loginAccounts(schoolId);
+        String section = teacherScope.adminSection();
         return repo.findBySchoolIdAndActiveTrueOrderByNameAsc(schoolId).stream()
                 .filter(e -> inSection(e, section))
-                .map(e -> toView(e, deptNames.get(e.getDepartmentId()), logins.get(e.getId()))).toList();
+                .map(e -> toView(e, deptNames.get(e.getDepartmentId()), loginAccounts.get(e.getId()))).toList();
     }
 
     /**
@@ -145,11 +164,13 @@ public class StaffService {
 
     @Transactional(readOnly = true)
     public EmployeeView get(UUID id) {
+        requireSchool("HR_VIEW");
         return toView(find(id));
     }
 
     @Transactional
     public EmployeeView create(EmployeeUpsert in) {
+        requireSchool("HR_MANAGE");
         UUID schoolId = TenantContext.get();
         Employee e = new Employee();
         e.setSchoolId(schoolId);
@@ -174,6 +195,7 @@ public class StaffService {
     @Transactional
     public Employee createInactiveDraft(UUID schoolId, String name, String sex, String type,
                                         String email, String phone, String formClass) {
+        requireSchool("HR_MANAGE");
         Employee e = new Employee();
         e.setSchoolId(schoolId);
         e.setCode(nextCode(schoolId));
@@ -194,6 +216,7 @@ public class StaffService {
     /** Activate a draft employee and apply HR fields (salary, roles, department). */
     @Transactional
     public EmployeeView finalizeDraft(UUID employeeId, EmployeeUpsert in, boolean createLogin) {
+        requireSchool("HR_MANAGE");
         Employee e = find(employeeId);
         apply(e, in);
         e.setInitials(initials(in.name() != null && !in.name().isBlank() ? in.name() : e.getName()));
@@ -202,6 +225,7 @@ public class StaffService {
         if (createLogin) {
             accounts.provisionOrReset(saved);
         } else {
+            accounts.syncAccount(saved);
             mail.notifyUserCreated(saved.getSchoolId(), saved.getName(), saved.getEmail());
         }
         return toView(saved);
@@ -214,6 +238,7 @@ public class StaffService {
      */
     @Transactional
     public StaffImportResult importStaff(StaffImportRequest in) {
+        requireSchool("HR_MANAGE");
         UUID schoolId = TenantContext.get();
         boolean wantLogin = Boolean.TRUE.equals(in.createLogin());
         Set<String> validRoles = new HashSet<>(jdbc.queryForList("SELECT code FROM role", String.class));
@@ -268,6 +293,15 @@ public class StaffService {
 
                 Set<String> roles = resolveRoles(row.roles(), validRoles);
                 assertNoNewPrivilege(Set.of(), roles);   // un import ne nomme pas d'administrateur
+                Set<String> managementLevels = new HashSet<>();
+                if (roles.contains("principal")) {
+                    String importedLevel = normSection(blankToNull(row.section()));
+                    if (importedLevel == null) {
+                        throw new IllegalArgumentException(
+                                "Un principal doit avoir au moins un cycle attribué (maternelle, primary ou secondary)");
+                    }
+                    managementLevels.add(importedLevel);
+                }
 
                 String code;
                 do {
@@ -287,7 +321,7 @@ public class StaffService {
                 // Un admin de cycle importe dans son cycle : la colonne « section »
                 // du fichier ne peut pas l'en faire sortir.
                 String rowSection = normSection(blankToNull(row.section()));
-                String adminSection = accessScope.adminSection();
+                String adminSection = teacherScope.adminSection();
                 if (adminSection != null) {
                     if (rowSection != null && !adminSection.equals(rowSection)) {
                         throw new IllegalArgumentException(
@@ -296,6 +330,8 @@ public class StaffService {
                     rowSection = adminSection;
                 }
                 e.setLevel(rowSection);
+                roles = teachingRolesForSection(roles, e.getLevel(), validRoles);
+                e.setManagementLevels(managementLevels);
                 e.setDepartmentId(departmentId);
                 e.setMonthlySalary(row.monthlySalary() == null ? 0L : Math.max(0L, row.monthlySalary()));
                 e.setHourlyRate(row.hourlyRate() == null ? 0 : Math.max(0, row.hourlyRate()));
@@ -319,14 +355,18 @@ public class StaffService {
 
     @Transactional
     public EmployeeView update(UUID id, EmployeeUpsert in) {
+        requireSchool("HR_MANAGE");
         Employee e = find(id);
         apply(e, in);
         e.setInitials(initials(in.name()));
-        return toView(repo.save(e));
+        Employee saved = repo.save(e);
+        accounts.syncAccount(saved);
+        return toView(saved);
     }
 
     @Transactional
     public void delete(UUID id) {
+        requireSchool("HR_MANAGE");
         Employee e = find(id);
         e.setActive(false);   // soft delete — keeps payroll/academic history intact
         repo.save(e);
@@ -358,6 +398,7 @@ public class StaffService {
     /** (Re)issue the employee's login credentials and e-mail them; admin action. */
     @Transactional
     public AccountResult resetCredentials(UUID id) {
+        requireSchool("HR_MANAGE");
         return accounts.provisionOrReset(find(id));
     }
 
@@ -373,11 +414,11 @@ public class StaffService {
         return e;
     }
 
-    /** employeeId -> username for every staff-linked account in this school. */
-    private Map<UUID, String> loginUsernames(UUID schoolId) {
-        Map<UUID, String> map = new HashMap<>();
+    /** employeeId -> account for every staff-linked account in this school. */
+    private Map<UUID, AppUser> loginAccounts(UUID schoolId) {
+        Map<UUID, AppUser> map = new HashMap<>();
         for (AppUser u : users.findBySchoolIdAndEmployeeIdNotNull(schoolId)) {
-            map.put(u.getEmployeeId(), u.getUsername());
+            map.put(u.getEmployeeId(), u);
         }
         return map;
     }
@@ -398,13 +439,16 @@ public class StaffService {
         e.setMonthlySalary(in.monthlySalary());
         e.setHourlyRate(in.hourlyRate());
         Set<String> validRoles = new HashSet<>(jdbc.queryForList("SELECT code FROM role", String.class));
+        Set<String> resolvedRoles;
         try {
-            Set<String> roles = resolveRoles(in.roles() == null ? null : List.copyOf(in.roles()), validRoles);
-            assertNoNewPrivilege(e.getRoles(), roles);
-            e.setRoles(roles);
+            resolvedRoles = resolveRoles(in.roles() == null ? null : List.copyOf(in.roles()), validRoles);
+            assertNoNewPrivilege(e.getRoles(), resolvedRoles);
         } catch (IllegalArgumentException ex) {
             throw ApiException.badRequest(ex.getMessage());
         }
+        resolvedRoles = teachingRolesForSection(resolvedRoles, e.getLevel(), validRoles);
+        e.setRoles(resolvedRoles);
+        applyManagementLevels(e, in.managementLevels(), resolvedRoles);
     }
 
     /**
@@ -502,6 +546,10 @@ public class StaffService {
                 if ("parent".equals(code)) {
                     throw new IllegalArgumentException("Le rôle « parent » ne s’applique pas au personnel");
                 }
+                if (Set.of("administrator", "admin", "school_admin").contains(code)) {
+                    throw new IllegalArgumentException(
+                            "Le rôle Administrateur est réservé au compte technique de l’établissement");
+                }
                 if (!validRoles.contains(code)) {
                     throw new IllegalArgumentException("Rôle inconnu (« " + r.trim() + " »)");
                 }
@@ -510,6 +558,37 @@ public class StaffService {
         }
         if (out.isEmpty()) out.add("teacher");
         return out;
+    }
+
+    private Set<String> teachingRolesForSection(Set<String> roles, String section,
+                                                Set<String> validRoles) {
+        Set<String> normalized = new HashSet<>(roles);
+        if ("secondary".equals(section) && normalized.remove("teacher")
+                && validRoles.contains("secondary_teacher")) {
+            normalized.add("secondary_teacher");
+        } else if (!"secondary".equals(section) && normalized.remove("secondary_teacher")) {
+            normalized.add("teacher");
+        }
+        return normalized;
+    }
+
+    private void applyManagementLevels(Employee employee, Set<String> rawLevels, Set<String> roles) {
+        Set<String> normalized = new HashSet<>();
+        if (rawLevels != null) {
+            for (String raw : rawLevels) {
+                String level = normSection(blankToNull(raw));
+                if (level == null) {
+                    throw ApiException.badRequest(
+                            "Cycle de direction inconnu (attendu maternelle, primary ou secondary)");
+                }
+                normalized.add(level);
+            }
+        }
+        if (roles.contains("principal") && normalized.isEmpty()) {
+            throw ApiException.badRequest(
+                    "Attribuez au principal au moins un cycle : Maternelle, Primaire ou Secondaire");
+        }
+        employee.setManagementLevels(roles.contains("principal") ? normalized : new HashSet<>());
     }
 
     private String nextCode(UUID schoolId) {
@@ -536,18 +615,25 @@ public class StaffService {
         String deptName = e.getDepartmentId() == null ? null
                 : departments.findByIdAndSchoolId(e.getDepartmentId(), e.getSchoolId())
                         .map(Department::getName).orElse(null);
-        String username = users.findByEmployeeId(e.getId()).map(AppUser::getUsername).orElse(null);
-        return toView(e, deptName, username);
+        AppUser account = users.findByEmployeeId(e.getId()).orElse(null);
+        return toView(e, deptName, account);
     }
 
-    private EmployeeView toView(Employee e, String deptName, String username) {
+    private EmployeeView toView(Employee e, String deptName, AppUser account) {
         // Copy the lazy @ElementCollection into a plain set while the session is
         // still open, otherwise JSON serialization fails with LazyInitializationException.
         Set<String> roles = e.getRoles() == null ? Set.of() : new HashSet<>(e.getRoles());
+        Set<String> managementLevels = e.getManagementLevels() == null
+                ? Set.of() : new HashSet<>(e.getManagementLevels());
         return new EmployeeView(e.getId(), e.getCode(), e.getName(), e.getInitials(),
                 e.getSex(), e.getType(), e.getEmail(), e.getPhone(), e.getFormClass(),
-                e.getLevel(), e.getDepartmentId(), deptName,
+                e.getLevel(), managementLevels, e.getDepartmentId(), deptName,
                 e.getMonthlySalary(), e.getHourlyRate(), roles, e.isActive(),
-                username != null, username);
+                account != null, account == null ? null : account.getId(), account == null ? null : account.getUsername());
+    }
+
+    private void requireSchool(String action) {
+        policy.require(action, new PolicyResourceContext(TenantContext.get(), null, java.time.LocalDate.now(),
+                null, null, null, null, null, null, null, null, null));
     }
 }

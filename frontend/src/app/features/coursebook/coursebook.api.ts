@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
+import { SubjectView } from '../../core/setup.api';
 
 export interface ClassRef {
   id: string;
@@ -37,7 +38,11 @@ export class CoursebookApi {
   private base = `${environment.apiUrl}/coursebook`;
 
   classes(): Observable<ClassRef[]> {
-    return this.http.get<ClassRef[]>(`${environment.apiUrl}/timetable/classes`);
+    return this.http.get<ClassRef[]>(`${this.base}/classes`);
+  }
+
+  subjects(className: string): Observable<SubjectView[]> {
+    return this.http.get<SubjectView[]>(`${this.base}/subjects`, { params: { className } });
   }
 
   forClass(className: string): Observable<EntryView[]> {

@@ -6,6 +6,8 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Locale;
 
 /**
  * RBAC gate used from controllers via SpEL: @PreAuthorize("@perm.can('finance','write')").
@@ -31,9 +33,44 @@ public class PermissionService {
         return RANK.indexOf(level) >= RANK.indexOf(requiredLevel);
     }
 
+    /**
+     * Fine-grained command authorization. An explicit action grant wins; schools
+     * upgraded from older versions safely inherit the corresponding module level.
+     */
+    public boolean canAction(String actionCode) {
+        AppUserPrincipal p = currentPrincipal();
+        if (p == null || actionCode == null) return false;
+        String code = actionCode.trim().toUpperCase();
+        List<Boolean> overrides = jdbc.query(
+                "SELECT allowed FROM permission_action_grant WHERE school_id=? AND role_code=? AND action_code=?",
+                (rs, i) -> rs.getBoolean(1), TenantContext.get(), p.roleCode(), code);
+        if (!overrides.isEmpty()) return overrides.get(0);
+        PermissionActions.Requirement fallback = PermissionActions.CATALOG.get(code);
+        return fallback != null && can(fallback.module(), fallback.level());
+    }
+
+    public Map<String, Boolean> currentActions() {
+        return PermissionActions.CATALOG.keySet().stream().sorted()
+                .collect(java.util.stream.Collectors.toMap(a -> a, this::canAction,
+                        (a, b) -> a, java.util.LinkedHashMap::new));
+    }
+
     public boolean isParent() {
         AppUserPrincipal p = currentPrincipal();
-        return p != null && "parent".equals(p.roleCode());
+        if (p == null || !com.bbc.sms.platform.tenant.TenantContext.isSet()) return false;
+        List<String> roles = jdbc.query("""
+                SELECT DISTINCT lower(role_code) FROM app_user_role
+                 WHERE school_id=? AND user_id=?
+                   AND (effective_from IS NULL OR effective_from<=current_date)
+                   AND (effective_to IS NULL OR effective_to>=current_date)
+                UNION SELECT lower(?)
+                """, (rs, i) -> rs.getString(1), TenantContext.get(), p.userId(), p.roleCode());
+        if (roles.stream().map(this::normalizeRole).anyMatch("parent"::equals)) return true;
+        Integer linked = jdbc.queryForObject("""
+                SELECT count(*) FROM guardian
+                 WHERE school_id=? AND app_user_id=? AND status IN ('ACTIVE','INVITED')
+                """, Integer.class, TenantContext.get(), p.userId());
+        return linked != null && linked > 0;
     }
 
     /**
@@ -64,7 +101,20 @@ public class PermissionService {
      * Use: {@code @PreAuthorize("@perm.can('academic','read') and @perm.staffOnly()")}.
      */
     public boolean staffOnly() {
-        return !isParent();
+        AppUserPrincipal p = currentPrincipal();
+        if (p == null || !isParent()) return p != null;
+        List<String> roles = jdbc.query("""
+                SELECT DISTINCT lower(role_code) FROM app_user_role
+                 WHERE school_id=? AND user_id=?
+                   AND (effective_from IS NULL OR effective_from<=current_date)
+                   AND (effective_to IS NULL OR effective_to>=current_date)
+                UNION SELECT lower(?)
+                """, (rs, i) -> rs.getString(1), TenantContext.get(), p.userId(), p.roleCode());
+        return roles.stream().map(this::normalizeRole).anyMatch(role -> !"parent".equals(role));
+    }
+
+    private String normalizeRole(String value) {
+        return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
     }
 
     private AppUserPrincipal currentPrincipal() {

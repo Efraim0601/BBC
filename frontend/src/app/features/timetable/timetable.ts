@@ -1,556 +1,167 @@
-import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
-import { TimetableApi, ClassRef, SlotView, TeacherConflict } from './timetable.api';
+import { TimetableApi, ClassRef, PeriodView, SlotView, SubjectTeacherView, TeacherSchedule, TimetableVersionView, TimetableDriftView, TimetableProjectionSlotView, RoomView, SubstitutionView, TeacherWorkloadView, TeacherQualificationView, SubjectQualificationRequirementView } from './timetable.api';
 import { SetupApi, SubjectView, TeacherOption } from '../../core/setup.api';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
-import {
-  IconComponent, CardComponent, PageHeaderComponent, EmptyComponent,
-} from '../../core/ui';
+import { CardComponent, EmptyComponent, PageHeaderComponent } from '../../core/ui';
+import { AcademicContextService } from '../../core/academic-context.service';
 
-interface SlotDraft {
-  dayIdx: number;
-  slotIdx: number;
-  subjectCode: string;
-  room: string;
-  teacherId: string;
-  existing: boolean;
+type View='classes'|'master'|'teachers'|'rooms'|'resources'|'substitutions'|'periods';
+interface Draft {dayIdx:number;slotIdx:number;subjectCode:string;teacherId:string;room:string;existing:boolean;}
+const DAYS_FR=['Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
+const DAYS_EN=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+export function timetableInitialView(canWrite: boolean, canMasterRead: boolean): View {
+ return canWrite ? 'classes' : canMasterRead ? 'master' : 'teachers';
 }
 
-const DAYS_FR = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
-const DAYS_EN = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-const SLOT_TIMES = ['07:30', '08:30', '09:30', '10:30', '11:30', '12:30', '13:30', '14:30', '15:30'];
-const SLOTS = [0, 1, 2, 3, 4, 5, 6, 7, 8];
-
-// Palette ported from the prototype's TT_SUBJECT_COLOR — keyed by subject code,
-// with a deterministic fallback for any code the backend returns.
-const SUBJECT_COLORS = [
-  'bg-brand-100 text-brand-700 border-brand-200',
-  'bg-rose-100 text-rose-700 border-rose-200',
-  'bg-emerald-100 text-emerald-700 border-emerald-200',
-  'bg-amber-100 text-amber-800 border-amber-200',
-  'bg-teal-100 text-teal-700 border-teal-200',
-  'bg-violet-100 text-violet-700 border-violet-200',
-  'bg-orange-100 text-orange-700 border-orange-200',
-  'bg-pink-100 text-pink-700 border-pink-200',
-];
-const KNOWN_COLORS: Record<string, string> = {
-  MATH: SUBJECT_COLORS[0],
-  FR: SUBJECT_COLORS[1],
-  EN: SUBJECT_COLORS[2],
-  HG: SUBJECT_COLORS[3],
-  SVT: SUBJECT_COLORS[4],
-  PC: SUBJECT_COLORS[5],
-  EPS: SUBJECT_COLORS[6],
-  ART: SUBJECT_COLORS[7],
-  BREAK: 'bg-slate-100 text-mute border-slate-200',
-};
-
 @Component({
-  selector: 'bbc-timetable',
-  standalone: true,
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, IconComponent, CardComponent, PageHeaderComponent, EmptyComponent],
-  template: `
-    <div class="fade-in max-w-6xl mx-auto">
-      <bbc-page-header [title]="i18n.t('timetable')" [subtitle]="headerSub()">
-        <div right class="flex items-center gap-2">
-          @if (canWrite) {
-            <span class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-gold-50 text-gold-600 border border-gold-200">
-              <bbc-icon name="edit" [s]="16" /> {{ fr() ? 'Mode édition' : 'Edit mode' }}
-            </span>
-          }
-          <button class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
-            <bbc-icon name="printer" [s]="16" /> {{ fr() ? 'Imprimer' : 'Print' }}
-          </button>
-        </div>
-      </bbc-page-header>
+ selector:'bbc-timetable',standalone:true,changeDetection:ChangeDetectionStrategy.OnPush,
+ imports:[FormsModule,RouterLink,CardComponent,EmptyComponent,PageHeaderComponent],
+ styles:[`
+  .field{width:100%;min-height:42px;padding:.55rem .75rem;border:1px solid #cbd5e1;border-radius:.6rem;background:white;color:#172033;outline:none}.field:focus{border-color:#2563eb;box-shadow:0 0 0 3px rgba(37,99,235,.12)}.field.invalid{border-color:#e11d48;box-shadow:0 0 0 3px rgba(225,29,72,.1)}
+  .label{display:block;font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#64748b;margin-bottom:.35rem}.btn{min-height:38px;border-radius:.6rem;padding:.5rem .85rem;font-size:.8rem;font-weight:700;border:1px solid #cbd5e1;background:white;color:#334155}.btn:hover{background:#f8fafc}.btn.primary{background:#1d4ed8;border-color:#1d4ed8;color:white}.btn.danger{background:#be123c;border-color:#be123c;color:white}.btn:disabled{opacity:.45;cursor:not-allowed}
+  .cell{min-height:90px;border:1px solid #e2e8f0;border-radius:.65rem;padding:.55rem;background:white;text-align:left}.cell.editable:hover{border-color:#60a5fa;background:#eff6ff}.cell.filled{border-color:#bfdbfe;background:#eff6ff}.cell.locked{cursor:default}
+  .teacher-grid{border:1px solid #cbd5e1;border-radius:.8rem;background:#f8fafc;padding:.75rem}.teacher-grid-header{min-height:58px;border:1px solid #cbd5e1;border-radius:.55rem;background:#e0e7ff;color:#1e293b;padding:.5rem}.teacher-day{display:flex;align-items:center;min-height:108px;border:1px solid #cbd5e1;border-radius:.55rem;background:#eef2ff;padding:.65rem;font-weight:800;color:#1e3a8a}.teacher-slot{min-height:108px;border:1px solid #cbd5e1;border-radius:.55rem;padding:.6rem;background:white}.teacher-slot.filled{border-color:#93c5fd;background:#eff6ff;box-shadow:inset 4px 0 0 #2563eb}.teacher-slot.empty{background:#f8fafc}.teacher-slot .time{font-size:.68rem;color:#64748b}.teacher-slot .subject{font-weight:800;color:#0f172a}.teacher-slot .meta{font-size:.72rem;color:#475569}
+ `],
+ template:`
+   @if(canManageTimetable()){<div class="flex gap-2 mb-5"><button class="btn" [class.primary]="view()==='resources'" (click)="view.set('resources')">{{fr()?'Règles enseignants':'Teacher rules'}}</button></div>}
+ <div class="fade-in max-w-7xl mx-auto">
+  <bbc-page-header [title]="i18n.t('timetable')" [subtitle]="fr()?'Planification par classe, contrôle des conflits et vues enseignants':'Class planning, conflict control and teacher views'" />
+   <div class="flex flex-wrap gap-2 mb-5">@if(canManageTimetable()){<button class="btn" [class.primary]="view()==='classes'" (click)="view.set('classes')">{{fr()?'Planning des classes':'Class schedules'}}</button><button class="btn" [class.primary]="view()==='master'" (click)="view.set('master')">{{fr()?'Vue maître':'Master view'}}</button><button class="btn" [class.primary]="view()==='teachers'" (click)="openTeacherView()">{{fr()?'Planning des enseignants':'Teacher schedules'}}</button><button class="btn" [class.primary]="view()==='rooms'" (click)="view.set('rooms')">{{fr()?'Salles':'Rooms'}}</button><button class="btn" [class.primary]="view()==='substitutions'" (click)="view.set('substitutions')">{{fr()?'Remplacements':'Substitutions'}}</button><button class="btn" [class.primary]="view()==='periods'" (click)="view.set('periods')">{{fr()?'Périodes horaires':'Bell periods'}}</button>}@else if(auth.canAction('TIMETABLE_MASTER_VIEW')){<button class="btn primary" [class.primary]="view()==='master'" (click)="view.set('master')">{{fr()?'Vue maître':'Master view'}}</button>}@else {<button class="btn primary" (click)="openTeacherView()">{{fr()?'Planning des enseignants':'Teacher schedules'}}</button>}</div>
+  @if(notice()){<div class="mb-4 p-3 rounded-lg border text-sm font-medium" [class.bg-rose-50]="noticeType()==='error'" [class.border-rose-200]="noticeType()==='error'" [class.text-rose-800]="noticeType()==='error'" [class.bg-emerald-50]="noticeType()==='ok'" [class.border-emerald-200]="noticeType()==='ok'" [class.text-emerald-800]="noticeType()==='ok'">{{notice()}}</div>}
+   @if(view()!=='classes' && activeVersion();as v){<section class="mb-5 rounded-xl border border-indigo-200 bg-indigo-50 p-3"><div class="flex flex-wrap items-center justify-between gap-3"><div><div class="text-xs font-bold uppercase tracking-wide text-indigo-700">{{fr()?'Version du planning':'Timetable version'}}</div><div class="font-bold text-indigo-950">V{{v.versionNo}} · {{v.status}}</div><div class="text-xs text-indigo-800">{{v.effectiveFrom}} → {{v.effectiveTo || '∞'}} · {{v.slotCount}} {{fr()?'cours':'slots'}}</div></div><div class="flex flex-wrap gap-2 items-center"><select class="field !min-h-9 !w-auto" [ngModel]="selectedVersionId()" (ngModelChange)="selectVersion($event)">@for(x of versions();track x.id){<option [value]="x.id">V{{x.versionNo}} · {{x.status}}</option>}</select>@if(view()==='master' && v.status==='DRAFT' && auth.canAction('TIMETABLE_PUBLISH')){<button class="btn primary" (click)="openVersionPublish()">{{fr()?'Publier toute la version':'Publish entire version'}}</button>}@if(view()==='master' && v.status==='PUBLISHED' && auth.canAction('TIMETABLE_REOPEN')){<button class="btn" (click)="openVersionReopen()">{{fr()?'Rouvrir une nouvelle version':'Reopen as new version'}}</button>}</div></div><p class="mt-2 text-xs text-indigo-900">{{fr()?'Les enseignants proviennent de la configuration académique; les remplacements sont datés et séparés du planning.':'Teachers come from Academic Setup; dated substitutions are separate from the timetable.'}}</p></section>}
 
-      @if (canWrite) {
-        <div class="bg-cyan-50 border border-cyan-200 rounded-xl2 p-3 flex items-center gap-3 mb-5">
-          <div class="w-9 h-9 rounded-full bg-white flex items-center justify-center shrink-0 text-cyan-600">
-            <bbc-icon name="calendar" [s]="18" />
-          </div>
-          <div class="flex-1 text-sm text-cyan-800">
-            {{ fr()
-              ? 'Vous pouvez créer et modifier l’emploi du temps de toutes les classes. Le système refuse de placer un enseignant dans deux salles à la même heure, et signale en rouge les chevauchements existants.'
-              : 'You can create and edit every class timetable. The system refuses to book a teacher into two rooms at the same time, and flags existing clashes in red.' }}
-          </div>
-        </div>
-      }
-
-      <!-- Class picker -->
-      <bbc-card className="mb-5">
-        <div class="flex items-start gap-3 flex-wrap">
-          <div class="text-xs font-semibold text-mute uppercase pt-2.5">{{ fr() ? 'Classe' : 'Class' }} :</div>
-          <div class="flex-1 min-w-[280px]">
-            <select
-              [(ngModel)]="selectedClassModel"
-              (ngModelChange)="onClassChange($event)"
-              class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400 font-semibold">
-              <option value="">{{ fr() ? '— Choisir une classe —' : '— Pick a class —' }}</option>
-              @for (c of classes(); track c.id) {
-                <option [value]="c.name">{{ c.name }}</option>
-              }
-            </select>
-          </div>
-          @if (canWrite && selectedClass()) {
-            <div class="flex items-center gap-2 text-xs text-gold-600 font-semibold pt-2.5">
-              <bbc-icon name="edit" [s]="14" />
-              {{ fr() ? 'Cliquez sur une case pour modifier' : 'Click a cell to edit' }}
-            </div>
-          }
-        </div>
-      </bbc-card>
-
-      <!-- Conflict banner — every teacher booked in two classes at the same hour -->
-      @if (conflicts().length > 0) {
-        <div class="bg-rose-50 border border-rose-200 rounded-xl2 p-4 mb-5 fade-in">
-          <div class="flex items-center gap-2 text-rose-700 font-semibold text-sm mb-2">
-            <bbc-icon name="alertTri" [s]="18" />
-            {{ conflicts().length }}
-            {{ fr()
-              ? (conflicts().length > 1 ? 'chevauchements d’enseignant' : 'chevauchement d’enseignant')
-              : (conflicts().length > 1 ? 'teacher clashes' : 'teacher clash') }}
-            <span class="font-normal text-rose-600">
-              {{ fr() ? '— un même professeur est dans deux salles à la même heure.'
-                      : '— the same teacher is in two rooms at the same time.' }}
-            </span>
-          </div>
-          <div class="space-y-1.5">
-            @for (cf of conflicts(); track $index) {
-              <div class="flex items-start gap-2 text-sm text-rose-700">
-                <bbc-icon name="alertTri" [s]="14" />
-                <span>
-                  <span class="font-semibold">{{ dayName(cf.dayIdx) }} · {{ slotTime(cf.slotIdx) }}</span>
-                  — {{ cf.teacherName || teacherLabel(cf.teacherId) }} :
-                  {{ conflictWhere(cf) }}
-                </span>
-              </div>
-            }
-          </div>
-        </div>
-      }
-
-      @if (selectedClass()) {
-        <bbc-card>
-          <div class="overflow-x-auto">
-            <div class="grid" [style.gridTemplateColumns]="gridCols">
-              <!-- header row -->
-              <div class="bg-slate-50 border-b border-slate-100 p-2 text-[11px] uppercase tracking-wide text-mute font-bold sticky left-0 z-10">
-                {{ fr() ? 'Heure' : 'Time' }}
-              </div>
-              @for (s of slotIdxs; track s) {
-                <div class="bg-slate-50 border-b border-l border-slate-100 p-2 text-center text-[11px] font-bold text-mute">
-                  {{ slotTime(s) }}
-                </div>
-              }
-
-              <!-- day rows -->
-              @for (d of dayIdxs; track d) {
-                <div class="bg-brand-50 border-b border-slate-100 p-2 text-sm font-bold text-brand-700 sticky left-0 z-10 flex items-center">
-                  {{ dayName(d) }}
-                </div>
-                @for (s of slotIdxs; track s) {
-                  <div class="border-b border-l border-slate-100 p-1.5 relative">
-                    @if (slotAt(d, s); as slot) {
-                      <button
-                        [disabled]="!canWrite"
-                        (click)="onCellClick(d, s)"
-                        class="w-full h-full text-left rounded-md border px-2 py-1.5 transition min-h-[58px]"
-                        [class]="subjectColor(slot.subjectCode)"
-                        [class.hover:shadow-md]="canWrite"
-                        [class.hover:scale-[1.02]]="canWrite"
-                        [class.ring-2]="isConflict(d, s)"
-                        [class.ring-rose-500]="isConflict(d, s)">
-                        <div class="text-xs font-bold leading-tight flex items-center justify-between gap-1">
-                          <span>{{ subjectDisplay(slot.subjectCode) }}</span>
-                          @if (isConflict(d, s)) {
-                            <span class="text-rose-600 shrink-0"><bbc-icon name="alertTri" [s]="11" /></span>
-                          }
-                        </div>
-                        @if (slot.teacherId) {
-                          <div class="text-[10px] opacity-80 mt-0.5 truncate">{{ teacherLabel(slot.teacherId) }}</div>
-                        }
-                        @if (slot.room) {
-                          <div class="text-[9px] opacity-60 mt-0.5">{{ slot.room }}</div>
-                        }
-                      </button>
-                    } @else if (canWrite) {
-                      <button
-                        (click)="onCellClick(d, s)"
-                        class="w-full bg-white hover:bg-gold-50 group transition">
-                        <div class="w-full h-full border-2 border-dashed border-slate-200 rounded-md flex items-center justify-center text-mute group-hover:text-gold-600 group-hover:border-gold-300 min-h-[58px]">
-                          <bbc-icon name="plus" [s]="18" />
-                        </div>
-                      </button>
-                    } @else {
-                      <div class="w-full bg-white min-h-[58px]"></div>
-                    }
-                  </div>
-                }
-              }
-            </div>
-          </div>
-        </bbc-card>
-
-        <!-- Slot editor -->
-        @if (canWrite) {
-          @if (draft(); as d) {
-            <bbc-card className="mt-5 fade-in"
-              [title]="d.existing ? (fr() ? 'Modifier le créneau' : 'Edit slot') : (fr() ? 'Nouveau créneau' : 'New slot')">
-              <div class="space-y-4">
-                <div class="bg-brand-50 border border-brand-100 rounded-lg p-3 flex items-center gap-3">
-                  <div class="w-10 h-10 rounded-lg bg-brand-600 text-white flex items-center justify-center shrink-0">
-                    <bbc-icon name="calendar" [s]="18" />
-                  </div>
-                  <div>
-                    <div class="text-sm font-bold text-brand-700">
-                      {{ selectedClass() }} — {{ dayName(d.dayIdx) }} · {{ slotTime(d.slotIdx) }}
-                    </div>
-                    <div class="text-xs text-mute">
-                      {{ fr() ? 'Sélectionnez la matière, l’enseignant et la salle' : 'Select subject, teacher and room' }}
-                    </div>
-                  </div>
-                </div>
-
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <div>
-                    <label class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">
-                      {{ fr() ? 'Matière' : 'Subject' }}
-                    </label>
-                    <select [(ngModel)]="d.subjectCode"
-                      class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400">
-                      <option value="">{{ fr() ? '— Choisir —' : '— Pick —' }}</option>
-                      @if (unknownSubject(d.subjectCode)) {
-                        <option [value]="d.subjectCode">{{ d.subjectCode }}</option>
-                      }
-                      @for (s of subjectsForClass(); track s.id) {
-                        <option [value]="s.code">{{ subjectLabel(s) }} ({{ s.code }})</option>
-                      }
-                    </select>
-                  </div>
-                  <div>
-                    <label class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">
-                      {{ fr() ? 'Enseignant' : 'Teacher' }}
-                    </label>
-                    <select [(ngModel)]="d.teacherId"
-                      class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400">
-                      <option value="">{{ fr() ? '— Aucun —' : '— None —' }}</option>
-                      @if (unknownTeacher(d.teacherId)) {
-                        <option [value]="d.teacherId">{{ teacherLabel(d.teacherId) }}</option>
-                      }
-                      @for (t of teachers(); track t.id) {
-                        <option [value]="t.id">{{ t.name }}{{ t.code ? ' (' + t.code + ')' : '' }}</option>
-                      }
-                    </select>
-                  </div>
-                  <div>
-                    <label class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">
-                      {{ fr() ? 'Salle' : 'Room' }}
-                    </label>
-                    <input [(ngModel)]="d.room" list="tt-rooms" placeholder="S1, Lab…"
-                      class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400" />
-                    <datalist id="tt-rooms">
-                      @for (r of knownRooms(); track r) {
-                        <option [value]="r"></option>
-                      }
-                    </datalist>
-                  </div>
-                </div>
-
-                <!-- Save refused: the teacher already has a class at this hour -->
-                @if (overlapWarn(); as warn) {
-                  <div class="rounded-lg border border-rose-200 bg-rose-50 p-3 space-y-2">
-                    <div class="flex items-start gap-2 text-sm text-rose-700">
-                      <bbc-icon name="alertTri" [s]="16" />
-                      <span>{{ warn.message }}</span>
-                    </div>
-                    @if (warn.canForce) {
-                      <div class="text-xs text-rose-600">
-                        {{ fr()
-                          ? 'Changez d’enseignant ou d’heure. Si les deux classes sont réellement regroupées, forcez l’enregistrement : le chevauchement restera signalé en rouge.'
-                          : 'Change the teacher or the hour. If the two classes are genuinely merged, force the save: the clash stays flagged in red.' }}
-                      </div>
-                      <button (click)="save(true)"
-                        class="inline-flex items-center gap-2 h-9 px-3.5 text-xs font-semibold rounded-lg bg-white border border-rose-300 text-rose-700 hover:bg-rose-100">
-                        <bbc-icon name="alertTri" [s]="14" />
-                        {{ fr() ? 'Forcer l’enregistrement' : 'Force the save' }}
-                      </button>
-                    }
-                  </div>
-                }
-
-                <div class="flex items-center gap-2">
-                  @if (d.existing) {
-                    <button (click)="remove()"
-                      class="inline-flex items-center gap-2 h-10 px-3.5 text-sm font-semibold rounded-lg bg-rose-50 text-rose-600 border border-rose-200 hover:bg-rose-100">
-                      <bbc-icon name="trash" [s]="16" /> {{ fr() ? 'Supprimer' : 'Delete' }}
-                    </button>
-                  }
-                  <div class="flex-1"></div>
-                  <button (click)="cancel()"
-                    class="inline-flex items-center gap-2 h-10 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
-                    {{ i18n.t('cancel') }}
-                  </button>
-                  <button (click)="save(false)"
-                    class="inline-flex items-center gap-2 h-10 px-3.5 text-sm font-semibold rounded-lg bg-brand-600 text-white hover:bg-brand-700">
-                    <bbc-icon name="check" [s]="16" [sw]="2.5" /> {{ i18n.t('save') }}
-                  </button>
-                </div>
-              </div>
-            </bbc-card>
-          }
-        }
-      } @else {
-        <bbc-card>
-          <bbc-empty icon="calendar"
-            [label]="classes().length
-              ? (fr() ? 'Sélectionnez une classe pour afficher l’emploi du temps.' : 'Pick a class to display its timetable.')
-              : (fr() ? 'Aucune classe ne vous est assignée — demandez à la direction de vous rattacher à vos classes.'
-                      : 'No class is assigned to you — ask the administration to link you to your classes.')" />
-        </bbc-card>
-      }
+  @if(view()!=='classes' && activeVersion();as v){<section class="mb-5 rounded-xl border border-slate-200 bg-white p-3"><div class="flex flex-wrap items-center gap-2">@if(auth.canAction('TIMETABLE_EXPORT')){<span class="text-xs font-bold uppercase tracking-wide text-slate-600">{{fr()?'Exports et audit':'Exports and audit'}}</span><button class="btn" (click)="download('csv')">CSV</button><button class="btn" (click)="download('xlsx')">XLSX</button><button class="btn" (click)="download('pdf')">PDF</button><button class="btn" (click)="download('ics')">iCal</button>}</div>@if(drift().length){<div class="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950" role="alert"><strong>{{fr()?'Dérive d’affectation publiée':'Published assignment drift'}}</strong><div class="mt-1">{{fr()?drift().length+' cours publiés ne correspondent plus à la configuration canonique. Créez une nouvelle version après réparation.':drift().length+' published slots no longer match the canonical assignment. Create a new version after repair.'}}</div><a routerLink="/settings" class="inline-block mt-2 font-semibold underline">{{fr()?'Réparer dans Configuration académique':'Repair in Academic Setup'}}</a></div>}</section>}
+  @if(view()==='classes'){
+   <bbc-card [title]="fr()?'1. Choisir et configurer une classe':'1. Select and configure a class'" [subtitle]="fr()?'Le modèle dépend du niveau: titulaire au primaire, enseignants par matière au secondaire.':'The model follows the level: homeroom in Primary, subject teachers in Secondary.'">
+    <div class="grid md:grid-cols-3 gap-4">
+     <label><span class="label">{{fr()?'Classe':'Class'}} <b class="text-rose-600">*</b></span><select class="field" [ngModel]="selectedClassId()" (ngModelChange)="selectClass($event)"><option value="">{{fr()?'Sélectionner une classe':'Select a class'}}</option>@for(c of classes();track c.id){<option [value]="c.id">{{c.name}} · {{modelLabel(c.model)}} · {{statusLabel(c.status)}}</option>}</select></label>
+     @if(selectedClass();as c){<div><span class="label">{{fr()?'Modèle appliqué':'Applied model'}}</span><div class="field flex items-center font-semibold">{{modelLabel(c.model)}}</div></div><div><span class="label">{{fr()?'État':'Status'}}</span><div class="field flex items-center font-semibold" [class.text-emerald-700]="c.status==='PUBLISHED'">{{statusLabel(c.status)}}</div></div>}
     </div>
-  `,
+    @if(selectedClass();as c){
+     <div class="mt-4 rounded-lg border p-3 text-sm" [class.bg-blue-50]="c.model==='HOMEROOM'" [class.border-blue-200]="c.model==='HOMEROOM'" [class.bg-violet-50]="c.model==='DEPARTMENTAL'" [class.border-violet-200]="c.model==='DEPARTMENTAL'">
+      {{c.model==='HOMEROOM'?(fr()?'Règle: un seul titulaire assure toutes les matières de cette classe.':'Rule: one homeroom teacher handles every subject for this class.'):(fr()?'Règle: chaque matière utilise un enseignant qualifié et affecté à cette classe.':'Rule: every subject uses a qualified teacher assigned to this class.')}}
+     </div>
+     @if(c.model==='HOMEROOM'){
+      <div class="grid md:grid-cols-[1fr_auto] gap-3 mt-4 items-end"><label><span class="label">{{fr()?'Enseignant titulaire':'Homeroom teacher'}} <b class="text-rose-600">*</b></span><div class="field flex items-center bg-slate-50 font-semibold">{{c.homeroomTeacherName || (fr()?'Aucun titulaire configuré':'No homeroom teacher configured')}}</div></label><a routerLink="/settings" class="btn primary text-center">{{fr()?'Modifier dans Configuration académique':'Edit in Academic Setup'}}</a></div>
+     }@else{
+       <div class="mt-4 rounded-lg border border-violet-200 bg-violet-50 p-4 text-sm"><div class="font-semibold text-violet-900">{{fr()?'Affectation des enseignants':'Teacher assignment'}}</div><div class="mt-1 text-violet-800">{{fr()?'Les enseignants sont gérés dans Paramètres → Configuration académique → Classes + matières. Le planning reprend automatiquement cette affectation.':'Manage teachers in Settings → Academic setup → Class subjects. The timetable inherits that assignment automatically.'}}</div></div>
+     }
+     <div class="flex flex-wrap gap-2 mt-4 items-center"><span class="text-xs text-slate-600">{{fr()?'Cette action concerne uniquement '+c.name+'; les autres classes brouillon ne la bloquent pas.':'This action applies only to '+c.name+'; other draft classes do not block it.'}}</span><div class="flex-1"></div>@if(c.status==='DRAFT' && auth.canAction('TIMETABLE_PUBLISH')){<button class="btn primary" (click)="openClassPublish()">{{fr()?'Publier cette classe':'Publish this class'}}</button>}@if(c.status==='PUBLISHED' && auth.canAction('TIMETABLE_REOPEN')){<button class="btn" (click)="openClassReopen()">{{fr()?'Rouvrir cette classe':'Reopen this class'}}</button>}<button class="btn" onclick="window.print()">{{fr()?'Imprimer':'Print'}}</button></div>
+    }
+   </bbc-card>
+
+   @if(selectedClass();as c){
+    <div class="mt-5"><bbc-card [title]="fr()?'2. Construire la grille hebdomadaire':'2. Build the weekly grid'" [subtitle]="c.status==='PUBLISHED'?(fr()?'Planning publié: il alimente les appels secondaires et ne peut plus être modifié.':'Published schedule: it feeds Secondary attendance and is locked.'):(fr()?'Cliquez sur une case. Les conflits d’enseignant et de salle sont strictement refusés.':'Click a cell. Teacher and room conflicts are strictly blocked.')">
+     <div class="overflow-x-auto"><div class="min-w-[1100px] grid gap-2" [style.grid-template-columns]="gridColumns()">
+      <div></div>@for(p of periods();track p.id){<div class="text-center text-xs font-bold text-slate-600 p-2">{{p.label}}<div class="font-normal">{{p.startTime}}–{{p.endTime}}</div></div>}
+      @for(day of dayIdxs;track day){<div class="font-bold text-sm p-2">{{dayName(day)}}</div>@for(p of periods();track p.id){@if(slotAt(day,p.slotIdx);as s){<button class="cell filled" [class.editable]="c.status==='DRAFT'" [class.locked]="c.status==='PUBLISHED'" (click)="edit(day,p.slotIdx)"><b>{{subjectName(s.subjectCode)}}</b><div class="text-xs mt-1">{{teacherName(s.teacherId)}}</div><div class="text-xs text-slate-500">{{s.room||'—'}}</div></button>}@else{<button class="cell" [class.editable]="c.status==='DRAFT'" [disabled]="c.status==='PUBLISHED'" (click)="edit(day,p.slotIdx)"><span class="text-slate-400 text-xs">{{fr()?'+ Ajouter':'+ Add'}}</span></button>}}}
+     </div></div>
+    </bbc-card></div>
+   }@else{<div class="mt-5"><bbc-card><bbc-empty icon="calendar" [label]="fr()?'Sélectionnez une classe pour commencer.':'Select a class to begin.'"/></bbc-card></div>}
+  }@else if(view()==='teachers'){
+   <bbc-card [title]="fr()?'Planning personnalisé d’un enseignant':'Personalized teacher schedule'" [subtitle]="fr()?'Une grille hebdomadaire claire avec les heures, les matières, les classes et les salles. Seuls les cours publiés apparaissent.':'A readable weekly grid with times, subjects, classes and rooms. Only published lessons appear.'">
+    <div class="grid md:grid-cols-[1fr_auto] gap-3 items-end">@if(canManageTimetable()){<label><span class="label">{{fr()?'Enseignant':'Teacher'}} <b class="text-rose-600">*</b></span><select class="field" [(ngModel)]="selectedTeacherId" (ngModelChange)="loadTeacherSchedule($event)"><option value="">{{fr()?'Sélectionner un enseignant':'Select a teacher'}}</option>@for(t of allTeachers();track t.id){<option [value]="t.id">{{t.name}} ({{t.code}})</option>}</select></label>}@else{<div><span class="label">{{fr()?'Votre planning':'Your schedule'}}</span><div class="field flex items-center bg-slate-50 font-semibold">{{fr()?'Votre planning publié':'Your published schedule'}}</div></div>}<button class="btn" onclick="window.print()">{{fr()?'Imprimer':'Print'}}</button></div>
+    @if(teacherSchedule();as schedule){
+      <div class="mt-5 flex flex-wrap items-end justify-between gap-3"><div><div class="font-bold text-xl text-slate-900">{{schedule.teacherName}}</div><div class="text-sm text-slate-500">{{schedule.sessionLabel}}</div></div><div class="flex flex-wrap gap-2 text-xs"><div class="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2"><span class="block text-blue-700">{{fr()?'Cours / semaine':'Lessons / week'}}</span><strong class="text-base text-blue-950">{{schedule.slots.length}}</strong></div><div class="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2"><span class="block text-indigo-700">{{fr()?'Jours d’enseignement':'Teaching days'}}</span><strong class="text-base text-indigo-950">{{teachingDays(schedule)}}</strong></div><div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"><span class="block text-slate-600">{{fr()?'Classes':'Classes'}}</span><strong class="text-base text-slate-900">{{teachingClasses(schedule)}}</strong></div></div></div>
+      @if(schedule.periods?.length){<div class="mt-4 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-900">{{fr()?'Chaque case indique la période, la matière, la classe et la salle. Les cases vides sont des créneaux libres.':'Each card shows the period, subject, class and room. Empty cards are free periods.'}}</div><div class="mt-4 overflow-x-auto"><div class="teacher-grid min-w-[1100px] grid gap-2" [style.grid-template-columns]="teacherGridColumns(schedule)"><div class="teacher-grid-header flex items-center justify-center text-xs font-bold">{{fr()?'Jour / heure':'Day / time'}}</div>@for(p of schedule.periods;track p.id){<div class="teacher-grid-header text-center text-xs font-bold">{{p.label}}<div class="mt-1 font-normal">{{p.startTime}}–{{p.endTime}}</div></div>}@for(day of dayIdxs;track day){<div class="teacher-day">{{dayName(day)}}</div>@for(p of schedule.periods;track p.id){@if(teacherSlotAt(day,p.slotIdx);as s){<div class="teacher-slot filled"><div class="time">{{p.startTime}}–{{p.endTime}}</div><div class="subject mt-1">{{subjectNameForSlot(s)}}</div><div class="meta mt-1">{{s.className||'—'}}</div><div class="meta">{{fr()?'Salle':'Room'}}: {{s.room||'—'}}</div></div>}@else{<div class="teacher-slot empty"><div class="time">{{p.startTime}}–{{p.endTime}}</div><div class="mt-2 text-xs text-slate-400">{{fr()?'Libre':'Free'}}</div></div>}}}</div></div>}@else{<div class="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">{{fr()?'Les créneaux horaires ne sont pas configurés pour cette école. Demandez à un administrateur de les définir dans Emploi du temps → Périodes horaires.':'Bell periods are not configured for this school. Ask an administrator to define them in Timetable → Bell periods.'}}</div>}}
+    @else if(selectedTeacherId){<bbc-empty icon="calendar" [label]="fr()?'Aucun cours publié pour cet enseignant.':'No published course for this teacher.'"/>}
+   </bbc-card>
+  }@else if(view()==='master'){
+   <bbc-card [title]="fr()?'Vue maître publiée':'Published master view'" [subtitle]="fr()?'La grille consolidée reprend la version sélectionnée et les remplacements approuvés à la date effective.':'The consolidated grid uses the selected version and approved dated substitutions for its effective date.'">
+    <div class="flex flex-wrap gap-3 items-end"><label><span class="label">{{fr()?'Date effective':'Effective date'}} <b class="text-rose-600">*</b></span><input class="field" type="date" [ngModel]="masterDate()" (ngModelChange)="masterDate.set($event);loadMaster()"></label><button class="btn" (click)="loadMaster()">{{fr()?'Actualiser':'Refresh'}}</button></div>
+    @if(masterSlots().length){<div class="mt-4 overflow-x-auto"><table class="w-full text-sm border-collapse"><thead><tr class="border-b border-slate-200 text-left"><th class="p-2">{{fr()?'Classe':'Class'}}</th><th class="p-2">{{fr()?'Jour':'Day'}}</th><th class="p-2">{{fr()?'Période':'Period'}}</th><th class="p-2">{{fr()?'Matière':'Subject'}}</th><th class="p-2">{{fr()?'Enseignant':'Teacher'}}</th><th class="p-2">{{fr()?'Salle':'Room'}}</th><th class="p-2">{{fr()?'Remplacement':'Substitution'}}</th></tr></thead><tbody>@for(s of masterSlots();track s.id){<tr class="border-b border-slate-100"><td class="p-2 font-semibold">{{s.className}}</td><td class="p-2">{{dayName(s.dayIdx)}}</td><td class="p-2">{{periodLabel(s.slotIdx)}}</td><td class="p-2">{{subjectName(s.subjectCode)}}</td><td class="p-2">{{s.teacherName||'—'}}</td><td class="p-2">{{s.room||'—'}}</td><td class="p-2">{{s.substitutionAction||'—'}}@if(s.substitutionTeacherName){ · {{s.substitutionTeacherName}} }</td></tr>}</tbody></table></div>}@else{<bbc-empty icon="calendar" [label]="fr()?'Aucun cours dans cette version.':'No courses in this version.'"/>}
+   </bbc-card>
+   }@else if(view()==='resources'){
+    <bbc-card [title]="fr()?'Règles enseignants: charge et qualifications':'Teacher rules: workload and qualifications'" [subtitle]="fr()?'Ces règles sont optionnelles. Lorsqu’elles sont configurées, la publication les contrôle avec un blocage explicite et une réparation proposée.':'These rules are optional. When configured, publish checks them with an explicit blocker and repair suggestion.'">
+     <div class="grid md:grid-cols-[1fr_1fr] gap-4">
+      <label><span class="label">{{fr()?'Enseignant':'Teacher'}} <b class="text-rose-600">*</b></span><select class="field" [ngModel]="resourceTeacherId()" (ngModelChange)="selectResourceTeacher($event)"><option value="">{{fr()?'Sélectionner un enseignant':'Select a teacher'}}</option>@for(t of allTeachers();track t.id){<option [value]="t.id">{{t.name}} ({{t.code}})</option>}</select></label>
+      <div class="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">{{fr()?'Le planning ne permet pas de remplacer l’affectation académique. Les règles ci-dessous contrôlent les ressources de la version avant publication.':'The timetable cannot replace the academic assignment. These rules control version resources before publication.'}}</div>
+     </div>
+     @if(resourceTeacherId()){
+      <div class="mt-4 grid md:grid-cols-2 gap-4">
+       <section class="rounded-lg border border-slate-200 p-4"><h3 class="font-bold text-sm">{{fr()?'Charge maximale':'Maximum workload'}}</h3><div class="grid grid-cols-2 gap-2 mt-3"><label><span class="label">{{fr()?'Cours / jour':'Slots / day'}}</span><input type="number" min="1" class="field" [(ngModel)]="workloadDraft.maxSlotsPerDay"></label><label><span class="label">{{fr()?'Cours / semaine':'Slots / week'}}</span><input type="number" min="1" class="field" [(ngModel)]="workloadDraft.maxSlotsPerWeek"></label><label><span class="label">{{fr()?'Début':'Effective from'}} <b class="text-rose-600">*</b></span><input type="date" class="field" [(ngModel)]="workloadDraft.effectiveFrom"></label><label><span class="label">{{fr()?'Fin':'Effective to'}}</span><input type="date" class="field" [(ngModel)]="workloadDraft.effectiveTo"></label></div><label class="block mt-2"><span class="label">{{fr()?'Motif':'Reason'}}</span><input class="field" [(ngModel)]="workloadDraft.reason"></label><button class="btn primary mt-3" (click)="saveResourceWorkload()" [disabled]="!workloadDraft.effectiveFrom || (workloadDraft.maxSlotsPerDay == null && workloadDraft.maxSlotsPerWeek == null)">{{fr()?'Enregistrer la charge':'Save workload policy'}}</button>@if(workloads().length){<div class="mt-3 space-y-1">@for(w of workloads();track w.id){<div class="text-xs border-t border-slate-100 pt-1">{{w.effectiveFrom}} → {{w.effectiveTo || '∞'}} · {{w.maxSlotsPerDay ?? '—'}}/{{fr()?'jour':'day'}} · {{w.maxSlotsPerWeek ?? '—'}}/{{fr()?'sem.':'week'}}</div>}</div>}</section>
+       <section class="rounded-lg border border-slate-200 p-4"><h3 class="font-bold text-sm">{{fr()?'Qualifications de l’enseignant':'Teacher qualifications'}}</h3><div class="grid grid-cols-2 gap-2 mt-3"><label><span class="label">{{fr()?'Code':'Code'}} <b class="text-rose-600">*</b></span><input class="field" [(ngModel)]="qualificationDraft.qualificationCode" placeholder="SCIENCE_LAB"></label><label><span class="label">{{fr()?'Valide à partir de':'Valid from'}} <b class="text-rose-600">*</b></span><input type="date" class="field" [(ngModel)]="qualificationDraft.validFrom"></label><label><span class="label">{{fr()?'Valide jusqu’au':'Valid to'}}</span><input type="date" class="field" [(ngModel)]="qualificationDraft.validTo"></label><label><span class="label">{{fr()?'Référence preuve':'Evidence reference'}}</span><input class="field" [(ngModel)]="qualificationDraft.evidenceReference"></label></div><button class="btn primary mt-3" (click)="saveResourceQualification()" [disabled]="!qualificationDraft.qualificationCode.trim() || !qualificationDraft.validFrom">{{fr()?'Ajouter la qualification':'Add qualification'}}</button>@if(qualifications().length){<div class="mt-3 space-y-1">@for(q of qualifications();track q.id){<div class="text-xs border-t border-slate-100 pt-1">{{q.qualificationCode}} · {{q.validFrom}} → {{q.validTo || '∞'}}@if(q.evidenceReference){ · {{q.evidenceReference}} }</div>}</div>}</section>
+      </div>
+     }
+     <section class="mt-4 rounded-lg border border-violet-200 bg-violet-50 p-4"><h3 class="font-bold text-sm text-violet-950">{{fr()?'Qualification requise par matière':'Subject qualification requirement'}}</h3><div class="grid md:grid-cols-4 gap-2 mt-3"><label><span class="label">{{fr()?'Matière':'Subject'}} <b class="text-rose-600">*</b></span><select class="field" [(ngModel)]="qualificationRequirementDraft.subjectCode"><option value="">{{fr()?'Choisir':'Choose'}}</option>@for(s of subjects();track s.id){<option [value]="s.code">{{subjectLabel(s)}} ({{s.code}})</option>}</select></label><label><span class="label">{{fr()?'Code qualification':'Qualification code'}} <b class="text-rose-600">*</b></span><input class="field" [(ngModel)]="qualificationRequirementDraft.qualificationCode" placeholder="SCIENCE_LAB"></label><label><span class="label">{{fr()?'Début':'Effective from'}} <b class="text-rose-600">*</b></span><input type="date" class="field" [(ngModel)]="qualificationRequirementDraft.effectiveFrom"></label><label><span class="label">{{fr()?'Fin':'Effective to'}}</span><input type="date" class="field" [(ngModel)]="qualificationRequirementDraft.effectiveTo"></label></div><div class="flex flex-wrap gap-2 mt-3"><input class="field max-w-md" [(ngModel)]="qualificationRequirementDraft.reason" [placeholder]="fr()?'Motif de la condition':'Reason for requirement'"><button class="btn primary" (click)="saveQualificationRequirement()" [disabled]="!qualificationRequirementDraft.subjectCode || !qualificationRequirementDraft.qualificationCode.trim() || !qualificationRequirementDraft.effectiveFrom">{{fr()?'Enregistrer la condition':'Save requirement'}}</button></div>@if(qualificationRequirements().length){<div class="mt-3 space-y-1">@for(r of qualificationRequirements();track r.id){<div class="text-xs border-t border-violet-200 pt-1">{{r.subjectCode}} · {{r.qualificationCode}} · {{r.effectiveFrom}} → {{r.effectiveTo || '∞'}}</div>}</div>}</section>
+    </bbc-card>
+   }@else if(view()==='rooms'){
+   <bbc-card [title]="fr()?'Ressources et vue par salle':'Rooms and resource view'" [subtitle]="fr()?'Les salles sont contrôlées pour disponibilité, capacité et double réservation avant publication.':'Rooms are checked for availability, capacity, and double booking before publication.'">
+    @if(roomResources().length){<div class="grid md:grid-cols-2 gap-3">@for(r of roomResources();track r.id){<div class="rounded-lg border border-slate-200 p-4"><div class="flex items-center justify-between"><strong>{{r.code}} · {{r.label}}</strong><span class="text-xs font-bold" [class.text-emerald-700]="r.active" [class.text-rose-700]="!r.active">{{r.active?'Active':'Inactive'}}</span></div><div class="text-sm text-slate-600 mt-2">{{fr()?'Capacité':'Capacity'}}: {{r.capacity??'—'}} · {{r.resourceType}}</div><div class="text-xs text-slate-500 mt-2">{{fr()?'La vue maître et la publication appliquent les disponibilités enregistrées.':'The master view and publish action apply recorded availability.'}}</div></div>}</div>}@else{<bbc-empty icon="calendar" [label]="fr()?'Aucune salle enregistrée.':'No registered rooms.'"/>}
+   </bbc-card>
+  }@else if(view()==='substitutions'){
+   <bbc-card [title]="fr()?'Remplacements datés et audités':'Dated audited substitutions'" [subtitle]="fr()?'Un remplacement conserve l’enseignant d’origine et ne modifie jamais le planning publié.':'A substitution preserves the original teacher and never edits the published timetable.'">
+    <div class="flex flex-wrap gap-3 items-end"><label><span class="label">{{fr()?'Date':'Date'}} <b class="text-rose-600">*</b></span><input class="field" type="date" [ngModel]="substitutionDate()" (ngModelChange)="substitutionDate.set($event);loadSubstitutions()"></label><button class="btn" (click)="loadSubstitutions()">{{fr()?'Actualiser':'Refresh'}}</button></div>
+    @if(substitutionRows().length){<div class="mt-4 overflow-x-auto"><table class="w-full text-sm border-collapse"><thead><tr class="border-b border-slate-200 text-left"><th class="p-2">{{fr()?'Date':'Date'}}</th><th class="p-2">{{fr()?'Classe':'Class'}}</th><th class="p-2">{{fr()?'Matière':'Subject'}}</th><th class="p-2">{{fr()?'Origine':'Original'}}</th><th class="p-2">{{fr()?'Remplaçant':'Replacement'}}</th><th class="p-2">{{fr()?'État':'Status'}}</th></tr></thead><tbody>@for(s of substitutionRows();track s.id){<tr class="border-b border-slate-100"><td class="p-2">{{s.occurrenceDate}}</td><td class="p-2 font-semibold">{{s.className}}</td><td class="p-2">{{s.subjectCode||'—'}} · {{periodLabel(s.slotIdx)}}</td><td class="p-2">{{s.originalTeacherName||'—'}}</td><td class="p-2">{{s.replacementTeacherName||'—'}}</td><td class="p-2">{{s.status}}</td></tr>}</tbody></table></div>}@else{<bbc-empty icon="calendar" [label]="fr()?'Aucun remplacement pour cette date.':'No substitution for this date.'"/>}
+   </bbc-card>
+  }@else{
+   <bbc-card [title]="fr()?'Configuration des périodes horaires':'Bell-period configuration'" [subtitle]="fr()?'Ces heures ne sont pas codées en dur: elles pilotent la grille de toutes les classes. Les chevauchements sont refusés.':'These times are not hardcoded: they drive every class grid. Overlaps are rejected.'">
+    <div class="space-y-3">@for(p of periods();track p.id){<div class="grid md:grid-cols-[90px_1fr_1fr_1fr_auto] gap-3 items-end border border-slate-200 rounded-lg p-3"><div class="font-bold text-slate-700">P{{p.slotIdx+1}}</div><label><span class="label">{{fr()?'Libellé':'Label'}}</span><input class="field" [(ngModel)]="p.label"></label><label><span class="label">{{fr()?'Début':'Start'}}</span><input class="field" type="time" [(ngModel)]="p.startTime"></label><label><span class="label">{{fr()?'Fin':'End'}}</span><input class="field" type="time" [(ngModel)]="p.endTime"></label><button class="btn primary" (click)="savePeriod(p)">{{fr()?'Enregistrer':'Save'}}</button></div>}</div>
+   </bbc-card>
+  }
+ </div>
+
+ @if(draft();as d){<div class="fixed inset-0 z-50 bg-slate-950/45 flex items-center justify-center p-4" (click)="cancelEdit()"><div class="bg-white rounded-xl shadow-2xl max-w-lg w-full p-5" (click)="$event.stopPropagation()"><h3 class="text-lg font-bold">{{dayName(d.dayIdx)}} · {{periodLabel(d.slotIdx)}}</h3><p class="text-sm text-slate-500 mt-1">{{fr()?'Tous les champs marqués sont obligatoires.':'All marked fields are required.'}}</p><div class="grid gap-4 mt-4"><label><span class="label">{{fr()?'Matière':'Subject'}} <b class="text-rose-600">*</b></span><select class="field" [class.invalid]="attempted()&&!d.subjectCode" [ngModel]="d.subjectCode" (ngModelChange)="setDraftSubject($event)"><option value="">{{fr()?'Sélectionner une matière':'Select a subject'}}</option>@for(s of subjectsForClass();track s.id){<option [value]="s.code">{{subjectLabel(s)}} ({{s.code}})</option>}</select>@if(attempted()&&!d.subjectCode){<div class="text-xs text-rose-600 mt-1">{{fr()?'La matière est obligatoire.':'Subject is required.'}}</div>}</label><label><span class="label">{{fr()?'Enseignant':'Teacher'}} <b class="text-rose-600">*</b></span><select class="field bg-slate-50" [class.invalid]="attempted()&&!d.teacherId" [ngModel]="d.teacherId" disabled><option value="">{{fr()?'Aucun enseignant responsable':'No responsible teacher assigned'}}</option>@if(d.teacherId){<option [value]="d.teacherId">{{assignedTeacherName(d.subjectCode,d.teacherId)}}</option>}</select><div class="text-xs text-slate-500 mt-1">@if(subjectTeacher(d.subjectCode);as mapping){@if(mapping.teacherId){ {{fr()?'Automatique depuis la configuration classe + matière.':'Automatically inherited from the class + subject assignment.'}} } @else { {{mapping.message}} }} @else { {{fr()?'Chargement de l’affectation...':'Loading the class-subject assignment...'}} }</div>@if(attempted()&&!d.teacherId){<div class="text-xs text-rose-600 mt-1">{{fr()?'L’enseignant est obligatoire.':'Teacher is required.'}}</div>}</label><label><span class="label">{{fr()?'Salle':'Room'}}</span><input class="field" [(ngModel)]="d.room" list="rooms" placeholder="S1, Lab…"><datalist id="rooms">@for(r of rooms();track r){<option [value]="r"></option>}</datalist></label></div><div class="flex gap-2 mt-5">@if(d.existing){<button class="btn danger" (click)="remove()">{{fr()?'Supprimer':'Delete'}}</button>}<div class="flex-1"></div><button class="btn" (click)="cancelEdit()">{{fr()?'Annuler':'Cancel'}}</button><button class="btn primary" (click)="saveSlot()">{{fr()?'Enregistrer':'Save'}}</button></div></div></div>}
+ @if(classModal() && selectedClass();as c){<div class="fixed inset-0 z-50 bg-slate-950/45 flex items-center justify-center p-4" (click)="closeClassModal()"><div class="bg-white rounded-xl shadow-2xl max-w-md w-full p-5" (click)="$event.stopPropagation()"><h3 class="text-lg font-bold">{{classAction()==='publish'?(fr()?'Publier '+c.name+' ?':'Publish '+c.name+'?'):(fr()?'Rouvrir '+c.name+' ?':'Reopen '+c.name+'?')}}</h3><p class="text-sm text-slate-700 mt-2">{{classAction()==='publish'?(fr()?'Seule cette classe sera validée et publiée. Les autres classes brouillon resteront modifiables.':'Only this class will be validated and published. Other draft classes remain editable.'):(fr()?'Une copie modifiable de cette classe sera ouverte; la version publiée reste dans l’historique.':'An editable copy of this class will be opened; the published version remains in history.')}}</p><label class="block mt-4"><span class="label">{{fr()?'Motif':'Reason'}} <b class="text-rose-600">*</b></span><textarea class="field min-h-24" [class.invalid]="classAttempted()&&!classReason.trim()" [(ngModel)]="classReason"></textarea>@if(classAttempted()&&!classReason.trim()){<div class="text-xs text-rose-600 mt-1">{{fr()?'Le motif est obligatoire.':'Reason is required.'}}</div>}</label><div class="flex justify-end gap-2 mt-5"><button class="btn" (click)="closeClassModal()">{{fr()?'Annuler':'Cancel'}}</button><button class="btn primary" (click)="confirmClassAction()">{{classAction()==='publish'?(fr()?'Publier cette classe':'Publish this class'):(fr()?'Rouvrir cette classe':'Reopen this class')}}</button></div></div></div>}
+ @if(versionModal()){<div class="fixed inset-0 z-50 bg-slate-950/45 flex items-center justify-center p-4" (click)="closeVersionModal()"><div class="bg-white rounded-xl shadow-2xl max-w-md w-full p-5" (click)="$event.stopPropagation()"><h3 class="text-lg font-bold">{{versionAction()==='publish'?(fr()?'Publier toute la version du planning ?':'Publish the entire timetable version?'):(fr()?'Rouvrir une nouvelle version ?':'Reopen as a new version?')}}</h3><p class="text-sm text-slate-700 mt-2">{{fr()?'Cette action globale contrôle toutes les classes présentes dans la version.':'This global action validates every class contained in the version.'}}</p><label class="block mt-4"><span class="label">{{fr()?'Motif':'Reason'}} <b class="text-rose-600">*</b></span><textarea class="field min-h-24" [class.invalid]="versionAttempted()&&!versionReason.trim()" [(ngModel)]="versionReason"></textarea>@if(versionAttempted()&&!versionReason.trim()){<div class="text-xs text-rose-600 mt-1">{{fr()?'Le motif est obligatoire.':'Reason is required.'}}</div>}</label><div class="flex justify-end gap-2 mt-5"><button class="btn" (click)="closeVersionModal()">{{fr()?'Annuler':'Cancel'}}</button><button class="btn primary" (click)="confirmVersionAction()">{{versionAction()==='publish'?(fr()?'Publier toute la version':'Publish entire version'):(fr()?'Créer le brouillon':'Create draft')}}</button></div></div></div>}
+ `
 })
 export class TimetableComponent {
-  protected i18n = inject(I18nService);
-  private api = inject(TimetableApi);
-  private setupApi = inject(SetupApi);
-  private auth = inject(AuthService);
-
-  protected readonly dayIdxs = DAYS_FR.map((_, i) => i);
-  protected readonly slotIdxs = SLOTS;
-  protected readonly gridCols = `80px repeat(${SLOTS.length}, minmax(120px, 1fr))`;
-
-  protected classes = signal<ClassRef[]>([]);
-  protected subjects = signal<SubjectView[]>([]);
-  protected teachers = signal<TeacherOption[]>([]);
-  protected knownRooms = signal<string[]>([]);
-  protected slots = signal<SlotView[]>([]);
-  protected selectedClass = signal<string>('');
-  protected draft = signal<SlotDraft | null>(null);
-  protected conflicts = signal<TeacherConflict[]>([]);
-  /**
-   * Refus renvoyé par le serveur à l'enregistrement. `canForce` n'est vrai que pour
-   * un chevauchement d'enseignant (409) — le seul cas qu'on peut passer outre.
-   */
-  protected overlapWarn = signal<{ message: string; canForce: boolean } | null>(null);
-
-  protected canWrite = this.auth.can('timetable', 'write');
-
-  // Plain mirror for [(ngModel)] on the <select>.
-  protected selectedClassModel = '';
-
-  protected fr = () => this.i18n.lang() === 'fr';
-
-  protected subjectsForClass = computed(() => {
-    const name = this.selectedClass();
-    const cls = this.classes().find((c) => c.name === name);
-    const all = this.subjects();
-    if (!cls?.subsystem) return all;
-    return all.filter((s) => !s.subsystem || s.subsystem === cls.subsystem);
-  });
-
-  protected headerSub = computed(() => {
-    const cls = this.selectedClass();
-    if (!cls) {
-      return this.fr() ? 'Grille hebdomadaire' : 'Weekly grid';
-    }
-    if (this.canWrite) {
-      return this.fr() ? `Création & édition — Classe ${cls}` : `Create & edit — Class ${cls}`;
-    }
-    return this.fr() ? `Grille hebdomadaire — Classe ${cls}` : `Weekly grid — Class ${cls}`;
-  });
-
-  constructor() {
-    this.api.classes().subscribe((c) => this.classes.set(c));
-    this.api.rooms().subscribe((r) => this.knownRooms.set(r));
-    this.setupApi.listSubjects().subscribe((s) => this.subjects.set(s));
-    this.setupApi.assignableTeachers().subscribe((t) => this.teachers.set(t));
-    // La liste est ensuite rechargée par classe : voir loadTeachersForClass().
-    this.loadConflicts();
-  }
-
-  /**
-   * Les chevauchements sont recalculés côté serveur sur toute la grille : ils
-   * restent visibles à l'ouverture du module, même s'ils datent d'une autre session.
-   */
-  private loadConflicts(): void {
-    this.api.conflicts().subscribe({ next: (c) => this.conflicts.set(c), error: () => this.conflicts.set([]) });
-  }
-
-  /** « 4ème (SVT, salle S2) ↔ 3ème (PC, salle Lab) » — les cours qui se chevauchent. */
-  protected conflictWhere(cf: TeacherConflict): string {
-    return cf.slots
-      .map((s) => {
-        const detail = [s.subjectCode, s.room ? (this.fr() ? 'salle ' : 'room ') + s.room : '']
-          .filter(Boolean).join(', ');
-        const name = s.className ?? (this.fr() ? 'classe supprimée' : 'deleted class');
-        return detail ? `${name} (${detail})` : name;
-      })
-      .join(' ↔ ');
-  }
-
-  protected dayName(idx: number): string {
-    return (this.fr() ? DAYS_FR : DAYS_EN)[idx] ?? '';
-  }
-
-  protected slotTime(idx: number): string {
-    return SLOT_TIMES[idx] ?? `${idx + 1}`;
-  }
-
-  protected subjectLabel(s: SubjectView): string {
-    const l = s.label || {};
-    return (this.fr() ? l['fr'] : l['en']) || l['fr'] || l['en'] || s.code;
-  }
-
-  protected subjectDisplay(code: string | null): string {
-    if (!code) return '—';
-    const s = this.subjects().find((x) => x.code === code);
-    return s ? this.subjectLabel(s) : code;
-  }
-
-  protected teacherLabel(id: string | null): string {
-    if (!id) return '—';
-    const t = this.teachers().find((x) => x.id === id);
-    return t ? t.name : id;
-  }
-
-  /** Keep a legacy value visible in the <select> when it is not in the current option list. */
-  protected unknownSubject(code: string): boolean {
-    return !!code && !this.subjectsForClass().some((s) => s.code === code);
-  }
-
-  protected unknownTeacher(id: string): boolean {
-    return !!id && !this.teachers().some((t) => t.id === id);
-  }
-
-  protected subjectColor(code: string | null): string {
-    if (!code) return 'bg-slate-100 text-mute border-slate-200';
-    const upper = code.toUpperCase();
-    if (KNOWN_COLORS[upper]) return KNOWN_COLORS[upper];
-    let h = 0;
-    for (let i = 0; i < upper.length; i++) h = (h * 31 + upper.charCodeAt(i)) >>> 0;
-    return SUBJECT_COLORS[h % SUBJECT_COLORS.length];
-  }
-
-  /** Vrai quand la case affichée fait partie d'un chevauchement (la classe y est impliquée). */
-  protected isConflict(dayIdx: number, slotIdx: number): boolean {
-    const name = this.selectedClass();
-    return this.conflicts().some(
-      (c) => c.dayIdx === dayIdx && c.slotIdx === slotIdx && c.slots.some((s) => s.className === name),
-    );
-  }
-
-  protected onClassChange(name: string): void {
-    this.selectedClass.set(name);
-    this.draft.set(null);
-    this.overlapWarn.set(null);
-    this.slots.set([]);
-    this.loadTeachersForClass(name);
-    if (name) this.reload();
-  }
-
-  /**
-   * Le sélecteur d'enseignant ne propose que ceux de la section de la classe :
-   * on ne peut pas placer un professeur du primaire devant une classe du secondaire.
-   */
-  private loadTeachersForClass(name: string): void {
-    const level = this.classes().find((c) => c.name === name)?.level ?? null;
-    this.setupApi.assignableTeachers(level).subscribe((t) => this.teachers.set(t));
-  }
-
-  private reload(): void {
-    const name = this.selectedClass();
-    if (!name) return;
-    this.api.grid(name).subscribe((s) => {
-      this.slots.set(s);
-      const next = new Set(this.knownRooms());
-      for (const slot of s) {
-        if (slot.room) next.add(slot.room);
-      }
-      this.knownRooms.set([...next].sort((a, b) => a.localeCompare(b)));
-    });
-  }
-
-  protected slotAt(dayIdx: number, slotIdx: number): SlotView | undefined {
-    return this.slots().find((s) => s.dayIdx === dayIdx && s.slotIdx === slotIdx);
-  }
-
-  protected onCellClick(dayIdx: number, slotIdx: number): void {
-    if (!this.canWrite) return;
-    this.overlapWarn.set(null);
-    const existing = this.slotAt(dayIdx, slotIdx);
-    this.draft.set({
-      dayIdx,
-      slotIdx,
-      subjectCode: existing?.subjectCode ?? '',
-      room: existing?.room ?? '',
-      teacherId: existing?.teacherId ?? '',
-      existing: !!existing,
-    });
-  }
-
-  /**
-   * Enregistre le créneau. Le serveur refuse (409) de placer un enseignant déjà
-   * occupé ailleurs à cette heure ; `allowOverlap` force le cas légitime des
-   * classes regroupées, et le chevauchement reste signalé dans la grille.
-   */
-  protected save(allowOverlap: boolean): void {
-    const d = this.draft();
-    const name = this.selectedClass();
-    if (!d || !name) return;
-    this.overlapWarn.set(null);
-    this.api
-      .saveSlot({
-        className: name,
-        dayIdx: d.dayIdx,
-        slotIdx: d.slotIdx,
-        subjectCode: d.subjectCode || undefined,
-        room: d.room || undefined,
-        teacherId: d.teacherId || undefined,
-        allowOverlap,
-      })
-      .subscribe({
-        next: () => {
-          this.draft.set(null);
-          this.reload();
-          this.loadConflicts();
-        },
-        error: (e: HttpErrorResponse) => {
-          // Le brouillon reste ouvert : l'utilisateur corrige l'enseignant, l'heure — ou force.
-          const clash = e.status === 409;
-          const fallback = clash
-            ? (this.fr() ? 'Cet enseignant est déjà en cours sur ce créneau.'
-                         : 'This teacher already has a class at this hour.')
-            : (this.fr() ? 'Enregistrement impossible.' : 'Save failed.');
-          this.overlapWarn.set({ message: this.serverMessage(e) ?? fallback, canForce: clash });
-        },
-      });
-  }
-
-  private serverMessage(e: HttpErrorResponse): string | null {
-    const msg = e.error?.message;
-    return typeof msg === 'string' && msg ? msg : null;
-  }
-
-  protected remove(): void {
-    const d = this.draft();
-    const name = this.selectedClass();
-    if (!d || !name) return;
-    this.api.deleteSlot(name, d.dayIdx, d.slotIdx).subscribe(() => {
-      this.draft.set(null);
-      this.overlapWarn.set(null);
-      this.reload();
-      this.loadConflicts();
-    });
-  }
-
-  protected cancel(): void {
-    this.draft.set(null);
-    this.overlapWarn.set(null);
-  }
+ protected i18n=inject(I18nService); private api=inject(TimetableApi); private setup=inject(SetupApi); private context=inject(AcademicContextService); protected auth=inject(AuthService);
+ protected fr=()=>this.i18n.lang()==='fr'; protected view=signal<View>('classes'); protected classes=signal<ClassRef[]>([]); protected periods=signal<PeriodView[]>([]); protected slots=signal<SlotView[]>([]); protected subjects=signal<SubjectView[]>([]); protected teachers=signal<TeacherOption[]>([]); protected allTeachers=signal<TeacherOption[]>([]); protected rooms=signal<string[]>([]);
+ protected selectedClassId=signal(''); protected homeroomTeacherId=''; protected subjectTeachers=signal<SubjectTeacherView[]|null>(null); protected selectedTeacherId=''; protected teacherSchedule=signal<TeacherSchedule|null>(null); protected draft=signal<Draft|null>(null); protected attempted=signal(false); protected notice=signal(''); protected noticeType=signal<'ok'|'error'>('ok'); protected versions=signal<TimetableVersionView[]>([]); protected selectedVersionId=signal(''); protected drift=signal<TimetableDriftView[]>([]); protected masterSlots=signal<TimetableProjectionSlotView[]>([]); protected roomResources=signal<RoomView[]>([]); protected substitutionRows=signal<SubstitutionView[]>([]); protected masterDate=signal(''); protected substitutionDate=signal(''); protected classModal=signal(false); protected classAction=signal<'publish'|'reopen'>('publish'); protected classReason=''; protected classAttempted=signal(false); protected versionModal=signal(false); protected versionAction=signal<'publish'|'reopen'>('publish'); protected versionReason=''; protected versionAttempted=signal(false); protected dayIdxs=[0,1,2,3,4,5]; protected resourceTeacherId=signal(''); protected workloads=signal<TeacherWorkloadView[]>([]); protected qualifications=signal<TeacherQualificationView[]>([]); protected qualificationRequirements=signal<SubjectQualificationRequirementView[]>([]); protected workloadDraft={maxSlotsPerDay:null as number|null,maxSlotsPerWeek:null as number|null,effectiveFrom:'',effectiveTo:'',reason:''}; protected qualificationDraft={qualificationCode:'',validFrom:'',validTo:'',evidenceReference:''}; protected qualificationRequirementDraft={subjectCode:'',qualificationCode:'',effectiveFrom:'',effectiveTo:'',reason:''};
+ protected activeVersion=computed(()=>this.versions().find(v=>v.id===this.selectedVersionId()) ?? this.versions().find(v=>v.status==='PUBLISHED') ?? this.versions()[0] ?? null);
+ protected selectedClass=computed(()=>this.classes().find(c=>c.id===this.selectedClassId())||null);
+ protected subjectsForClass=computed(()=>{const c=this.selectedClass(),mappings=this.subjectTeachers();const candidates=this.subjects().filter(s=>!c?.subsystem||!s.subsystem||s.subsystem===c.subsystem);if(mappings===null)return candidates;const codes=new Set(mappings.map(m=>m.subjectCode));return candidates.filter(s=>codes.has(s.code));});
+  protected canManageTimetable(): boolean { return this.auth.canAction('TIMETABLE_DRAFT') || this.auth.canAction('TIMETABLE_PUBLISH') || this.auth.canAction('TIMETABLE_ARCHIVE'); }
+  constructor(){this.context.load();const initialize=()=>{const canWrite=this.canManageTimetable(),canMasterRead=this.auth.canAction('TIMETABLE_MASTER_VIEW');this.view.set(timetableInitialView(canWrite,canMasterRead));if(canWrite||canMasterRead)this.loadAdminData(canWrite);else this.openTeacherView();};if(this.auth.capabilities())initialize();else this.auth.loadCapabilities().subscribe({next:initialize,error:()=>{this.view.set('teachers');this.openTeacherView();}});}
+  private loadAdminData(canWrite=this.canManageTimetable()){if(canWrite){this.loadClasses();this.api.rooms().subscribe(v=>this.rooms.set(v));this.api.roomsV2().subscribe(v=>this.roomResources.set(v));this.setup.listSubjects().subscribe(v=>this.subjects.set(v));this.setup.assignableTeachers().subscribe(v=>this.allTeachers.set(v));}if(this.auth.canAction('TIMETABLE_MASTER_VIEW'))this.api.periods().subscribe(v=>this.periods.set(v));this.context.sessionId();if(this.auth.canAction('TIMETABLE_MASTER_VIEW'))setTimeout(()=>this.loadVersions(),0);if(canWrite&&this.auth.canAction('TIMETABLE_RESOURCE_VIEW'))setTimeout(()=>this.loadResourceSetup(),0);}
+  private loadVersions(){const id=this.context.sessionId();if(!id){setTimeout(()=>this.loadVersions(),250);return;}this.api.versions(id).subscribe({next:v=>{this.versions.set(v);const selected=v.find(x=>x.status==='PUBLISHED')?.id??v[0]?.id??'';this.selectedVersionId.set(selected);const version=v.find(x=>x.id===selected);this.masterDate.set(version?.effectiveFrom||'');this.substitutionDate.set(version?.effectiveFrom||'');this.loadDrift(selected);this.loadMaster(selected);if(this.canUseTimetableContextAction('TIMETABLE_SUBSTITUTION_VIEW'))this.loadSubstitutions(this.substitutionDate());},error:e=>this.fail(e)});}
+ private loadDrift(id:string){if(!id){this.drift.set([]);return;}this.api.drift(id).subscribe({next:v=>this.drift.set(v),error:e=>this.fail(e)});}
+ protected loadMaster(id=this.selectedVersionId()){if(!id)return;this.api.master(id,this.masterDate()||undefined).subscribe({next:v=>this.masterSlots.set(v),error:e=>this.fail(e)});}
+  protected loadSubstitutions(date=this.substitutionDate()){if(!this.canUseTimetableContextAction('TIMETABLE_SUBSTITUTION_VIEW')){this.substitutionRows.set([]);return;}const id=this.context.sessionId();if(!id)return;this.api.substitutions(id,date||undefined).subscribe({next:v=>this.substitutionRows.set(v),error:e=>this.fail(e)});}
+  protected selectVersion(id:string){this.selectedVersionId.set(id);const version=this.versions().find(v=>v.id===id);this.masterDate.set(version?.effectiveFrom||'');this.substitutionDate.set(version?.effectiveFrom||'');this.loadDrift(id);this.loadMaster(id);if(this.canUseTimetableContextAction('TIMETABLE_SUBSTITUTION_VIEW'))this.loadSubstitutions(this.substitutionDate());}
+ protected download(format:'csv'|'xlsx'|'pdf'|'ics'){const id=this.selectedVersionId(),v=this.activeVersion();if(!id||!v)return;this.api.exportVersion(id,format).subscribe({next:blob=>{const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`timetable-v${v.versionNo}.${format==='ics'?'ics':format}`;a.click();URL.revokeObjectURL(url);},error:e=>this.fail(e)});}
+ protected openVersionPublish(){this.versionAction.set('publish');this.versionReason='';this.versionAttempted.set(false);this.versionModal.set(true);}
+ protected openVersionReopen(){this.versionAction.set('reopen');this.versionReason='';this.versionAttempted.set(false);this.versionModal.set(true);}
+ protected closeVersionModal(){this.versionModal.set(false);this.versionReason='';this.versionAttempted.set(false);}
+ protected confirmVersionAction(){const v=this.activeVersion(),reason=this.versionReason.trim();this.versionAttempted.set(true);if(!v||!reason)return;const action=this.versionAction();const request=action==='publish'?this.api.publishVersion(v.id,reason,v.version):this.api.reopenVersion(v.id,reason,v.version);request.subscribe({next:created=>{this.closeVersionModal();this.loadVersions();this.selectedVersionId.set(created.id);this.loadClasses(this.selectedClassId());this.ok(this.fr()?'Version du planning mise à jour.':'Timetable version updated.');},error:e=>this.fail(e)});}
+ protected openClassPublish(){this.classAction.set('publish');this.classReason='';this.classAttempted.set(false);this.classModal.set(true);}
+ protected openClassReopen(){this.classAction.set('reopen');this.classReason='';this.classAttempted.set(false);this.classModal.set(true);}
+ protected closeClassModal(){this.classModal.set(false);this.classReason='';this.classAttempted.set(false);}
+ protected confirmClassAction(){const c=this.selectedClass(),reason=this.classReason.trim(),action=this.classAction();this.classAttempted.set(true);if(!c||!reason)return;const request=action==='publish'?this.api.publishClass(c.id,c.version,reason):this.api.reopenClass(c.id,c.version,reason);request.subscribe({next:updated=>{this.replaceClass(updated);this.closeClassModal();if(this.auth.canAction('TIMETABLE_MASTER_VIEW'))this.loadVersions();this.selectClass(updated.id);this.ok(action==='publish'?(this.fr()?updated.name+' publié. Les autres classes brouillon restent indépendantes.':updated.name+' published. Other draft classes remain independent.'):(this.fr()?updated.name+' rouvert dans un nouveau brouillon.':updated.name+' reopened in a new draft.'));},error:e=>this.fail(e)});}
+ private loadClasses(selectId?:string){this.api.classes().subscribe(v=>{this.classes.set(v);if(selectId){this.selectedClassId.set(selectId);const c=this.selectedClass();this.homeroomTeacherId=c?.homeroomTeacherId||'';}});}
+ protected selectClass(id:string){this.selectedClassId.set(id);this.slots.set([]);this.subjectTeachers.set(null);this.draft.set(null);const c=this.selectedClass();this.homeroomTeacherId=c?.homeroomTeacherId||'';if(c){this.setup.assignableTeachers(c.level).subscribe(v=>this.teachers.set(v));this.loadSubjectTeachers(c.id);this.api.grid(c.name).subscribe({next:v=>this.slots.set(v),error:e=>this.fail(e)});}}
+ protected subjectTeacher(code:string|null):SubjectTeacherView|null{return code?this.subjectTeachers()?.find(m=>m.subjectCode===code)||null:null;}
+ protected assignedTeacherName(code:string,teacherId:string):string{const mapping=this.subjectTeacher(code);return mapping?.teacherName||this.teacherName(teacherId);}
+ private loadSubjectTeachers(classId:string){this.api.subjectTeachers(classId).subscribe({next:v=>this.subjectTeachers.set(v),error:e=>{this.subjectTeachers.set([]);this.fail(e);}});}
+ protected selectResourceTeacher(id:string){this.resourceTeacherId.set(id);if(!id){this.workloads.set([]);this.qualifications.set([]);return;}this.api.teacherWorkload(id).subscribe({next:v=>{this.workloads.set(v);const latest=v[v.length-1];if(latest){this.workloadDraft={maxSlotsPerDay:latest.maxSlotsPerDay,maxSlotsPerWeek:latest.maxSlotsPerWeek,effectiveFrom:latest.effectiveFrom,effectiveTo:latest.effectiveTo||'',reason:latest.reason||''};}},error:e=>this.fail(e)});this.api.teacherQualifications(id).subscribe({next:v=>this.qualifications.set(v),error:e=>this.fail(e)});}
+ protected saveResourceWorkload(){const id=this.resourceTeacherId();if(!id)return;this.api.saveTeacherWorkload(id,{...this.workloadDraft,effectiveTo:this.workloadDraft.effectiveTo||null,reason:this.workloadDraft.reason||null}).subscribe({next:()=>{this.selectResourceTeacher(id);this.ok(this.fr()?'Règle de charge enregistrée.':'Workload policy saved.');},error:e=>this.fail(e)});}
+ protected saveResourceQualification(){const id=this.resourceTeacherId();if(!id)return;this.api.saveTeacherQualification(id,{qualificationCode:this.qualificationDraft.qualificationCode,validFrom:this.qualificationDraft.validFrom,validTo:this.qualificationDraft.validTo||null,evidenceReference:this.qualificationDraft.evidenceReference||null}).subscribe({next:()=>{this.qualificationDraft={qualificationCode:'',validFrom:'',validTo:'',evidenceReference:''};this.selectResourceTeacher(id);this.ok(this.fr()?'Qualification enregistrée.':'Qualification saved.');},error:e=>this.fail(e)});}
+ protected saveQualificationRequirement(){const sessionId=this.context.sessionId();if(!sessionId)return;this.api.saveSubjectQualificationRequirement({academicSessionId:sessionId,subjectCode:this.qualificationRequirementDraft.subjectCode,qualificationCode:this.qualificationRequirementDraft.qualificationCode,effectiveFrom:this.qualificationRequirementDraft.effectiveFrom,effectiveTo:this.qualificationRequirementDraft.effectiveTo||null,reason:this.qualificationRequirementDraft.reason||null}).subscribe({next:()=>{this.loadQualificationRequirements(sessionId);this.ok(this.fr()?'Condition de qualification enregistrée.':'Qualification requirement saved.');},error:e=>this.fail(e)});}
+ private loadQualificationRequirements(sessionId:string){this.api.subjectQualificationRequirements(sessionId).subscribe({next:v=>this.qualificationRequirements.set(v),error:e=>this.fail(e)});}
+ protected setDraftSubject(code:string){const mapping=this.subjectTeacher(code);this.draft.update(current=>current?{...current,subjectCode:code,teacherId:mapping?.teacherId||''}:current);}
+ protected edit(dayIdx:number,slotIdx:number){const c=this.selectedClass();if(!c||c.status==='PUBLISHED')return;const s=this.slotAt(dayIdx,slotIdx),mapped=s?.subjectCode?this.subjectTeacher(s.subjectCode):null;this.attempted.set(false);this.draft.set({dayIdx,slotIdx,subjectCode:s?.subjectCode||'',teacherId:mapped?.teacherId||s?.teacherId||(c.model==='HOMEROOM'?c.homeroomTeacherId||'':''),room:s?.room||'',existing:!!s});}
+ protected saveSlot(){const d=this.draft(),c=this.selectedClass();if(!d||!c||c.status==='PUBLISHED')return;this.attempted.set(true);if(!d.subjectCode){this.error(this.fr()?'La matière est obligatoire.':'Subject is required.');return;}if(!d.teacherId){const mapping=this.subjectTeacher(d.subjectCode);this.error(mapping?.message||(this.fr()?'Aucun enseignant responsable n’est affecté.':'No responsible teacher is assigned.'));return;}this.api.saveSlot({className:c.name,dayIdx:d.dayIdx,slotIdx:d.slotIdx,subjectCode:d.subjectCode,teacherId:d.teacherId,room:d.room||undefined}).subscribe({next:()=>{this.draft.set(null);this.selectClass(c.id);this.loadClasses(c.id);this.ok(this.fr()?'Cours enregistré.':'Course saved.');},error:e=>this.fail(e)});}
+ protected remove(){const d=this.draft(),c=this.selectedClass();if(!d||!c||c.status==='PUBLISHED')return;this.api.deleteSlot(c.name,d.dayIdx,d.slotIdx).subscribe({next:()=>{this.draft.set(null);this.selectClass(c.id);this.loadClasses(c.id);this.ok(this.fr()?'Cours supprimé.':'Course deleted.');},error:e=>this.fail(e)});}
+ protected cancelEdit(){this.draft.set(null);}
+  protected openTeacherView(){this.view.set('teachers');if(!this.canManageTimetable()){this.selectedTeacherId='self';this.teacherSchedule.set(null);this.api.mySchedule().subscribe({next:v=>{this.periods.set(v.periods||[]);this.teacherSchedule.set(v);},error:e=>this.fail(e)});}}
+  protected canUseTimetableContextAction(actionCode:string): boolean { const state=this.auth.actionState(actionCode); return state==='ALLOW' || state==='CONTEXT_REQUIRED'; }
+ protected loadTeacherSchedule(id:string){this.teacherSchedule.set(null);if(id)this.api.teacherSchedule(id).subscribe({next:v=>{this.periods.set(v.periods||[]);this.teacherSchedule.set(v);},error:e=>this.fail(e)});}
+ protected savePeriod(p:PeriodView){this.api.updatePeriod(p).subscribe({next:v=>{this.periods.update(all=>all.map(x=>x.slotIdx===v.slotIdx?v:x));this.ok(this.fr()?'Période enregistrée.':'Period saved.');},error:e=>this.fail(e)});}
+ protected slotAt(d:number,p:number){return this.slots().find(s=>s.dayIdx===d&&s.slotIdx===p);} protected teacherSlotAt(d:number,p:number){return this.teacherSchedule()?.slots.find(s=>s.dayIdx===d&&s.slotIdx===p);} protected gridColumns(){return `90px repeat(${Math.max(1,this.periods().length)},minmax(120px,1fr))`;}
+ protected teacherGridColumns(schedule:TeacherSchedule){return `110px repeat(${Math.max(1,schedule.periods?.length||0)},minmax(150px,1fr))`;}
+ protected teachingDays(schedule:TeacherSchedule){return new Set(schedule.slots.map(s=>s.dayIdx)).size;}
+ protected teachingClasses(schedule:TeacherSchedule){return new Set(schedule.slots.map(s=>s.className).filter(Boolean)).size;}
+ protected subjectNameForSlot(slot:SlotView){return slot.subjectName||this.subjectName(slot.subjectCode);}
+ protected dayName(i:number){return (this.fr()?DAYS_FR:DAYS_EN)[i]||'';} protected periodLabel(i:number){const p=this.periods().find(x=>x.slotIdx===i);return p?`${p.label} · ${p.startTime}–${p.endTime}`:`P${i+1}`;} protected modelLabel(m:string){return m==='HOMEROOM'?(this.fr()?'Titulaire (appel quotidien)':'Homeroom (daily roll)'):(this.fr()?'Départemental (appel par période)':'Departmental (period roll)');} protected statusLabel(s:string){return s==='PUBLISHED'?(this.fr()?'Publié':'Published'):(this.fr()?'Brouillon':'Draft');}
+ protected subjectLabel(s:SubjectView){return (this.fr()?s.label?.['fr']:s.label?.['en'])||s.label?.['fr']||s.code;} protected subjectName(code:string|null){const s=this.subjects().find(x=>x.code===code);return s?this.subjectLabel(s):(code||'—');} protected teacherName(id:string|null){return this.allTeachers().find(t=>t.id===id)?.name||this.teachers().find(t=>t.id===id)?.name||'—';}
+ private loadResourceSetup(){const id=this.context.sessionId();if(!id){setTimeout(()=>this.loadResourceSetup(),250);return;}this.loadQualificationRequirements(id);}
+ private replaceClass(v:ClassRef){this.classes.update(all=>all.map(c=>c.id===v.id?v:c));this.homeroomTeacherId=v.homeroomTeacherId||'';}
+ private fail(e:HttpErrorResponse|any){this.error(e?.error?.message||e?.error?.detail||e?.message||(this.fr()?'Une erreur est survenue.':'An error occurred.'));} private ok(m:string){this.noticeType.set('ok');this.notice.set(m);} private error(m:string){this.noticeType.set('error');this.notice.set(m);}
 }

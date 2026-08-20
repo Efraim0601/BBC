@@ -1,8 +1,11 @@
 package com.bbc.sms.academic;
 
 import com.bbc.sms.academic.dto.BulletinDtos.*;
+import com.bbc.sms.academic.security.AcademicAccessPolicyService;
+import com.bbc.sms.foundation.enrollment.StudentEnrollment;
+import com.bbc.sms.foundation.enrollment.StudentEnrollmentRepository;
 import com.bbc.sms.platform.common.ApiException;
-import com.bbc.sms.platform.security.AccessScopeService;
+import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.student.Student;
 import com.bbc.sms.student.StudentRepository;
@@ -30,8 +33,10 @@ public class BulletinService {
     private final SchoolClassRepository classRepo;
     private final GradeRepository gradeRepo;
     private final StudentRepository studentRepo;
+    private final StudentEnrollmentRepository enrollments;
     private final BulletinValidationRepository validationRepo;
-    private final AccessScopeService accessScope;
+    private final AcademicAccessPolicyService accessPolicy;
+    private final TeacherScopeService teacherScope;
     private final JdbcTemplate jdbc;
 
     public BulletinService(SubjectRepository subjectRepo,
@@ -39,16 +44,20 @@ public class BulletinService {
                            SchoolClassRepository classRepo,
                            GradeRepository gradeRepo,
                            StudentRepository studentRepo,
+                           StudentEnrollmentRepository enrollments,
                            BulletinValidationRepository validationRepo,
-                           AccessScopeService accessScope,
+                           AcademicAccessPolicyService accessPolicy,
+                           TeacherScopeService teacherScope,
                            JdbcTemplate jdbc) {
         this.subjectRepo = subjectRepo;
         this.coefRepo = coefRepo;
         this.classRepo = classRepo;
         this.gradeRepo = gradeRepo;
         this.studentRepo = studentRepo;
+        this.enrollments = enrollments;
         this.validationRepo = validationRepo;
-        this.accessScope = accessScope;
+        this.accessPolicy = accessPolicy;
+        this.teacherScope = teacherScope;
         this.jdbc = jdbc;
     }
 
@@ -128,14 +137,19 @@ public class BulletinService {
 
     @Transactional(readOnly = true)
     public BulletinView bulletin(UUID studentId, int sequence) {
-        accessScope.assertStudent(studentId);
+        teacherScope.assertSectionStudent(studentId);
+        AcademicAccessPolicyService.AccessDecision access = accessPolicy.requireCurrentStudent(
+                AcademicAccessPolicyService.Capability.CLASS_RESULTS_VIEW,
+                studentId, null);
         UUID schoolId = TenantContext.get();
 
         Student student = studentRepo.findByIdAndSchoolId(studentId, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Élève"));
+        SchoolClass currentClass = classRepo.findByIdAndSchoolId(access.classId(), schoolId)
+                .orElseThrow(() -> ApiException.notFound("Classe"));
 
         List<Subject> subjects = subjectRepo.findBySchoolIdOrderByCode(schoolId);
-        Map<String, Integer> coefs = coefsForClass(schoolId, subjects, student.getClassName());
+        Map<String, Integer> coefs = coefsForClass(schoolId, subjects, currentClass.getName());
 
         // 1. Lines (only subjects where a grade exists) + this student's average.
         List<BulletinLine> lines = new ArrayList<>();
@@ -153,9 +167,18 @@ public class BulletinService {
         BigDecimal average = average(schoolId, subjects, coefs, studentId, sequence);
 
         // 2. Rank + class average across active classmates that have grades.
-        List<Student> classmates = student.getClassName() == null
-                ? List.of()
-                : studentRepo.findBySchoolIdAndClassNameAndActiveTrueOrderByLastNameAsc(schoolId, student.getClassName());
+        UUID sessionId = accessPolicy.currentSessionId();
+        java.time.LocalDate effectiveDate = accessPolicy.currentSessionStart();
+        List<Student> classmates = sessionId == null || effectiveDate == null ? List.of() : enrollments
+                .findBySchoolIdAndAcademicSessionIdAndSchoolClassIdAndStatusOrderByClassNameSnapshotAsc(
+                        schoolId, sessionId, access.classId(), "ACTIVE")
+                .stream()
+                .filter(e -> !e.getEnrolledOn().isAfter(effectiveDate)
+                        && (e.getExitedOn() == null || !e.getExitedOn().isBefore(effectiveDate)))
+                .map(StudentEnrollment::getStudentId)
+                .map(id -> studentRepo.findByIdAndSchoolId(id, schoolId).orElse(null))
+                .filter(java.util.Objects::nonNull)
+                .toList();
 
         List<BigDecimal> classAverages = new ArrayList<>();
         for (Student mate : classmates) {
@@ -189,7 +212,7 @@ public class BulletinService {
         return new BulletinView(
                 student.getId(),
                 studentName(student),
-                student.getClassName(),
+                currentClass.getName(),
                 sequence,
                 lines,
                 average,
@@ -203,13 +226,27 @@ public class BulletinService {
 
     @Transactional(readOnly = true)
     public PvView pv(String className, int sequence) {
-        accessScope.assertClassName(className);
+        teacherScope.assertSectionClassName(className);
         UUID schoolId = TenantContext.get();
+        SchoolClass schoolClass = classRepo.findBySchoolIdAndName(schoolId, className)
+                .orElseThrow(() -> ApiException.notFound("Classe"));
+        accessPolicy.requireCurrentClass(AcademicAccessPolicyService.Capability.CLASS_RESULTS_VIEW,
+                schoolClass.getId(), null);
         List<Subject> subjects = subjectRepo.findBySchoolIdOrderByCode(schoolId);
         Map<String, Integer> coefs = coefsForClass(schoolId, subjects, className);
 
-        List<Student> students =
-                studentRepo.findBySchoolIdAndClassNameAndActiveTrueOrderByLastNameAsc(schoolId, className);
+        UUID sessionId = accessPolicy.currentSessionId();
+        java.time.LocalDate effectiveDate = accessPolicy.currentSessionStart();
+        List<Student> students = sessionId == null || effectiveDate == null ? List.of() : enrollments
+                .findBySchoolIdAndAcademicSessionIdAndSchoolClassIdAndStatusOrderByClassNameSnapshotAsc(
+                        schoolId, sessionId, schoolClass.getId(), "ACTIVE")
+                .stream()
+                .filter(e -> !e.getEnrolledOn().isAfter(effectiveDate)
+                        && (e.getExitedOn() == null || !e.getExitedOn().isBefore(effectiveDate)))
+                .map(StudentEnrollment::getStudentId)
+                .map(id -> studentRepo.findByIdAndSchoolId(id, schoolId).orElse(null))
+                .filter(java.util.Objects::nonNull)
+                .toList();
 
         record Scored(Student student, BigDecimal average) {}
         List<Scored> scored = new ArrayList<>();
@@ -232,7 +269,9 @@ public class BulletinService {
 
     @Transactional
     public BulletinView validate(UUID studentId, ValidateRequest req) {
-        accessScope.assertStudent(studentId);
+        teacherScope.assertSectionStudent(studentId);
+        accessPolicy.requireCurrentStudent(AcademicAccessPolicyService.Capability.REPORT_CARD_VALIDATE,
+                studentId, null);
         UUID schoolId = TenantContext.get();
 
         BulletinValidation v = validationRepo

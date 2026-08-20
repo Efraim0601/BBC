@@ -1,6 +1,7 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed, effect } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
 import {
   StaffApi, EmployeeUpsert, EmployeeView, AccountResult, StaffImportRow, StaffImportResult,
@@ -16,6 +17,7 @@ import {
   IconComponent, CardComponent, KpiComponent, PageHeaderComponent, EmptyComponent,
   AvatarComponent, TabsComponent, ChipFilterComponent,
   DataTableComponent, CellTemplateDirective, Column, PhotoCaptureComponent,
+  ListPaginationComponent, paginateRows,
 } from '../../core/ui';
 import { PhotoApi } from '../../core/photo.api';
 
@@ -27,9 +29,9 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
-    FormsModule, DatePipe, IconComponent, CardComponent, KpiComponent, PageHeaderComponent,
+    FormsModule, DatePipe, RouterLink, IconComponent, CardComponent, KpiComponent, PageHeaderComponent,
     EmptyComponent, AvatarComponent, TabsComponent, ChipFilterComponent,
-    DataTableComponent, CellTemplateDirective, PhotoCaptureComponent,
+    DataTableComponent, CellTemplateDirective, PhotoCaptureComponent, ListPaginationComponent,
   ],
   template: `
     <div class="fade-in max-w-7xl mx-auto">
@@ -42,6 +44,10 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
               <bbc-icon name="download" [s]="16" /> {{ fr() ? 'Exporter' : 'Export' }}
             </button>
             @if (canWrite) {
+              <a routerLink="/finance/payroll"
+                class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-violet-50 border border-violet-200 text-violet-700 hover:bg-violet-100">
+                {{ fr() ? 'Traiter la paie dans Finance' : 'Process payroll in Finance' }}
+              </a>
               <button (click)="downloadStaffTemplate()"
                 class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
                 {{ fr() ? 'Modèle CSV' : 'CSV template' }}
@@ -82,11 +88,33 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                 <div class="relative">
                   <span class="absolute left-3 top-1/2 -translate-y-1/2 text-mute"><bbc-icon name="search" [s]="16" /></span>
                   <input [ngModel]="search()" (ngModelChange)="search.set($event)"
-                    [placeholder]="fr() ? 'Rechercher (nom, code)…' : 'Search (name, code)…'"
+                    [placeholder]="fr() ? 'Nom, code, e-mail, téléphone ou département…' : 'Name, code, email, phone or department…'"
                     class="h-9 w-72 pl-9 pr-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400" />
                 </div>
                 <bbc-chip-filter [allLabel]="fr() ? 'Tous' : 'All'" [value]="roleFilter()"
                   [options]="roleOptions()" (change)="roleFilter.set($event)" />
+                <select [ngModel]="typeFilter()" (ngModelChange)="typeFilter.set($event || null)"
+                  class="h-9 min-w-36 rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-brand-400 focus:outline-none"
+                  [attr.aria-label]="fr() ? 'Filtrer par type de contrat' : 'Filter by contract type'">
+                  <option value="">{{ fr() ? 'Tous les contrats' : 'All contracts' }}</option>
+                  <option value="Permanent">{{ fr() ? 'Permanents' : 'Permanent' }}</option>
+                  <option value="Vacataire">{{ fr() ? 'Vacataires' : 'Contractors' }}</option>
+                </select>
+                <select [ngModel]="sectionFilter()" (ngModelChange)="sectionFilter.set($event || null)"
+                  class="h-9 min-w-36 rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-brand-400 focus:outline-none"
+                  [attr.aria-label]="fr() ? 'Filtrer par niveau' : 'Filter by level'">
+                  <option value="">{{ fr() ? 'Tous les niveaux' : 'All levels' }}</option>
+                  <option value="maternelle">{{ fr() ? 'Maternelle' : 'Kindergarten' }}</option>
+                  <option value="primary">{{ fr() ? 'Primaire' : 'Primary' }}</option>
+                  <option value="secondary">{{ fr() ? 'Secondaire' : 'Secondary' }}</option>
+                  <option value="non-teaching">{{ fr() ? 'Non enseignant' : 'Non-teaching' }}</option>
+                </select>
+                @if (search() || roleFilter() || typeFilter() || sectionFilter()) {
+                  <button type="button" (click)="clearDirectoryFilters()"
+                    class="h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-mute hover:text-ink">
+                    {{ fr() ? 'Effacer' : 'Clear' }}
+                  </button>
+                }
               </div>
             </bbc-card>
 
@@ -121,6 +149,7 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                   </div>
                 }
                 <bbc-data-table [columns]="columns()" [rows]="filtered()"
+                  [pagination]="true" [initialPageSize]="25" [language]="fr() ? 'fr' : 'en'"
                   [trackBy]="trackId" [activeId]="selectedId()"
                   [selectable]="canWrite" [selectedIds]="selection()"
                   [selectAllLabel]="fr() ? 'Tout sélectionner' : 'Select all'"
@@ -283,6 +312,12 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                         </button>
                       }
                     </div>
+                    @if (e.accountUserId && auth.canAction('PERMISSION_VIEW')) {
+                      <a [routerLink]="['/access-control']" [queryParams]="{ userId: e.accountUserId }"
+                        class="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-700 hover:text-indigo-900">
+                        <bbc-icon name="shield" [s]="14" /> {{ fr() ? 'Accès & responsabilités' : 'Access & responsibilities' }}
+                      </a>
+                    }
                     @if (accountMsg(); as m) {
                       <div class="mt-2 text-xs rounded-lg px-3 py-2" [class]="m.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'">{{ m.text }}</div>
                     }
@@ -329,7 +364,27 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
           @case ('payroll') {
             <bbc-card [title]="fr() ? 'Masse salariale' : 'Monthly payroll'"
               [subtitle]="money(monthlyPayroll()) + ' · ' + (fr() ? 'mensuel' : 'monthly')">
-              @if (payrollRows().length === 0) {
+              <div class="mb-4 grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3 sm:grid-cols-[1.5fr_1fr_auto] sm:items-end">
+                <label class="block">
+                  <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Recherche' : 'Search' }}</span>
+                  <input [ngModel]="payrollQuery()" (ngModelChange)="setPayrollQuery($event)"
+                    [placeholder]="fr() ? 'Nom, code ou rôle…' : 'Name, code or role…'"
+                    class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-brand-400 focus:outline-none" />
+                </label>
+                <label class="block">
+                  <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Contrat' : 'Contract' }}</span>
+                  <select [ngModel]="payrollTypeFilter()" (ngModelChange)="setPayrollType($event)"
+                    class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-brand-400 focus:outline-none">
+                    <option value="">{{ fr() ? 'Tous les contrats' : 'All contracts' }}</option>
+                    <option value="Permanent">Permanent</option><option value="Vacataire">Vacataire</option>
+                  </select>
+                </label>
+                <button type="button" (click)="clearPayrollFilters()" [disabled]="!payrollQuery() && !payrollTypeFilter()"
+                  class="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-mute hover:text-ink disabled:opacity-40">
+                  {{ fr() ? 'Effacer' : 'Clear' }}
+                </button>
+              </div>
+              @if (filteredPayrollRows().length === 0) {
                 <bbc-empty icon="wallet" [label]="fr() ? 'Aucun employé' : 'No employee'" />
               } @else {
                 <table class="w-full text-sm">
@@ -343,7 +398,7 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                     </tr>
                   </thead>
                   <tbody>
-                    @for (r of payrollRows(); track r.e.id) {
+                    @for (r of pagedPayrollRows(); track r.e.id) {
                       <tr class="border-b border-slate-50 last:border-0 hover:bg-slate-50/30">
                         <td class="py-2.5">
                           <div class="flex items-center gap-2.5">
@@ -371,6 +426,8 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                     </tr>
                   </tfoot>
                 </table>
+                <bbc-list-pagination [total]="filteredPayrollRows().length" [page]="payrollPage()" [pageSize]="payrollPageSize()"
+                  [language]="fr() ? 'fr' : 'en'" (pageChange)="payrollPage.set($event)" (pageSizeChange)="setPayrollPageSize($event)" />
               }
             </bbc-card>
           }
@@ -407,7 +464,17 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                 </form>
               }
 
-              @if (departments().length) {
+              <div class="mb-4 flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3 sm:flex-row sm:items-end sm:justify-between">
+                <label class="block w-full sm:max-w-md">
+                  <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Recherche' : 'Search' }}</span>
+                  <input [ngModel]="departmentQuery()" (ngModelChange)="setDepartmentQuery($event)"
+                    [placeholder]="fr() ? 'Département ou responsable…' : 'Department or head…'"
+                    class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-brand-400 focus:outline-none" />
+                </label>
+                @if (departmentQuery()) { <button type="button" (click)="setDepartmentQuery('')" class="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-mute hover:text-ink">{{ fr() ? 'Effacer' : 'Clear' }}</button> }
+              </div>
+
+              @if (filteredDepartments().length) {
                 <table class="w-full text-sm">
                   <thead><tr class="border-b border-slate-100 text-[11px] uppercase text-mute text-left">
                     <th class="py-2 pr-3 font-semibold">{{ fr() ? 'Département' : 'Department' }}</th>
@@ -416,7 +483,7 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                     <th></th>
                   </tr></thead>
                   <tbody>
-                    @for (d of departments(); track d.id) {
+                    @for (d of pagedDepartments(); track d.id) {
                       <tr class="border-b border-slate-50 hover:bg-slate-50/40">
                         <td class="py-2 pr-3 font-semibold text-ink">{{ d.name }}</td>
                         <td class="py-2 px-3 text-mute">{{ d.headName || '—' }}</td>
@@ -431,8 +498,10 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                     }
                   </tbody>
                 </table>
+                <bbc-list-pagination [total]="filteredDepartments().length" [page]="departmentPage()" [pageSize]="departmentPageSize()"
+                  [language]="fr() ? 'fr' : 'en'" (pageChange)="departmentPage.set($event)" (pageSizeChange)="setDepartmentPageSize($event)" />
               } @else {
-                <bbc-empty icon="building" [label]="fr() ? 'Aucun département.' : 'No departments.'" />
+                <bbc-empty icon="building" [label]="departments().length ? (fr() ? 'Aucun département ne correspond à la recherche.' : 'No department matches the search.') : (fr() ? 'Aucun département.' : 'No departments.')" />
               }
               @if (hrErr(); as e) { <div class="mt-3 text-xs rounded-lg px-3 py-2 bg-rose-50 text-rose-600">{{ e }}</div> }
             </bbc-card>
@@ -483,7 +552,28 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                 </form>
               }
 
-              @if (leaves().length) {
+              <div class="mb-4 grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3 sm:grid-cols-[1.5fr_1fr_auto] sm:items-end">
+                <label class="block">
+                  <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Recherche' : 'Search' }}</span>
+                  <input [ngModel]="leaveQuery()" (ngModelChange)="setLeaveQuery($event)"
+                    [placeholder]="fr() ? 'Employé, type ou motif…' : 'Employee, type or reason…'"
+                    class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-brand-400 focus:outline-none" />
+                </label>
+                <label class="block">
+                  <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Statut' : 'Status' }}</span>
+                  <select [ngModel]="leaveStatusFilter()" (ngModelChange)="setLeaveStatus($event)"
+                    class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-brand-400 focus:outline-none">
+                    <option value="">{{ fr() ? 'Tous les statuts' : 'All statuses' }}</option>
+                    <option value="pending">{{ fr() ? 'En attente' : 'Pending' }}</option>
+                    <option value="approved">{{ fr() ? 'Approuvés' : 'Approved' }}</option>
+                    <option value="rejected">{{ fr() ? 'Refusés' : 'Rejected' }}</option>
+                  </select>
+                </label>
+                <button type="button" (click)="clearLeaveFilters()" [disabled]="!leaveQuery() && !leaveStatusFilter()"
+                  class="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-mute hover:text-ink disabled:opacity-40">{{ fr() ? 'Effacer' : 'Clear' }}</button>
+              </div>
+
+              @if (filteredLeaves().length) {
                 <table class="w-full text-sm">
                   <thead><tr class="border-b border-slate-100 text-[11px] uppercase text-mute text-left">
                     <th class="py-2 pr-3 font-semibold">{{ fr() ? 'Employé' : 'Employee' }}</th>
@@ -494,7 +584,7 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                     <th></th>
                   </tr></thead>
                   <tbody>
-                    @for (l of leaves(); track l.id) {
+                    @for (l of pagedLeaves(); track l.id) {
                       <tr class="border-b border-slate-50 hover:bg-slate-50/40">
                         <td class="py-2 pr-3 font-semibold text-ink">{{ l.employeeName || '—' }}</td>
                         <td class="py-2 px-3">{{ leaveTypeLabel(l.type) }}</td>
@@ -513,8 +603,10 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                     }
                   </tbody>
                 </table>
+                <bbc-list-pagination [total]="filteredLeaves().length" [page]="leavePage()" [pageSize]="leavePageSize()"
+                  [language]="fr() ? 'fr' : 'en'" (pageChange)="leavePage.set($event)" (pageSizeChange)="setLeavePageSize($event)" />
               } @else {
-                <bbc-empty icon="calendar" [label]="fr() ? 'Aucune demande de congé.' : 'No leave requests.'" />
+                <bbc-empty icon="calendar" [label]="leaves().length ? (fr() ? 'Aucune demande ne correspond aux filtres.' : 'No leave request matches these filters.') : (fr() ? 'Aucune demande de congé.' : 'No leave requests.')" />
               }
               @if (hrErr(); as e) { <div class="mt-3 text-xs rounded-lg px-3 py-2 bg-rose-50 text-rose-600">{{ e }}</div> }
             </bbc-card>
@@ -570,9 +662,19 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                   [options]="appStatusOptions()" (change)="onAppStatusFilter($event)" />
               </div>
 
-              @if (applications().length) {
+              <div class="mb-4 flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3 sm:flex-row sm:items-end sm:justify-between">
+                <label class="block w-full sm:max-w-lg">
+                  <span class="mb-1 block text-[11px] font-bold uppercase tracking-wide text-mute">{{ fr() ? 'Recherche' : 'Search' }}</span>
+                  <input [ngModel]="applicationQuery()" (ngModelChange)="setApplicationQuery($event)"
+                    [placeholder]="fr() ? 'Nom, e-mail, téléphone, département…' : 'Name, email, phone, department…'"
+                    class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-brand-400 focus:outline-none" />
+                </label>
+                @if (applicationQuery()) { <button type="button" (click)="setApplicationQuery('')" class="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-mute hover:text-ink">{{ fr() ? 'Effacer' : 'Clear' }}</button> }
+              </div>
+
+              @if (filteredApplications().length) {
                 <div class="space-y-3">
-                  @for (a of applications(); track a.id) {
+                  @for (a of pagedApplications(); track a.id) {
                     <div class="p-4 rounded-lg border border-slate-100 bg-slate-50/40">
                       <div class="flex flex-wrap items-start justify-between gap-3">
                         <div class="min-w-0">
@@ -623,8 +725,10 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                     </div>
                   }
                 </div>
+                <bbc-list-pagination [total]="filteredApplications().length" [page]="applicationPage()" [pageSize]="applicationPageSize()"
+                  [language]="fr() ? 'fr' : 'en'" (pageChange)="applicationPage.set($event)" (pageSizeChange)="setApplicationPageSize($event)" />
               } @else {
-                <bbc-empty icon="users" [label]="fr() ? 'Aucune candidature.' : 'No applications.'" />
+                <bbc-empty icon="users" [label]="applications().length ? (fr() ? 'Aucune candidature ne correspond à la recherche.' : 'No application matches the search.') : (fr() ? 'Aucune candidature.' : 'No applications.')" />
               }
               @if (appErr(); as e) { <div class="mt-3 text-xs rounded-lg px-3 py-2 bg-rose-50 text-rose-600">{{ e }}</div> }
             </bbc-card>
@@ -683,6 +787,28 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                       }
                     </div>
                   </div>
+                  @if (finalizeRoles().includes('principal')) {
+                    <div class="p-3 rounded-lg border"
+                      [class]="finalizeScopeAttempted() && !finalizeManagementLevels().size ? 'border-red-300 bg-red-50' : 'border-brand-200 bg-brand-50/40'">
+                      <div class="text-xs font-semibold">
+                        {{ fr() ? 'Cycles dirigés' : 'Managed levels' }} <span class="text-red-600">*</span>
+                      </div>
+                      <div class="flex flex-wrap gap-1.5 mt-2">
+                        @for (level of managementLevelOptions(); track level.value) {
+                          <button type="button" (click)="toggleFinalizeManagementLevel(level.value)"
+                            class="px-2.5 py-1.5 text-xs font-semibold rounded-lg border"
+                            [class]="finalizeManagementLevels().has(level.value) ? 'border-brand-600 bg-brand-600 text-white' : 'border-slate-200 bg-white text-mute'">
+                            {{ level.label }}
+                          </button>
+                        }
+                      </div>
+                      @if (finalizeScopeAttempted() && !finalizeManagementLevels().size) {
+                        <div class="text-[11px] font-semibold text-red-700 mt-2">
+                          {{ fr() ? 'Sélectionnez au moins un cycle.' : 'Select at least one level.' }}
+                        </div>
+                      }
+                    </div>
+                  }
                   <label class="flex items-start gap-2 cursor-pointer" [class.opacity-50]="!fa.email">
                     <input type="checkbox" [ngModel]="finalizeCreateLogin()" (ngModelChange)="finalizeCreateLogin.set($event)"
                       [disabled]="!fa.email" class="mt-0.5 w-4 h-4 rounded border-slate-300 text-brand-600" />
@@ -932,6 +1058,34 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                   {{ fr() ? 'Aucun rôle chargé — créez des rôles dans Paramètres → Rôles.' : 'No roles loaded — create roles in Settings → Roles.' }}
                 </div>
               }
+              @if (principalRole()) {
+                <div class="mt-4 p-4 rounded-xl border"
+                  [class]="principalScopeAttempted() && !draftManagementLevels().size ? 'border-red-300 bg-red-50/60' : 'border-brand-200 bg-brand-50/40'">
+                  <div class="text-xs font-semibold text-ink">
+                    {{ fr() ? 'Cycles dirigés' : 'Managed levels' }} <span class="text-red-600">*</span>
+                  </div>
+                  <div class="text-[11px] text-mute mt-1">
+                    {{ fr()
+                      ? 'Le principal ne pourra ouvrir que les cycles sélectionnés, dans les sous-systèmes francophone et anglophone.'
+                      : 'The principal will only be able to open the selected levels, in both the Francophone and Anglophone subsystems.' }}
+                  </div>
+                  <div class="flex flex-wrap gap-2 mt-3">
+                    @for (level of managementLevelOptions(); track level.value) {
+                      <button type="button" (click)="toggleManagementLevel(level.value)"
+                        class="h-9 px-3 text-xs font-semibold rounded-lg border transition"
+                        [class]="draftManagementLevels().has(level.value) ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-ink border-slate-200 hover:border-brand-300'">
+                        @if (draftManagementLevels().has(level.value)) { <bbc-icon name="check" [s]="12" /> }
+                        {{ level.label }}
+                      </button>
+                    }
+                  </div>
+                  @if (principalScopeAttempted() && !draftManagementLevels().size) {
+                    <div class="text-[11px] font-semibold text-red-700 mt-2">
+                      {{ fr() ? 'Sélectionnez au moins un cycle.' : 'Select at least one level.' }}
+                    </div>
+                  }
+                </div>
+              }
               @if (teachingRole()) {
                 <label class="block mt-3 max-w-xs">
                   <span class="text-xs font-semibold text-ink">{{ fr() ? 'Section (cycle)' : 'Section (cycle)' }} *</span>
@@ -1107,7 +1261,7 @@ export class StaffComponent {
   private hrApi = inject(HrApi);
   private settingsApi = inject(SettingsApi);
   private setupApi = inject(SetupApi);
-  private auth = inject(AuthService);
+  protected auth = inject(AuthService);
 
   protected rows = signal<EmployeeView[]>([]);
   protected roleDefs = signal<RoleView[]>([]);
@@ -1117,6 +1271,9 @@ export class StaffComponent {
   // Applications / portal
   protected applications = signal<StaffApplicationView[]>([]);
   protected appStatusFilter = signal<string | null>('pending');
+  protected applicationQuery = signal('');
+  protected applicationPage = signal(1);
+  protected applicationPageSize = signal(10);
   protected appErr = signal<string | null>(null);
   protected portal = signal<StaffPortalSettingsView | null>(null);
   protected portalBusy = signal(false);
@@ -1124,12 +1281,21 @@ export class StaffComponent {
   protected finalizeApp = signal<StaffApplicationView | null>(null);
   protected finalizeDraft: StaffApplicationFinalize = { type: 'Permanent', departmentId: null, monthlySalary: 350000, hourlyRate: 0, formClass: '', createLogin: false };
   protected finalizeRoles = signal<string[]>(['teacher']);
+  protected finalizeManagementLevels = signal<Set<string>>(new Set());
+  protected finalizeScopeAttempted = signal(false);
   protected finalizeCreateLogin = signal(false);
   protected finalizing = signal(false);
 
   // HR — departments & leave
   protected departments = signal<DepartmentView[]>([]);
   protected leaves = signal<LeaveView[]>([]);
+  protected departmentQuery = signal('');
+  protected departmentPage = signal(1);
+  protected departmentPageSize = signal(25);
+  protected leaveQuery = signal('');
+  protected leaveStatusFilter = signal<string | null>(null);
+  protected leavePage = signal(1);
+  protected leavePageSize = signal(25);
   protected hrErr = signal<string | null>(null);
   protected deptForm = signal(false);
   protected deptEditId = signal<string | null>(null);
@@ -1138,6 +1304,12 @@ export class StaffComponent {
   protected leaveDraft: LeaveCreate = { employeeId: '', type: 'annual', startDate: '', endDate: '', reason: '' };
   protected search = signal('');
   protected roleFilter = signal<string | null>(null);
+  protected typeFilter = signal<string | null>(null);
+  protected sectionFilter = signal<string | null>(null);
+  protected payrollQuery = signal('');
+  protected payrollTypeFilter = signal<string | null>(null);
+  protected payrollPage = signal(1);
+  protected payrollPageSize = signal(25);
   protected selectedId = signal<string | null>(null);
 
   // Sélection multiple (actions groupées)
@@ -1148,9 +1320,14 @@ export class StaffComponent {
 
   protected mode = signal<'list' | 'edit' | 'import'>('list');
   protected editId = signal<string | null>(null);
-  protected canWrite = this.auth.can('hr', 'write');
+  /** HR mutations use the V2 action model; the legacy module bit is read-only
+   * for the bootstrap administrator until the scoped HR setup exception is
+   * explicitly granted. */
+  protected get canWrite(): boolean { return this.auth.canAction('HR_MANAGE'); }
   protected draft: EmployeeUpsert = this.blank();
   protected draftRoles = signal<string[]>([]);
+  protected draftManagementLevels = signal<Set<string>>(new Set());
+  protected principalScopeAttempted = signal(false);
   /** Photo saisie au formulaire (data URL), envoyée après l'enregistrement. */
   protected photoDraft = signal<string | null>(null);
   private photoWasSet = false;
@@ -1167,7 +1344,13 @@ export class StaffComponent {
   protected selectedClasses = signal<TeacherClassView[]>([]);
   /** Les rôles cloisonnés par section : eux seuls portent un cycle de rattachement. */
   protected teachingRole = computed(() =>
-    this.draftRoles().some((r) => r === 'teacher' || r === 'form_teacher'));
+    this.draftRoles().some((r) => r === 'teacher' || r === 'secondary_teacher' || r === 'form_teacher'));
+  protected principalRole = computed(() => this.draftRoles().includes('principal'));
+  protected managementLevelOptions = computed(() => [
+    { value: 'maternelle', label: this.fr() ? 'Maternelle' : 'Nursery' },
+    { value: 'primary', label: this.fr() ? 'Primaire' : 'Primary' },
+    { value: 'secondary', label: this.fr() ? 'Secondaire' : 'Secondary' },
+  ]);
   protected createLogin = signal(true);
   protected accountMsg = signal<{ text: string; ok: boolean } | null>(null);
   protected resetting = signal(false);
@@ -1208,10 +1391,10 @@ export class StaffComponent {
     { value: 'other', label: this.fr() ? 'Autre' : 'Other' },
   ]);
 
-  /** Staff-assignable roles from the DB catalogue (excludes parent portal role). */
+  /** Staff-assignable roles; the technical administrator account is never assigned here. */
   protected roleCatalog = computed(() =>
     this.roleDefs()
-      .filter((r) => r.code !== 'parent')
+      .filter((r) => !['parent', 'administrator', 'admin', 'school_admin'].includes(r.code))
       .map((r) => ({ value: r.code, label: this.fr() ? r.labelFr : (r.labelEn || r.labelFr) })),
   );
 
@@ -1228,12 +1411,27 @@ export class StaffComponent {
   protected filtered = computed(() => {
     const q = this.search().trim().toLowerCase();
     const role = this.roleFilter();
+    const type = this.typeFilter();
+    const section = this.sectionFilter();
     return this.rows().filter((e) => {
       if (role && !e.roles.includes(role)) return false;
-      if (q && !e.name.toLowerCase().includes(q) && !(e.code || '').toLowerCase().includes(q)) return false;
+      if (type && e.type !== type) return false;
+      if (section === 'non-teaching' && e.section) return false;
+      if (section && section !== 'non-teaching' && e.section !== section) return false;
+      if (q) {
+        const haystack = `${e.name} ${e.code || ''} ${e.email || ''} ${e.phone || ''} ${e.departmentName || ''} ${e.formClass || ''}`.toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
       return true;
     });
   });
+
+  protected clearDirectoryFilters(): void {
+    this.search.set('');
+    this.roleFilter.set(null);
+    this.typeFilter.set(null);
+    this.sectionFilter.set(null);
+  }
 
   protected selected = computed(() => {
     const id = this.selectedId();
@@ -1281,7 +1479,7 @@ export class StaffComponent {
 
   /** Un employé porte-t-il un rôle enseignant ? */
   protected isTeacher(e: EmployeeView): boolean {
-    return (e.roles || []).some((r) => r === 'teacher' || r === 'form_teacher');
+    return (e.roles || []).some((r) => r === 'teacher' || r === 'secondary_teacher' || r === 'form_teacher');
   }
 
   protected sectionLabel(section: string | null): string {
@@ -1293,7 +1491,7 @@ export class StaffComponent {
     }
   }
 
-  protected teacherCount = computed(() => this.rows().filter((e) => e.roles.includes('teacher') || e.roles.includes('form_teacher')).length);
+  protected teacherCount = computed(() => this.rows().filter((e) => e.roles.includes('teacher') || e.roles.includes('secondary_teacher') || e.roles.includes('form_teacher')).length);
   protected permCount = computed(() => this.rows().filter((e) => e.type === 'Permanent').length);
   protected vacCount = computed(() => this.rows().filter((e) => e.type === 'Vacataire').length);
   protected permPct = computed(() => (this.rows().length ? Math.round((this.permCount() / this.rows().length) * 100) : 0));
@@ -1304,6 +1502,53 @@ export class StaffComponent {
       .map((e) => ({ e, base: e.monthlySalary || 0, total: (e.monthlySalary || 0) + (e.hourlyRate || 0) }))
       .sort((a, b) => b.total - a.total),
   );
+
+  protected filteredPayrollRows = computed(() => {
+    const q = this.payrollQuery().trim().toLowerCase();
+    const type = this.payrollTypeFilter();
+    return this.payrollRows().filter((row) => {
+      if (type && row.e.type !== type) return false;
+      if (q && !`${row.e.name} ${row.e.code} ${row.e.roles.map((role) => this.roleLabel(role)).join(' ')}`.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  });
+  protected pagedPayrollRows = computed(() => paginateRows(this.filteredPayrollRows(), this.payrollPage(), this.payrollPageSize()));
+
+  protected filteredDepartments = computed(() => {
+    const q = this.departmentQuery().trim().toLowerCase();
+    return this.departments().filter((row) => !q || `${row.name} ${row.headName ?? ''}`.toLowerCase().includes(q));
+  });
+  protected pagedDepartments = computed(() => paginateRows(this.filteredDepartments(), this.departmentPage(), this.departmentPageSize()));
+
+  protected filteredLeaves = computed(() => {
+    const q = this.leaveQuery().trim().toLowerCase();
+    const status = this.leaveStatusFilter();
+    return this.leaves().filter((row) => {
+      if (status && row.status !== status) return false;
+      if (q && !`${row.employeeName ?? ''} ${row.type} ${this.leaveTypeLabel(row.type)} ${row.reason ?? ''}`.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  });
+  protected pagedLeaves = computed(() => paginateRows(this.filteredLeaves(), this.leavePage(), this.leavePageSize()));
+
+  protected filteredApplications = computed(() => {
+    const q = this.applicationQuery().trim().toLowerCase();
+    return this.applications().filter((row) => !q || `${row.name} ${row.email ?? ''} ${row.phone ?? ''} ${row.departmentHint ?? ''} ${row.desiredRoles ?? ''} ${row.type}`.toLowerCase().includes(q));
+  });
+  protected pagedApplications = computed(() => paginateRows(this.filteredApplications(), this.applicationPage(), this.applicationPageSize()));
+
+  protected setPayrollQuery(value: string): void { this.payrollQuery.set(value); this.payrollPage.set(1); }
+  protected setPayrollType(value: string | null): void { this.payrollTypeFilter.set(value || null); this.payrollPage.set(1); }
+  protected setPayrollPageSize(value: number): void { this.payrollPageSize.set(value); this.payrollPage.set(1); }
+  protected clearPayrollFilters(): void { this.payrollQuery.set(''); this.payrollTypeFilter.set(null); this.payrollPage.set(1); }
+  protected setDepartmentQuery(value: string): void { this.departmentQuery.set(value); this.departmentPage.set(1); }
+  protected setDepartmentPageSize(value: number): void { this.departmentPageSize.set(value); this.departmentPage.set(1); }
+  protected setLeaveQuery(value: string): void { this.leaveQuery.set(value); this.leavePage.set(1); }
+  protected setLeaveStatus(value: string | null): void { this.leaveStatusFilter.set(value || null); this.leavePage.set(1); }
+  protected setLeavePageSize(value: number): void { this.leavePageSize.set(value); this.leavePage.set(1); }
+  protected clearLeaveFilters(): void { this.leaveQuery.set(''); this.leaveStatusFilter.set(null); this.leavePage.set(1); }
+  protected setApplicationQuery(value: string): void { this.applicationQuery.set(value); this.applicationPage.set(1); }
+  protected setApplicationPageSize(value: number): void { this.applicationPageSize.set(value); this.applicationPage.set(1); }
 
   constructor() {
     this.reload();
@@ -1361,6 +1606,7 @@ export class StaffComponent {
 
   protected onAppStatusFilter(v: string | null): void {
     this.appStatusFilter.set(v);
+    this.applicationPage.set(1);
     this.loadApplications();
   }
 
@@ -1469,6 +1715,8 @@ export class StaffComponent {
       createLogin: false,
     };
     this.finalizeRoles.set(['teacher']);
+    this.finalizeManagementLevels.set(new Set());
+    this.finalizeScopeAttempted.set(false);
     this.finalizeCreateLogin.set(!!a.email);
   }
 
@@ -1476,14 +1724,23 @@ export class StaffComponent {
     this.finalizeRoles.update((rs) => (rs.includes(role) ? rs.filter((r) => r !== role) : [...rs, role]));
   }
 
+  protected toggleFinalizeManagementLevel(level: string): void {
+    const next = new Set(this.finalizeManagementLevels());
+    next.has(level) ? next.delete(level) : next.add(level);
+    this.finalizeManagementLevels.set(next);
+  }
+
   protected doFinalize(): void {
     const a = this.finalizeApp();
     if (!a) return;
+    this.finalizeScopeAttempted.set(true);
+    if (this.finalizeRoles().includes('principal') && !this.finalizeManagementLevels().size) return;
     this.finalizing.set(true);
     this.appErr.set(null);
     const body: StaffApplicationFinalize = {
       ...this.finalizeDraft,
       roles: this.finalizeRoles(),
+      managementLevels: [...this.finalizeManagementLevels()],
       createLogin: !!a.email && this.finalizeCreateLogin(),
     };
     this.api.finalizeApplication(a.id, body).subscribe({
@@ -1564,6 +1821,8 @@ export class StaffComponent {
     this.photoDraft.set(null);
     this.photoWasSet = false;
     this.pickedClasses.set(new Set());
+    this.draftManagementLevels.set(new Set());
+    this.principalScopeAttempted.set(false);
     this.mode.set('edit');
   }
 
@@ -1639,6 +1898,8 @@ export class StaffComponent {
       roles: [...e.roles],
     };
     this.draftRoles.set([...e.roles]);
+    this.draftManagementLevels.set(new Set(e.managementLevels ?? []));
+    this.principalScopeAttempted.set(false);
     this.editId.set(e.id);
     this.mode.set('edit');
   }
@@ -1658,6 +1919,15 @@ export class StaffComponent {
 
   protected toggleRole(role: string): void {
     this.draftRoles.update((rs) => (rs.includes(role) ? rs.filter((r) => r !== role) : [...rs, role]));
+    if (role === 'principal' && !this.draftRoles().includes('principal')) {
+      this.principalScopeAttempted.set(false);
+    }
+  }
+
+  protected toggleManagementLevel(level: string): void {
+    const next = new Set(this.draftManagementLevels());
+    next.has(level) ? next.delete(level) : next.add(level);
+    this.draftManagementLevels.set(next);
   }
 
   protected closeEditor(): void {
@@ -1665,10 +1935,14 @@ export class StaffComponent {
     this.photoDraft.set(null);
     this.photoWasSet = false;
     this.pickedClasses.set(new Set());
+    this.draftManagementLevels.set(new Set());
+    this.principalScopeAttempted.set(false);
   }
 
   save(): void {
     if (!this.draft.name?.trim()) return;
+    this.principalScopeAttempted.set(true);
+    if (this.principalRole() && !this.draftManagementLevels().size) return;
     const email = this.draft.email?.trim() || '';
     const phone = this.draft.phone?.trim() || '';
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -1686,6 +1960,7 @@ export class StaffComponent {
       email: email || null as any,
       phone: phone || null as any,
       roles: this.draftRoles(),
+      managementLevels: [...this.draftManagementLevels()],
       createLogin: wantsLogin,
     };
     const id = this.editId();
@@ -2001,6 +2276,6 @@ export class StaffComponent {
 
   private blank(): EmployeeUpsert {
     return { name: '', sex: 'M', type: 'Permanent', email: '', phone: '', formClass: '', section: null,
-             departmentId: null, monthlySalary: 350000, hourlyRate: 0, roles: [] };
+             managementLevels: [], departmentId: null, monthlySalary: 350000, hourlyRate: 0, roles: [] };
   }
 }

@@ -25,7 +25,13 @@ interface ResultMeta { fr: string; en: string; badge: string; }
     <div class="fade-in max-w-6xl mx-auto">
       <bbc-page-header [title]="i18n.t('journey')"
         [subtitle]="fr() ? 'Parcours scolaire complet — année par année' : 'Full school journey — year by year'">
-        @if (canPromote) {
+        @if (canWrite()) {
+          <a right routerLink="/journey/promotions"
+            class="inline-flex items-center gap-2 h-9 px-4 text-sm font-semibold rounded-lg bg-brand-600 text-white hover:bg-brand-700">
+            <bbc-icon name="route" [s]="16" /> {{ fr() ? 'Promotions de fin d’année' : 'End-of-year promotions' }}
+          </a>
+        }
+        @if (canPromote()) {
           <a right routerLink="/promotion"
             class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-slate-100 text-ink hover:bg-slate-200">
             <bbc-icon name="cap" [s]="16" /> {{ fr() ? 'Passage de classe' : 'Class promotion' }}
@@ -56,7 +62,7 @@ interface ResultMeta { fr: string; en: string; badge: string; }
                   <div class="font-display text-lg font-bold text-ink">{{ journey()!.studentName }}</div>
                   <div class="text-xs text-mute">{{ journey()!.matricule }} · {{ fr() ? 'Classe actuelle' : 'Current class' }}: {{ journey()!.currentClass }}</div>
                 </div>
-                @if (canWrite) {
+                @if (canWrite()) {
                   <button (click)="toggleForm()"
                     class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-brand-600 text-white hover:bg-brand-700">
                     <bbc-icon name="plus" [s]="16" /> {{ fr() ? 'Ajouter une année' : 'Add a year' }}
@@ -71,7 +77,7 @@ interface ResultMeta { fr: string; en: string; badge: string; }
             </bbc-card>
 
             <!-- Add/edit form -->
-            @if (canWrite && showForm()) {
+            @if (canWrite() && showForm()) {
               <bbc-card [title]="editingId() ? (fr() ? 'Modifier l’année' : 'Edit year') : (fr() ? 'Nouvelle année' : 'New year')">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-2.5">
                   <input [(ngModel)]="draft.academicYear" [placeholder]="fr() ? 'Année (ex: 2024-2025)' : 'Year (e.g. 2024-2025)'"
@@ -150,15 +156,26 @@ interface ResultMeta { fr: string; en: string; badge: string; }
                             }
                           </div>
                           @if (e.decision) { <div class="text-sm text-ink mt-1">{{ e.decision }}</div> }
+                          @if (e.promotionBatchId) {
+                            <div class="mt-2 rounded-lg border border-teal-200 bg-teal-50 p-2.5 text-xs">
+                              <div class="font-semibold text-teal-900">
+                                {{ fr() ? 'Recommandation' : 'Recommendation' }}: {{ promotionLabel(e.recommendation) }}
+                                <span class="mx-1">→</span>
+                                {{ fr() ? 'Décision finale' : 'Final decision' }}: {{ promotionLabel(e.finalDecision) }}
+                              </div>
+                              @if (e.targetClassName) { <div class="text-teal-800 mt-1">{{ fr() ? 'Classe cible' : 'Target class' }}: {{ e.targetClassName }}</div> }
+                              @if (e.overrideReason) { <div class="text-teal-800 mt-1">{{ fr() ? 'Motif' : 'Reason' }}: {{ e.overrideReason }}</div> }
+                            </div>
+                          }
                         </div>
-                        @if (canWrite) {
+                        @if (canWrite() && !e.promotionBatchId) {
                           <div class="flex items-center gap-1 self-center opacity-0 group-hover:opacity-100 transition">
                             <button (click)="edit(e)"
                               class="w-7 h-7 rounded text-mute hover:text-brand-600 hover:bg-brand-50 flex items-center justify-center"
                               [title]="fr() ? 'Modifier' : 'Edit'">
                               <bbc-icon name="edit" [s]="14" />
                             </button>
-                            <button (click)="remove(e)"
+                             <button (click)="askVoid(e)"
                               class="w-7 h-7 rounded text-mute hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center"
                               [title]="fr() ? 'Supprimer' : 'Delete'">
                               <bbc-icon name="x" [s]="14" />
@@ -175,7 +192,10 @@ interface ResultMeta { fr: string; en: string; badge: string; }
         </div>
       </div>
     </div>
-  `,
+     @if (voidCandidate(); as e) {
+       <div class="fixed inset-0 z-50 bg-slate-950/40 flex items-center justify-center p-4" (click)="closeVoid()"><div class="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md p-5" (click)="$event.stopPropagation()"><h2 class="font-display text-xl font-bold text-ink">{{ fr() ? 'Annuler une note historique ?' : 'Void historical note?' }}</h2><p class="text-sm text-mute mt-2">{{ e.academicYear }} · {{ e.className }}. {{ fr() ? 'Le contenu original restera dans l’audit et ne sera pas supprimé.' : 'The original content stays in the audit history and is not deleted.' }}</p><label class="field-label mt-4">{{ fr() ? 'Motif' : 'Reason' }} <span class="required">*</span><textarea [(ngModel)]="voidReason" rows="3" [class]="fieldClass(!voidReason.trim())"></textarea>@if (voidAttempted() && !voidReason.trim()) { <span class="field-error">{{ fr() ? 'Le motif est obligatoire.' : 'Reason is required.' }}</span> }</label><div class="mt-5 flex justify-end gap-2"><button (click)="closeVoid()" class="secondary-btn">{{ fr() ? 'Retour' : 'Back' }}</button><button (click)="confirmVoid()" class="danger-btn">{{ fr() ? 'Annuler l’entrée' : 'Void entry' }}</button></div></div></div>
+     }
+   `,
 })
 export class JourneyComponent {
   protected i18n = inject(I18nService);
@@ -204,9 +224,13 @@ export class JourneyComponent {
   protected showForm = signal(false);
   protected editingId = signal<string | null>(null);
   protected draft: JourneyUpsert = this.blank();
+  protected voidCandidate = signal<JourneyView | null>(null);
+  protected voidReason = '';
+  protected voidAttempted = signal(false);
 
-  protected canWrite = this.auth.can('journey', 'write');
-  protected canPromote = this.auth.can('promotion', 'read');
+  /** Re-evaluate after login/refresh; a one-time boolean can be captured before the user arrives. */
+  protected canWrite = computed(() => this.auth.can('journey', 'write'));
+  protected canPromote = computed(() => this.auth.can('promotion', 'read'));
   protected fr = () => this.i18n.lang() === 'fr';
 
   protected repeats = computed(() =>
@@ -261,11 +285,14 @@ export class JourneyComponent {
     });
   }
 
-  protected remove(e: JourneyView): void {
-    const id = this.selectedId();
-    if (!id) return;
-    this.api.remove(e.id).subscribe(() => this.api.forStudent(id).subscribe((j) => this.journey.set(j)));
+  protected askVoid(e: JourneyView): void { this.voidCandidate.set(e); this.voidReason = ''; this.voidAttempted.set(false); }
+  protected closeVoid(): void { this.voidCandidate.set(null); this.voidReason = ''; this.voidAttempted.set(false); }
+  protected confirmVoid(): void {
+    const e = this.voidCandidate(); const id = this.selectedId(); this.voidAttempted.set(true);
+    if (!e || !id || !this.voidReason.trim()) return;
+    this.api.voidEntry(e.id, this.voidReason.trim()).subscribe({ next: () => { this.closeVoid(); this.api.forStudent(id).subscribe((j) => this.journey.set(j)); } });
   }
+  protected fieldClass(invalid: boolean): string { return `field ${invalid && this.voidAttempted() ? 'field-invalid' : ''}`; }
 
   protected dotColor(result: string): string {
     const map: Record<string, string> = {
@@ -273,6 +300,12 @@ export class JourneyComponent {
       transferred_in: '#0EA5E9', transferred_out: '#94A3B8', graduated: '#8B5CF6', excluded: '#F43F5E',
     };
     return map[result] ?? '#94A3B8';
+  }
+
+  protected promotionLabel(value: string | null): string {
+    const fr: Record<string, string> = { PROMOTE: 'Promouvoir', REPEAT: 'Redoubler', REVIEW: 'À réviser', GRADUATE: 'Diplômer', HOLD: 'Maintenir' };
+    const en: Record<string, string> = { PROMOTE: 'Promote', REPEAT: 'Repeat', REVIEW: 'Review', GRADUATE: 'Graduate', HOLD: 'Hold back' };
+    return value ? ((this.fr() ? fr : en)[value] ?? value) : '—';
   }
 
   private blank(): JourneyUpsert {

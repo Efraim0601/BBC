@@ -246,6 +246,46 @@ CH_PARAMETRES = {
             "Without SMTP, account creation still works but **no credentials are sent**: you must pass the password "
             "on by other means. Self-service reset (§1.2) is then unavailable."},
 
+        {"type": "h", "fr": "3.8 Années et périodes académiques", "en": "3.8 Academic sessions and periods"},
+        {"type": "p", "fr":
+            "L'onglet __Années & périodes__ est le point de configuration de l'année scolaire. Les dates de session "
+            "et de trimestre bornent les dix jalons : S1, S2, T1, S3, S4, T2, S5, S6, T3 et Annuel. T3 et Annuel "
+            "restent deux produits distincts.",
+         "en":
+            "The __Academic sessions and periods__ tab configures the school year. Session and term dates bound the "
+            "ten milestones: S1, S2, T1, S3, S4, T2, S5, S6, T3 and Annual. T3 and Annual remain distinct products."},
+        {"type": "steps", "items": [
+            {"fr": "Ouvrez __Paramètres → Années & périodes__, sélectionnez la session puis lancez __Prévisualiser "
+                   "les dates__ dans l'__Assistant de configuration académique__. La prévisualisation est en lecture "
+                   "seule : aucune ligne n'est écrite.",
+             "en": "Open __Settings → Academic sessions and periods__, select the session, then click __Preview result "
+                   "dates__ in the __Academic configuration wizard__. Preview is read-only: nothing is written."},
+            {"fr": "Parcourez les six étapes : dates session/trimestres, dates des résultats, dépendances et poids "
+                   "(COMP peut être optionnel), fenêtres, validation/diff, puis confirmation. Chaque fenêtre affiche "
+                   "son fuseau, sa source (locale ou héritée) et ses dates effectives.",
+             "en": "Walk through the six steps: session/term dates, result dates, dependencies and weights (COMP may "
+                   "be optional), windows, validation/diff, then confirmation. Each window shows its timezone, source "
+                   "(local or inherited), and effective dates."},
+            {"fr": "À l'étape __Confirmation__, saisissez un motif puis confirmez l'application transactionnelle. Une "
+                   "dérogation d'urgence exige aussi un motif et une expiration ; elle est limitée à 31 jours et reste "
+                   "visible dans l'historique d'audit.",
+             "en": "At __Confirmation__, enter a reason and confirm the transactional apply. An emergency override also "
+                   "requires a reason and expiry; it is limited to 31 days and remains visible in the audit history."},
+            {"fr": "Dans __Paramètres → Scolarité → Modèles / marque__, consultez les versions de modèles et de marque. "
+                   "__Publier une nouvelle version__ ou __Publier la version actuelle__ demande un motif et conserve les "
+                   "anciennes références pour que les bulletins déjà publiés restent identiques.",
+             "en": "In __Settings → Academics → Templates / branding__, review template and branding versions. "
+                   "__Publish new version__ or __Publish current branding__ requires a reason and preserves old "
+                   "references so already-published bulletins remain identical."},
+        ]},
+        {"type": "note", "tone": "warn", "fr":
+            "Ne réutilisez pas un ancien bouton de création directe : l'assistant est l'unique parcours d'application. "
+            "Une modification d'affectation après publication ne réécrit pas l'emploi du temps publié ; créez une "
+            "nouvelle version brouillon si un changement est nécessaire.",
+         "en":
+            "Do not use a legacy direct-create path: the wizard is the only apply workflow. Changing an assignment after "
+            "publication never rewrites the published timetable; create a new draft version when a change is needed."},
+
         {"type": "check", "items": [
             {"fr": "Créer une section puis une classe dans le parcours actif.",
              "en": "Create a section then a class in the active parcours."},

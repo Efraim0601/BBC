@@ -3,6 +3,8 @@ package com.bbc.sms.messaging;
 import com.bbc.sms.messaging.dto.MessageDtos.*;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AppUserPrincipal;
+import com.bbc.sms.platform.security.AuthorizationPolicyService;
+import com.bbc.sms.platform.security.PolicyResourceContext;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.student.Student;
 import com.bbc.sms.student.StudentRepository;
@@ -12,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -22,14 +25,18 @@ public class CorrespondenceService {
 
     private final CorrespondenceRepository repo;
     private final StudentRepository students;
+    private final AuthorizationPolicyService policy;
 
-    public CorrespondenceService(CorrespondenceRepository repo, StudentRepository students) {
+    public CorrespondenceService(CorrespondenceRepository repo, StudentRepository students,
+                                 AuthorizationPolicyService policy) {
         this.repo = repo;
         this.students = students;
+        this.policy = policy;
     }
 
     @Transactional(readOnly = true)
     public List<NoticeView> list() {
+        requireSchool("MESSAGES_VIEW");
         UUID schoolId = TenantContext.get();
         Map<UUID, Student> byId = new HashMap<>();
         students.findBySchoolIdAndActiveTrueOrderByLastNameAsc(schoolId)
@@ -41,6 +48,7 @@ public class CorrespondenceService {
 
     @Transactional(readOnly = true)
     public List<NoticeView> forStudent(UUID studentId) {
+        requireSchool("MESSAGES_VIEW");
         UUID schoolId = TenantContext.get();
         Student student = students.findByIdAndSchoolId(studentId, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Élève"));
@@ -51,6 +59,7 @@ public class CorrespondenceService {
 
     @Transactional
     public NoticeView create(NoticeUpsert in) {
+        requireSchool("MESSAGES_MANAGE");
         UUID schoolId = TenantContext.get();
         Student student = students.findByIdAndSchoolId(in.studentId(), schoolId)
                 .orElseThrow(() -> ApiException.notFound("Élève"));
@@ -68,6 +77,7 @@ public class CorrespondenceService {
 
     @Transactional
     public NoticeView acknowledge(UUID id, AckRequest in) {
+        requireSchool("MESSAGES_MANAGE");
         UUID schoolId = TenantContext.get();
         Correspondence c = repo.findByIdAndSchoolId(id, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Correspondance"));
@@ -79,6 +89,7 @@ public class CorrespondenceService {
 
     @Transactional
     public void delete(UUID id) {
+        requireSchool("MESSAGES_MANAGE");
         Correspondence c = repo.findByIdAndSchoolId(id, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Correspondance"));
         repo.delete(c);
@@ -101,5 +112,10 @@ public class CorrespondenceService {
                 c.getCategory(), c.getSubject(), c.getBody(), c.isRequiresAck(),
                 c.getAcknowledgedAt() != null, c.getAcknowledgedAt(), c.getAcknowledgedBy(),
                 c.getSenderName(), c.getCreatedAt());
+    }
+
+    private void requireSchool(String action) {
+        policy.require(action, new PolicyResourceContext(TenantContext.get(), null, LocalDate.now(),
+                null, null, null, null, null, null, null, null, null));
     }
 }

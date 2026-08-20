@@ -18,6 +18,10 @@ spring:
     enabled: true
     locations: classpath:db/migration
     baseline-on-migrate: true
+    # Existing deployments contain retired early migrations (V4/V5/etc.) that
+    # are no longer in the repository. Tolerate only missing history entries;
+    # checksum mismatches and failed migrations still stop startup.
+    ignore-migration-patterns: "*:missing"
   servlet:
     multipart:
       # Bibliothèque de ressources : la limite qui fait foi est celle du service
@@ -59,6 +63,13 @@ bbc:
     school-name: ${BBC_SCHOOL_NAME:Mon établissement}
     school-code: ${BBC_SCHOOL_CODE:SCHOOL}
     year-label: ${BBC_YEAR_LABEL:2025-2026}
+  documents:
+    storage-path: ${BBC_DOCUMENT_STORAGE:/data/documents}
+  # Never enable this in a production profile. The isolated acceptance
+  # compose file activates both the e2e profile and this explicit switch.
+  e2e:
+    fixtures:
+      enabled: ${BBC_E2E_FIXTURES_ENABLED:false}
 
 springdoc:
   swagger-ui:

@@ -2,6 +2,47 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Shared form controls. These classes are used across feature screens and must
+   remain global because Angular's component styles are view-encapsulated. */
+@layer components {
+  .input {
+    @apply block min-h-11 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-ink shadow-sm transition-colors duration-150;
+  }
+  .input:hover { @apply border-slate-400; }
+  .input:focus {
+    @apply border-brand-500 outline-none ring-2 ring-brand-100;
+  }
+  .input::placeholder { @apply text-slate-400; }
+  .input:disabled { @apply cursor-not-allowed bg-slate-100 text-slate-500; }
+  textarea.input { min-height: 5.5rem; resize: vertical; }
+  .input-error {
+    border-color: #dc2626 !important;
+    background-color: #fff7f7 !important;
+    box-shadow: 0 0 0 3px rgba(220, 38, 38, .10) !important;
+  }
+  .input-error:focus { box-shadow: 0 0 0 3px rgba(220, 38, 38, .16) !important; }
+  .label {
+    @apply mb-1.5 block text-xs font-bold text-slate-700;
+  }
+  .field-label { @apply flex flex-col gap-1 text-xs font-bold text-slate-700; }
+  .field {
+    @apply block min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-ink shadow-sm transition-colors duration-150;
+  }
+  .field:hover { @apply border-slate-400; }
+  .field:focus { @apply border-brand-500 outline-none ring-2 ring-brand-100; }
+  .field::placeholder { @apply text-slate-400; }
+  .required-mark { @apply ml-1 text-rose-600; }
+  .required-hint { @apply ml-2 text-[10px] font-semibold text-rose-600; }
+  .field-error { @apply mt-1.5 flex items-start gap-1 text-xs font-semibold text-rose-600; }
+  .field-help { @apply mt-1.5 text-xs text-slate-500; }
+  .detail-field { @apply rounded-xl border border-slate-200 bg-slate-50 px-3 py-3; }
+  .btn-primary, .btn-secondary {
+    @apply inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary { @apply bg-brand-600 text-white shadow-sm hover:bg-brand-700; }
+  .btn-secondary { @apply border border-slate-300 bg-white text-slate-700 shadow-sm hover:border-slate-400 hover:bg-slate-50; }
+}
+
 /* Design tokens — verbatim from the BBC SMS prototype */
 :root{
   --brand-600:#1B3A5C;
@@ -14,7 +55,8 @@
 }
 
 html, body, #root, bbc-root { height: 100%; }
-html, body { margin: 0; background: theme('colors.surface'); color: theme('colors.ink'); }
+/* Keep the global surface tokens build-safe across Tailwind v3/v4 runners. */
+html, body { margin: 0; background: #F5F6FA; color: #0F2238; }
 body { overflow: hidden; font-family: 'Manrope', ui-sans-serif, system-ui, -apple-system, sans-serif; }
 
 /* scrollbar */

@@ -36,12 +36,22 @@ public class AuthService {
         this.parcoursAccess = parcoursAccess;
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public TokenResponse login(LoginRequest req) {
         AppUser user = resolveUser(req);
+        if (user.getLockedUntil() != null && user.getLockedUntil().isAfter(java.time.OffsetDateTime.now())) {
+            throw new ApiException(HttpStatus.LOCKED, "Compte temporairement verrouillé après plusieurs échecs");
+        }
         if (!encoder.matches(req.password(), user.getPasswordHash())) {
+            user.setFailedAttempts(user.getFailedAttempts() + 1);
+            if (user.getFailedAttempts() >= 5) user.setLockedUntil(java.time.OffsetDateTime.now().plusMinutes(15));
+            users.save(user);
             throw new ApiException(HttpStatus.UNAUTHORIZED, "Identifiants invalides");
         }
+        user.setFailedAttempts(0);
+        user.setLockedUntil(null);
+        user.setLastLoginAt(java.time.OffsetDateTime.now());
+        users.save(user);
         return tokens(user);
     }
 
@@ -97,7 +107,8 @@ public class AuthService {
         String section = SectionRoles.sectionOf(user.getRoleCode());
         return new UserView(user.getId(), user.getUsername(), user.getDisplayName(),
                 user.getInitials(), user.getRoleCode(), user.getSchoolId(),
-                school.getCode(), school.getName(), user.getLocale(), perms, modules, allowedParcours,
+                school.getCode(), school.getName(), user.getLocale(), perms, modules,
+                parcoursAccess.scopeMode(user.getId()), allowedParcours,
                 section, section == null);
     }
 }
