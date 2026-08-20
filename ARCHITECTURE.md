@@ -159,7 +159,7 @@ Les **rôles personnalisés** (`role.builtin = false`) se créent via `POST /api
 - Les contrôleurs staff exigent `@perm.staffOnly()` en plus de `@perm.can(...)`.
 - Le portail `/api/parent/**` filtre strictement via `parent_student` (`assertOwnership`).
 
-**Administrateurs de section** (V43) :
+**Administrateurs de section** (V159) :
 
 L’admin principal (`principal`) délègue chaque cycle à un relais : `admin_maternelle`,
 `admin_primary`, `admin_secondary`. Trois rôles plutôt qu’un rôle + une colonne, parce que

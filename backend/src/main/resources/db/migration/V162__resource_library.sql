@@ -1,5 +1,5 @@
 -- ============================================================================
---  V46 — Ressources partagées (bibliothèque documentaire de l'établissement)
+--  V162 — Ressources partagées (bibliothèque documentaire de l'établissement)
 --
 --  L'admin principal et les administrateurs de section déposent des documents
 --  — circulaires, progressions, fiches, formulaires, images — et choisissent

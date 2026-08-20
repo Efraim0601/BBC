@@ -1,5 +1,5 @@
 -- ============================================================================
---  V44 — Index de rapprochement pour l'import de registre
+--  V160 — Index de rapprochement pour l'import de registre
 --
 --  L'import d'une classe rapproche chaque ligne des élèves déjà inscrits, pour
 --  compléter leur fiche au lieu de créer un doublon. Il lit donc, une fois par

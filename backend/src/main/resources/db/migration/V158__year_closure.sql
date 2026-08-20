@@ -1,7 +1,7 @@
 -- ============================================================================
---  V42 — Clôture de l'année scolaire
+--  V158 — Clôture de l'année scolaire
 --
---  Le passage de classe (V41) déplace les élèves ; il ne vide pas les compteurs.
+--  Le passage de classe (V157) déplace les élèves ; il ne vide pas les compteurs.
 --  Trois tables seulement débordent d'une année sur l'autre, faute de dimension
 --  temporelle : `grade`, `bulletin_validation` et `student_fee`. La clôture les
 --  recopie dans une archive datée puis remet les tables vives à zéro, et bascule

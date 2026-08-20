@@ -1,5 +1,5 @@
 -- ============================================================================
---  V41 — Passage de classe (fin d'année)
+--  V157 — Passage de classe (fin d'année)
 --
 --  Trois briques, correspondant aux trois questions du cycle de vie de l'élève :
 --    1. la PROGRESSION  — vers quelle classe un élève monte (mapping configurable) ;

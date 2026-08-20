@@ -1,5 +1,5 @@
 -- ============================================================================
---  V43 — Administrateurs de section
+--  V159 — Administrateurs de section
 --
 --  L'admin principal (« principal ») pilote l'établissement entier. Il lui faut
 --  des relais : un administrateur par section, qui administre son cycle comme
