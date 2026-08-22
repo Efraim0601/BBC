@@ -3,6 +3,7 @@ package com.bbc.sms.academic;
 import com.bbc.sms.academic.dto.AcademicDtos.*;
 import com.bbc.sms.academic.security.AcademicAccessPolicyService;
 import com.bbc.sms.foundation.audit.AuditService;
+import com.bbc.sms.foundation.cohort.AcademicCohortResolver;
 import com.bbc.sms.foundation.enrollment.StudentEnrollment;
 import com.bbc.sms.foundation.enrollment.StudentEnrollmentRepository;
 import com.bbc.sms.foundation.session.AcademicReportingPeriod;
@@ -14,6 +15,7 @@ import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.student.StudentRepository;
 import com.bbc.sms.timetable.SchoolClass;
 import com.bbc.sms.timetable.SchoolClassRepository;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -42,6 +44,28 @@ public class ReportCardInputService {
     private final AcademicWindowPolicyService windows;
     private final AcademicAccessPolicyService accessPolicy;
     private final AuditService audit;
+    private final AcademicCohortResolver cohorts;
+
+    @Autowired
+    public ReportCardInputService(JdbcTemplate jdbc,
+                                  AcademicReportingPeriodRepository periods,
+                                  StudentEnrollmentRepository enrollments,
+                                  StudentRepository students,
+                                  SchoolClassRepository classes,
+                                  AcademicWindowPolicyService windows,
+                                  AcademicAccessPolicyService accessPolicy,
+                                  AuditService audit,
+                                  AcademicCohortResolver cohorts) {
+        this.jdbc = jdbc;
+        this.periods = periods;
+        this.enrollments = enrollments;
+        this.students = students;
+        this.classes = classes;
+        this.windows = windows;
+        this.accessPolicy = accessPolicy;
+        this.audit = audit;
+        this.cohorts = cohorts;
+    }
 
     public ReportCardInputService(JdbcTemplate jdbc,
                                   AcademicReportingPeriodRepository periods,
@@ -51,14 +75,7 @@ public class ReportCardInputService {
                                   AcademicWindowPolicyService windows,
                                   AcademicAccessPolicyService accessPolicy,
                                   AuditService audit) {
-        this.jdbc = jdbc;
-        this.periods = periods;
-        this.enrollments = enrollments;
-        this.students = students;
-        this.classes = classes;
-        this.windows = windows;
-        this.accessPolicy = accessPolicy;
-        this.audit = audit;
+        this(jdbc, periods, enrollments, students, classes, windows, accessPolicy, audit, null);
     }
 
     @Transactional(readOnly = true)
@@ -67,23 +84,37 @@ public class ReportCardInputService {
         SchoolClass schoolClass = schoolClass(classId);
         accessPolicy.require(AcademicAccessPolicyService.Capability.COUNCIL_INPUT_VIEW,
                 period.getAcademicSessionId(), classId, null, null, period.getStartDate());
-        List<ReportCardInputRow> rows = jdbc.query("""
-                SELECT e.student_id, s.matricule,
-                       upper(s.last_name) || ' ' || s.first_name AS student_name
-                  FROM student_enrollment e
-                  JOIN student s ON s.id=e.student_id AND s.active
-                 WHERE e.school_id=? AND e.academic_session_id=?
-                   AND e.school_class_id=? AND e.status='ACTIVE'
-                   AND e.enrolled_on<=? AND (e.exited_on IS NULL OR e.exited_on>=?)
-                 ORDER BY s.last_name, s.first_name
-                """, (rs, n) -> {
+        List<UUID> rosterIds = cohorts == null ? null
+                : cohorts.rosterStudentIds(period.getAcademicSessionId(), classId, "ACTIVE", period.getStartDate());
+        String rosterFilter = rosterIds == null
+                ? "e.school_class_id=?"
+                : "e.student_id IN (" + String.join(",", Collections.nCopies(Math.max(1, rosterIds.size()), "?")) + ")";
+        if (rosterIds != null && rosterIds.isEmpty()) return new ReportCardInputsView(period.getAcademicSessionId(), period.getId(), period.getCode(), period.getLabel(),
+                classId, schoolClass.getName(), List.of(),
+                accessPolicy.can(AcademicAccessPolicyService.Capability.COUNCIL_INPUT_EDIT,
+                        period.getAcademicSessionId(), classId, null, null, period.getStartDate()),
+                accessPolicy.can(AcademicAccessPolicyService.Capability.GRADE_PACKET_REVIEW,
+                        period.getAcademicSessionId(), classId, null, null, period.getStartDate()));
+        List<Object> rosterArgs = new ArrayList<>(List.of(TenantContext.get(), period.getAcademicSessionId()));
+        if (rosterIds == null) rosterArgs.add(classId);
+        else rosterArgs.addAll(rosterIds);
+        rosterArgs.add(period.getStartDate()); rosterArgs.add(period.getStartDate());
+        String rosterSql = "SELECT e.student_id, s.matricule, upper(s.last_name) || ' ' || s.first_name AS student_name "
+                + "FROM student_enrollment e JOIN student s ON s.id=e.student_id AND s.active "
+                + "WHERE e.school_id=? AND e.academic_session_id=? AND " + rosterFilter
+                + " AND e.status='ACTIVE' AND e.enrolled_on<=? AND (e.exited_on IS NULL OR e.exited_on>=?) "
+                + "ORDER BY s.last_name, s.first_name";
+        List<ReportCardInputRow> rows = jdbc.query(rosterSql, (rs, n) -> {
                     UUID studentId = rs.getObject("student_id", UUID.class);
                     return new ReportCardInputRow(studentId, rs.getString("student_name"), rs.getString("matricule"),
                             attendance(period, studentId), latestAdjustment(periodId, studentId), conduct(periodId, studentId));
-                }, TenantContext.get(), period.getAcademicSessionId(), classId,
-                period.getStartDate(), period.getStartDate());
+                }, rosterArgs.toArray());
         return new ReportCardInputsView(period.getAcademicSessionId(), period.getId(), period.getCode(), period.getLabel(),
-                classId, schoolClass.getName(), rows);
+                classId, schoolClass.getName(), rows,
+                accessPolicy.can(AcademicAccessPolicyService.Capability.COUNCIL_INPUT_EDIT,
+                        period.getAcademicSessionId(), classId, null, null, period.getStartDate()),
+                accessPolicy.can(AcademicAccessPolicyService.Capability.GRADE_PACKET_REVIEW,
+                        period.getAcademicSessionId(), classId, null, null, period.getStartDate()));
     }
 
     @Transactional
@@ -329,7 +360,9 @@ public class ReportCardInputService {
                 .orElseThrow(() -> ApiException.notFound("Élève"));
         enrollments.findFirstBySchoolIdAndStudentIdAndAcademicSessionIdAndStatus(
                 TenantContext.get(), studentId, period.getAcademicSessionId(), "ACTIVE")
-                .filter(e -> classId.equals(e.getSchoolClassId())
+                .filter(e -> (cohorts != null
+                        ? cohorts.studentBelongsToClass(period.getAcademicSessionId(), classId, studentId, "ACTIVE", period.getStartDate())
+                        : classId.equals(e.getSchoolClassId()))
                         && !e.getEnrolledOn().isAfter(period.getStartDate())
                         && (e.getExitedOn() == null || !e.getExitedOn().isBefore(period.getStartDate())))
                 .orElseThrow(() -> ApiException.badRequest("L'élève n'est pas inscrit dans cette classe pour la session"));

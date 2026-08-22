@@ -2,6 +2,7 @@ package com.bbc.sms.academic;
 
 import com.bbc.sms.academic.dto.AcademicDtos.*;
 import com.bbc.sms.academic.security.AcademicAccessPolicyService;
+import com.bbc.sms.foundation.cohort.AcademicCohortResolver;
 import com.bbc.sms.foundation.enrollment.StudentEnrollment;
 import com.bbc.sms.foundation.enrollment.StudentEnrollmentRepository;
 import com.bbc.sms.foundation.session.AcademicReportingPeriod;
@@ -14,6 +15,7 @@ import com.bbc.sms.student.StudentRepository;
 import com.bbc.sms.timetable.SchoolClass;
 import com.bbc.sms.timetable.SchoolClassRepository;
 import com.bbc.sms.timetable.TeachingAssignmentResolver;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -40,6 +42,28 @@ public class GradeEntryService {
     private final AcademicAccessPolicyService accessPolicy;
     private final TeachingAssignmentResolver assignments;
     private final JdbcTemplate jdbc;
+    private final AcademicCohortResolver cohorts;
+
+    @Autowired
+    public GradeEntryService(AcademicReportingPeriodRepository periods,
+                             AcademicAssessmentRepository assessments,
+                             AcademicGradeRepository grades,
+                             SubjectResultCommentRepository comments,
+                             AcademicGradePacketRepository packets,
+                             StudentEnrollmentRepository enrollments,
+                             StudentRepository students,
+                             SubjectRepository subjects,
+                             SchoolClassRepository classes,
+                             AcademicWindowPolicyService windows,
+                             AcademicAccessPolicyService accessPolicy,
+                             TeachingAssignmentResolver assignments,
+                             JdbcTemplate jdbc,
+                             AcademicCohortResolver cohorts) {
+        this.periods = periods; this.assessments = assessments; this.grades = grades;
+        this.comments = comments; this.packets = packets; this.enrollments = enrollments;
+        this.students = students; this.subjects = subjects; this.classes = classes;
+        this.windows = windows; this.accessPolicy = accessPolicy; this.assignments = assignments; this.jdbc = jdbc; this.cohorts = cohorts;
+    }
 
     public GradeEntryService(AcademicReportingPeriodRepository periods,
                              AcademicAssessmentRepository assessments,
@@ -54,10 +78,8 @@ public class GradeEntryService {
                              AcademicAccessPolicyService accessPolicy,
                              TeachingAssignmentResolver assignments,
                              JdbcTemplate jdbc) {
-        this.periods = periods; this.assessments = assessments; this.grades = grades;
-        this.comments = comments; this.packets = packets; this.enrollments = enrollments;
-        this.students = students; this.subjects = subjects; this.classes = classes;
-        this.windows = windows; this.accessPolicy = accessPolicy; this.assignments = assignments; this.jdbc = jdbc;
+        this(periods, assessments, grades, comments, packets, enrollments, students, subjects,
+                classes, windows, accessPolicy, assignments, jdbc, null);
     }
 
     @Transactional(readOnly = true)
@@ -75,7 +97,7 @@ public class GradeEntryService {
                 ? available.get(0).code() : requestedSubject.trim().toUpperCase(Locale.ROOT);
         GradeEntrySubjectView subject = available.stream().filter(x -> x.code().equalsIgnoreCase(subjectCode)).findFirst()
                 .orElseThrow(() -> ApiException.forbidden("Cette matière n'est pas affectée à la classe ou ne vous est pas attribuée"));
-        assertSubjectAccess(classId, schoolClass.getName(), period.getAcademicSessionId(), period.getStartDate(), subjectCode);
+        assertSubjectViewAccess(period.getAcademicSessionId(), classId, subjectCode, period.getStartDate());
 
         List<GradeEntryAssessmentView> definition = assessments.findApplicable(
                 TenantContext.get(), periodId, classId, subjectCode).stream().map(this::assessmentView).toList();
@@ -249,11 +271,20 @@ public class GradeEntryService {
         SchoolClass schoolClass = schoolClass(in.classId());
         String subjectCode = in.subjectCode().trim().toUpperCase(Locale.ROOT);
         GradeEntrySubjectView subject = availableSubjects(period.getAcademicSessionId(), in.classId(), schoolClass.getName(), period.getStartDate()).stream().filter(x -> x.code().equalsIgnoreCase(subjectCode)).findFirst().orElseThrow(() -> ApiException.badRequest("La matière n'est pas affectée à cette classe"));
-        assertSubjectAccess(in.classId(), schoolClass.getName(), period.getAcademicSessionId(), period.getStartDate(), subjectCode);
+        String action = in.action() == null ? "" : in.action().trim().toUpperCase(Locale.ROOT);
+        if (!Set.of("SUBMIT", "ACCEPT", "RETURN").contains(action)) {
+            throw ApiException.badRequest("Action de workflow invalide : utilisez SUBMIT, ACCEPT ou RETURN");
+        }
+        if ("SUBMIT".equals(action)) {
+            assertSubjectAccess(in.classId(), schoolClass.getName(), period.getAcademicSessionId(), period.getStartDate(), subjectCode);
+        } else {
+            accessPolicy.require(AcademicAccessPolicyService.Capability.GRADE_PACKET_REVIEW,
+                    period.getAcademicSessionId(), in.classId(), subjectCode, null, period.getStartDate());
+        }
         AcademicGradePacket packet = packet(period, in.classId(), subjectCode, subject);
         String previousPacketStatus = packet.getStatus();
         if (in.packetVersion() != null && packet.getId() != null && in.packetVersion() != packet.getVersion()) throw ApiException.conflict("La feuille de saisie a été modifiée entre-temps. Rechargez-la.");
-        if ("SUBMIT".equalsIgnoreCase(in.action())) {
+        if ("SUBMIT".equals(action)) {
             accessPolicy.require(AcademicAccessPolicyService.Capability.SUBJECT_GRADE_SUBMIT,
                     period.getAcademicSessionId(), in.classId(), subjectCode, null, period.getStartDate());
             if (!Set.of("DRAFT", "RETURNED").contains(previousPacketStatus)) {
@@ -267,11 +298,7 @@ public class GradeEntryService {
             packet.setStatus("SUBMITTED"); packet.setSubmittedBy(currentUserId()); packet.setSubmittedAt(Instant.now());
             updateWorkflow(period.getId(), in.classId(), subjectCode, "SUBMITTED");
         } else {
-            accessPolicy.require(AcademicAccessPolicyService.Capability.GRADE_PACKET_REVIEW,
-                    period.getAcademicSessionId(), in.classId(), subjectCode, null, period.getStartDate());
             windows.assertOpen(period.getId(), AcademicWindowPolicyService.Action.REVIEW);
-            String action = in.action().trim().toUpperCase(Locale.ROOT);
-            if (!Set.of("ACCEPT", "RETURN").contains(action)) throw ApiException.badRequest("Action de revue invalide : utilisez ACCEPT ou RETURN");
             if (!"SUBMITTED".equals(previousPacketStatus)) {
                 throw ApiException.conflict("Seule une feuille soumise peut être acceptée ou retournée.");
             }
@@ -314,9 +341,21 @@ public class GradeEntryService {
                             resolved.teacherName(), resolved.status(), resolved.code(),
                             resolved.messageFr(), rs.getBoolean(4), assignmentReadiness(resolved));
                 }, TenantContext.get(), sessionId, classId, effectiveDate, effectiveDate);
-        return all.stream().filter(subject -> accessPolicy.can(
-                AcademicAccessPolicyService.Capability.SUBJECT_GRADE_VIEW,
-                sessionId, classId, subject.code(), null, effectiveDate)).toList();
+        return all.stream().filter(subject ->
+                accessPolicy.can(AcademicAccessPolicyService.Capability.SUBJECT_GRADE_VIEW,
+                        sessionId, classId, subject.code(), null, effectiveDate)
+                || accessPolicy.can(AcademicAccessPolicyService.Capability.GRADE_PACKET_REVIEW,
+                        sessionId, classId, subject.code(), null, effectiveDate)).toList();
+    }
+
+    private void assertSubjectViewAccess(UUID sessionId, UUID classId, String subjectCode,
+                                         java.time.LocalDate effectiveDate) {
+        if (accessPolicy.can(AcademicAccessPolicyService.Capability.SUBJECT_GRADE_VIEW,
+                sessionId, classId, subjectCode, null, effectiveDate)
+                || accessPolicy.can(AcademicAccessPolicyService.Capability.GRADE_PACKET_REVIEW,
+                sessionId, classId, subjectCode, null, effectiveDate)) return;
+        accessPolicy.require(AcademicAccessPolicyService.Capability.SUBJECT_GRADE_VIEW,
+                sessionId, classId, subjectCode, null, effectiveDate);
     }
 
     private void assertSubjectAccess(UUID classId, String className, UUID sessionId,
@@ -361,6 +400,18 @@ public class GradeEntryService {
     }
 
     private List<RosterStudent> roster(UUID sessionId, UUID classId) {
+        if (cohorts != null) {
+            List<UUID> ids = cohorts.rosterStudentIds(sessionId, classId, "ACTIVE");
+            if (ids.isEmpty()) return List.of();
+            String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
+            List<Object> args = new ArrayList<>();
+            args.add(TenantContext.get()); args.addAll(ids);
+            String sql = "SELECT s.id, s.matricule, trim(s.last_name || ' ' || s.first_name) "
+                    + "FROM student s WHERE s.school_id=? AND s.active=true AND s.id IN ("
+                    + placeholders + ") ORDER BY s.last_name, s.first_name, s.matricule";
+            return jdbc.query(sql, (rs, n) -> new RosterStudent(rs.getObject(1, UUID.class), rs.getString(2), rs.getString(3)),
+                    args.toArray());
+        }
         return jdbc.query("""
                 SELECT s.id, s.matricule, trim(s.last_name || ' ' || s.first_name)
                   FROM student_enrollment se JOIN student s ON s.id=se.student_id

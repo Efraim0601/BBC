@@ -7,6 +7,7 @@ import com.bbc.sms.academic.dto.AcademicDtos.BulletinBatchCancelRequest;
 import com.bbc.sms.academic.security.AcademicAccessPolicyService;
 import com.bbc.sms.foundation.enrollment.StudentEnrollment;
 import com.bbc.sms.foundation.enrollment.StudentEnrollmentRepository;
+import com.bbc.sms.foundation.cohort.AcademicCohortResolver;
 import com.bbc.sms.foundation.session.AcademicReportingPeriod;
 import com.bbc.sms.foundation.session.AcademicReportingPeriodRepository;
 import com.bbc.sms.platform.common.ApiException;
@@ -36,6 +37,7 @@ public class ReportCardBatchJobService {
     private final StudentRepository students;
     private final AcademicAccessPolicyService accessPolicy;
     private final ReportCardBatchJobWorker worker;
+    private final AcademicCohortResolver cohorts;
 
     public ReportCardBatchJobService(JdbcTemplate jdbc,
                                      StudentEnrollmentRepository enrollments,
@@ -43,7 +45,8 @@ public class ReportCardBatchJobService {
                                      SchoolClassRepository classes,
                                      StudentRepository students,
                                      AcademicAccessPolicyService accessPolicy,
-                                     ReportCardBatchJobWorker worker) {
+                                     ReportCardBatchJobWorker worker,
+                                     AcademicCohortResolver cohorts) {
         this.jdbc = jdbc;
         this.enrollments = enrollments;
         this.periods = periods;
@@ -51,6 +54,7 @@ public class ReportCardBatchJobService {
         this.students = students;
         this.accessPolicy = accessPolicy;
         this.worker = worker;
+        this.cohorts = cohorts;
     }
 
     @Transactional
@@ -65,12 +69,7 @@ public class ReportCardBatchJobService {
                 .orElseThrow(() -> ApiException.notFound("Période de résultat"));
         accessPolicy.require(AcademicAccessPolicyService.Capability.REPORT_CARD_PUBLISH,
                 period.getAcademicSessionId(), request.classId(), null, null, period.getStartDate());
-        List<StudentEnrollment> roster = enrollments
-                .findBySchoolIdAndAcademicSessionIdAndSchoolClassIdAndStatusOrderByClassNameSnapshotAsc(
-                        schoolId, period.getAcademicSessionId(), request.classId(), "ACTIVE").stream()
-                .filter(e -> !e.getEnrolledOn().isAfter(period.getStartDate())
-                        && (e.getExitedOn() == null || !e.getExitedOn().isBefore(period.getStartDate())))
-                .toList();
+        List<UUID> roster = cohorts.rosterStudentIds(period.getAcademicSessionId(), request.classId(), "ACTIVE", period.getStartDate());
         if (roster.isEmpty()) throw ApiException.conflict("Aucun élève actif dans cette classe");
 
         UUID id = UUID.randomUUID();
@@ -81,11 +80,11 @@ public class ReportCardBatchJobService {
                 VALUES (?,?,?,?,?,?,'QUEUED',?,?)
                 """, id, schoolId, period.getAcademicSessionId(), period.getId(), request.classId(), locale,
                 roster.size(), currentUserId());
-        for (StudentEnrollment enrollment : roster) {
+        for (UUID studentId : roster) {
             jdbc.update("""
                     INSERT INTO bulletin_batch_item (id,school_id,job_id,student_id,status)
                     VALUES (?,?,?,?,'QUEUED')
-                    """, UUID.randomUUID(), schoolId, id, enrollment.getStudentId());
+                    """, UUID.randomUUID(), schoolId, id, studentId);
         }
         startAfterCommit(id, schoolId);
         return view(id);

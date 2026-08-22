@@ -11,6 +11,7 @@ import {
 import {
   ParentApi,
   ChildView,
+  ProgrammeClassView,
   GradeView,
   SuggestionView,
   SuggestionRequest,
@@ -111,6 +112,20 @@ const fmtMoney = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} FCFA`;
             }
           </div>
         </bbc-card>
+
+        @if (programmeClasses().length > 1) {
+          <div class="mb-5 rounded-xl border border-brand-100 bg-brand-50/60 px-4 py-3 flex flex-wrap items-center gap-3">
+            <div class="min-w-0 flex-1">
+              <div class="text-sm font-bold text-ink">{{ fr() ? 'Bulletin par programme' : 'Report card programme' }}</div>
+              <div class="text-xs text-mute">{{ fr() ? 'Cet enfant suit deux parcours dans cette classe. Choisissez le bulletin à consulter.' : 'This child follows two programmes in this class. Choose the report card to view.' }}</div>
+            </div>
+            <select class="input min-w-[220px]" [ngModel]="selectedProgrammeClassId()" (ngModelChange)="changeProgramme($event)">
+              @for (programme of programmeClasses(); track programme.classId) {
+                <option [value]="programme.classId">{{ programme.className }} · {{ programme.subsystem }}</option>
+              }
+            </select>
+          </div>
+        }
 
         <bbc-tabs [tabs]="tabs()" [value]="tab()" (change)="tab.set($any($event))" />
 
@@ -580,6 +595,8 @@ export class ParentComponent {
 
   protected children = signal<ChildView[]>([]);
   protected selected = signal<ChildView | null>(null);
+  protected programmeClasses = signal<ProgrammeClassView[]>([]);
+  protected selectedProgrammeClassId = signal<string | null>(null);
   protected grades = signal<GradeView[]>([]);
   protected publishedBulletin = signal<PublishedBulletinView | null>(null);
   protected suggestions = signal<SuggestionView[]>([]);
@@ -737,6 +754,29 @@ export class ParentComponent {
     this.api.sharedResourceFile(r.id).subscribe((b) => openBlob(b, r.fileName));
   }
 
+  private loadPublishedBulletin(studentId: string, classId?: string | null): void {
+    this.publishedBulletin.set(null);
+    this.grades.set([]);
+    this.api.latestPublishedBulletin(studentId, classId).subscribe({
+      next: (b) => {
+        this.publishedBulletin.set(b);
+        // The parent portal derives this list from the immutable published
+        // bulletin. It never loads raw grade rows.
+        this.grades.set(b.lines.map((line) => ({
+          subjectCode: line.subjectLabel, subjectLabelFr: line.subjectLabel, subjectLabelEn: line.subjectLabel,
+          coef: line.coefficient, sequence: 0, mark: line.mark,
+        })));
+      },
+      error: () => { this.publishedBulletin.set(null); this.grades.set([]); },
+    });
+  }
+
+  protected changeProgramme(classId: string): void {
+    this.selectedProgrammeClassId.set(classId || null);
+    const child = this.selected();
+    if (child) this.loadPublishedBulletin(child.studentId, classId || null);
+  }
+
   constructor() {
     // School profile is a staff/settings capability. Parents still get the
     // portal without probing an endpoint they are not authorized to read.
@@ -764,6 +804,8 @@ export class ParentComponent {
 
   protected select(child: ChildView): void {
     this.selected.set(child);
+    this.programmeClasses.set([]);
+    this.selectedProgrammeClassId.set(null);
     this.grades.set([]);
     this.publishedBulletin.set(null);
     this.supplies.set(null);
@@ -775,17 +817,18 @@ export class ParentComponent {
     this.health.set(null);
     this.events.set([]);
     this.notices.set([]);
-    this.api.latestPublishedBulletin(child.studentId).subscribe({
-      next: (b) => {
-        this.publishedBulletin.set(b);
-        // The parent portal derives this list from the immutable published
-        // bulletin. It never loads raw grade rows.
-        this.grades.set(b.lines.map((line) => ({
-          subjectCode: line.subjectLabel, subjectLabelFr: line.subjectLabel, subjectLabelEn: line.subjectLabel,
-          coef: line.coefficient, sequence: 0, mark: line.mark,
-        })));
+    this.api.programmeClasses(child.studentId).subscribe({
+      next: (programmes) => {
+        this.programmeClasses.set(programmes);
+        const first = programmes[0]?.classId ?? null;
+        this.selectedProgrammeClassId.set(first);
+        this.loadPublishedBulletin(child.studentId, first);
       },
-      error: () => { this.publishedBulletin.set(null); this.grades.set([]); },
+      error: () => {
+        this.programmeClasses.set([]);
+        this.selectedProgrammeClassId.set(null);
+        this.loadPublishedBulletin(child.studentId);
+      },
     });
     if (child.financeVisible) {
       this.api.fees(child.studentId).subscribe({

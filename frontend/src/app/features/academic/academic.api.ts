@@ -99,6 +99,7 @@ export interface BulletinSnapshotView {
   id?: string; academicSessionId: string; reportingPeriodId: string;
   reportingPeriodCode: string; reportingPeriodLabel: string; studentId: string;
   studentName: string; matricule: string; educationalLevel?: string | null; subsystem?: string | null; className: string | null;
+  programmeClassId?: string | null;
   lines: Array<{ subjectCode: string; subjectLabel: string; coefficient: number; mark: number | null; weighted: number | null; teacherRemark: string | null; appreciation: string; assessments: AssessmentEvidence[]; periodMarks?: Array<{ periodCode: string; mark: number | null }> | null; teacherName?: string | null; subjectGroupCode?: string | null; subjectGroupLabel?: string | null }>;
   average: number | null; rank: number | null; classSize: number; state: string; complete: boolean;
   blockers: string[]; snapshotHash: string; calculationPolicy: string; generalAppreciation: string | null; version: number;
@@ -218,6 +219,7 @@ export interface ReportCardInputRow {
 export interface ReportCardInputsView {
   academicSessionId: string; reportingPeriodId: string; reportingPeriodCode: string;
   reportingPeriodLabel: string; classId: string; className: string; rows: ReportCardInputRow[];
+  canEdit: boolean; canReview: boolean;
 }
 export interface ReportCardInputUpsert {
   reportingPeriodId: string; classId: string; studentId: string;
@@ -319,11 +321,13 @@ export class AcademicApi {
       `${this.base}/students/${encodeURIComponent(studentId)}/bulletin?sequence=${sequence}`,
     );
   }
-  bulletinSnapshot(studentId: string, reportingPeriodId: string): Observable<BulletinSnapshotView> {
-    return this.http.post<BulletinSnapshotView>(`${this.base}/students/${encodeURIComponent(studentId)}/bulletin-snapshots`, {}, { params: { reportingPeriodId } });
+  bulletinSnapshot(studentId: string, reportingPeriodId: string, classId?: string): Observable<BulletinSnapshotView> {
+    const params: Record<string, string> = { reportingPeriodId }; if (classId) params['classId'] = classId;
+    return this.http.post<BulletinSnapshotView>(`${this.base}/students/${encodeURIComponent(studentId)}/bulletin-snapshots`, {}, { params });
   }
-  previewBulletinSnapshot(studentId: string, reportingPeriodId: string): Observable<BulletinSnapshotView> {
-    return this.http.get<BulletinSnapshotView>(`${this.base}/students/${encodeURIComponent(studentId)}/bulletin-snapshots/preview`, { params: { reportingPeriodId } });
+  previewBulletinSnapshot(studentId: string, reportingPeriodId: string, classId?: string): Observable<BulletinSnapshotView> {
+    const params: Record<string, string> = { reportingPeriodId }; if (classId) params['classId'] = classId;
+    return this.http.get<BulletinSnapshotView>(`${this.base}/students/${encodeURIComponent(studentId)}/bulletin-snapshots/preview`, { params });
   }
 
   validateSnapshot(id: string): Observable<BulletinSnapshotView> {

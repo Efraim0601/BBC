@@ -1,5 +1,5 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { ResourceView } from '../library/library.api';
@@ -18,6 +18,13 @@ export interface ChildView {
   attendanceVisible: boolean;
 }
 
+export interface ProgrammeClassView {
+  classId: string;
+  className: string;
+  subsystem: string;
+  level: string;
+}
+
 export interface GradeView {
   subjectCode: string;
   subjectLabelFr: string;
@@ -30,6 +37,7 @@ export interface GradeView {
 
 export interface PublishedBulletinView {
   id: string; reportingPeriodCode: string; reportingPeriodLabel: string; className: string | null;
+  programmeClassId?: string | null;
   lines: Array<{ subjectLabel: string; mark: number; coefficient: number; teacherRemark: string | null; appreciation: string }>;
   average: number; rank: number | null; classSize: number; state: string; complete: boolean;
   attendance: { absentCount: number; excusedCount: number; lateCount: number; lateMinutes: number } | null;
@@ -180,11 +188,15 @@ export class ParentApi {
   children(): Observable<ChildView[]> {
     return this.http.get<ChildView[]>(`${this.base}/children`);
   }
+  programmeClasses(studentId: string): Observable<ProgrammeClassView[]> {
+    return this.http.get<ProgrammeClassView[]>(`${this.base}/children/${encodeURIComponent(studentId)}/programme-classes`);
+  }
   grades(studentId: string): Observable<GradeView[]> {
     return this.http.get<GradeView[]>(`${this.base}/children/${studentId}/grades`);
   }
-  latestPublishedBulletin(studentId: string): Observable<PublishedBulletinView> {
-    return this.http.get<PublishedBulletinView>(`${this.base}/children/${studentId}/bulletins/latest`);
+  latestPublishedBulletin(studentId: string, classId?: string | null): Observable<PublishedBulletinView> {
+    const params = classId ? new HttpParams().set('classId', classId) : new HttpParams();
+    return this.http.get<PublishedBulletinView>(`${this.base}/children/${encodeURIComponent(studentId)}/bulletins/latest`, { params });
   }
   journey(studentId: string): Observable<ParentJourneyEventView[]> {
     return this.http.get<ParentJourneyEventView[]>(`${this.base}/children/${studentId}/journey`);

@@ -1,6 +1,7 @@
 package com.bbc.sms.foundation.enrollment;
 
 import com.bbc.sms.foundation.audit.AuditService;
+import com.bbc.sms.foundation.cohort.AcademicCohortResolver;
 import com.bbc.sms.foundation.session.AcademicSession;
 import com.bbc.sms.foundation.session.AcademicSessionRepository;
 import com.bbc.sms.foundation.session.AcademicSessionService;
@@ -14,6 +15,7 @@ import com.bbc.sms.student.Student;
 import com.bbc.sms.student.StudentRepository;
 import com.bbc.sms.timetable.SchoolClass;
 import com.bbc.sms.timetable.SchoolClassRepository;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,11 +36,14 @@ public class EnrollmentService {
     private final TeacherScopeService teacherScope;
     private final AuditService audit;
     private final AuthorizationPolicyService policy;
+    private final AcademicCohortResolver cohorts;
 
+    @Autowired
     public EnrollmentService(StudentEnrollmentRepository enrollments, StudentRepository students,
                              SchoolClassRepository classes, AcademicSessionRepository sessions,
                              AcademicSessionService sessionService, TeacherScopeService teacherScope,
-                             AuditService audit, AuthorizationPolicyService policy) {
+                             AuditService audit, AuthorizationPolicyService policy,
+                             AcademicCohortResolver cohorts) {
         this.enrollments = enrollments;
         this.students = students;
         this.classes = classes;
@@ -47,6 +52,15 @@ public class EnrollmentService {
         this.teacherScope = teacherScope;
         this.audit = audit;
         this.policy = policy;
+        this.cohorts = cohorts;
+    }
+
+    /** Focused legacy unit tests do not need the database-backed cohort resolver. */
+    public EnrollmentService(StudentEnrollmentRepository enrollments, StudentRepository students,
+                             SchoolClassRepository classes, AcademicSessionRepository sessions,
+                             AcademicSessionService sessionService, TeacherScopeService teacherScope,
+                             AuditService audit, AuthorizationPolicyService policy) {
+        this(enrollments, students, classes, sessions, sessionService, teacherScope, audit, policy, null);
     }
 
     @Transactional(readOnly = true)
@@ -68,8 +82,13 @@ public class EnrollmentService {
     public List<EnrollmentView> roster(UUID sessionId, UUID classId) {
         AcademicSession session = findSession(sessionId);
         findClass(classId);
-        return enrollments.findBySchoolIdAndAcademicSessionIdAndSchoolClassIdAndStatusOrderByClassNameSnapshotAsc(
-                session.getSchoolId(), sessionId, classId, "ACTIVE").stream()
+        UUID cohortId = cohorts == null ? null : cohorts.cohortForClass(sessionId, classId);
+        List<StudentEnrollment> rows = cohortId == null
+                ? enrollments.findBySchoolIdAndAcademicSessionIdAndSchoolClassIdAndStatusOrderByClassNameSnapshotAsc(
+                    session.getSchoolId(), sessionId, classId, "ACTIVE")
+                : enrollments.findBySchoolIdAndAcademicSessionIdAndCohortIdAndStatusOrderByClassNameSnapshotAsc(
+                    session.getSchoolId(), sessionId, cohortId, "ACTIVE");
+        return rows.stream()
                 .filter(e -> policy.decide("ENROLLMENT_VIEW", context(e.getStudentId(), sessionId,
                         effectiveDate(session), classId)).allowed())
                 .map(this::view).toList();
@@ -88,8 +107,12 @@ public class EnrollmentService {
     public List<StudentEnrollment> activeRosterRecordsForDirectory(UUID sessionId, UUID classId) {
         AcademicSession session = findSession(sessionId);
         findClass(classId);
-        return enrollments.findBySchoolIdAndAcademicSessionIdAndSchoolClassIdAndStatusOrderByClassNameSnapshotAsc(
-                session.getSchoolId(), sessionId, classId, "ACTIVE");
+        UUID cohortId = cohorts == null ? null : cohorts.cohortForClass(sessionId, classId);
+        return cohortId == null
+                ? enrollments.findBySchoolIdAndAcademicSessionIdAndSchoolClassIdAndStatusOrderByClassNameSnapshotAsc(
+                    session.getSchoolId(), sessionId, classId, "ACTIVE")
+                : enrollments.findBySchoolIdAndAcademicSessionIdAndCohortIdAndStatusOrderByClassNameSnapshotAsc(
+                    session.getSchoolId(), sessionId, cohortId, "ACTIVE");
     }
 
     private LocalDate effectiveDate(AcademicSession session) {
@@ -204,6 +227,7 @@ public class EnrollmentService {
         e.setStudentId(student.getId());
         e.setAcademicSessionId(session.getId());
         e.setSchoolClassId(cls == null ? null : cls.getId());
+        e.setCohortId(cls == null || cohorts == null ? null : cohorts.cohortForClass(session.getId(), cls.getId()));
         e.setClassNameSnapshot(cls == null ? student.getClassName() : cls.getName());
         e.setLevelSnapshot(cls == null ? student.getLevel() : cls.getLevel());
         e.setSubsystemSnapshot(cls == null ? student.getSubsystem() : cls.getSubsystem());

@@ -12,6 +12,7 @@ import { FoundationApi, AcademicSessionView, AcademicReportingPeriodView, Docume
 import { AcademicApi, AcademicReadinessView, AcademicAccessDelegation, AcademicAccessDelegationPreview, AcademicAccessDelegationRequest, SecondaryCompetencyModelView } from '../academic/academic.api';
 import { AssessmentDefaultsComponent } from './assessment-defaults/assessment-defaults';
 import { CurriculumCopyComponent } from './curriculum-copy';
+import { BilingualGroupsComponent } from './bilingual-groups';
 import { defaultSubjects } from './subject-defaults';
 import { forkJoin } from 'rxjs';
 import { IconComponent, CardComponent, TabsComponent, EmptyComponent, ListPaginationComponent, paginateRows } from '../../core/ui';
@@ -26,7 +27,7 @@ import { downloadCsv } from '../../core/csv';
   selector: 'bbc-academic-setup',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, IconComponent, CardComponent, TabsComponent, EmptyComponent, ListPaginationComponent, AssessmentDefaultsComponent, CurriculumCopyComponent],
+  imports: [FormsModule, IconComponent, CardComponent, TabsComponent, EmptyComponent, ListPaginationComponent, AssessmentDefaultsComponent, CurriculumCopyComponent, BilingualGroupsComponent],
   template: `
     <bbc-tabs [tabs]="displayedSubTabs()" [value]="sub()" (change)="switchTo($any($event))" />
 
@@ -275,6 +276,14 @@ import { downloadCsv } from '../../core/csv';
               }
             </div>
           }
+        </bbc-card>
+      }
+
+      <!-- ===================== BILINGUAL GROUPS ===================== -->
+      @case ('bilingual-groups') {
+        <bbc-card [title]="fr() ? 'Associer des classes bilingues' : 'Link bilingual classes'"
+          [subtitle]="fr() ? 'Associez deux classes qui contiennent les mêmes élèves.' : 'Link two classes that contain the same students.'">
+          <bbc-bilingual-groups />
         </bbc-card>
       }
 
@@ -528,20 +537,17 @@ import { downloadCsv } from '../../core/csv';
             </div>
           }
 
-          @if (assignmentRows().length) {
-            @if (selectedAssignmentClass()?.level !== 'secondary') {
+          @if (assignmentClassId()) {
               <div class="mb-3 rounded-xl border border-brand-200 bg-brand-50/60 p-4">
                 <div class="font-semibold text-ink">{{ fr() ? 'Titulaire de classe' : 'Homeroom teacher' }} <b class="text-rose-600">*</b></div>
-                <div class="text-xs text-mute mt-1 mb-3">{{ fr() ? 'Une classe primaire utilise un seul titulaire daté. Toutes les matières héritent automatiquement de cette affectation.' : 'A primary class uses one dated homeroom assignment. Every subject inherits this authority automatically.' }}</div>
+                <div class="text-xs text-mute mt-1 mb-3">{{ selectedAssignmentClass()?.level === 'secondary' ? (fr() ? 'Le titulaire supervise toute la classe et ses élèves. Il ne remplace pas les enseignants RESPONSIBLE affectés matière par matière.' : 'The homeroom teacher oversees the whole class and its students. This does not replace the RESPONSIBLE teacher assigned to each subject.') : (fr() ? 'Une classe primaire utilise un seul titulaire daté. Toutes les matières héritent automatiquement de cette affectation.' : 'A primary class uses one dated homeroom assignment. Every subject inherits this authority automatically.') }}</div>
                 <div class="flex flex-col md:flex-row md:items-end gap-3">
                     <label class="block flex-1"><span class="meta">{{ fr() ? 'Enseignant titulaire' : 'Homeroom teacher' }} <b class="text-rose-600">*</b></span><select class="field" [class.invalid]="!curriculum()?.homeroomTeacher" [ngModel]="curriculum()?.homeroomTeacher?.employeeId ?? ''" (ngModelChange)="prepareHomeroom($event)" [disabled]="!canWrite"><option value="">{{ fr() ? 'Choisir un titulaire' : 'Choose a homeroom teacher' }}</option>@for (teacher of allTeachers(); track teacher.id) { <option [value]="teacher.id">{{ teacher.name }} · {{ teacher.code }} · {{ teacher.accountUsername || (fr() ? 'sans compte' : 'no account') }}{{ teacher.accountRole ? ' · ' + teacher.accountRole : '' }}</option> }</select></label>
-                  <div class="text-xs text-slate-600 md:max-w-sm">{{ fr() ? 'Le planning et la saisie des notes sont verrouillés tant que cette affectation est absente.' : 'Timetable and grade entry remain blocked while this assignment is missing.' }}</div>
+                  <div class="text-xs text-slate-600 md:max-w-sm">{{ selectedAssignmentClass()?.level === 'secondary' ? (fr() ? 'Le titulaire obtient la lecture et la revue de la classe; les notes restent saisies par matière.' : 'The homeroom teacher receives class read/review access; marks remain entered per subject.') : (fr() ? 'Le planning et la saisie des notes sont verrouillés tant que cette affectation est absente.' : 'Timetable and grade entry remain blocked while this assignment is missing.') }}</div>
                 </div>
                 @if (!curriculum()?.homeroomTeacher) { <div class="mt-2 text-xs text-rose-700">{{ fr() ? 'Affectation titulaire manquante — action requise.' : 'Homeroom assignment missing — repair required.' }}</div> }
               </div>
-            } @else {
-              <div class="mb-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">{{ fr() ? 'Classe secondaire : choisissez un enseignant RESPONSIBLE dans chaque ligne de matière. Le planning ne propose aucune autre autorité.' : 'Secondary class: choose one RESPONSIBLE teacher in each subject row. The timetable exposes no other authority.' }}</div>
-            }
+
             <div class="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
               <div class="font-semibold text-ink">{{ fr() ? 'Règles du bulletin et enseignant responsable' : 'Report-card rules and responsible teacher' }}</div>
               <div class="text-xs text-mute mt-1 mb-3">{{ fr() ? 'Ces valeurs sont enregistrées pour la combinaison session + classe + matière. Le coefficient ci-dessus est celui qui sera calculé sur le bulletin.' : 'These values are saved for the session + class + subject combination. The coefficient above is the one used on the report card.' }}</div>
@@ -933,6 +939,7 @@ export class AcademicSetupComponent {
       classes: 'CLASS_MANAGE',
       subjects: 'SUBJECT_MANAGE',
       'class-subjects': 'CURRICULUM_CLASS_MANAGE',
+      'bilingual-groups': 'CLASS_MANAGE',
       'access-exceptions': 'ACADEMIC_ACCESS_DELEGATE',
       assessments: 'ACADEMIC_ASSESSMENT_MANAGE',
       competencies: 'ACADEMIC_ASSESSMENT_MANAGE',
@@ -967,7 +974,7 @@ export class AcademicSetupComponent {
       : `Active parcours: ${lvl} · ${sub}. Other parcours data is hidden — switch from the top bar.`;
   });
 
-  protected sub = signal<'sections' | 'classes' | 'subjects' | 'class-subjects' | 'access-exceptions' | 'assessments' | 'competencies' | 'design'>('sections');
+  protected sub = signal<'sections' | 'classes' | 'subjects' | 'class-subjects' | 'bilingual-groups' | 'access-exceptions' | 'assessments' | 'competencies' | 'design'>('sections');
   protected sections = signal<SectionView[]>([]);
   protected classes = signal<ClassView[]>([]);
   protected subjects = signal<SubjectView[]>([]);
@@ -1002,6 +1009,7 @@ export class AcademicSetupComponent {
     { id: 'classes', label: this.fr() ? 'Classes' : 'Classes' },
     { id: 'subjects', label: this.fr() ? 'Matières' : 'Subjects' },
     { id: 'class-subjects', label: this.fr() ? 'Matières par classe' : 'Class subjects' },
+    { id: 'bilingual-groups', label: this.fr() ? 'Associer classes bilingues' : 'Link bilingual classes' },
     { id: 'access-exceptions', label: this.fr() ? 'Exceptions d’accès' : 'Access exceptions' },
     { id: 'competencies', label: this.fr() ? 'Compétences secondaire' : 'Secondary competencies' },
     { id: 'design', label: this.fr() ? 'Modèles / marque' : 'Templates / branding' },
@@ -1181,7 +1189,7 @@ export class AcademicSetupComponent {
     const params = this.route.snapshot.queryParamMap;
     const requestedSubtab = params.get('subtab');
     if (requestedSubtab === 'sections' || requestedSubtab === 'classes' || requestedSubtab === 'subjects'
-      || requestedSubtab === 'class-subjects' || requestedSubtab === 'access-exceptions' || requestedSubtab === 'assessments' || requestedSubtab === 'competencies' || requestedSubtab === 'design') {
+      || requestedSubtab === 'class-subjects' || requestedSubtab === 'bilingual-groups' || requestedSubtab === 'access-exceptions' || requestedSubtab === 'assessments' || requestedSubtab === 'competencies' || requestedSubtab === 'design') {
       this.sub.set(requestedSubtab === 'competencies' ? 'assessments' : requestedSubtab);
     }
     const requestedSessionId = params.get('sessionId');
@@ -1490,7 +1498,7 @@ export class AcademicSetupComponent {
     return out;
   }
 
-  protected switchTo(t: 'sections' | 'classes' | 'subjects' | 'class-subjects' | 'access-exceptions' | 'assessments' | 'competencies' | 'design'): void {
+  protected switchTo(t: 'sections' | 'classes' | 'subjects' | 'class-subjects' | 'bilingual-groups' | 'access-exceptions' | 'assessments' | 'competencies' | 'design'): void {
     this.sub.set(t === 'competencies' ? 'assessments' : t);
     this.secForm.set(false); this.clsForm.set(false); this.subjForm.set(false);
     this.assignmentNotice.set(null);

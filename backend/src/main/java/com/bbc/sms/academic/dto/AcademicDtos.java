@@ -128,7 +128,8 @@ public class AcademicDtos {
                                        SnapshotEvidenceView evidence,
                                        String reportingPeriodType, String product,
                                        BulletinWorkflowMetaView workflowMeta,
-                                       List<BulletinIssueView> issues) {
+                                       List<BulletinIssueView> issues,
+                                       UUID programmeClassId) {
         public BulletinSnapshotView {
             lines = lines == null ? List.of() : List.copyOf(lines);
             blockers = blockers == null ? List.of() : List.copyOf(blockers);
@@ -156,7 +157,31 @@ public class AcademicDtos {
                     average, rank, classSize, state, complete, blockers, snapshotHash, calculationPolicy,
                     generalAppreciation, attendance, conduct, version, classStats, supersedesId,
                     correctsBulletinVersionId, correctionReason, correctionRequestedBy, correctionRequestedAt,
-                    groupStats, evidence, null, null, null, null);
+                    groupStats, evidence, null, null, null, null, null);
+        }
+
+        /** Compatibility constructor for callers that already supplied the extended
+         * period/workflow fields before programme-scoped streams were added. */
+        public BulletinSnapshotView(UUID id, UUID academicSessionId, UUID reportingPeriodId,
+                                    String reportingPeriodCode, String reportingPeriodLabel,
+                                    UUID studentId, String studentName, String matricule,
+                                    String educationalLevel, String subsystem, String className,
+                                    List<BulletinLineView> lines, BigDecimal average, Integer rank, int classSize,
+                                    String state, boolean complete, List<String> blockers,
+                                    String snapshotHash, String calculationPolicy,
+                                    String generalAppreciation, AttendanceSummaryView attendance,
+                                    ConductSummaryView conduct, long version, ClassStatsView classStats,
+                                    UUID supersedesId, UUID correctsBulletinVersionId, String correctionReason,
+                                    UUID correctionRequestedBy, Instant correctionRequestedAt,
+                                    List<GroupStatsView> groupStats, SnapshotEvidenceView evidence,
+                                    String reportingPeriodType, String product,
+                                    BulletinWorkflowMetaView workflowMeta, List<BulletinIssueView> issues) {
+            this(id, academicSessionId, reportingPeriodId, reportingPeriodCode, reportingPeriodLabel,
+                    studentId, studentName, matricule, educationalLevel, subsystem, className, lines,
+                    average, rank, classSize, state, complete, blockers, snapshotHash, calculationPolicy,
+                    generalAppreciation, attendance, conduct, version, classStats, supersedesId,
+                    correctsBulletinVersionId, correctionReason, correctionRequestedBy, correctionRequestedAt,
+                    groupStats, evidence, reportingPeriodType, product, workflowMeta, issues, null);
         }
 
         private static String productFor(String periodType) {
@@ -437,7 +462,8 @@ public class AcademicDtos {
     public record ReportCardInputsView(UUID academicSessionId, UUID reportingPeriodId,
                                        String reportingPeriodCode, String reportingPeriodLabel,
                                        UUID classId, String className,
-                                       List<ReportCardInputRow> rows) {}
+                                       List<ReportCardInputRow> rows,
+                                       boolean canEdit, boolean canReview) {}
 
     public record ReportCardInputUpsert(@NotNull UUID reportingPeriodId, @NotNull UUID classId,
                                         @NotNull UUID studentId, BigDecimal justifiedAbsenceHours,

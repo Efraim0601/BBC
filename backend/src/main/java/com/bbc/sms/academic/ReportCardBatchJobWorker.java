@@ -127,10 +127,11 @@ public class ReportCardBatchJobWorker {
                 SELECT v.id FROM bulletin_version v
                  JOIN student_enrollment e ON e.id=v.enrollment_id
                  WHERE v.school_id=? AND v.student_id=? AND v.reporting_period_id=? AND v.state='PUBLISHED'
-                   AND e.school_id=? AND e.school_class_id=?
+                   AND e.school_id=?
+                   AND (v.programme_class_id=? OR (v.programme_class_id IS NULL AND e.school_class_id=?))
                 ORDER BY v.published_at DESC NULLS LAST,v.created_at DESC LIMIT 1
                 """, rs -> rs.next() ? rs.getObject(1, UUID.class) : null,
-                schoolId, studentId, periodId, schoolId, classId);
+                schoolId, studentId, periodId, schoolId, classId, classId);
     }
 
     private void markTerminal(UUID schoolId, UUID itemId, String status, String fileName, String key, byte[] bytes,

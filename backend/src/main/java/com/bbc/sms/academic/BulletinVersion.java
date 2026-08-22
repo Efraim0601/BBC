@@ -18,6 +18,7 @@ public class BulletinVersion {
     @Column(name = "academic_session_id", nullable = false) private UUID academicSessionId;
     @Column(name = "reporting_period_id", nullable = false) private UUID reportingPeriodId;
     @Column(name = "student_id", nullable = false) private UUID studentId;
+    @Column(name = "programme_class_id") private UUID programmeClassId;
     @Column(name = "enrollment_id") private UUID enrollmentId;
     @Column(nullable = false) private String state = "DRAFT";
     @JdbcTypeCode(SqlTypes.JSON)

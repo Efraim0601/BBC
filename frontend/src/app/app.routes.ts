@@ -70,6 +70,11 @@ export const routes: Routes = [
         loadComponent: () => import('./features/promotion/promotion').then((m) => m.PromotionComponent),
       },
       {
+        path: 'pathways',
+        canActivate: [actionGuard('PROGRESSION_VIEW')],
+        loadComponent: () => import('./features/promotion/pathway-selection').then((m) => m.PathwaySelectionComponent),
+      },
+      {
         path: 'journey/promotions',
         canActivate: [contextualActionGuard('PROGRESSION_VIEW')],
         loadComponent: () => import('./features/journey/promotion-workspace').then((m) => m.PromotionWorkspaceComponent),

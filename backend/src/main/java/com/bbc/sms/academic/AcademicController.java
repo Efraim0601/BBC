@@ -112,17 +112,20 @@ public class AcademicController {
 
     @PostMapping("/students/{studentId}/bulletin-snapshots")
     @PreAuthorize("@perm.canAction('ACADEMIC_REPORT_CARD_VALIDATE') and @perm.staffOnly()")
-    public BulletinSnapshotView calculateSnapshot(@PathVariable UUID studentId, @RequestParam UUID reportingPeriodId) { return snapshotService.calculate(studentId, reportingPeriodId); }
+    public BulletinSnapshotView calculateSnapshot(@PathVariable UUID studentId, @RequestParam UUID reportingPeriodId,
+                                                  @RequestParam(required = false) UUID classId) { return snapshotService.calculate(studentId, reportingPeriodId, classId); }
 
     @GetMapping("/students/{studentId}/bulletin-snapshots/preview")
     @PreAuthorize("@perm.canAction('ACADEMIC_REPORT_CARD_VIEW') and @perm.staffOnly()")
-    public BulletinSnapshotView previewSnapshot(@PathVariable UUID studentId, @RequestParam UUID reportingPeriodId) {
-        return snapshotService.preview(studentId, reportingPeriodId);
+    public BulletinSnapshotView previewSnapshot(@PathVariable UUID studentId, @RequestParam UUID reportingPeriodId,
+                                                @RequestParam(required = false) UUID classId) {
+        return snapshotService.preview(studentId, reportingPeriodId, classId);
     }
 
     @GetMapping("/students/{studentId}/bulletin-snapshots/latest")
     @PreAuthorize("@perm.canAction('ACADEMIC_REPORT_CARD_VIEW') and @perm.staffOnly()")
-    public BulletinSnapshotView latestSnapshot(@PathVariable UUID studentId, @RequestParam UUID reportingPeriodId) { return snapshotService.latest(studentId, reportingPeriodId); }
+    public BulletinSnapshotView latestSnapshot(@PathVariable UUID studentId, @RequestParam UUID reportingPeriodId,
+                                               @RequestParam(required = false) UUID classId) { return snapshotService.latest(studentId, reportingPeriodId, classId); }
 
     @PostMapping("/bulletin-snapshots/{id}/correction")
     @PreAuthorize("@perm.canAction('ACADEMIC_REPORT_CARD_VALIDATE') and @perm.staffOnly()")
@@ -235,7 +238,11 @@ public class AcademicController {
     }
 
     @GetMapping("/grade-entry")
-    @PreAuthorize("@perm.canAction('ACADEMIC_SUBJECT_GRADE_VIEW') and @perm.staffOnly()")
+    // Grade-entry visibility is resource-scoped: a Secondary Titulaire may
+    // review a subject packet through GRADE_PACKET_REVIEW even when they are
+    // not that subject's teacher.  GradeEntryService remains the final
+    // authority after resolving the selected period/class/subject context.
+    @PreAuthorize("@perm.staffOnly()")
     public GradeEntryView gradeEntry(@RequestParam UUID reportingPeriodId, @RequestParam UUID classId,
                                      @RequestParam(required = false) String subjectCode) {
         return gradeEntryService.view(reportingPeriodId, classId, subjectCode);

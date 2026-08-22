@@ -63,13 +63,21 @@ public class StudentService {
     public List<? extends DirectoryView> list(String className) {
         UUID schoolId = TenantContext.get();
         if (teacherScope.restricted()) return teacherList(className, schoolId);
+        // A class filter is a roster request, not a legacy Student.className
+        // lookup.  That distinction matters for a paired bilingual cohort:
+        // either programme class must resolve to the same active students.
+        if (className != null && !className.isBlank()) {
+            UUID sessionId = currentSessionId(schoolId);
+            SchoolClass requested = classes.findBySchoolIdAndName(schoolId, className.trim()).orElse(null);
+            if (sessionId != null && requested != null) return roster(sessionId, requested.getId());
+        }
         List<Student> rows = (className == null || className.isBlank())
                 ? repo.findBySchoolIdAndActiveTrueOrderByLastNameAsc(schoolId)
                 : repo.findBySchoolIdAndClassNameAndActiveTrueOrderByLastNameAsc(schoolId, className);
         Scope scope = ParcoursContext.get();
         // Un professeur principal ne voit que les élèves de ses classes ; un
         // admin de section, ceux de son cycle.
-        Set<UUID> allowed = accessScope.allowedClassIds();
+        Set<UUID> allowed = teacherScope.allowedClassIds();
         return rows.stream()
                 .filter(s -> visible(s, allowed))
                 .filter(s -> inScope(scope, s.getLevel(), s.getSubsystem()))
@@ -95,6 +103,8 @@ public class StudentService {
         // endpoint is the academic student-directory projection instead: it
         // resolves active enrollment rows, then applies STUDENT_DIRECTORY_VIEW
         // with the server-resolved class/session/student context below.
+        SchoolClass requestedClass = classes.findByIdAndSchoolId(classId, TenantContext.get())
+                .orElseThrow(() -> ApiException.notFound("Classe"));
         List<StudentEnrollment> active = enrollmentService.activeRosterRecordsForDirectory(sessionId, classId);
         if (active.isEmpty()) return List.of();
 
@@ -111,12 +121,12 @@ public class StudentService {
                 .map(e -> {
                     Student student = students.get(e.getStudentId());
                     if (student == null || !policy.decide("STUDENT_DIRECTORY_VIEW",
-                            policyContext(student, sessionId, rosterDate, e.getSchoolClassId())).allowed()) return null;
+                            policyContext(student, sessionId, rosterDate, classId)).allowed()) return null;
                     return teacher
-                            ? toTeacherView(student, e.getSchoolClassId(), e.getClassNameSnapshot(),
-                            e.getSubsystemSnapshot(), e.getLevelSnapshot())
-                            : toView(student, e.getSchoolClassId(), e.getClassNameSnapshot(),
-                            e.getSubsystemSnapshot(), e.getLevelSnapshot());
+                            ? toTeacherView(student, requestedClass.getId(), requestedClass.getName(),
+                            requestedClass.getSubsystem(), requestedClass.getLevel())
+                            : toView(student, requestedClass.getId(), requestedClass.getName(),
+                            requestedClass.getSubsystem(), requestedClass.getLevel());
                 })
                 .filter(java.util.Objects::nonNull)
                 .toList();
@@ -131,7 +141,7 @@ public class StudentService {
     private boolean visible(Student s, Set<UUID> allowed) {
         if (allowed == null) return true;                        // compte non cloisonné
         if (s.getClassId() != null) return allowed.contains(s.getClassId());
-        return accessScope.unassignedVisible(s.getLevel());
+        return teacherScope.unassignedVisible(s.getLevel());
     }
 
     /**
@@ -309,7 +319,7 @@ public class StudentService {
         List<BulkDeleteError> errors = new ArrayList<>();
         for (UUID id : new LinkedHashSet<>(ids)) {
             try {
-                accessScope.assertStudent(id);
+                teacherScope.assertStudent(id);
                 Student s = find(id);
                 s.setActive(false);
                 repo.save(s);
@@ -349,7 +359,7 @@ public class StudentService {
         policy.require("STUDENT_IMPORT", PolicyResourceContext.empty().forSchool(TenantContext.get()));
         UUID schoolId = TenantContext.get();
         SchoolClass cls = resolveImportClass(in, schoolId);
-        accessScope.assertClass(cls.getId());
+        teacherScope.assertClass(cls.getId());
 
         // Everything the matching needs, read once up front (see the repository note).
         Map<String, Student> byNiu = new HashMap<>();
@@ -618,7 +628,7 @@ public class StudentService {
             // On n'affecte que dans une classe de son périmètre : sans ce contrôle,
             // un compte cloisonné sortirait un élève de sa portée d'un simple
             // changement de classe — et le perdrait de vue au passage.
-            accessScope.assertClass(cls.getId());
+            teacherScope.assertClass(cls.getId());
             s.setClassId(cls.getId());
             s.setClassName(cls.getName());
             s.setSubsystem(cls.getSubsystem());
@@ -734,8 +744,20 @@ public class StudentService {
                        AND e.enrolled_on<=? AND (e.exited_on IS NULL OR e.exited_on>=?)
                 """);
         List<Object> args = new ArrayList<>(List.of(schoolId, sessionId, date, date));
-        appendUuidIn(sql, args, "e.school_class_id", allowedClasses);
-        if (className != null && !className.isBlank()) { sql.append(" AND c.name=?"); args.add(className.trim()); }
+        String allowedPlaceholders = String.join(",", java.util.Collections.nCopies(allowedClasses.size(), "?"));
+        sql.append(" AND (e.school_class_id IN (").append(allowedPlaceholders)
+                .append(") OR e.cohort_id IN (SELECT p.cohort_id FROM academic_cohort_programme p")
+                .append(" WHERE p.school_id=? AND p.academic_session_id=? AND p.school_class_id IN (")
+                .append(allowedPlaceholders).append(")))");
+        args.addAll(allowedClasses);
+        args.add(schoolId); args.add(sessionId); args.addAll(allowedClasses);
+        if (className != null && !className.isBlank()) {
+            UUID requestedClassId = jdbc.query("SELECT id FROM school_class WHERE school_id=? AND name=? ORDER BY id LIMIT 1",
+                    rs -> rs.next() ? rs.getObject(1, UUID.class) : null, schoolId, className.trim());
+            if (requestedClassId == null) return List.of();
+            sql.append(" AND (e.school_class_id=? OR e.cohort_id IN (SELECT p.cohort_id FROM academic_cohort_programme p WHERE p.school_id=? AND p.academic_session_id=? AND p.school_class_id=?))");
+            args.add(requestedClassId); args.add(schoolId); args.add(sessionId); args.add(requestedClassId);
+        }
         if (scope != null) {
             sql.append(" AND lower(c.level)=lower(?) AND lower(c.subsystem)=lower(?)");
             args.add(scope.level()); args.add(scope.subsystem());
@@ -754,12 +776,6 @@ public class StudentService {
                 .map(p -> toTeacherView(students.get(p.studentId()), p.classId(), p.className(),
                         p.subsystem(), p.level()))
                 .toList();
-    }
-
-    private static void appendUuidIn(StringBuilder sql, List<Object> args, String column, Set<UUID> ids) {
-        sql.append(" AND ").append(column).append(" IN (")
-                .append("?,".repeat(Math.max(0, ids.size() - 1))).append("?)");
-        args.addAll(ids);
     }
 
     private EnrollmentProjection activeEnrollment(UUID studentId, UUID sessionId, LocalDate date) {

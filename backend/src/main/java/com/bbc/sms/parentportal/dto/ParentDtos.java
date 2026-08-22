@@ -14,6 +14,9 @@ public final class ParentDtos {
 
     private ParentDtos() {}
 
+    /** One current programme stream available to the family for a child. */
+    public record ProgrammeClassView(UUID classId, String className, String subsystem, String level) {}
+
     public record ChildView(
             UUID studentId,
             String matricule,

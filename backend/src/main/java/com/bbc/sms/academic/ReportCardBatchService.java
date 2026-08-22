@@ -2,6 +2,7 @@ package com.bbc.sms.academic;
 
 import com.bbc.sms.foundation.enrollment.StudentEnrollment;
 import com.bbc.sms.foundation.enrollment.StudentEnrollmentRepository;
+import com.bbc.sms.foundation.cohort.AcademicCohortResolver;
 import com.bbc.sms.foundation.session.AcademicReportingPeriod;
 import com.bbc.sms.foundation.session.AcademicReportingPeriodRepository;
 import com.bbc.sms.academic.security.AcademicAccessPolicyService;
@@ -36,6 +37,7 @@ public class ReportCardBatchService {
     private final BulletinSnapshotService snapshots;
     private final ReportCardPdfService pdf;
     private final AcademicAccessPolicyService accessPolicy;
+    private final AcademicCohortResolver cohorts;
 
     public ReportCardBatchService(BulletinVersionRepository versions,
                                    StudentEnrollmentRepository enrollments,
@@ -44,7 +46,8 @@ public class ReportCardBatchService {
                                    SchoolClassRepository classes,
                                    BulletinSnapshotService snapshots,
                                    ReportCardPdfService pdf,
-                                   AcademicAccessPolicyService accessPolicy) {
+                                   AcademicAccessPolicyService accessPolicy,
+                                   AcademicCohortResolver cohorts) {
         this.versions = versions;
         this.enrollments = enrollments;
         this.periods = periods;
@@ -53,6 +56,7 @@ public class ReportCardBatchService {
         this.snapshots = snapshots;
         this.pdf = pdf;
         this.accessPolicy = accessPolicy;
+        this.cohorts = cohorts;
     }
 
     @Transactional(readOnly = true)
@@ -63,39 +67,32 @@ public class ReportCardBatchService {
                 .orElseThrow(() -> ApiException.notFound("Période de résultat"));
         accessPolicy.require(AcademicAccessPolicyService.Capability.CLASS_REPORT_CARD_VIEW,
                 period.getAcademicSessionId(), classId, null, null, period.getStartDate());
-        List<StudentEnrollment> roster = enrollments.findBySchoolIdAndAcademicSessionIdAndSchoolClassIdAndStatusOrderByClassNameSnapshotAsc(
-                TenantContext.get(), period.getAcademicSessionId(), classId, "ACTIVE").stream()
-                .filter(e -> !e.getEnrolledOn().isAfter(period.getStartDate())
-                        && (e.getExitedOn() == null || !e.getExitedOn().isBefore(period.getStartDate())))
-                .toList();
+        List<UUID> roster = cohorts.rosterStudentIds(period.getAcademicSessionId(), classId, "ACTIVE", period.getStartDate());
         if (roster.isEmpty()) throw ApiException.conflict("Aucun élève actif dans cette classe");
         boolean french = !"en".equalsIgnoreCase(locale);
         List<String> manifest = new ArrayList<>();
         manifest.add("student_id,student_name,status,file,sha256,size_bytes,snapshot_id,snapshot_version,snapshot_hash,document_id,error");
         Map<String, byte[]> files = new LinkedHashMap<>();
         List<BulletinSnapshotView> frozen = new ArrayList<>();
-        for (StudentEnrollment enrollment : roster) {
-            BulletinVersion version = versions.findFirstBySchoolIdAndStudentIdAndReportingPeriodIdAndStateOrderByPublishedAtDesc(
-                    TenantContext.get(), enrollment.getStudentId(), periodId, "PUBLISHED").orElse(null);
-            if (version == null) version = versions.findFirstBySchoolIdAndStudentIdAndReportingPeriodIdOrderByCreatedAtDesc(
-                    TenantContext.get(), enrollment.getStudentId(), periodId).filter(v -> "VALIDATED".equals(v.getState())).orElse(null);
+        for (UUID studentId : roster) {
+            BulletinVersion version = classVersion(studentId, classId, period.getAcademicSessionId(), periodId);
             String name;
-            try { name = version == null ? students.findByIdAndSchoolId(enrollment.getStudentId(), TenantContext.get()).map(s -> s.getLastName() + " " + s.getFirstName()).orElse(enrollment.getStudentId().toString()) : snapshots.byId(version.getId()).studentName(); }
-            catch (Exception ignored) { name = enrollment.getStudentId().toString(); }
+            try { name = version == null ? students.findByIdAndSchoolId(studentId, TenantContext.get()).map(s -> s.getLastName() + " " + s.getFirstName()).orElse(studentId.toString()) : snapshots.byId(version.getId()).studentName(); }
+            catch (Exception ignored) { name = studentId.toString(); }
             if (version == null) {
-                manifest.add(csv(enrollment.getStudentId().toString(), name, "BLOCKED", "", "", "", "", "", "", "", "No validated or published snapshot"));
+                manifest.add(csv(studentId.toString(), name, "BLOCKED", "", "", "", "", "", "", "", "No validated or published snapshot"));
                 continue;
             }
             try {
                 byte[] bytes = pdf.render(version.getId(), french);
                 BulletinSnapshotView snapshot = snapshots.byId(version.getId());
                 frozen.add(snapshot);
-                String file = safeFile(name) + "-" + enrollment.getStudentId().toString().substring(0, 8) + ".pdf";
+                String file = safeFile(name) + "-" + studentId.toString().substring(0, 8) + ".pdf";
                 files.put(file, bytes);
-                manifest.add(csv(enrollment.getStudentId().toString(), name, version.getState(), file, sha256(bytes), String.valueOf(bytes.length),
+                manifest.add(csv(studentId.toString(), name, version.getState(), file, sha256(bytes), String.valueOf(bytes.length),
                         version.getId().toString(), String.valueOf(version.getVersion()), version.getSnapshotHash(), "", ""));
             } catch (Exception ex) {
-                manifest.add(csv(enrollment.getStudentId().toString(), name, "ERROR", "", "", "", version.getId().toString(), String.valueOf(version.getVersion()), version.getSnapshotHash(), "", clip(ex.getMessage())));
+                manifest.add(csv(studentId.toString(), name, "ERROR", "", "", "", version.getId().toString(), String.valueOf(version.getVersion()), version.getSnapshotHash(), "", clip(ex.getMessage())));
             }
         }
         addCompanions(files, manifest, frozen, classId, period, french);
@@ -113,6 +110,24 @@ public class ReportCardBatchService {
         } catch (Exception ex) {
             throw new IllegalStateException("Impossible de créer l'archive des bulletins", ex);
         }
+    }
+
+    private BulletinVersion classVersion(UUID studentId, UUID classId, UUID sessionId, UUID periodId) {
+        BulletinVersion version = versions.findFirstBySchoolIdAndStudentIdAndReportingPeriodIdAndProgrammeClassIdAndStateOrderByPublishedAtDesc(
+                TenantContext.get(), studentId, periodId, classId, "PUBLISHED").orElse(null);
+        if (version != null) return version;
+        version = versions.findBySchoolIdAndStudentIdAndReportingPeriodIdAndProgrammeClassIdAndState(
+                        TenantContext.get(), studentId, periodId, classId, "VALIDATED").stream()
+                .max(Comparator.comparing(BulletinVersion::getCreatedAt,
+                        Comparator.nullsLast(Comparator.naturalOrder())))
+                .orElse(null);
+        if (version != null || cohorts.cohortForClass(sessionId, classId) != null) return version;
+        version = versions.findFirstBySchoolIdAndStudentIdAndReportingPeriodIdAndStateOrderByPublishedAtDesc(
+                TenantContext.get(), studentId, periodId, "PUBLISHED").orElse(null);
+        if (version != null) return version;
+        return versions.findFirstBySchoolIdAndStudentIdAndReportingPeriodIdOrderByCreatedAtDesc(
+                TenantContext.get(), studentId, periodId)
+                .filter(v -> "VALIDATED".equals(v.getState())).orElse(null);
     }
 
     private void addCompanions(Map<String, byte[]> files, List<String> manifest,

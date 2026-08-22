@@ -615,7 +615,7 @@ public class AuthorizationPolicyService {
 
     private static boolean isAttendanceOperational(String code) {
         return code.equals("ATTENDANCE_ROSTER_VIEW") || code.equals("ATTENDANCE_MARK")
-                || code.equals("ATTENDANCE_FINALIZE");
+                || code.equals("ATTENDANCE_FINALIZE") || code.equals("ATTENDANCE_REOPEN");
     }
 
     private static String domainDenialCode(Action action, List<String> roles) {

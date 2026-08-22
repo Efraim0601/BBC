@@ -100,7 +100,7 @@ public class FinanceService {
     public List<ExpenseView> listExpenses() {
         requireSchool("FINANCE_EXPENSE_VIEW");
         UUID schoolId = TenantContext.get();
-        if (accessScope.adminSection() != null) return List.of();
+        if (teacherScope.adminSection() != null) return List.of();
         return expenses.findBySchoolIdOrderBySpentOnDesc(schoolId).stream().map(this::toView).toList();
     }
 
@@ -244,7 +244,7 @@ public class FinanceService {
         LocalDate to = LocalDate.now();
         LocalDate from = to.minusDays(29);   // 30-day window inclusive of today
 
-        String section = accessScope.adminSection();
+        String section = teacherScope.adminSection();
         List<Payment> recentPayments = payments.findBySchoolIdAndPaidOnBetween(schoolId, from, to);
         if (section != null) {
             Map<UUID, Student> byId = students.findBySchoolIdAndActiveTrueOrderByLastNameAsc(schoolId).stream()

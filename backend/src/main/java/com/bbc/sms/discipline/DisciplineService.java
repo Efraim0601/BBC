@@ -2,7 +2,8 @@ package com.bbc.sms.discipline;
 
 import com.bbc.sms.discipline.dto.DisciplineDtos.*;
 import com.bbc.sms.platform.common.ApiException;
-import com.bbc.sms.platform.security.AccessScopeService;
+import com.bbc.sms.platform.security.TeacherScopeService;
+
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.student.Student;
 import com.bbc.sms.student.StudentRepository;
@@ -43,7 +44,7 @@ public class DisciplineService {
         students.findBySchoolIdAndActiveTrueOrderByLastNameAsc(schoolId)
                 .forEach(s -> byId.put(s.getId(), s));
         // Un professeur principal ne voit que les incidents de ses classes.
-        Set<UUID> allowed = accessScope.allowedClassIds();
+        Set<UUID> allowed = teacherScope.allowedClassIds();
         return repo.findBySchoolIdOrderByIncidentDateDesc(schoolId).stream()
                 .filter(i -> allowed == null || inAllowedClass(byId.get(i.getStudentId()), allowed))
                 .map(i -> toView(i, byId.get(i.getStudentId())))

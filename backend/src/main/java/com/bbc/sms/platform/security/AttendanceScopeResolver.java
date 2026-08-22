@@ -46,6 +46,7 @@ public class AttendanceScopeResolver {
             return ("TITULAIRE_CLASSES".equals(scope) || "ASSIGNED_CLASSES".equals(scope))
                     && datedTitulaire(context, employeeId);
         }
+        if ("TITULAIRE_CLASSES".equals(scope)) return datedTitulaire(context, employeeId);
         return ("TIMETABLE_OCCURRENCES_ASSIGNED".equals(scope) || "ASSIGNED_CLASSES".equals(scope))
                 && publishedOccurrence(context, employeeId);
     }

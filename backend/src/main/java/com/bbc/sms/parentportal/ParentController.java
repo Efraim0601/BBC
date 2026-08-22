@@ -56,19 +56,28 @@ public class ParentController {
         throw ApiException.forbidden("Les notes brutes ne sont pas visibles dans le portail parent. Consultez un bulletin publié.");
     }
 
+    @GetMapping("/children/{studentId}/programme-classes")
+    @PreAuthorize("@perm.isParent()")
+    public List<ProgrammeClassView> programmeClasses(@AuthenticationPrincipal AppUserPrincipal principal,
+                                                     @PathVariable UUID studentId) {
+        return service.programmeClasses(principal, studentId);
+    }
+
     @GetMapping("/children/{studentId}/bulletins")
     @PreAuthorize("@perm.isParent()")
     public com.bbc.sms.academic.dto.AcademicDtos.BulletinSnapshotView publishedBulletin(
             @AuthenticationPrincipal AppUserPrincipal principal,
-            @PathVariable UUID studentId, @RequestParam UUID reportingPeriodId) {
-        return service.publishedBulletin(principal, studentId, reportingPeriodId);
+            @PathVariable UUID studentId, @RequestParam UUID reportingPeriodId,
+            @RequestParam(required = false) UUID classId) {
+        return service.publishedBulletin(principal, studentId, reportingPeriodId, classId);
     }
 
     @GetMapping("/children/{studentId}/bulletins/latest")
     @PreAuthorize("@perm.isParent()")
     public com.bbc.sms.academic.dto.AcademicDtos.BulletinSnapshotView latestPublishedBulletin(
-            @AuthenticationPrincipal AppUserPrincipal principal, @PathVariable UUID studentId) {
-        return service.latestPublishedBulletin(principal, studentId);
+            @AuthenticationPrincipal AppUserPrincipal principal, @PathVariable UUID studentId,
+            @RequestParam(required = false) UUID classId) {
+        return service.latestPublishedBulletin(principal, studentId, classId);
     }
 
     @GetMapping("/children/{studentId}/journey")

@@ -49,7 +49,7 @@ public class SetupService {
     private final SubjectClassCoefRepository coefs;
     private final StudentRepository students;
     private final EmployeeRepository employees;
-    private final AccessScopeService accessScope;
+    private final TeacherScopeService accessScope;
     private final JdbcTemplate jdbc;
     private final AuditService audit;
     private final AuthorizationPolicyService policy;
@@ -65,7 +65,7 @@ public class SetupService {
         this.coefs = coefs;
         this.students = students;
         this.employees = employees;
-        this.accessScope = accessScope;
+        this.accessScope = teacherScope;
         this.jdbc = jdbc;
         this.audit = audit;
         this.policy = policy;
@@ -849,11 +849,7 @@ public class SetupService {
         assertSession(in.academicSessionId());
         SchoolClass cls = classes.findByIdAndSchoolId(in.classId(), schoolId)
                 .orElseThrow(() -> ApiException.notFound("Classe"));
-        if ("secondary".equalsIgnoreCase(cls.getLevel())) {
-            throw ApiException.coded(org.springframework.http.HttpStatus.CONFLICT,
-                    "SECONDARY_TEACHER_ASSIGNMENT_MANAGED_PER_SUBJECT",
-                    "Les classes secondaires utilisent un enseignant RESPONSIBLE par matière.");
-        }
+
         employees.findByIdAndSchoolId(in.employeeId(), schoolId)
                 .orElseThrow(() -> ApiException.notFound("Enseignant"));
         Map<String, Object> session = jdbc.queryForMap("SELECT start_date,end_date FROM academic_session WHERE id=? AND school_id=?",
@@ -921,9 +917,7 @@ public class SetupService {
         if (!List.of("HOMEROOM", "RESPONSIBLE").contains(role)) {
             blockers.add("ASSIGNMENT_ROLE_INVALID");
         }
-        if ("secondary".equalsIgnoreCase(cls.getLevel()) && "HOMEROOM".equals(role)) {
-            blockers.add("SECONDARY_TEACHER_ASSIGNMENT_MANAGED_PER_SUBJECT");
-        }
+
         if (!"secondary".equalsIgnoreCase(cls.getLevel()) && "RESPONSIBLE".equals(role)) {
             blockers.add("PRIMARY_TEACHER_ASSIGNMENT_MANAGED_BY_HOMEROOM");
         }

@@ -5,6 +5,7 @@ import com.bbc.sms.academic.dto.AcademicDtos.*;
 import com.bbc.sms.academic.security.AcademicAccessPolicyService;
 import com.bbc.sms.foundation.enrollment.StudentEnrollment;
 import com.bbc.sms.foundation.enrollment.StudentEnrollmentRepository;
+import com.bbc.sms.foundation.cohort.AcademicCohortResolver;
 import com.bbc.sms.foundation.audit.AuditService;
 import com.bbc.sms.foundation.session.AcademicReportingPeriod;
 import com.bbc.sms.foundation.session.AcademicReportingPeriodRepository;
@@ -56,6 +57,7 @@ public class BulletinSnapshotService {
     private final JdbcTemplate jdbc;
     private final AuditService audit;
     private final AuthorizationPolicyService policy;
+    private final AcademicCohortResolver cohorts;
 
     public BulletinSnapshotService(AcademicReportingPeriodRepository periods, AcademicAssessmentRepository assessments,
                                    AcademicGradeRepository grades, SubjectResultCommentRepository comments,
@@ -63,11 +65,12 @@ public class BulletinSnapshotService {
                                    StudentRepository students, SubjectRepository subjects,
                                    SubjectClassCoefRepository subjectClassCoefs, SchoolClassRepository classes,
                                    AcademicWindowPolicyService windows, AcademicAccessPolicyService accessPolicy, TeachingAssignmentResolver assignments, ObjectMapper mapper,
-                                   JdbcTemplate jdbc, AuditService audit, AuthorizationPolicyService policy) {
+                                   JdbcTemplate jdbc, AuditService audit, AuthorizationPolicyService policy,
+                                   AcademicCohortResolver cohorts) {
         this.periods = periods; this.assessments = assessments; this.grades = grades; this.comments = comments; this.packets = packets;
         this.versions = versions; this.enrollments = enrollments; this.students = students; this.subjects = subjects;
         this.subjectClassCoefs = subjectClassCoefs; this.classes = classes;
-        this.windows = windows; this.accessPolicy = accessPolicy; this.assignments = assignments; this.mapper = mapper; this.jdbc = jdbc; this.audit = audit; this.policy = policy;
+        this.windows = windows; this.accessPolicy = accessPolicy; this.assignments = assignments; this.mapper = mapper; this.jdbc = jdbc; this.audit = audit; this.policy = policy; this.cohorts = cohorts;
     }
 
     private StudentEnrollment enrollment(UUID studentId, AcademicReportingPeriod period) {
@@ -78,7 +81,59 @@ public class BulletinSnapshotService {
                 .orElse(null);
     }
 
+    private UUID resolveProgrammeClass(UUID studentId, AcademicReportingPeriod period,
+                                      StudentEnrollment enrollment, UUID requestedClassId) {
+        UUID fallback = enrollment == null ? null : enrollment.getSchoolClassId();
+        if (requestedClassId == null) return fallback;
+        classes.findByIdAndSchoolId(requestedClassId, TenantContext.get())
+                .orElseThrow(() -> ApiException.notFound("Classe"));
+        if (!cohorts.studentBelongsToClass(period.getAcademicSessionId(), requestedClassId,
+                studentId, "ACTIVE", period.getStartDate())) {
+            throw ApiException.conflict("Cet élève n'appartient pas à cette classe ou à ce groupe bilingue pour la période sélectionnée.");
+        }
+        return requestedClassId;
+    }
+
+    private UUID calculationClassId(UUID studentId, AcademicReportingPeriod period, CalculationContext context) {
+        if (context.programmeClassId != null) return context.programmeClassId;
+        StudentEnrollment enrollment = enrollment(studentId, period);
+        return enrollment == null ? null : enrollment.getSchoolClassId();
+    }
+
+    private ClassProfile classProfile(UUID classId, StudentEnrollment enrollment, CalculationContext context) {
+        if (classId != null) {
+            ClassProfile cached = context.classProfiles.get(classId);
+            if (cached != null) return cached;
+            ClassProfile loaded = classes.findByIdAndSchoolId(classId, TenantContext.get())
+                    .map(c -> new ClassProfile(c.getId(), c.getName(), c.getLevel(), c.getSubsystem()))
+                    .orElseGet(() -> new ClassProfile(classId,
+                            enrollment == null ? null : enrollment.getClassNameSnapshot(),
+                            enrollment == null ? null : enrollment.getLevelSnapshot(),
+                            enrollment == null ? null : enrollment.getSubsystemSnapshot()));
+            context.classProfiles.put(classId, loaded);
+            return loaded;
+        }
+        return new ClassProfile(null,
+                enrollment == null ? null : enrollment.getClassNameSnapshot(),
+                enrollment == null ? null : enrollment.getLevelSnapshot(),
+                enrollment == null ? null : enrollment.getSubsystemSnapshot());
+    }
+
     private BulletinVersion latestOfficial(UUID studentId, UUID periodId) {
+        return latestOfficial(studentId, periodId, null);
+    }
+
+    private BulletinVersion latestOfficial(UUID studentId, UUID periodId, UUID programmeClassId) {
+        if (programmeClassId != null) {
+            BulletinVersion published = versions.findFirstBySchoolIdAndStudentIdAndReportingPeriodIdAndProgrammeClassIdAndStateOrderByPublishedAtDesc(
+                    TenantContext.get(), studentId, periodId, programmeClassId, "PUBLISHED").orElse(null);
+            if (published != null) return published;
+            return versions.findBySchoolIdAndStudentIdAndReportingPeriodIdAndProgrammeClassIdAndState(
+                            TenantContext.get(), studentId, periodId, programmeClassId, "VALIDATED").stream()
+                    .max(Comparator.comparing(BulletinVersion::getCreatedAt,
+                            Comparator.nullsLast(Comparator.naturalOrder())))
+                    .orElse(null);
+        }
         BulletinVersion published = versions.findFirstBySchoolIdAndStudentIdAndReportingPeriodIdAndStateOrderByPublishedAtDesc(
                 TenantContext.get(), studentId, periodId, "PUBLISHED").orElse(null);
         if (published != null) return published;
@@ -90,6 +145,15 @@ public class BulletinSnapshotService {
     }
 
     private BulletinVersion latestActive(UUID studentId, UUID periodId) {
+        return latestActive(studentId, periodId, null);
+    }
+
+    private BulletinVersion latestActive(UUID studentId, UUID periodId, UUID programmeClassId) {
+        if (programmeClassId != null) {
+            return versions.findBySchoolIdAndStudentIdAndReportingPeriodIdAndProgrammeClassIdAndStateInOrderByCreatedAtDesc(
+                    TenantContext.get(), studentId, periodId, programmeClassId, List.of("DRAFT", "RETURNED"))
+                    .stream().findFirst().orElse(null);
+        }
         return versions.findBySchoolIdAndStudentIdAndReportingPeriodIdAndStateInOrderByCreatedAtDesc(
                         TenantContext.get(), studentId, periodId, List.of("DRAFT", "RETURNED"))
                 .stream().findFirst().orElse(null);
@@ -97,12 +161,19 @@ public class BulletinSnapshotService {
 
     private CurrentSnapshot currentSnapshot(UUID studentId, AcademicReportingPeriod period,
                                             Student student, StudentEnrollment enrollment) {
+        return currentSnapshot(studentId, period, student, enrollment, null);
+    }
+
+    private CurrentSnapshot currentSnapshot(UUID studentId, AcademicReportingPeriod period,
+                                            Student student, StudentEnrollment enrollment,
+                                            UUID programmeClassId) {
         CalculationContext context = new CalculationContext();
+        context.programmeClassId = programmeClassId;
         Calculation raw = calculateCurrent(studentId, period, context);
         Calculation calculation = withClassStatistics(studentId, period, raw, context);
         AttendanceSummaryView attendance = attendance(period, studentId);
         ConductSummaryView conduct = conduct(period, studentId);
-        SnapshotTrace trace = snapshotTrace(period, student, enrollment, calculation);
+        SnapshotTrace trace = snapshotTrace(period, student, enrollment, programmeClassId, calculation);
         String json = writeSnapshot(period, student, enrollment, calculation, attendance, conduct, trace);
         return new CurrentSnapshot(student, enrollment, calculation, attendance, conduct, trace, json, sha256(json));
     }
@@ -132,6 +203,7 @@ public class BulletinSnapshotService {
                                              String relation, boolean refreshRequired) {
         BulletinVersion transientVersion = new BulletinVersion();
         transientVersion.setId(persisted == null ? null : persisted.getId());
+        transientVersion.setProgrammeClassId(persisted == null ? current.trace().classId() : persisted.getProgrammeClassId());
         transientVersion.setState(persisted == null ? "PREVIEW" : persisted.getState());
         transientVersion.setVersion(persisted == null ? 0 : persisted.getVersion());
         transientVersion.setSnapshotHash(current.hash());
@@ -147,16 +219,22 @@ public class BulletinSnapshotService {
 
     @Transactional
     public BulletinSnapshotView calculate(UUID studentId, UUID periodId) {
+        return calculate(studentId, periodId, null);
+    }
+
+    @Transactional
+    public BulletinSnapshotView calculate(UUID studentId, UUID periodId, UUID programmeClassId) {
         AcademicReportingPeriod period = period(periodId);
         accessPolicy.requireStudent(AcademicAccessPolicyService.Capability.REPORT_CARD_VALIDATE,
                 studentId, period.getAcademicSessionId(), period.getStartDate(), null);
         Student student = students.findByIdAndSchoolId(studentId, TenantContext.get()).orElseThrow(() -> ApiException.notFound("Élève"));
         StudentEnrollment enrollment = enrollment(studentId, period);
         if (enrollment == null) throw ApiException.conflict("Cet élève n'est pas inscrit dans la session académique sélectionnée. Vérifiez son inscription dans Élèves > Inscription.");
-        BulletinVersion official = latestOfficial(studentId, periodId);
-        BulletinVersion active = latestActive(studentId, periodId);
+        UUID effectiveClassId = resolveProgrammeClass(studentId, period, enrollment, programmeClassId);
+        BulletinVersion official = latestOfficial(studentId, periodId, programmeClassId);
+        BulletinVersion active = latestActive(studentId, periodId, programmeClassId);
         if (official != null && active == null) return viewFromSnapshot(official, period, student);
-        CurrentSnapshot current = currentSnapshot(studentId, period, student, enrollment);
+        CurrentSnapshot current = currentSnapshot(studentId, period, student, enrollment, effectiveClassId);
         List<String> officialBlockers = officialBlockers(period, current.calculation(), current.conduct());
         if (active != null) {
             if (Objects.equals(active.getSnapshotHash(), current.hash()) && officialBlockers.isEmpty())
@@ -172,7 +250,7 @@ public class BulletinSnapshotService {
         }
         BulletinVersion version = new BulletinVersion();
         version.setSchoolId(TenantContext.get()); version.setAcademicSessionId(period.getAcademicSessionId()); version.setReportingPeriodId(periodId);
-        version.setStudentId(studentId); version.setEnrollmentId(enrollment.getId()); version.setState("DRAFT");
+        version.setStudentId(studentId); version.setProgrammeClassId(programmeClassId); version.setEnrollmentId(enrollment.getId()); version.setState("DRAFT");
         version.setSnapshotJson(current.json());
         version.setSnapshotHash(current.hash()); version.setAverage(current.calculation().average() == null ? BigDecimal.ZERO : current.calculation().average());
         version.setRank(current.calculation().rank()); version.setClassSize(current.calculation().classSize());
@@ -210,7 +288,8 @@ public class BulletinSnapshotService {
                 .orElseThrow(() -> ApiException.notFound("Élève"));
         StudentEnrollment enrollment = enrollment(previous.getStudentId(), period);
         if (enrollment == null) throw ApiException.conflict("Aucune inscription active pour l'actualisation.");
-        CurrentSnapshot current = currentSnapshot(previous.getStudentId(), period, student, enrollment);
+        resolveProgrammeClass(previous.getStudentId(), period, enrollment, previous.getProgrammeClassId());
+        CurrentSnapshot current = currentSnapshot(previous.getStudentId(), period, student, enrollment, previous.getProgrammeClassId());
         List<String> blockers = officialBlockers(period, current.calculation(), current.conduct());
         if (!blockers.isEmpty()) {
             throw ApiException.blockers("BULLETIN_NOT_READY",
@@ -230,6 +309,7 @@ public class BulletinSnapshotService {
         replacement.setAcademicSessionId(period.getAcademicSessionId());
         replacement.setReportingPeriodId(period.getId());
         replacement.setStudentId(previous.getStudentId());
+        replacement.setProgrammeClassId(previous.getProgrammeClassId());
         replacement.setEnrollmentId(enrollment.getId());
         replacement.setState("DRAFT");
         replacement.setSnapshotJson(current.json());
@@ -278,7 +358,8 @@ public class BulletinSnapshotService {
         StudentEnrollment enrollment = enrollments.findFirstBySchoolIdAndStudentIdAndAcademicSessionIdAndStatus(
                 TenantContext.get(), previous.getStudentId(), period.getAcademicSessionId(), "ACTIVE")
                 .orElseThrow(() -> ApiException.conflict("Aucune inscription active pour la correction"));
-        CurrentSnapshot current = currentSnapshot(previous.getStudentId(), period, student, enrollment);
+        resolveProgrammeClass(previous.getStudentId(), period, enrollment, previous.getProgrammeClassId());
+        CurrentSnapshot current = currentSnapshot(previous.getStudentId(), period, student, enrollment, previous.getProgrammeClassId());
         Calculation calculation = current.calculation();
         AttendanceSummaryView attendance = current.attendance();
         ConductSummaryView conduct = current.conduct();
@@ -289,6 +370,7 @@ public class BulletinSnapshotService {
         replacement.setAcademicSessionId(period.getAcademicSessionId());
         replacement.setReportingPeriodId(period.getId());
         replacement.setStudentId(previous.getStudentId());
+        replacement.setProgrammeClassId(previous.getProgrammeClassId());
         replacement.setEnrollmentId(enrollment.getId());
         replacement.setState("DRAFT");
         replacement.setSnapshotJson(json);
@@ -310,11 +392,18 @@ public class BulletinSnapshotService {
 
     @Transactional(readOnly = true)
     public BulletinSnapshotView latest(UUID studentId, UUID periodId) {
+        return latest(studentId, periodId, null);
+    }
+
+    @Transactional(readOnly = true)
+    public BulletinSnapshotView latest(UUID studentId, UUID periodId, UUID programmeClassId) {
         AcademicReportingPeriod period = period(periodId);
         accessPolicy.requireStudent(AcademicAccessPolicyService.Capability.CLASS_REPORT_CARD_VIEW,
                 studentId, period.getAcademicSessionId(), period.getStartDate(), null);
         Student student = students.findByIdAndSchoolId(studentId, TenantContext.get()).orElseThrow(() -> ApiException.notFound("Élève"));
-        BulletinVersion version = versions.findFirstBySchoolIdAndStudentIdAndReportingPeriodIdOrderByCreatedAtDesc(TenantContext.get(), studentId, periodId)
+        BulletinVersion version = (programmeClassId == null
+                ? versions.findFirstBySchoolIdAndStudentIdAndReportingPeriodIdOrderByCreatedAtDesc(TenantContext.get(), studentId, periodId)
+                : versions.findFirstBySchoolIdAndStudentIdAndReportingPeriodIdAndProgrammeClassIdOrderByCreatedAtDesc(TenantContext.get(), studentId, periodId, programmeClassId))
                 .orElseThrow(() -> ApiException.notFound("Aucun calcul de bulletin"));
         return viewFromSnapshot(version, period, student);
     }
@@ -322,6 +411,11 @@ public class BulletinSnapshotService {
     /** Pure calculation used by read-only class PV and preview screens. */
     @Transactional(readOnly = true)
     public BulletinSnapshotView preview(UUID studentId, UUID periodId) {
+        return preview(studentId, periodId, null);
+    }
+
+    @Transactional(readOnly = true)
+    public BulletinSnapshotView preview(UUID studentId, UUID periodId, UUID programmeClassId) {
         AcademicReportingPeriod period = period(periodId);
         accessPolicy.requireStudent(AcademicAccessPolicyService.Capability.CLASS_REPORT_CARD_VIEW,
                 studentId, period.getAcademicSessionId(), period.getStartDate(), null);
@@ -329,18 +423,19 @@ public class BulletinSnapshotService {
                 .orElseThrow(() -> ApiException.notFound("Élève"));
         StudentEnrollment enrollment = enrollment(studentId, period);
         if (enrollment == null) throw ApiException.conflict("Cet élève n'est pas inscrit dans la session académique sélectionnée.");
+        UUID effectiveClassId = resolveProgrammeClass(studentId, period, enrollment, programmeClassId);
         // A preview never creates a version. If an explicit draft/correction already
         // exists, show that durable version so the user can continue its workflow;
         // otherwise expose the latest frozen result before calculating an in-memory
         // preview from the current authoritative inputs.
-        CurrentSnapshot current = currentSnapshot(studentId, period, student, enrollment);
-        BulletinVersion active = latestActive(studentId, periodId);
+        CurrentSnapshot current = currentSnapshot(studentId, period, student, enrollment, effectiveClassId);
+        BulletinVersion active = latestActive(studentId, periodId, programmeClassId);
         if (active != null) {
             if (Objects.equals(active.getSnapshotHash(), current.hash()))
                 return persistedView(active, period, student, current, "CURRENT", false);
             return currentView(current, period, student, active, "STALE", true);
         }
-        BulletinVersion official = latestOfficial(studentId, periodId);
+        BulletinVersion official = latestOfficial(studentId, periodId, programmeClassId);
         if (official != null) return viewFromSnapshot(official, period, student);
         return currentView(current, period, student, null, "NONE", false);
     }
@@ -369,14 +464,18 @@ public class BulletinSnapshotService {
         if (active == null || active.getSchoolClassId() == null) {
             throw ApiException.forbidden("L'inscription active de l'élève est requise pour générer le document.");
         }
-        String level = Optional.ofNullable(active.getLevelSnapshot()).filter(value -> !value.isBlank())
-                .orElse(snapshot.educationalLevel());
-        String subsystem = Optional.ofNullable(active.getSubsystemSnapshot()).filter(value -> !value.isBlank())
-                .orElse(snapshot.subsystem());
+        UUID documentClassId = snapshot.programmeClassId() == null ? active.getSchoolClassId() : snapshot.programmeClassId();
+        SchoolClass documentClass = classes.findByIdAndSchoolId(documentClassId, TenantContext.get()).orElse(null);
+        String level = documentClass == null
+                ? Optional.ofNullable(active.getLevelSnapshot()).filter(value -> !value.isBlank()).orElse(snapshot.educationalLevel())
+                : documentClass.getLevel();
+        String subsystem = documentClass == null
+                ? Optional.ofNullable(active.getSubsystemSnapshot()).filter(value -> !value.isBlank()).orElse(snapshot.subsystem())
+                : documentClass.getSubsystem();
         policy.require("DOCUMENT_GENERATE", new PolicyResourceContext(
                 TenantContext.get(), snapshot.academicSessionId(), period.getStartDate(),
                 new ParcoursContext.Scope(level.toLowerCase(Locale.ROOT), subsystem.toUpperCase(Locale.ROOT)),
-                active.getSchoolClassId(), null, snapshot.studentId(), null, snapshot.id(), null, null, level));
+                documentClassId, null, snapshot.studentId(), null, snapshot.id(), null, null, level));
     }
 
     @Transactional
@@ -390,7 +489,8 @@ public class BulletinSnapshotService {
         Student student = students.findByIdAndSchoolId(version.getStudentId(), TenantContext.get()).orElseThrow();
         StudentEnrollment enrollment = enrollment(version.getStudentId(), period);
         if (enrollment == null) throw ApiException.conflict("Aucune inscription active pour la validation.");
-        CurrentSnapshot current = currentSnapshot(version.getStudentId(), period, student, enrollment);
+        resolveProgrammeClass(version.getStudentId(), period, enrollment, version.getProgrammeClassId());
+        CurrentSnapshot current = currentSnapshot(version.getStudentId(), period, student, enrollment, version.getProgrammeClassId());
         if (!Objects.equals(version.getSnapshotHash(), current.hash())) {
             throw ApiException.blockers("BULLETIN_DRAFT_STALE",
                     "Le brouillon ne correspond plus aux sources actuelles. Actualisez-le avant validation.",
@@ -427,7 +527,8 @@ public class BulletinSnapshotService {
         Student student = students.findByIdAndSchoolId(version.getStudentId(), TenantContext.get()).orElseThrow();
         StudentEnrollment enrollment = enrollment(version.getStudentId(), period);
         if (enrollment == null) throw ApiException.conflict("Aucune inscription active pour la publication.");
-        CurrentSnapshot current = currentSnapshot(version.getStudentId(), period, student, enrollment);
+        resolveProgrammeClass(version.getStudentId(), period, enrollment, version.getProgrammeClassId());
+        CurrentSnapshot current = currentSnapshot(version.getStudentId(), period, student, enrollment, version.getProgrammeClassId());
         if (!Objects.equals(version.getSnapshotHash(), current.hash())) {
             throw ApiException.blockers("BULLETIN_DRAFT_STALE",
                     "Le bulletin validé ne correspond plus aux sources actuelles.", List.of("BULLETIN_DRAFT_STALE"));
@@ -455,25 +556,67 @@ public class BulletinSnapshotService {
 
     @Transactional(readOnly = true)
     public BulletinSnapshotView published(UUID studentId, UUID periodId) {
+        return published(studentId, periodId, null);
+    }
+
+    @Transactional(readOnly = true)
+    public BulletinSnapshotView published(UUID studentId, UUID periodId, UUID programmeClassId) {
         AcademicReportingPeriod period = period(periodId);
         Student student = students.findByIdAndSchoolId(studentId, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Élève"));
-        BulletinVersion version = versions.findFirstBySchoolIdAndStudentIdAndReportingPeriodIdAndStateOrderByPublishedAtDesc(
-                        TenantContext.get(), studentId, periodId, "PUBLISHED")
-                .orElseThrow(() -> ApiException.notFound("Aucun bulletin publié pour cette période"));
+        BulletinVersion version;
+        if (programmeClassId == null) {
+            version = versions.findFirstBySchoolIdAndStudentIdAndReportingPeriodIdAndStateOrderByPublishedAtDesc(
+                    TenantContext.get(), studentId, periodId, "PUBLISHED").orElse(null);
+        } else {
+            version = versions.findFirstBySchoolIdAndStudentIdAndReportingPeriodIdAndProgrammeClassIdAndStateOrderByPublishedAtDesc(
+                    TenantContext.get(), studentId, periodId, programmeClassId, "PUBLISHED").orElse(null);
+            // Existing single-programme snapshots predate programme_class_id.
+            // Keep those parents/staff views working; a paired class must remain
+            // strict so its FR and EN streams cannot silently cross over.
+            if (version == null && cohorts.cohortForClass(period.getAcademicSessionId(), programmeClassId) == null) {
+                version = versions.findFirstBySchoolIdAndStudentIdAndReportingPeriodIdAndStateOrderByPublishedAtDesc(
+                        TenantContext.get(), studentId, periodId, "PUBLISHED").orElse(null);
+            }
+        }
+        if (version == null) throw ApiException.notFound("Aucun bulletin publié pour cette période");
         return viewFromSnapshot(version, period, student);
     }
 
     @Transactional(readOnly = true)
     public BulletinSnapshotView publishedLatest(UUID studentId) {
+        return publishedLatest(studentId, null);
+    }
+
+    @Transactional(readOnly = true)
+    public BulletinSnapshotView publishedLatest(UUID studentId, UUID programmeClassId) {
         Student student = students.findByIdAndSchoolId(studentId, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Élève"));
-        BulletinVersion version = versions.findFirstBySchoolIdAndStudentIdAndStateOrderByPublishedAtDesc(
-                        TenantContext.get(), studentId, "PUBLISHED")
-                .orElseThrow(() -> ApiException.notFound("Aucun bulletin publié pour cet élève"));
+        BulletinVersion version;
+        if (programmeClassId == null) {
+            version = versions.findFirstBySchoolIdAndStudentIdAndStateOrderByPublishedAtDesc(
+                    TenantContext.get(), studentId, "PUBLISHED").orElse(null);
+        } else {
+            version = versions.findFirstBySchoolIdAndStudentIdAndProgrammeClassIdAndStateOrderByPublishedAtDesc(
+                    TenantContext.get(), studentId, programmeClassId, "PUBLISHED").orElse(null);
+            if (version == null) {
+                // Find the current session only through a published version when
+                // possible; if none exists, preserve the legacy latest behavior.
+                version = versions.findFirstBySchoolIdAndStudentIdAndStateOrderByPublishedAtDesc(
+                        TenantContext.get(), studentId, "PUBLISHED").orElse(null);
+                if (version != null) {
+                    AcademicReportingPeriod fallbackPeriod = period(version.getReportingPeriodId());
+                    if (cohorts.cohortForClass(fallbackPeriod.getAcademicSessionId(), programmeClassId) != null) {
+                        version = null;
+                    }
+                }
+            }
+        }
+        if (version == null) throw ApiException.notFound("Aucun bulletin publié pour cet élève");
         AcademicReportingPeriod period = period(version.getReportingPeriodId());
         return viewFromSnapshot(version, period, student);
     }
+
 
     /** Build the class PV from session-aware reporting-period calculations. */
     @Transactional
@@ -483,34 +626,27 @@ public class BulletinSnapshotService {
                 period.getAcademicSessionId(), classId, null, null, period.getStartDate());
         SchoolClass schoolClass = classes.findByIdAndSchoolId(classId, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Classe"));
-        List<StudentEnrollment> roster = enrollments.findBySchoolIdAndAcademicSessionIdAndSchoolClassIdAndStatusOrderByClassNameSnapshotAsc(
-                TenantContext.get(), period.getAcademicSessionId(), classId, "ACTIVE");
-        roster = roster.stream().filter(e -> !e.getEnrolledOn().isAfter(period.getStartDate())
-                && (e.getExitedOn() == null || !e.getExitedOn().isBefore(period.getStartDate()))).toList();
-        Map<UUID, String> names = jdbc.query("""
-                SELECT e.student_id, s.last_name || ' ' || s.first_name
-                  FROM student_enrollment e JOIN student s ON s.id=e.student_id
-                 WHERE e.school_id=? AND e.academic_session_id=? AND e.school_class_id=? AND e.status='ACTIVE'
-                """, rs -> {
-            Map<UUID, String> result = new HashMap<>();
-            while (rs.next()) result.put(rs.getObject(1, UUID.class), rs.getString(2));
-            return result;
-        }, TenantContext.get(), period.getAcademicSessionId(), classId);
+        List<UUID> roster = cohorts.rosterStudentIds(period.getAcademicSessionId(), classId, "ACTIVE", period.getStartDate());
+        Map<UUID, String> names = new HashMap<>();
+        for (UUID studentId : roster) {
+            students.findByIdAndSchoolId(studentId, TenantContext.get())
+                    .ifPresent(student -> names.put(studentId, student.getLastName() + " " + student.getFirstName()));
+        }
         Map<UUID, Calculation> calculated = new LinkedHashMap<>();
         CalculationContext context = new CalculationContext();
-        for (StudentEnrollment enrollment : roster) {
-            calculated.put(enrollment.getStudentId(), calculateCurrent(enrollment.getStudentId(), period, context));
+        context.programmeClassId = classId;
+        for (UUID studentId : roster) {
+            calculated.put(studentId, calculateCurrent(studentId, period, context));
         }
         List<BigDecimal> cohortAverages = new ArrayList<>();
-        for (StudentEnrollment enrollment : roster) {
-            Calculation current = calculated.get(enrollment.getStudentId());
+        for (UUID studentId : roster) {
+            Calculation current = calculated.get(studentId);
             BigDecimal average = current.average();
             List<String> blockers = current.blockers();
             if (blockers.isEmpty() && average != null) cohortAverages.add(average);
         }
         List<SessionPvRow> rows = new ArrayList<>();
-        for (StudentEnrollment enrollment : roster) {
-            UUID studentId = enrollment.getStudentId();
+        for (UUID studentId : roster) {
             Calculation calculation = calculated.get(studentId);
             BigDecimal average = calculation.average();
             List<String> blockers = calculation.blockers();
@@ -537,10 +673,10 @@ public class BulletinSnapshotService {
 
     /** Request-scoped current-source calculation. Persisted bulletin rows are never used as inputs. */
     private Calculation calculateCurrent(UUID studentId, AcademicReportingPeriod period, CalculationContext context) {
-        CalcKey key = new CalcKey(studentId, period.getId());
+        CalcKey key = new CalcKey(studentId, period.getId(), context.programmeClassId);
         Calculation cached = context.calculations.get(key);
         if (cached != null) return cached;
-        if (!context.visiting.add(key)) return cycleCalculation(studentId, period);
+        if (!context.visiting.add(key)) return cycleCalculation(studentId, period, context);
         try {
             Calculation calculated = "SEQUENCE".equals(period.getPeriodType())
                     ? calculateSequence(studentId, period, context)
@@ -553,9 +689,10 @@ public class BulletinSnapshotService {
     }
 
     private Calculation calculateSequence(UUID studentId, AcademicReportingPeriod period, CalculationContext context) {
-        Calculation base = calculateSequence(studentId, period);
         StudentEnrollment enrollment = enrollment(studentId, period);
-        UUID classId = enrollment.getSchoolClassId();
+        UUID classId = calculationClassId(studentId, period, context);
+        ClassProfile profile = classProfile(classId, enrollment, context);
+        Calculation base = calculateSequence(studentId, period, classId, profile, context);
         PacketReadiness packet = packetReadiness(period, classId,
                 base.lines().stream().map(BulletinLineView::subjectCode).toList(), context);
         List<String> blockers = new ArrayList<>(base.blockers());
@@ -577,10 +714,12 @@ public class BulletinSnapshotService {
             return finishWith(List.of(), List.of("DEPENDENCY_MISSING"), List.of(issue("DEPENDENCY_MISSING", "ERROR",
                     period.getCode(), null, "Aucune periode enfant n'est configuree pour " + period.getCode() + ".",
                     "No child period is configured for " + period.getCode() + ".", "academic-sessions")),
-                    studentId, period, List.of(), List.of(), List.of(), null, "BLOCKED");
+                    studentId, period, List.of(), List.of(), List.of(), null, "BLOCKED", context);
         }
 
         StudentEnrollment enrollment = enrollment(studentId, period);
+        UUID classId = calculationClassId(studentId, period, context);
+        ClassProfile profile = classProfile(classId, enrollment, context);
         Map<String, Calculation> children = new LinkedHashMap<>();
         List<DependencySourceTrace> sourceTraces = new ArrayList<>();
         List<PacketTrace> packetTraces = new ArrayList<>();
@@ -608,14 +747,14 @@ public class BulletinSnapshotService {
                     dependency.weight(), dependency.optional(), sourceKind(childPeriod), child.sourceHash(), child.packetTraces()));
         }
 
-        LinkedHashSet<String> subjectCodes = curriculumSubjectCodes(studentId, period, enrollment.getSchoolClassId());
+        LinkedHashSet<String> subjectCodes = curriculumSubjectCodes(studentId, period, classId);
         if (subjectCodes.isEmpty()) children.values().stream().flatMap(child -> child.lines().stream())
                 .map(BulletinLineView::subjectCode).forEach(subjectCodes::add);
         List<BulletinLineView> lines = new ArrayList<>();
         AcademicCalculationEngine.Product product = product(period);
         Map<String, Subject> subjectByCode = new HashMap<>();
         for (String code : subjectCodes) subjects.findBySchoolIdAndCode(TenantContext.get(), code).ifPresent(s -> subjectByCode.put(code, s));
-        Map<String, Integer> coefficients = effectiveCoefficients(studentId, period.getAcademicSessionId());
+        Map<String, Integer> coefficients = effectiveCoefficients(studentId, period.getAcademicSessionId(), classId);
         for (String subjectCode : subjectCodes) {
             List<AcademicCalculationEngine.ChildInput> childInputs = new ArrayList<>();
             List<PeriodMarkView> periodMarks = new ArrayList<>();
@@ -652,7 +791,7 @@ public class BulletinSnapshotService {
             BigDecimal mark = result.exempt() ? null : result.value();
             Subject subject = subjectByCode.get(subjectCode);
             int coefficient = coefficients.getOrDefault(subjectCode, subject == null ? 1 : subject.getCoef());
-            CurriculumMetadata metadata = curriculumMetadata(studentId, period.getAcademicSessionId(), subjectCode);
+            CurriculumMetadata metadata = curriculumMetadata(studentId, period.getAcademicSessionId(), subjectCode, classId);
             lines.add(new BulletinLineView(subjectCode, subjectLabel(subject, subjectCode), coefficient, mark,
                     mark == null ? null : mark.multiply(BigDecimal.valueOf(coefficient)), null, appreciation(mark), uniqueEvidence(evidence),
                     periodMarks, metadata.teacherName(), metadata.groupCode(), metadata.groupLabel()));
@@ -661,7 +800,7 @@ public class BulletinSnapshotService {
         String sourceHash = sourceHash(new CurrentSourceFingerprint(period.getId(), period.getVersion(), period.getPeriodType(),
                 lines, blockers, sourceTraces, packetTraces));
         return finishWith(lines, blockers, issues, studentId, period, readinessRows, sourceTraces, packetTraces,
-                sourceHash, readiness(blockers, issues));
+                sourceHash, readiness(blockers, issues), context);
     }
 
     private List<DependencyRow> dependencies(AcademicReportingPeriod period, CalculationContext context) {
@@ -679,10 +818,9 @@ public class BulletinSnapshotService {
     }
 
     /** Authoritative sequence calculation backed by the pure status/normalisation engine. */
-    private Calculation calculateSequence(UUID studentId, AcademicReportingPeriod period) {
-        StudentEnrollment enrollment = enrollments.findFirstBySchoolIdAndStudentIdAndAcademicSessionIdAndStatus(
-                TenantContext.get(), studentId, period.getAcademicSessionId(), "ACTIVE").orElse(null);
-        UUID classId = enrollment == null ? null : enrollment.getSchoolClassId();
+    private Calculation calculateSequence(UUID studentId, AcademicReportingPeriod period,
+                                          UUID classId, ClassProfile profile,
+                                          CalculationContext context) {
         List<AcademicAssessment> definition = classId == null
                 ? assessments.findBySchoolIdAndReportingPeriodIdOrderByDisplayOrder(TenantContext.get(), period.getId())
                 : assessments.findApplicableForClass(TenantContext.get(), period.getId(), classId);
@@ -702,9 +840,9 @@ public class BulletinSnapshotService {
 
         List<BulletinLineView> lines = new ArrayList<>();
         List<String> blockers = new ArrayList<>();
-        Map<String, Integer> coefficients = effectiveCoefficients(studentId, period.getAcademicSessionId());
-        boolean secondaryClass = enrollment != null && "secondary".equalsIgnoreCase(enrollment.getLevelSnapshot());
-        String competencyLocale = enrollment != null && "EN".equalsIgnoreCase(enrollment.getSubsystemSnapshot()) ? "en" : "fr";
+        Map<String, Integer> coefficients = effectiveCoefficients(studentId, period.getAcademicSessionId(), classId);
+        boolean secondaryClass = "secondary".equalsIgnoreCase(profile.level());
+        String competencyLocale = "EN".equalsIgnoreCase(profile.subsystem()) ? "en" : "fr";
         for (String subjectCode : subjectCodes) {
             List<AcademicAssessment> applicable = definition.stream()
                     .filter(a -> a.getSubjectCode() == null || a.getSubjectCode().equalsIgnoreCase(subjectCode))
@@ -763,7 +901,7 @@ public class BulletinSnapshotService {
             int coefficient = coefficients.getOrDefault(subjectCode, subject == null ? 1 : subject.getCoef());
             SubjectResultComment comment = comments.findBySchoolIdAndStudentIdAndReportingPeriodIdAndSubjectCode(
                     TenantContext.get(), studentId, period.getId(), subjectCode).orElse(null);
-            CurriculumMetadata metadata = curriculumMetadata(studentId, period.getAcademicSessionId(), subjectCode);
+            CurriculumMetadata metadata = curriculumMetadata(studentId, period.getAcademicSessionId(), subjectCode, classId);
             String teacherRemark = comment == null ? null : comment.getComment();
             if (metadata.remarkRequired() && (teacherRemark == null || teacherRemark.isBlank())) {
                 addDistinct(blockers, subjectCode + ":REMARK_REQUIRED");
@@ -778,7 +916,7 @@ public class BulletinSnapshotService {
             blockers.add("SECONDARY_COMPETENCY_MODEL_MISSING");
         }
         if (lines.isEmpty()) blockers.add("NO_SUBJECT_RESULT");
-        return finish(lines, blockers, studentId, period);
+        return finish(lines, blockers, studentId, period, context);
     }
 
     /**
@@ -828,7 +966,8 @@ public class BulletinSnapshotService {
         return List.copyOf(unique.values());
     }
 
-    private Calculation finish(List<BulletinLineView> lines, List<String> blockers, UUID studentId, AcademicReportingPeriod period) {
+    private Calculation finish(List<BulletinLineView> lines, List<String> blockers, UUID studentId,
+                               AcademicReportingPeriod period, CalculationContext context) {
         BigDecimal weighted = BigDecimal.ZERO, coefs = BigDecimal.ZERO;
         for (BulletinLineView l : lines) {
             if (l.mark() == null || l.weighted() == null) continue;
@@ -837,13 +976,13 @@ public class BulletinSnapshotService {
         }
         BigDecimal average = coefs.signum() == 0 ? null : weighted.divide(coefs, AcademicCalculationEngine.CALCULATION_SCALE, RoundingMode.HALF_UP);
         Student student = students.findByIdAndSchoolId(studentId, TenantContext.get()).orElseThrow();
-        StudentEnrollment enrollment = enrollments.findFirstBySchoolIdAndStudentIdAndAcademicSessionIdAndStatus(TenantContext.get(), studentId, period.getAcademicSessionId(), "ACTIVE").orElse(null);
-        List<StudentEnrollment> classRoster = enrollment == null || enrollment.getSchoolClassId() == null ? List.of() : enrollments.findBySchoolIdAndAcademicSessionIdAndSchoolClassIdAndStatusOrderByClassNameSnapshotAsc(TenantContext.get(), period.getAcademicSessionId(), enrollment.getSchoolClassId(), "ACTIVE");
-        int rank = 1; int classSize = classRoster.size();
+        StudentEnrollment enrollment = enrollment(studentId, period);
+        UUID classId = calculationClassId(studentId, period, context);
+        ClassProfile profile = classProfile(classId, enrollment, context);
+        int classSize = classId == null ? 0 : cohorts.rosterStudentIds(period.getAcademicSessionId(), classId, "ACTIVE", period.getStartDate()).size();
+        int rank = 1;
         return new Calculation(lines, blockers, average, rank, classSize,
-                enrollment == null ? null : enrollment.getLevelSnapshot(),
-                enrollment == null ? null : enrollment.getSubsystemSnapshot(),
-                enrollment == null ? null : enrollment.getClassNameSnapshot(), null);
+                profile.level(), profile.subsystem(), profile.name(), null);
     }
 
     private Calculation finishWith(List<BulletinLineView> lines, List<String> blockers,
@@ -852,8 +991,8 @@ public class BulletinSnapshotService {
                                    List<DependencyReadinessView> dependencies,
                                    List<DependencySourceTrace> dependencySources,
                                    List<PacketTrace> packetTraces, String sourceHash,
-                                   String inputReadiness) {
-        Calculation base = finish(lines, blockers, studentId, period);
+                                   String inputReadiness, CalculationContext context) {
+        Calculation base = finish(lines, blockers, studentId, period, context);
         return new Calculation(base.lines(), base.blockers(), base.average(), base.rank(), base.classSize(),
                 base.educationalLevel(), base.subsystem(), base.className(), base.classStats(), inputReadiness,
                 dependencies, issues, dependencySources, packetTraces, sourceHash);
@@ -868,12 +1007,12 @@ public class BulletinSnapshotService {
                 dependencies, issues, dependencySources, packetTraces, sourceHash);
     }
 
-    private Calculation cycleCalculation(UUID studentId, AcademicReportingPeriod period) {
+    private Calculation cycleCalculation(UUID studentId, AcademicReportingPeriod period, CalculationContext context) {
         String messageFr = period.getCode() + " : la dependance des periodes forme un cycle.";
         String messageEn = period.getCode() + ": the reporting-period dependency graph contains a cycle.";
         return finishWith(List.of(), List.of("DEPENDENCY_CYCLE"),
                 List.of(issue("DEPENDENCY_CYCLE", "ERROR", period.getCode(), null, messageFr, messageEn, "academic-sessions")),
-                studentId, period, List.of(), List.of(), List.of(), null, "BLOCKED");
+                studentId, period, List.of(), List.of(), List.of(), null, "BLOCKED", context);
     }
 
     private PacketReadiness packetReadiness(AcademicReportingPeriod period, UUID classId,
@@ -1101,14 +1240,13 @@ public class BulletinSnapshotService {
 
     private Calculation withClassStatistics(UUID studentId, AcademicReportingPeriod period,
                                              Calculation own, CalculationContext context) {
-        StudentEnrollment enrollment = enrollments.findFirstBySchoolIdAndStudentIdAndAcademicSessionIdAndStatus(
-                TenantContext.get(), studentId, period.getAcademicSessionId(), "ACTIVE").orElse(null);
-        if (enrollment == null || enrollment.getSchoolClassId() == null) return own;
-        List<StudentEnrollment> roster = enrollments.findBySchoolIdAndAcademicSessionIdAndSchoolClassIdAndStatusOrderByClassNameSnapshotAsc(
-                TenantContext.get(), period.getAcademicSessionId(), enrollment.getSchoolClassId(), "ACTIVE");
+        StudentEnrollment enrollment = enrollment(studentId, period);
+        UUID classId = calculationClassId(studentId, period, context);
+        if (enrollment == null || classId == null) return own;
+        List<UUID> roster = cohorts.rosterStudentIds(period.getAcademicSessionId(), classId, "ACTIVE", period.getStartDate());
         List<Calculation> eligible = new ArrayList<>();
-        for (StudentEnrollment peer : roster) {
-            Calculation c = calculateCurrent(peer.getStudentId(), period, context);
+        for (UUID peerId : roster) {
+            Calculation c = calculateCurrent(peerId, period, context);
             if (c.blockers().isEmpty()) eligible.add(c);
         }
         if (eligible.isEmpty()) return copyWithStats(own, null, roster.size(),
@@ -1139,7 +1277,7 @@ public class BulletinSnapshotService {
         try {
             return mapper.writeValueAsString(new SnapshotPayload(p.getCode(), p.getLabel(), p.getPeriodType(),
                     s.getId(), s.getMatricule(), s.getLastName() + " " + s.getFirstName(),
-                    c.educationalLevel(), c.subsystem(), e.getClassNameSnapshot(), c.lines(), c.average(), c.rank(), c.classSize(), c.blockers(),
+                    c.educationalLevel(), c.subsystem(), c.className(), c.lines(), c.average(), c.rank(), c.classSize(), c.blockers(),
                     c.issues(), p.getCalculationPolicy(), attendance, conduct, c.classStats(), groupStats(c.lines()), trace));
         } catch (JsonProcessingException ex) {
             throw ApiException.conflict("Impossible de créer le snapshot du bulletin");
@@ -1184,7 +1322,8 @@ public class BulletinSnapshotService {
                 v.getSnapshotHash(), v.getCalculationPolicy(), v.getGeneralAppreciation(), attendance, conduct,
                 v.getVersion(), c.classStats(), v.getSupersedesId(), v.getCorrectsBulletinVersionId(),
                 v.getCorrectionReason(), v.getCorrectionRequestedBy(), v.getCorrectionRequestedAt(),
-                groupStats(c.lines()), evidence(trace), p.getPeriodType(), productName(p), workflow, issues);
+                groupStats(c.lines()), evidence(trace), p.getPeriodType(), productName(p), workflow, issues,
+                v.getProgrammeClassId());
     }
     private BulletinSnapshotView viewFromSnapshot(BulletinVersion v, AcademicReportingPeriod p, Student s) {
         try {
@@ -1234,13 +1373,17 @@ public class BulletinSnapshotService {
         }
     }
 
-    private record CalcKey(UUID studentId, UUID periodId) {}
+    private record CalcKey(UUID studentId, UUID periodId, UUID programmeClassId) {}
     private static final class CalculationContext {
+        private UUID programmeClassId;
         private final Map<CalcKey, Calculation> calculations = new HashMap<>();
         private final Set<CalcKey> visiting = new HashSet<>();
         private final Map<UUID, List<DependencyRow>> dependencies = new HashMap<>();
         private final Map<String, PacketReadiness> packetReadiness = new HashMap<>();
+        private final Map<UUID, ClassProfile> classProfiles = new HashMap<>();
     }
+
+    private record ClassProfile(UUID id, String name, String level, String subsystem) {}
 
     private record CurrentSnapshot(Student student, StudentEnrollment enrollment, Calculation calculation,
                                    AttendanceSummaryView attendance, ConductSummaryView conduct,
@@ -1266,9 +1409,10 @@ public class BulletinSnapshotService {
                                String childReportingPeriodCode, String subjectCode, String status,
                                long version, UUID teacherId, UUID responsibleAssignmentId,
                                Long responsibleAssignmentVersion, Instant submittedAt, Instant reviewedAt) {}
-    private SnapshotTrace snapshotTrace(AcademicReportingPeriod period, Student student, StudentEnrollment enrollment) {
+    private SnapshotTrace snapshotTrace(AcademicReportingPeriod period, Student student,
+                                        StudentEnrollment enrollment, UUID programmeClassId) {
         UUID school = TenantContext.get();
-        UUID classId = enrollment.getSchoolClassId();
+        UUID classId = programmeClassId == null ? enrollment.getSchoolClassId() : programmeClassId;
         List<CurriculumTrace> curriculum = classId == null ? List.of() : jdbc.query("""
                 SELECT c.id,s.code,c.coefficient,c.version
                   FROM academic_curriculum_subject c JOIN subject s ON s.id=c.subject_id
@@ -1305,7 +1449,7 @@ public class BulletinSnapshotService {
                         rs.getObject(4, UUID.class),rs.getString(5),rs.getObject(6, java.time.LocalDate.class),rs.getObject(7, java.time.LocalDate.class)),
                 school, period.getAcademicSessionId(), classId, period.getEndDate(), period.getStartDate());
         ProfileAssetTrace profilePhoto = profilePhotoTrace(student.getId(), school);
-        DocumentDesignTrace documentDesign = documentDesignTrace(period, enrollment, school);
+        DocumentDesignTrace documentDesign = documentDesignTrace(period, enrollment, programmeClassId, school);
         return new SnapshotTrace(period.getId(), period.getVersion(), enrollment.getId(), classId, curriculum, assessments,
                 subjectAssignments, homeroomAssignments, List.of(),
                 FORMULA_VERSION, period.getCalculationPolicy(), profilePhoto, documentDesign,
@@ -1313,8 +1457,9 @@ public class BulletinSnapshotService {
     }
 
     private SnapshotTrace snapshotTrace(AcademicReportingPeriod period, Student student,
-                                        StudentEnrollment enrollment, Calculation calculation) {
-        SnapshotTrace base = snapshotTrace(period, student, enrollment);
+                                        StudentEnrollment enrollment, UUID programmeClassId,
+                                        Calculation calculation) {
+        SnapshotTrace base = snapshotTrace(period, student, enrollment, programmeClassId);
         return new SnapshotTrace(base.reportingPeriodId(), base.reportingPeriodVersion(), base.enrollmentId(), base.classId(),
                 base.curriculum(), base.assessments(), base.subjectAssignments(), base.homeroomAssignments(),
                 List.of(), FORMULA_VERSION, base.calculationPolicy(), base.profilePhoto(), base.documentDesign(),
@@ -1423,15 +1568,27 @@ public class BulletinSnapshotService {
         return rows.isEmpty() ? null : rows.get(0);
     }
 
-    private DocumentDesignTrace documentDesignTrace(AcademicReportingPeriod period, StudentEnrollment enrollment, UUID schoolId) {
+    private DocumentDesignTrace documentDesignTrace(AcademicReportingPeriod period, StudentEnrollment enrollment,
+                                                    UUID programmeClassId, UUID schoolId) {
         String product = switch (period.getPeriodType()) {
             case "SEQUENCE" -> "SEQUENCE";
             case "TERM_RESULT" -> "TERM";
             case "ANNUAL_RESULT" -> "ANNUAL";
             default -> "GENERIC";
         };
-        String subsystem = "secondary".equalsIgnoreCase(enrollment.getLevelSnapshot()) ? "SEC" : "PRI";
-        String locale = "EN".equalsIgnoreCase(enrollment.getSubsystemSnapshot()) ? "en" : "fr";
+        // A bilingual cohort has one enrollment row but two programme classes.
+        // The document stream must follow the selected programme class rather
+        // than the enrollment's legacy snapshot (which is normally the FR
+        // side created first).
+        SchoolClass programmeClass = (programmeClassId == null ? enrollment.getSchoolClassId() : programmeClassId) == null
+                ? null
+                : classes.findByIdAndSchoolId(
+                        programmeClassId == null ? enrollment.getSchoolClassId() : programmeClassId, schoolId)
+                        .orElse(null);
+        String levelSnapshot = programmeClass == null ? enrollment.getLevelSnapshot() : programmeClass.getLevel();
+        String subsystemSnapshot = programmeClass == null ? enrollment.getSubsystemSnapshot() : programmeClass.getSubsystem();
+        String subsystem = "secondary".equalsIgnoreCase(levelSnapshot) ? "SEC" : "PRI";
+        String locale = "EN".equalsIgnoreCase(subsystemSnapshot) ? "en" : "fr";
         List<TemplateCandidate> candidates = jdbc.query("""
                 SELECT id,template_family,product,locale,template_version,body_template
                   FROM document_template
@@ -1499,6 +1656,12 @@ public class BulletinSnapshotService {
      * curriculum row exists, it is the immutable coefficient authority.
      */
     private Map<String, Integer> effectiveCoefficients(UUID studentId, UUID sessionId) {
+        UUID classId = enrollments.findFirstBySchoolIdAndStudentIdAndAcademicSessionIdAndStatus(
+                TenantContext.get(), studentId, sessionId, "ACTIVE").map(StudentEnrollment::getSchoolClassId).orElse(null);
+        return effectiveCoefficients(studentId, sessionId, classId);
+    }
+
+    private Map<String, Integer> effectiveCoefficients(UUID studentId, UUID sessionId, UUID classId) {
         UUID schoolId = TenantContext.get();
         List<Subject> catalog = subjects.findBySchoolIdOrderByCode(schoolId);
         Map<String, Integer> byCode = new HashMap<>();
@@ -1510,17 +1673,16 @@ public class BulletinSnapshotService {
         // remains only as a compatibility fallback for sessions not migrated yet.
         jdbc.query("SELECT s.code, c.coefficient FROM academic_curriculum_subject c JOIN subject s ON s.id=c.subject_id WHERE c.school_id=? AND c.academic_session_id=? AND c.class_id=?",
                 rs -> { while (rs.next()) byCode.put(rs.getString(1), rs.getInt(2)); return null; },
-                schoolId, sessionId, enrollments.findFirstBySchoolIdAndStudentIdAndAcademicSessionIdAndStatus(schoolId, studentId, sessionId, "ACTIVE").map(StudentEnrollment::getSchoolClassId).orElse(null));
-
-        StudentEnrollment enrollment = enrollments.findFirstBySchoolIdAndStudentIdAndAcademicSessionIdAndStatus(
-                schoolId, studentId, sessionId, "ACTIVE").orElse(null);
-        if (enrollment == null) return byCode;
-
+                schoolId, sessionId, classId);
         return byCode;
     }
     private CurriculumMetadata curriculumMetadata(UUID studentId, UUID sessionId, String subjectCode) {
         UUID classId = enrollments.findFirstBySchoolIdAndStudentIdAndAcademicSessionIdAndStatus(
                 TenantContext.get(), studentId, sessionId, "ACTIVE").map(StudentEnrollment::getSchoolClassId).orElse(null);
+        return curriculumMetadata(studentId, sessionId, subjectCode, classId);
+    }
+
+    private CurriculumMetadata curriculumMetadata(UUID studentId, UUID sessionId, String subjectCode, UUID classId) {
         if (classId == null) return new CurriculumMetadata(null, null, false, null);
         CurriculumMetadata base = jdbc.query("SELECT g.code, COALESCE(g.label->>'fr',g.label->>'en',g.code), c.remark_required "
                         + "FROM academic_curriculum_subject c JOIN subject s ON s.id=c.subject_id "

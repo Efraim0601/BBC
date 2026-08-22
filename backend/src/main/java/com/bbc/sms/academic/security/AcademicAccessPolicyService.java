@@ -1,6 +1,7 @@
 package com.bbc.sms.academic.security;
 
 import com.bbc.sms.platform.common.ApiException;
+import com.bbc.sms.foundation.cohort.AcademicCohortResolver;
 import com.bbc.sms.platform.security.AppUserPrincipal;
 import com.bbc.sms.platform.security.AuthorizationPolicyService;
 import com.bbc.sms.platform.security.PolicyResourceContext;
@@ -75,21 +76,31 @@ public class AcademicAccessPolicyService {
     private final PermissionService permissions;
     private final TeachingAssignmentResolver assignments;
     private final AuthorizationPolicyService centralPolicy;
+    private final AcademicCohortResolver cohorts;
 
     @Autowired
     public AcademicAccessPolicyService(JdbcTemplate jdbc, PermissionService permissions,
                                        TeachingAssignmentResolver assignments,
-                                       @Lazy AuthorizationPolicyService centralPolicy) {
+                                       @Lazy AuthorizationPolicyService centralPolicy,
+                                       AcademicCohortResolver cohorts) {
         this.jdbc = jdbc;
         this.permissions = permissions;
         this.assignments = assignments;
         this.centralPolicy = centralPolicy;
+        this.cohorts = cohorts;
+    }
+
+    /** Constructor retained for focused domain-unit tests without the policy schema. */
+    public AcademicAccessPolicyService(JdbcTemplate jdbc, PermissionService permissions,
+                                       TeachingAssignmentResolver assignments,
+                                       AuthorizationPolicyService centralPolicy) {
+        this(jdbc, permissions, assignments, centralPolicy, null);
     }
 
     /** Constructor retained for focused domain-unit tests without the policy schema. */
     public AcademicAccessPolicyService(JdbcTemplate jdbc, PermissionService permissions,
                                        TeachingAssignmentResolver assignments) {
-        this(jdbc, permissions, assignments, null);
+        this(jdbc, permissions, assignments, null, null);
     }
 
     /** Fail closed for a direct academic resource request. */
@@ -232,7 +243,12 @@ public class AcademicAccessPolicyService {
 
         Enrollment enrollment = studentId == null ? null : enrollment(studentId, academicSessionId,
                 effectiveDate);
-        if (studentId != null && (enrollment == null || !classId.equals(enrollment.classId()))) {
+        boolean enrollmentMatches = enrollment != null && classId.equals(enrollment.classId());
+        if (enrollment != null && cohorts != null) {
+            enrollmentMatches = cohorts.studentBelongsToClass(academicSessionId, classId, studentId,
+                    "ACTIVE", effectiveDate);
+        }
+        if (studentId != null && !enrollmentMatches) {
             return deny("ENROLLMENT_SCOPE_MISMATCH",
                     "L'inscription de l'élève ne correspond pas à cette classe et cette session.",
                     "The student's enrollment does not match this class and session.", effectiveDate);
@@ -281,8 +297,18 @@ public class AcademicAccessPolicyService {
                             classId, subjectCode, homeroom.code(), effectiveDate);
                 }
             }
-            // Secondary keeps its departmental model and cannot inherit roster
-            // access merely from a form-teacher/homeroom designation.
+            // Secondary keeps subject-teacher grade authority, but its dated
+            // homeroom teacher still owns the class roster regardless of which
+            // subjects are distributed to other teachers.
+            if (isSecondaryLevel(resource.level())) {
+                TeachingAssignmentResolver.Resolution homeroom = assignments.resolveHomeroom(
+                        academicSessionId, classId, effectiveDate);
+                if (actor.employeeId().equals(homeroom.teacherId())) {
+                    return allow(actor.employeeId(), "SECONDARY_HOMEROOM_VIEW",
+                            homeroom.assignmentId(), homeroom.assignmentVersion(), null,
+                            classId, subjectCode, homeroom.code(), effectiveDate);
+                }
+            }
             if (isSecondaryLevel(resource.level())
                     && hasResponsibleAssignment(actor.employeeId(), academicSessionId, classId,
                     effectiveDate, subjectCode)) {
@@ -295,7 +321,8 @@ public class AcademicAccessPolicyService {
         boolean classWide = capability == Capability.CLASS_RESULTS_VIEW
                 || capability == Capability.CLASS_REPORT_CARD_VIEW
                 || capability == Capability.COUNCIL_INPUT_VIEW
-                || capability == Capability.COUNCIL_INPUT_EDIT;
+                || capability == Capability.COUNCIL_INPUT_EDIT
+                || capability == Capability.GRADE_PACKET_REVIEW;
 
         if (classWide) {
             TeachingAssignmentResolver.Resolution homeroom = assignments.resolveHomeroom(

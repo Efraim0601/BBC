@@ -91,6 +91,18 @@ class AttendanceScopeResolverTest {
     }
 
     @Test
+    void secondaryTitulaireCanUseTitulaireScopeToReopenAClassSession() {
+        JdbcTemplate jdbc = jdbcForLevel("secondary");
+        when(jdbc.queryForObject(anyString(), eq(Integer.class), any(Object[].class))).thenReturn(1);
+        AttendanceScopeResolver resolver = new AttendanceScopeResolver(jdbc);
+        AppUserPrincipal principal = principal();
+
+        assertThat(resolver.allowsTeacher(principal,
+                context(UUID.randomUUID(), "MATH", "P1"),
+                "TITULAIRE_CLASSES")).isTrue();
+    }
+
+    @Test
     void secondaryWrongSubjectOrPeriodIsRejectedByThePublishedOccurrenceBinding() {
         JdbcTemplate jdbc = jdbcForLevel("secondary");
         when(jdbc.queryForObject(anyString(), eq(Integer.class), any(Object[].class))).thenReturn(0);

@@ -8,6 +8,7 @@ import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
 import { ScopeService } from '../../core/scope.service';
 import { Student } from '../../core/models';
+import { FoundationApi } from '../../core/foundation.api';
 import { downloadCsv, stampedName } from '../../core/csv';
 import {
   IconComponent, CardComponent, PageHeaderComponent,
@@ -84,7 +85,7 @@ interface HeaderMap {
               </span>
             }
             @if (listClassOptions().length) {
-              <select [ngModel]="classFilter()" (ngModelChange)="classFilter.set($event)"
+              <select [ngModel]="classFilter()" (ngModelChange)="onClassFilter($event)"
                 class="h-9 min-w-[11rem] px-3 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:border-brand-400">
                 <option [ngValue]="null">{{ fr() ? 'Toutes classes' : 'All classes' }}</option>
                 @for (g of listClassGroups(); track g.key) {
@@ -932,6 +933,7 @@ interface HeaderMap {
 export class StudentsComponent {
   protected i18n = inject(I18nService);
   private api = inject(StudentApi);
+  private foundation = inject(FoundationApi);
   private photoApi = inject(PhotoApi);
   private auth = inject(AuthService);
   private scopeSvc = inject(ScopeService);
@@ -957,6 +959,7 @@ export class StudentsComponent {
   protected subFilter = signal<string | null>(null);
   protected levelFilter = signal<string | null>(null);
   protected classFilter = signal<string | null>(null);
+  private currentSessionId = signal<string | null>(null);
   protected selectedId = signal<string | null>(null);
 
   protected mode = signal<'list' | 'edit' | 'import'>('list');
@@ -1137,6 +1140,10 @@ export class StudentsComponent {
 
   constructor() {
     this.reload();
+    this.foundation.currentSession().subscribe({
+      next: (session) => this.currentSessionId.set(session.id),
+      error: () => this.currentSessionId.set(null),
+    });
     this.api.listClassOptions().subscribe({
       next: (c) => this.classes.set(c),
       error: () => this.classes.set([]),
@@ -1155,6 +1162,24 @@ export class StudentsComponent {
   private reload(): void {
     this.api.list().subscribe((r) => {
       this.rows.set(r);
+    });
+  }
+
+  /** A class filter is a roster request so paired programme classes share one list. */
+  protected onClassFilter(classId: string | null): void {
+    this.classFilter.set(classId);
+    if (!classId) {
+      this.reload();
+      return;
+    }
+    const sessionId = this.currentSessionId();
+    if (!sessionId) {
+      this.reload();
+      return;
+    }
+    this.api.listRoster(sessionId, classId).subscribe({
+      next: (rows) => this.rows.set(rows),
+      error: () => this.rows.set([]),
     });
   }
 

@@ -104,7 +104,7 @@ type Tab = 'roll' | 'analytics' | 'devices' | 'settings';
                   <button class="btn primary" (click)="save()" [disabled]="busy()">{{ fr() ? 'Enregistrer' : 'Save' }}</button>
                   <button class="btn" (click)="finalize()" [disabled]="busy()">{{ fr() ? 'Finaliser' : 'Finalize' }}</button>
                 } @else {
-                  @if (canReopen) { <button class="btn" (click)="openReopen()">{{ fr() ? 'Rouvrir avec motif' : 'Reopen with reason' }}</button> }
+                  @if (canReopen()) { <button class="btn" (click)="openReopen()">{{ fr() ? 'Rouvrir avec motif' : 'Reopen with reason' }}</button> }
                 }
               </div>
 
@@ -230,7 +230,10 @@ export class AttendanceComponent {
   // module bit remains read-only; the module bit must not hide these controls.
   protected canDevices = computed(() => this.auth.canAction('ATTENDANCE_DEVICE_VIEW'));
   protected canSettings = computed(() => this.auth.canAction('ATTENDANCE_POLICY_MANAGE'));
-  protected canReopen = ['principal','prefect'].includes(this.auth.user()?.role || '');
+  protected canReopen = computed(() => {
+    const state = this.auth.actionState('ATTENDANCE_REOPEN');
+    return state === 'ALLOW' || state === 'CONTEXT_REQUIRED';
+  });
   protected tabs = computed(() => ([
     {key:'roll',fr:'Liste d’appel',en:'Roll call'}, {key:'analytics',fr:'Analyses',en:'Analytics'},
     {key:'devices',fr:'Lecteurs & rapprochement',en:'Devices & reconciliation'}, {key:'settings',fr:'Configuration',en:'Settings'},

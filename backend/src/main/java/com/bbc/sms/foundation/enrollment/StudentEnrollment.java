@@ -17,6 +17,7 @@ public class StudentEnrollment {
     @Column(name = "student_id", nullable = false) private UUID studentId;
     @Column(name = "academic_session_id", nullable = false) private UUID academicSessionId;
     @Column(name = "school_class_id") private UUID schoolClassId;
+    @Column(name = "cohort_id") private UUID cohortId;
     @Column(name = "class_name_snapshot") private String classNameSnapshot;
     @Column(name = "level_snapshot") private String levelSnapshot;
     @Column(name = "subsystem_snapshot") private String subsystemSnapshot;

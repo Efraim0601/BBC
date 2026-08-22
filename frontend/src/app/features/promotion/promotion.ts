@@ -1,6 +1,7 @@
 import { Component, ChangeDetectionStrategy, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
 import {
@@ -23,7 +24,7 @@ const APPLICABLE = ['promoted', 'repeated', 'graduated', 'transferred_out', 'exc
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     DatePipe, FormsModule, IconComponent, CardComponent, PageHeaderComponent, EmptyComponent,
-    AvatarComponent, KpiComponent, TabsComponent, ConfirmComponent,
+    AvatarComponent, KpiComponent, TabsComponent, ConfirmComponent, RouterLink,
   ],
   template: `
     <div class="fade-in max-w-7xl mx-auto">
@@ -33,6 +34,7 @@ const APPLICABLE = ['promoted', 'repeated', 'graduated', 'transferred_out', 'exc
           : 'End of year: automatic proposal, council override, application'" />
 
       <bbc-tabs [tabs]="tabs()" [value]="tab()" (change)="switchTab($event)" />
+      <div class="mb-4 flex justify-end"><a routerLink="/pathways" class="inline-flex items-center gap-2 rounded-lg border border-brand-200 bg-brand-50 px-3 py-2 text-xs font-bold text-brand-700 hover:bg-brand-100"><bbc-icon name="route" [s]="15" />{{ fr() ? 'Choix manuel du parcours bilingue' : 'Manual bilingual pathway choice' }}</a></div>
 
       @if (error()) {
         <div class="mb-4 px-4 py-3 rounded-lg bg-rose-50 border border-rose-200 text-sm text-rose-700 flex items-start gap-2">

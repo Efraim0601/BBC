@@ -5,7 +5,7 @@ import com.bbc.sms.hr.DepartmentRepository;
 import com.bbc.sms.identity.AppUser;
 import com.bbc.sms.identity.AppUserRepository;
 import com.bbc.sms.platform.common.ApiException;
-import com.bbc.sms.platform.security.AccessScopeService;
+import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.security.SectionRoles;
 import com.bbc.sms.platform.mail.MailService;
 import com.bbc.sms.platform.security.AuthorizationPolicyService;
@@ -56,7 +56,8 @@ public class StaffService {
     private final AppUserRepository users;
     private final SchoolClassRepository classes;
     private final SetupService setup;
-    private final AccessScopeService accessScope;
+    private final TeacherScopeService accessScope;
+    private final TeacherScopeService teacherScope;
     private final JdbcTemplate jdbc;
     private final AuthorizationPolicyService policy;
 
@@ -71,7 +72,8 @@ public class StaffService {
         this.users = users;
         this.classes = classes;
         this.setup = setup;
-        this.accessScope = accessScope;
+        this.accessScope = teacherScope;
+        this.teacherScope = teacherScope;
         this.jdbc = jdbc;
         this.policy = policy;
     }

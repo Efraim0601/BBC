@@ -136,6 +136,32 @@ public class ParentService {
         return out;
     }
 
+    /**
+     * Programme streams are loaded lazily by the parent portal.  A shared
+     * bilingual cohort deliberately returns both classes while keeping the
+     * child/enrollment relationship singular.
+     */
+    public List<ProgrammeClassView> programmeClasses(AppUserPrincipal p, UUID studentId) {
+        requireParentAction(p, "PARENT_ACADEMIC_VIEW", studentId);
+        List<ProgrammeClassView> rows = jdbc.query("""
+                SELECT DISTINCT c.id,c.name,c.subsystem,c.level
+                  FROM student_enrollment e
+                  JOIN academic_session s
+                    ON s.school_id=e.school_id AND s.id=e.academic_session_id AND s.is_current
+                  LEFT JOIN academic_cohort_programme cp
+                    ON cp.school_id=e.school_id AND cp.academic_session_id=e.academic_session_id
+                   AND cp.cohort_id=e.cohort_id AND cp.active
+                  JOIN school_class c ON c.id=COALESCE(cp.school_class_id,e.school_class_id)
+                 WHERE e.school_id=? AND e.student_id=? AND e.status='ACTIVE'
+                   AND e.enrolled_on<=s.end_date
+                   AND (e.exited_on IS NULL OR e.exited_on>=s.start_date)
+                 ORDER BY CASE WHEN upper(c.subsystem) IN ('FR','FRANCAIS','FRANCOPHONE') THEN 0 ELSE 1 END,
+                          c.name
+                """, (rs,n) -> new ProgrammeClassView(rs.getObject(1, UUID.class), rs.getString(2),
+                        rs.getString(3), rs.getString(4)), p.schoolId(), studentId);
+        return rows == null ? List.of() : rows;
+    }
+
     private int attendanceRate(UUID schoolId, UUID studentId) {
         List<String> statuses = jdbc.query(
                 "SELECT status FROM attendance_record WHERE school_id = ? AND student_id = ?",
@@ -167,13 +193,21 @@ public class ParentService {
     }
 
     public BulletinSnapshotView publishedBulletin(AppUserPrincipal p, UUID studentId, UUID reportingPeriodId) {
+        return publishedBulletin(p, studentId, reportingPeriodId, null);
+    }
+
+    public BulletinSnapshotView publishedBulletin(AppUserPrincipal p, UUID studentId, UUID reportingPeriodId, UUID classId) {
         requireParentAction(p, "PARENT_ACADEMIC_VIEW", studentId);
-        return bulletins.published(studentId, reportingPeriodId);
+        return bulletins.published(studentId, reportingPeriodId, classId);
     }
 
     public BulletinSnapshotView latestPublishedBulletin(AppUserPrincipal p, UUID studentId) {
+        return latestPublishedBulletin(p, studentId, null);
+    }
+
+    public BulletinSnapshotView latestPublishedBulletin(AppUserPrincipal p, UUID studentId, UUID classId) {
         requireParentAction(p, "PARENT_ACADEMIC_VIEW", studentId);
-        return bulletins.publishedLatest(studentId);
+        return bulletins.publishedLatest(studentId, classId);
     }
 
     public List<ParentJourneyEventView> journey(AppUserPrincipal p, UUID studentId) {

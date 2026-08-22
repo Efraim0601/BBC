@@ -354,16 +354,16 @@ const appreciation = (avg: number, fr: boolean): string => {
                             <div class="mb-1 text-[11px] text-mute">{{ fr() ? 'Note /' : 'Mark /' }} {{ entry.assessments[i].maxScore }}</div>
                             <input type="number" min="0" [max]="entry.assessments[i].maxScore" step="0.01" [ngModel]="cell.mark" (ngModelChange)="updateGradeMark(row.studentId, i, $event)"
                               [attr.aria-label]="(fr() ? 'Note de ' : 'Mark for ') + row.studentName + ' — ' + (gradeAssessmentLabel(entry, entry.assessments[i]))"
-                              [disabled]="entry.packetStatus === 'SUBMITTED' || entry.packetStatus === 'ACCEPTED' || entry.packetStatus === 'LOCKED'"
+                              [disabled]="entry.packetStatus === 'SUBMITTED' || entry.packetStatus === 'ACCEPTED' || entry.packetStatus === 'LOCKED' || entry.capabilities?.canEditDraft === false"
                               class="w-full h-10 px-2 text-center rounded-md border border-slate-300 bg-white text-base font-semibold focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 disabled:bg-slate-100" placeholder="—" />
                             <select [ngModel]="cell.valueStatus" (ngModelChange)="updateGradeStatus(row.studentId, i, $event)"
-                              [disabled]="entry.packetStatus === 'SUBMITTED' || entry.packetStatus === 'ACCEPTED' || entry.packetStatus === 'LOCKED'"
+                              [disabled]="entry.packetStatus === 'SUBMITTED' || entry.packetStatus === 'ACCEPTED' || entry.packetStatus === 'LOCKED' || entry.capabilities?.canEditDraft === false"
                               class="w-full h-8 mt-1 px-2 text-xs rounded border border-slate-200 bg-white text-mute">
                               <option value="SCORED">{{ fr() ? 'Note saisie' : 'Mark entered' }}</option><option value="ABSENT">{{ fr() ? 'Absent' : 'Absent' }}</option><option value="EXEMPT">{{ fr() ? 'Dispensé' : 'Exempt' }}</option><option value="MISSING">{{ fr() ? 'À compléter' : 'To complete' }}</option>
                             </select>
                           </td>
                         }
-                        <td class="p-2"><textarea rows="2" [ngModel]="row.comment" (ngModelChange)="updateGradeComment(row.studentId, $event)" [disabled]="entry.packetStatus === 'SUBMITTED' || entry.packetStatus === 'ACCEPTED' || entry.packetStatus === 'LOCKED'" maxlength="500" class="w-full px-2 py-2 rounded-md border border-slate-300 text-sm resize-y focus:outline-none focus:border-brand-500 disabled:bg-slate-100" [placeholder]="fr() ? 'Facultatif : remarque sur le travail…' : 'Optional: comment on the work…'"></textarea></td>
+                        <td class="p-2"><textarea rows="2" [ngModel]="row.comment" (ngModelChange)="updateGradeComment(row.studentId, $event)" [disabled]="entry.packetStatus === 'SUBMITTED' || entry.packetStatus === 'ACCEPTED' || entry.packetStatus === 'LOCKED' || entry.capabilities?.canEditDraft === false" maxlength="500" class="w-full px-2 py-2 rounded-md border border-slate-300 text-sm resize-y focus:outline-none focus:border-brand-500 disabled:bg-slate-100" [placeholder]="fr() ? 'Facultatif : remarque sur le travail…' : 'Optional: comment on the work…'"></textarea></td>
                       </tr>
                     } @empty {
                       <tr><td [attr.colspan]="entry.assessments.length + 2" class="p-8 text-center text-mute">{{ fr() ? 'Aucun élève actif dans cette classe pour la session.' : 'No active student in this class for the session.' }}</td></tr>
@@ -428,38 +428,38 @@ const appreciation = (avg: number, fr: boolean): string => {
                       <div class="font-bold text-sm text-ink">{{ fr() ? 'Correction des heures d’absence' : 'Absence-hours correction' }}</div>
                       <div class="text-xs text-mute mt-1">{{ fr() ? 'Valeurs ajoutées aux appels finalisés après approbation.' : 'Values added to finalized calls after approval.' }}</div>
                       <div class="grid grid-cols-3 gap-2 mt-3">
-                        <label class="field-label"><span>{{ fr() ? 'Justifiées (h)' : 'Justified (h)' }}</span><input type="number" min="0" step="0.25" [ngModel]="inputDraft(row.studentId).justifiedAbsenceHours" (ngModelChange)="updateInput(row.studentId, { justifiedAbsenceHours: +$event })" class="field" /></label>
-                        <label class="field-label"><span>{{ fr() ? 'Non justifiées (h)' : 'Unjustified (h)' }}</span><input type="number" min="0" step="0.25" [ngModel]="inputDraft(row.studentId).unjustifiedAbsenceHours" (ngModelChange)="updateInput(row.studentId, { unjustifiedAbsenceHours: +$event })" class="field" /></label>
-                        <label class="field-label"><span>{{ fr() ? 'Retards (min)' : 'Late (min)' }}</span><input type="number" min="0" [ngModel]="inputDraft(row.studentId).lateMinutes" (ngModelChange)="updateInput(row.studentId, { lateMinutes: +$event })" class="field" /></label>
+                        <label class="field-label"><span>{{ fr() ? 'Justifiées (h)' : 'Justified (h)' }}</span><input type="number" min="0" step="0.25" [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).justifiedAbsenceHours" (ngModelChange)="updateInput(row.studentId, { justifiedAbsenceHours: +$event })" class="field" /></label>
+                        <label class="field-label"><span>{{ fr() ? 'Non justifiées (h)' : 'Unjustified (h)' }}</span><input type="number" min="0" step="0.25" [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).unjustifiedAbsenceHours" (ngModelChange)="updateInput(row.studentId, { unjustifiedAbsenceHours: +$event })" class="field" /></label>
+                        <label class="field-label"><span>{{ fr() ? 'Retards (min)' : 'Late (min)' }}</span><input type="number" min="0" [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).lateMinutes" (ngModelChange)="updateInput(row.studentId, { lateMinutes: +$event })" class="field" /></label>
                       </div>
-                      <label class="field-label mt-2"><span>{{ fr() ? 'Motif (obligatoire)' : 'Reason (required)' }}</span><input [ngModel]="inputDraft(row.studentId).reason" (ngModelChange)="updateInput(row.studentId, { reason: $event })" maxlength="500" class="field" [class.border-rose-400]="!inputDraft(row.studentId).reason" placeholder="Ex. Certificat médical" /></label>
+                      <label class="field-label mt-2"><span>{{ fr() ? 'Motif (obligatoire)' : 'Reason (required)' }}</span><input [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).reason" (ngModelChange)="updateInput(row.studentId, { reason: $event })" maxlength="500" class="field" [class.border-rose-400]="!inputDraft(row.studentId).reason" placeholder="Ex. Certificat médical" /></label>
                       @if (!inputDraft(row.studentId).reason.trim()) { <div class="mt-1 text-xs font-semibold text-rose-600">{{ fr() ? 'Le motif est obligatoire avant l’enregistrement ou la soumission.' : 'A reason is required before saving or submitting.' }}</div> }
-                      <label class="field-label mt-2"><span>{{ fr() ? 'Référence de preuve' : 'Evidence reference' }}</span><input [ngModel]="inputDraft(row.studentId).evidenceReference" (ngModelChange)="updateInput(row.studentId, { evidenceReference: $event })" maxlength="240" class="field" placeholder="Ex. CERT-2026-001" /></label>
+                      <label class="field-label mt-2"><span>{{ fr() ? 'Référence de preuve' : 'Evidence reference' }}</span><input [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).evidenceReference" (ngModelChange)="updateInput(row.studentId, { evidenceReference: $event })" maxlength="240" class="field" placeholder="Ex. CERT-2026-001" /></label>
                     </section>
                     <section class="rounded-lg border border-slate-200 bg-slate-50 p-3">
                       <div class="font-bold text-sm text-ink">{{ fr() ? 'Travail, conduite et décision du conseil' : 'Work, conduct and council decision' }}</div>
                       <div class="grid grid-cols-2 md:grid-cols-3 gap-2 mt-3 text-xs">
-                        <label class="flex items-center gap-2"><input type="checkbox" [ngModel]="inputDraft(row.studentId).workWarning" (ngModelChange)="updateInput(row.studentId, { workWarning: $event })" /> {{ fr() ? 'Avert. travail' : 'Work warning' }}</label>
-                        <label class="flex items-center gap-2"><input type="checkbox" [ngModel]="inputDraft(row.studentId).workBlame" (ngModelChange)="updateInput(row.studentId, { workBlame: $event })" /> {{ fr() ? 'Blâme travail' : 'Work blame' }}</label>
-                        <label class="flex items-center gap-2"><input type="checkbox" [ngModel]="inputDraft(row.studentId).conductWarning" (ngModelChange)="updateInput(row.studentId, { conductWarning: $event })" /> {{ fr() ? 'Avert. conduite' : 'Conduct warning' }}</label>
-                        <label class="flex items-center gap-2"><input type="checkbox" [ngModel]="inputDraft(row.studentId).conductBlame" (ngModelChange)="updateInput(row.studentId, { conductBlame: $event })" /> {{ fr() ? 'Blâme conduite' : 'Conduct blame' }}</label>
-                        <label class="flex items-center gap-2"><input type="checkbox" [ngModel]="inputDraft(row.studentId).honorRoll" (ngModelChange)="updateInput(row.studentId, { honorRoll: $event })" /> {{ fr() ? 'Tableau honneur' : 'Honor roll' }}</label>
-                        <label class="flex items-center gap-2"><input type="checkbox" [ngModel]="inputDraft(row.studentId).encouragement" (ngModelChange)="updateInput(row.studentId, { encouragement: $event })" /> {{ fr() ? 'Encouragement' : 'Encouragement' }}</label>
-                        <label class="flex items-center gap-2"><input type="checkbox" [ngModel]="inputDraft(row.studentId).congratulations" (ngModelChange)="updateInput(row.studentId, { congratulations: $event })" /> {{ fr() ? 'Félicitations' : 'Congratulations' }}</label>
+                        <label class="flex items-center gap-2"><input type="checkbox" [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).workWarning" (ngModelChange)="updateInput(row.studentId, { workWarning: $event })" /> {{ fr() ? 'Avert. travail' : 'Work warning' }}</label>
+                        <label class="flex items-center gap-2"><input type="checkbox" [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).workBlame" (ngModelChange)="updateInput(row.studentId, { workBlame: $event })" /> {{ fr() ? 'Blâme travail' : 'Work blame' }}</label>
+                        <label class="flex items-center gap-2"><input type="checkbox" [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).conductWarning" (ngModelChange)="updateInput(row.studentId, { conductWarning: $event })" /> {{ fr() ? 'Avert. conduite' : 'Conduct warning' }}</label>
+                        <label class="flex items-center gap-2"><input type="checkbox" [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).conductBlame" (ngModelChange)="updateInput(row.studentId, { conductBlame: $event })" /> {{ fr() ? 'Blâme conduite' : 'Conduct blame' }}</label>
+                        <label class="flex items-center gap-2"><input type="checkbox" [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).honorRoll" (ngModelChange)="updateInput(row.studentId, { honorRoll: $event })" /> {{ fr() ? 'Tableau honneur' : 'Honor roll' }}</label>
+                        <label class="flex items-center gap-2"><input type="checkbox" [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).encouragement" (ngModelChange)="updateInput(row.studentId, { encouragement: $event })" /> {{ fr() ? 'Encouragement' : 'Encouragement' }}</label>
+                        <label class="flex items-center gap-2"><input type="checkbox" [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).congratulations" (ngModelChange)="updateInput(row.studentId, { congratulations: $event })" /> {{ fr() ? 'Félicitations' : 'Congratulations' }}</label>
                       </div>
                       <div class="grid grid-cols-2 gap-2 mt-3">
-                        <label class="field-label"><span>{{ fr() ? 'Exclusion (jours)' : 'Exclusion (days)' }}</span><input type="number" min="0" [ngModel]="inputDraft(row.studentId).exclusionDays" (ngModelChange)="updateInput(row.studentId, { exclusionDays: +$event })" class="field" /></label>
-                        <label class="field-label"><span>{{ fr() ? 'Code de décision' : 'Decision code' }}</span><input [ngModel]="inputDraft(row.studentId).decisionCode" (ngModelChange)="updateInput(row.studentId, { decisionCode: $event })" class="field" placeholder="PROMOTE / REPEAT / REVIEW" /></label>
+                        <label class="field-label"><span>{{ fr() ? 'Exclusion (jours)' : 'Exclusion (days)' }}</span><input type="number" min="0" [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).exclusionDays" (ngModelChange)="updateInput(row.studentId, { exclusionDays: +$event })" class="field" /></label>
+                        <label class="field-label"><span>{{ fr() ? 'Code de décision' : 'Decision code' }}</span><input [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).decisionCode" (ngModelChange)="updateInput(row.studentId, { decisionCode: $event })" class="field" placeholder="PROMOTE / REPEAT / REVIEW" /></label>
                       </div>
-                      <label class="field-label mt-2"><span>{{ fr() ? 'Observation du conseil' : 'Council observation' }}</span><textarea rows="2" [ngModel]="inputDraft(row.studentId).councilObservation" (ngModelChange)="updateInput(row.studentId, { councilObservation: $event })" maxlength="4000" class="field resize-y" placeholder="{{ fr() ? 'Observation imprimée sur le bulletin…' : 'Observation printed on the report card…' }}"></textarea></label>
+                      <label class="field-label mt-2"><span>{{ fr() ? 'Observation du conseil' : 'Council observation' }}</span><textarea rows="2" [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).councilObservation" (ngModelChange)="updateInput(row.studentId, { councilObservation: $event })" maxlength="4000" class="field resize-y" placeholder="{{ fr() ? 'Observation imprimée sur le bulletin…' : 'Observation printed on the report card…' }}"></textarea></label>
                     </section>
                   </div>
                   <div class="flex flex-wrap justify-end gap-2 mt-4 pt-3 border-t border-slate-100">
-                    <button (click)="saveReportInput(row)" [disabled]="inputBusy() === row.studentId" class="h-9 px-3 rounded-lg border border-slate-300 text-sm font-semibold hover:bg-slate-50 disabled:opacity-50">{{ inputBusy() === row.studentId ? '…' : (fr() ? 'Enregistrer le brouillon' : 'Save draft') }}</button>
+                    <button (click)="saveReportInput(row)" [disabled]="inputBusy() === row.studentId || !inputs.canEdit" class="h-9 px-3 rounded-lg border border-slate-300 text-sm font-semibold hover:bg-slate-50 disabled:opacity-50">{{ inputBusy() === row.studentId ? '…' : (fr() ? 'Enregistrer le brouillon' : 'Save draft') }}</button>
                     @if (!row.conduct || !['SUBMITTED','APPROVED','LOCKED'].includes(row.conduct.status) || !row.attendanceAdjustment || !['SUBMITTED','APPROVED'].includes(row.attendanceAdjustment.status)) {
-                      <button (click)="submitReportInput(row)" [disabled]="inputBusy() === row.studentId" class="h-9 px-3 rounded-lg bg-brand-600 text-white text-sm font-semibold disabled:opacity-50">{{ fr() ? 'Soumettre à la revue' : 'Submit for review' }}</button>
+                      <button (click)="submitReportInput(row)" [disabled]="inputBusy() === row.studentId || !inputs.canEdit" class="h-9 px-3 rounded-lg bg-brand-600 text-white text-sm font-semibold disabled:opacity-50">{{ fr() ? 'Soumettre à la revue' : 'Submit for review' }}</button>
                     }
-                    @if (canReview() && ((row.conduct?.status === 'SUBMITTED') || (row.attendanceAdjustment?.status === 'SUBMITTED'))) {
+                    @if (inputs.canReview && ((row.conduct?.status === 'SUBMITTED') || (row.attendanceAdjustment?.status === 'SUBMITTED'))) {
                       <button (click)="requestInputReview(row, 'RETURN')" [disabled]="inputBusy() === row.studentId" class="h-9 px-3 rounded-lg border border-rose-200 text-rose-700 text-sm font-semibold">{{ fr() ? 'Retourner' : 'Return' }}</button>
                       <button (click)="requestInputReview(row, 'APPROVE')" [disabled]="inputBusy() === row.studentId" class="h-9 px-3 rounded-lg bg-emerald-600 text-white text-sm font-semibold">{{ fr() ? 'Approuver' : 'Approve' }}</button>
                     }
@@ -1656,7 +1656,7 @@ export class AcademicComponent {
     this.clearBulletinState();
     const periodId = this.selectedReportingPeriodId();
     if (periodId) {
-      this.api.previewBulletinSnapshot(id, periodId).subscribe((snapshot) => {
+      this.api.previewBulletinSnapshot(id, periodId, this.selectedClassId() || undefined).subscribe((snapshot) => {
         if (this.selectedStudentId() !== id || this.selectedReportingPeriodId() !== periodId) return;
         this.bulletin.set(this.mapSnapshot(snapshot));
         this.appreciationDraft.set(snapshot.generalAppreciation ?? '');
@@ -1737,7 +1737,7 @@ export class AcademicComponent {
   protected createBulletinDraft(b: BulletinView): void {
     if (b.id || !b.reportingPeriodId || b.state !== 'PREVIEW' || this.bulletinBusy()) return;
     this.bulletinBusy.set(true);
-    this.api.bulletinSnapshot(b.studentId, b.reportingPeriodId).subscribe({
+    this.api.bulletinSnapshot(b.studentId, b.reportingPeriodId, this.selectedClassId() || undefined).subscribe({
       next: (snapshot) => {
         this.bulletinBusy.set(false);
         this.applySnapshot(snapshot);
