@@ -27,7 +27,9 @@ export interface PaymentQuoteView {
   requestedMinor: number; existingCreditMinor: number; proposedAllocatedMinor: number; newCreditMinor: number;
   projectedOutstandingMinor: number; currency: string; postingPeriodOpen: boolean; postingPeriodCode: string | null;
   installments: InstallmentProposal[]; channels: ChannelView[]; blockers: { code: string; message: string; actionLink: string }[];
+  treasuryAccounts: TreasuryAccountOption[];
 }
+export interface TreasuryAccountOption { id: string; chartAccountId: string; displayName: string; kind: string; currency: string; balanceMinor: number; }
 export interface AllocationInput { installmentId: string; amountMinor: number; }
 export interface PaymentView {
   id: string; studentId: string; enrollmentId: string; academicSessionId: string; amountMinor: number; currency: string;
@@ -35,6 +37,7 @@ export interface PaymentView {
   legacyReceiptNo: string | null; journalEntryId: string | null; allocatedMinor: number; creditMinor: number;
   outstandingMinor: number; version: number; allocations: { id: string; installmentId: string; allocatedMinor: number; currency: string; status: string }[];
   receiptDocumentId: string | null; receiptDocumentNumber: string | null; receiptDocumentStatus: string | null; receiptGenerationError: string | null;
+  treasuryAccountId: string | null; treasuryAccountName: string | null;
 }
 export interface CashierSessionView {
   id: string; cashierUserId: string; status: string; openedAt: string | null; closedAt: string | null;
@@ -61,7 +64,7 @@ export class CollectionsApi {
     return this.http.get<StudentSearchView[]>(`${this.base}/search`, { params });
   }
   quote(body: { enrollmentId: string; amountMinor: number; paymentDate: string }): Observable<PaymentQuoteView> { return this.http.post<PaymentQuoteView>(`${this.base}/quote`, body); }
-  post(body: { enrollmentId: string; amountMinor: number; paymentChannelId: string; paymentDate: string; reference: string; payerName: string; note: string; allocations: AllocationInput[]; legacyReceiptNo: string }, key: string): Observable<PaymentView> {
+  post(body: { enrollmentId: string; amountMinor: number; paymentChannelId: string; treasuryAccountId: string | null; paymentDate: string; reference: string; payerName: string; note: string; allocations: AllocationInput[]; legacyReceiptNo: string }, key: string): Observable<PaymentView> {
     return this.http.post<PaymentView>(this.base, body, { headers: new HttpHeaders({ 'Idempotency-Key': key }) });
   }
   list(filters: Record<string, string | null | undefined>): Observable<PaymentView[]> {

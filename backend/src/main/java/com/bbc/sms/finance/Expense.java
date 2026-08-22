@@ -31,4 +31,16 @@ public class Expense {
 
     @Column(nullable = false)
     private long amount;
+
+    @Column(name = "treasury_account_id")
+    private UUID treasuryAccountId;
+
+    @Column(name = "journal_entry_id")
+    private UUID journalEntryId;
+
+    @Column(nullable = false, length = 12)
+    private String status = "POSTED";
+
+    @Column(name = "created_by")
+    private UUID createdBy;
 }

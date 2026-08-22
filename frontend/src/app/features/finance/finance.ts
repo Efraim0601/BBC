@@ -6,6 +6,7 @@ import {
   StudentFeeStatementView, TrancheStatusView,
 } from './finance.api';
 import { StudentApi } from '../students/students.api';
+import { TreasuryApi, TreasuryAccountView } from './treasury.api';
 import { ClassView } from '../../core/setup.api';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
@@ -38,6 +39,10 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
           ? (fr() ? 'Encaissements, frais, débiteurs, dépenses' : 'Payments, fees, debtors, expenses')
           : (fr() ? 'Consultation — accès lecture seule' : 'View only — read access')">
         <div right class="flex items-center gap-2">
+          <a href="/finance/treasury"
+            class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-cyan-50 border border-cyan-200 text-cyan-800 hover:bg-cyan-100">
+            <bbc-icon name="wallet" [s]="16" /> {{ fr() ? 'Comptes & mouvements' : 'Accounts & movements' }}
+          </a>
           @if (!canWrite) {
             <span class="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1.5 rounded-lg">
               <bbc-icon name="eye" [s]="14" /> {{ fr() ? 'Lecture seule' : 'Read-only' }}
@@ -364,6 +369,19 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
                   <input type="number" name="amount" [(ngModel)]="expenseDraft.amount" min="1"
                     class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
                 </div>
+                <div class="md:col-span-2">
+                  <label class="block text-xs font-semibold text-mute mb-1">{{ fr() ? 'Compte payé' : 'Paid from account' }} *</label>
+                  <select name="expenseTreasuryAccount" [(ngModel)]="expenseDraft.treasuryAccountId"
+                    class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400">
+                    <option value="">{{ fr() ? '— Choisir une caisse ou banque —' : '— Choose a cash or bank account —' }}</option>
+                    @for (account of operationalTreasuryAccounts(); track account.id) {
+                      <option [value]="account.id">{{ account.displayName }} · {{ money(account.balanceMinor) }}</option>
+                    }
+                  </select>
+                  @if (!operationalTreasuryAccounts().length) {
+                    <p class="mt-1 text-[11px] text-amber-700">{{ fr() ? 'Aucun compte de trésorerie actif.' : 'No active treasury account.' }}</p>
+                  }
+                </div>
                 @if (expenseError()) {
                   <div class="md:col-span-4 text-xs text-rose-600 bg-rose-50 rounded-lg px-3 py-2">{{ expenseError() }}</div>
                 }
@@ -452,15 +470,24 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
                         <td class="py-2.5">
                           <span class="text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-semibold">{{ categoryLabel(e.category) }}</span>
                         </td>
-                        <td class="py-2.5 font-semibold text-ink">{{ e.label }}</td>
+                        <td class="py-2.5 font-semibold text-ink">
+                          <div>{{ e.label }}</div>
+                          @if (e.treasuryAccountName) {
+                            <div class="text-[11px] font-normal text-mute">{{ e.treasuryAccountName }} · {{ e.status === 'REVERSED' ? (fr() ? 'annulée' : 'reversed') : (fr() ? 'comptabilisée' : 'posted') }}</div>
+                          }
+                        </td>
                         <td class="py-2.5 text-right font-bold text-rose-600">{{ money(e.amount) }}</td>
                         @if (canWrite) {
                           <td class="py-2.5 pr-5 text-right">
-                            <button (click)="confirmExpenseDel.set(e)"
-                              class="text-mute hover:text-rose-600 opacity-0 group-hover:opacity-100 focus:opacity-100 transition"
-                              [title]="fr() ? 'Supprimer' : 'Delete'">
-                              <bbc-icon name="trash" [s]="14" />
-                            </button>
+                            @if (e.status !== 'REVERSED') {
+                              <button (click)="confirmExpenseDel.set(e)"
+                                class="text-mute hover:text-rose-600 opacity-0 group-hover:opacity-100 focus:opacity-100 transition"
+                                [title]="fr() ? 'Annuler' : 'Reverse'">
+                                <bbc-icon name="trash" [s]="14" />
+                              </button>
+                            } @else {
+                              <span class="text-[11px] font-semibold text-mute">{{ fr() ? 'Annulée' : 'Reversed' }}</span>
+                            }
                           </td>
                         }
                       </tr>
@@ -810,9 +837,9 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
 
     @if (confirmExpenseDel(); as ce) {
       <bbc-confirm
-        [title]="(fr() ? 'Supprimer « ' : 'Delete “') + ce.label + (fr() ? ' » ?' : '”?')"
-        [body]="(fr() ? 'Cette dépense de ' : 'This ') + money(ce.amount) + (fr() ? ' sera retirée du journal.' : ' expense will be removed from the log.')"
-        [confirmLabel]="fr() ? 'Supprimer' : 'Delete'"
+        [title]="(fr() ? 'Annuler « ' : 'Reverse “') + ce.label + (fr() ? ' » ?' : '”?')"
+        [body]="(fr() ? 'Cette dépense de ' : 'This ') + money(ce.amount) + (fr() ? ' restera dans l’historique mais son écriture sera renversée.' : ' will remain in history but its journal entry will be reversed.')"
+        [confirmLabel]="fr() ? 'Annuler la dépense' : 'Reverse expense'"
         [cancelLabel]="i18n.t('cancel')"
         (confirm)="removeExpense(ce)" (cancel)="confirmExpenseDel.set(null)" />
     }
@@ -935,6 +962,22 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
                   </span>
                 }
               </div>
+            </div>
+
+            <div>
+              <label class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'Compte crédité' : 'Money account credited' }} *</label>
+              <select [(ngModel)]="draft.treasuryAccountId"
+                class="w-full h-10 px-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400">
+                <option value="">{{ fr() ? '— Choisir la caisse ou la banque qui a reçu l’argent —' : '— Choose the cash or bank account that received the money —' }}</option>
+                @for (account of operationalTreasuryAccounts(); track account.id) {
+                  <option [value]="account.id">{{ account.displayName }} · {{ money(account.balanceMinor) }}</option>
+                }
+              </select>
+              @if (!operationalTreasuryAccounts().length) {
+                <p class="mt-1 text-[11px] text-amber-700">{{ fr() ? 'Aucun compte de trésorerie actif n’est disponible.' : 'No active treasury account is available.' }}</p>
+              } @else {
+                <p class="mt-1 text-[11px] text-mute">{{ fr() ? 'Le solde de ce compte sera augmenté immédiatement.' : 'This account balance will increase immediately.' }}</p>
+              }
             </div>
 
             @if (selectedChannel(); as ch) {
@@ -1066,10 +1109,13 @@ export class FinanceComponent {
   private api = inject(FinanceApi);
   private studentApi = inject(StudentApi);
   private auth = inject(AuthService);
+  private treasuryApi = inject(TreasuryApi);
 
   protected summary = signal<FinanceSummary | null>(null);
   protected rows = signal<PaymentView[]>([]);
   protected canWrite = this.auth.can('finance', 'write');
+  protected treasuryAccounts = signal<TreasuryAccountView[]>([]);
+  protected operationalTreasuryAccounts = computed(() => this.treasuryAccounts().filter((a) => a.active));
 
   protected tab = signal<Tab>('payments');
   protected methodFilter = signal<string | null>(null);
@@ -1249,7 +1295,9 @@ export class FinanceComponent {
   protected hasExpenseFilters = computed(() => !!(
     this.categoryFilter() || this.expenseQuery().trim() || this.expenseFrom() || this.expenseTo()
   ));
-  protected expenseTotal = computed(() => this.filteredExpenses().reduce((a, e) => a + e.amount, 0));
+  protected expenseTotal = computed(() => this.filteredExpenses()
+    .filter((e) => e.status !== 'REVERSED')
+    .reduce((a, e) => a + e.amount, 0));
   protected categoryOptions = computed(() =>
     [...new Set(this.expenses().map((e) => e.category))]
       .sort()
@@ -1287,7 +1335,7 @@ export class FinanceComponent {
 
   /** Un canal peut exiger une référence : le bouton reste inactif tant qu'elle manque. */
   protected canSubmitPayment(): boolean {
-    if (!this.draft.studentId || !!this.paymentAmountProblem()) return false;
+    if (!this.draft.studentId || !this.draft.treasuryAccountId || !!this.paymentAmountProblem()) return false;
     const ch = this.selectedChannel();
     if (!ch) return false;
     return !ch.requiresReference || !!this.draft.reference?.trim();
@@ -1355,6 +1403,7 @@ export class FinanceComponent {
   constructor() {
     this.reloadSummary();
     this.reloadPayments();
+    this.reloadTreasuryAccounts();
     this.api.context().subscribe({
       next: (context) => this.setupClasses.set(context.classes.map((c) => ({
         id: c.id,
@@ -1377,6 +1426,17 @@ export class FinanceComponent {
   }
   private reloadPayments(): void {
     this.api.payments().subscribe({ next: (p) => this.rows.set(p), error: () => {} });
+  }
+
+  private reloadTreasuryAccounts(): void {
+    this.treasuryApi.accounts().subscribe({
+      next: (accounts) => {
+        this.treasuryAccounts.set(accounts);
+        const channel = this.selectedChannel();
+        if (!this.draft.treasuryAccountId && channel) this.selectTreasuryForChannel(channel);
+      },
+      error: () => this.treasuryAccounts.set([]),
+    });
   }
 
   /** Tab data is fetched on first visit, so opening Finance costs one round-trip, not four. */
@@ -1495,6 +1555,7 @@ export class FinanceComponent {
 
   protected openExpense(): void {
     this.expenseDraft = this.blankExpense();
+    this.expenseDraft.treasuryAccountId = this.operationalTreasuryAccounts()[0]?.id ?? '';
     this.expenseError.set(null);
     this.expenseFormOpen.set(true);
   }
@@ -1505,10 +1566,10 @@ export class FinanceComponent {
 
   protected saveExpense(): void {
     const d = this.expenseDraft;
-    if (!d.spentOn || !d.label.trim() || !d.amount || d.amount <= 0) {
+    if (!d.spentOn || !d.label.trim() || !d.amount || d.amount <= 0 || !d.treasuryAccountId) {
       this.expenseError.set(this.fr()
-        ? 'Date, libellé et montant (> 0) sont obligatoires.'
-        : 'Date, label and amount (> 0) are required.');
+        ? 'Date, libellé, compte et montant (> 0) sont obligatoires.'
+        : 'Date, account, label and amount (> 0) are required.');
       return;
     }
     this.expenseSaving.set(true);
@@ -1669,7 +1730,7 @@ export class FinanceComponent {
     this.draft = this.blank();
     // Premier canal actif par défaut — l'espèce n'est pas toujours acceptée.
     const first = this.activeChannels()[0];
-    if (first) this.draft.method = first.code;
+    if (first) this.pickChannel(first);
     this.payError.set(null);
     this.statement.set(null);
     this.payClass.set('');
@@ -1734,7 +1795,20 @@ export class FinanceComponent {
 
   protected pickChannel(c: PaymentChannelView): void {
     this.draft.method = c.code;
+    this.selectTreasuryForChannel(c);
     if (!c.requiresReference) this.draft.reference = null;
+  }
+
+  private selectTreasuryForChannel(channel: PaymentChannelView): void {
+    const accounts = this.operationalTreasuryAccounts();
+    if (!accounts.length) return;
+    const mapped = channel.debitAccountId
+      ? accounts.find((a) => a.chartAccountId === channel.debitAccountId)
+      : null;
+    const fallback = channel.code === 'CASH'
+      ? accounts.find((a) => a.kind === 'CASH')
+      : accounts.find((a) => a.kind === 'BANK') ?? accounts[0];
+    this.draft.treasuryAccountId = (mapped ?? fallback ?? accounts[0]).id;
   }
   protected viewReceipt(p: PaymentView): void {
     this.receipt.set(p);
@@ -1774,12 +1848,12 @@ export class FinanceComponent {
   private blank(): PaymentRequest {
     return {
       studentId: '', amount: 0, method: 'CASH', reference: null, tranche: 1,
-      paidOn: new Date().toISOString().slice(0, 10),
+      paidOn: new Date().toISOString().slice(0, 10), treasuryAccountId: '',
     };
   }
 
   private blankExpense(): ExpenseRequest {
-    return { spentOn: new Date().toISOString().slice(0, 10), category: 'fournitures', label: '', amount: 0 };
+    return { spentOn: new Date().toISOString().slice(0, 10), category: 'fournitures', label: '', amount: 0, treasuryAccountId: '' };
   }
 
   private blankFee(): FeeConfigUpdate {

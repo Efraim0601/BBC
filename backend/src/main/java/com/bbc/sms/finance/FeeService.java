@@ -539,7 +539,7 @@ public class FeeService {
     private PaymentChannelView toView(PaymentChannel c) {
         return new PaymentChannelView(c.getId(), c.getCode(), c.getLabelFr(), c.getLabelEn(),
                 c.getAccountRef(), c.getAccountName(), c.getInstructionsFr(), c.getInstructionsEn(),
-                c.isRequiresReference(), c.isEnabled(), c.isVisibleToParents(), c.getSortOrder());
+                c.isRequiresReference(), c.isEnabled(), c.isVisibleToParents(), c.getSortOrder(), c.getDebitAccountId());
     }
 
     private Map<UUID, FinanceStudent> financeStudents(UUID schoolId, java.util.Set<UUID> ids) {

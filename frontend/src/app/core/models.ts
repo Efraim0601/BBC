@@ -163,6 +163,9 @@ export interface PaymentView {
   reference: string | null;
   tranche: number | null;
   paidOn: string;
+  treasuryAccountId?: string | null;
+  treasuryAccountName?: string | null;
+  journalEntryId?: string | null;
 }
 
 export interface FinanceSummary {

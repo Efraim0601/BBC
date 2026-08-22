@@ -51,6 +51,7 @@ export const NAV_GROUPS: Group[] = [
   ]},
   { key: 'operations', labelFr: 'Opérations', labelEn: 'Operations', mods: [
     { id: 'finance', route: '/finance', iconBg: 'bg-gold-50 text-gold-600', color: 'from-gold-400 to-gold-600', svg: NAV_ICONS.wallet, subFr: 'Recettes, dépenses, débiteurs', subEn: 'Revenue, expenses, debtors' },
+    { id: 'finance-treasury', route: '/finance/treasury', iconBg: 'bg-cyan-50 text-cyan-700', color: 'from-cyan-500 to-cyan-700', svg: NAV_ICONS.wallet, subFr: 'Banques, caisse & mouvements', subEn: 'Banks, cash & movements' },
     { id: 'timetable', route: '/timetable', iconBg: 'bg-cyan-100 text-cyan-700', color: 'from-cyan-500 to-cyan-700', svg: NAV_ICONS.calendar, subFr: 'Grilles, créneaux, conflits', subEn: 'Grids, slots, conflicts' },
     { id: 'events', route: '/events', iconBg: 'bg-pink-100 text-pink-700', color: 'from-pink-500 to-pink-700', svg: NAV_ICONS.bell, subFr: 'Annonces & notifications parents', subEn: 'Announcements & parent alerts' },
     { id: 'messages', route: '/messages', iconBg: 'bg-sky-100 text-sky-700', color: 'from-sky-500 to-sky-700', svg: NAV_ICONS.mail, subFr: 'Carnet de correspondance parents', subEn: 'Parent correspondence book' },

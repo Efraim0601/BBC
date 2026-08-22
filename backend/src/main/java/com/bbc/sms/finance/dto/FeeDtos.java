@@ -60,7 +60,8 @@ public class FeeDtos {
             boolean requiresReference,
             boolean enabled,
             boolean visibleToParents,
-            int sortOrder) {}
+            int sortOrder,
+            UUID debitAccountId) {}
 
     public record PaymentChannelUpdate(
             String labelFr,

@@ -1,6 +1,17 @@
 package com.bbc.sms.finance;
 
 import com.bbc.sms.finance.dto.FinanceDtos.*;
+import com.bbc.sms.finance.accounting.AccountingPeriod;
+import com.bbc.sms.finance.accounting.AccountingPeriodService;
+import com.bbc.sms.finance.accounting.ChartOfAccount;
+import com.bbc.sms.finance.accounting.ChartOfAccountRepository;
+import com.bbc.sms.finance.accounting.JournalEntryRepository;
+import com.bbc.sms.finance.accounting.LedgerPostingService;
+import com.bbc.sms.finance.accounting.AccountingDtos.JournalLineInput;
+import com.bbc.sms.finance.accounting.AccountingDtos.JournalUpsert;
+import com.bbc.sms.finance.accounting.AccountingDtos.ReverseRequest;
+import com.bbc.sms.finance.treasury.TreasuryService;
+import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AuthorizationPolicyService;
 import com.bbc.sms.platform.security.PolicyResourceContext;
 import com.bbc.sms.platform.realtime.RealtimeService;
@@ -35,6 +46,11 @@ public class FinanceService {
     private final AuthorizationPolicyService policy;
     private final JdbcTemplate jdbc;
     private final TeacherScopeService teacherScope;
+    private final AccountingPeriodService accountingPeriods;
+    private final ChartOfAccountRepository chartAccounts;
+    private final JournalEntryRepository journals;
+    private final LedgerPostingService ledger;
+    private final TreasuryService treasury;
 
     private record FinanceStudent(UUID id, String matricule, String firstName,
                                   String lastName, String className, String level,
@@ -44,7 +60,9 @@ public class FinanceService {
                           StudentFeeRepository studentFees, FeeConfigRepository feeConfigs,
                           StudentRepository students, FeeService fees, PaymentChannelRepository channels,
                           AuthorizationPolicyService policy, JdbcTemplate jdbc,
-                          TeacherScopeService teacherScope) {
+                          TeacherScopeService teacherScope, AccountingPeriodService accountingPeriods,
+                          ChartOfAccountRepository chartAccounts, JournalEntryRepository journals,
+                          LedgerPostingService ledger, TreasuryService treasury) {
         this.payments = payments;
         this.expenses = expenses;
         this.realtime = realtime;
@@ -56,6 +74,11 @@ public class FinanceService {
         this.policy = policy;
         this.jdbc = jdbc;
         this.teacherScope = teacherScope;
+        this.accountingPeriods = accountingPeriods;
+        this.chartAccounts = chartAccounts;
+        this.journals = journals;
+        this.ledger = ledger;
+        this.treasury = treasury;
     }
 
     @Transactional(readOnly = true)
@@ -129,6 +152,7 @@ public class FinanceService {
             throw com.bbc.sms.platform.common.ApiException.badRequest(
                     "Le moyen de paiement « " + channel.getLabelFr() + " » exige une référence de transaction.");
         }
+        ChartOfAccount treasuryAccount = requireTreasuryChartAccount(in.treasuryAccountId(), paidOn);
 
         Payment p = new Payment();
         p.setSchoolId(schoolId);
@@ -139,7 +163,24 @@ public class FinanceService {
         p.setReference(reference);
         p.setTranche(in.tranche());
         p.setPaidOn(paidOn);
-        PaymentView view = toView(payments.save(p), financeStudent(schoolId, in.studentId()));
+        p.setTreasuryAccountId(in.treasuryAccountId());
+        p.setCreatedBy(currentUserId());
+        p = payments.saveAndFlush(p);
+
+        AccountingPeriod period = accountingPeriods.requireOpenForDate(paidOn);
+        ChartOfAccount revenue = requirePostingAccount("4000", paidOn, "Produits de scolarité", "REVENUE");
+        var journal = ledger.createDraftInternal(new JournalUpsert(paidOn,
+                "Encaissement " + p.getReceiptNo(), "XAF", period.getId(),
+                "LEGACY_PAYMENT", p.getId().toString(), "LEGACY_PAYMENT:" + p.getId(),
+                List.of(
+                        new JournalLineInput(treasuryAccount.getId(), in.amount(), 0,
+                                in.studentId(), null, null, null, null, p.getReceiptNo()),
+                        new JournalLineInput(revenue.getId(), 0, in.amount(),
+                                in.studentId(), null, null, null, null, p.getReceiptNo())), null));
+        var posted = ledger.postNowInternal(journal.id());
+        p.setJournalEntryId(posted.id());
+        p = payments.saveAndFlush(p);
+        PaymentView view = toView(p, financeStudent(schoolId, in.studentId()));
 
         // Reconcile the student's running balance — without this, recording a payment
         // never reduced what the student owes (the dashboard/debtor figures went stale).
@@ -218,13 +259,31 @@ public class FinanceService {
     public ExpenseView addExpense(ExpenseRequest in) {
         requireSchool("FINANCE_EXPENSE_CREATE");
         UUID schoolId = TenantContext.get();
+        ChartOfAccount treasuryAccount = requireTreasuryChartAccount(in.treasuryAccountId(), in.spentOn());
         Expense e = new Expense();
         e.setSchoolId(schoolId);
         e.setSpentOn(in.spentOn());
         e.setCategory(in.category());
         e.setLabel(in.label());
         e.setAmount(in.amount());
-        return toView(expenses.save(e));
+        e.setTreasuryAccountId(in.treasuryAccountId());
+        e.setCreatedBy(currentUserId());
+        e.setStatus("POSTED");
+        e = expenses.saveAndFlush(e);
+
+        AccountingPeriod period = accountingPeriods.requireOpenForDate(in.spentOn());
+        ChartOfAccount expenseAccount = requirePostingAccount("6900", in.spentOn(), "Compte de contrôle des dépenses", "EXPENSE");
+        var journal = ledger.createDraftInternal(new JournalUpsert(in.spentOn(),
+                "Dépense " + in.label().trim(), "XAF", period.getId(),
+                "LEGACY_EXPENSE", e.getId().toString(), "LEGACY_EXPENSE:" + e.getId(),
+                List.of(
+                        new JournalLineInput(expenseAccount.getId(), in.amount(), 0,
+                                null, null, null, null, null, in.label().trim()),
+                        new JournalLineInput(treasuryAccount.getId(), 0, in.amount(),
+                                null, null, null, null, null, in.label().trim())), null));
+        var posted = ledger.postNowInternal(journal.id());
+        e.setJournalEntryId(posted.id());
+        return toView(expenses.saveAndFlush(e));
     }
 
     @Transactional
@@ -234,7 +293,15 @@ public class FinanceService {
         Expense e = expenses.findById(id)
                 .filter(x -> x.getSchoolId().equals(schoolId))   // never cross the tenant boundary
                 .orElseThrow(() -> new IllegalArgumentException("Dépense introuvable"));
-        expenses.delete(e);
+        if (!"POSTED".equals(e.getStatus()) || e.getJournalEntryId() == null) {
+            throw ApiException.conflict("Cette dépense ne peut pas être renversée car son écriture comptable est introuvable ou déjà renversée.");
+        }
+        var journal = journals.findByIdAndSchoolId(e.getJournalEntryId(), schoolId)
+                .orElseThrow(() -> ApiException.conflict("L'écriture comptable de cette dépense est introuvable."));
+        ledger.reverseNowInternal(journal.getId(), new ReverseRequest(LocalDate.now(),
+                "Annulation de la dépense " + e.getLabel(), journal.getVersion()));
+        e.setStatus("REVERSED");
+        expenses.saveAndFlush(e);
     }
 
     @Transactional(readOnly = true)
@@ -271,6 +338,7 @@ public class FinanceService {
         long totalExpense30d = section != null ? 0L
                 : expenses.findBySchoolIdOrderBySpentOnDesc(schoolId).stream()
                         .filter(e -> !e.getSpentOn().isBefore(from) && !e.getSpentOn().isAfter(to))
+                        .filter(e -> "POSTED".equals(e.getStatus()))
                         .mapToLong(Expense::getAmount)
                         .sum();
 
@@ -294,11 +362,54 @@ public class FinanceService {
                 p.getAmount(), p.getMethod(),
                 ch == null ? p.getMethod() : ch.getLabelFr(),
                 ch == null ? p.getMethod() : ch.getLabelEn(),
-                p.getReference(), p.getTranche(), p.getPaidOn());
+                p.getReference(), p.getTranche(), p.getPaidOn(), p.getTreasuryAccountId(),
+                p.getTreasuryAccountId() == null ? null : treasury.displayNameForWorkflow(p.getTreasuryAccountId()),
+                p.getJournalEntryId());
     }
 
     private ExpenseView toView(Expense e) {
-        return new ExpenseView(e.getId(), e.getSpentOn(), e.getCategory(), e.getLabel(), e.getAmount());
+        return new ExpenseView(e.getId(), e.getSpentOn(), e.getCategory(), e.getLabel(), e.getAmount(),
+                e.getTreasuryAccountId(), e.getTreasuryAccountId() == null ? null
+                        : treasury.displayNameForWorkflow(e.getTreasuryAccountId()),
+                e.getJournalEntryId(), e.getStatus());
+    }
+
+    private ChartOfAccount requireTreasuryChartAccount(UUID treasuryAccountId, LocalDate date) {
+        if (treasuryAccountId == null) {
+            throw ApiException.badRequest("Sélectionnez le compte de trésorerie crédité ou débité.");
+        }
+        TreasuryService.TreasuryRecord record = treasury.requireActiveRecord(treasuryAccountId);
+        return requirePostingAccount(record.chartAccountId(), date, "Compte de trésorerie", "ASSET");
+    }
+
+    private ChartOfAccount requirePostingAccount(String code, LocalDate date, String label, String expectedType) {
+        return chartAccounts.findBySchoolIdAndCode(TenantContext.get(), code)
+                .map(a -> requirePostingAccount(a, date, label, expectedType))
+                .orElseThrow(() -> ApiException.conflict("Le " + label + " n'est pas configuré."));
+    }
+
+    private ChartOfAccount requirePostingAccount(UUID id, LocalDate date, String label, String expectedType) {
+        return chartAccounts.findByIdAndSchoolId(id, TenantContext.get())
+                .map(a -> requirePostingAccount(a, date, label, expectedType))
+                .orElseThrow(() -> ApiException.notFound(label));
+    }
+
+    private ChartOfAccount requirePostingAccount(ChartOfAccount account, LocalDate date,
+                                                  String label, String expectedType) {
+        boolean effective = (account.getEffectiveFrom() == null || !date.isBefore(account.getEffectiveFrom()))
+                && (account.getEffectiveTo() == null || !date.isAfter(account.getEffectiveTo()));
+        if (!account.isActive() || !account.isPostingAllowed() || !effective
+                || !expectedType.equals(account.getAccountType())
+                || (account.getCurrency() != null && !"XAF".equals(account.getCurrency()))) {
+            throw ApiException.conflict("Le " + label + " n'est pas postable pour cette date et cette devise.");
+        }
+        return account;
+    }
+
+    private static UUID currentUserId() {
+        var auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        return auth != null && auth.getPrincipal() instanceof com.bbc.sms.platform.security.AppUserPrincipal p
+                ? p.userId() : null;
     }
 
     private FinanceStudent financeStudent(UUID schoolId, UUID studentId) {

@@ -42,12 +42,17 @@ public final class CollectionDtos {
                                    long projectedOutstandingMinor, String currency,
                                    boolean postingPeriodOpen, String postingPeriodCode,
                                    List<InstallmentProposal> installments,
-                                   List<ChannelView> channels, List<BlockerView> blockers) {}
+                                   List<ChannelView> channels, List<BlockerView> blockers,
+                                   List<TreasuryAccountOption> treasuryAccounts) {}
+
+    public record TreasuryAccountOption(UUID id, UUID chartAccountId, String displayName, String kind,
+                                       String currency, long balanceMinor) {}
 
     public record AllocationInput(@NotNull UUID installmentId, @Positive long amountMinor) {}
 
     public record PaymentRequest(@NotNull UUID enrollmentId, @Positive long amountMinor,
-                                 @NotNull UUID paymentChannelId, @NotNull LocalDate paymentDate,
+                                 @NotNull UUID paymentChannelId, UUID treasuryAccountId,
+                                 @NotNull LocalDate paymentDate,
                                  String reference, String payerName, String note,
                                  List<@Valid AllocationInput> allocations,
                                  String legacyReceiptNo) {}
@@ -63,7 +68,8 @@ public final class CollectionDtos {
                               long outstandingMinor, long version,
                               List<AllocationView> allocations,
                               UUID receiptDocumentId, String receiptDocumentNumber,
-                              String receiptDocumentStatus, String receiptGenerationError) {}
+                              String receiptDocumentStatus, String receiptGenerationError,
+                              UUID treasuryAccountId, String treasuryAccountName) {}
 
     public record ReversalPreview(UUID paymentId, String receiptNo, long amountMinor,
                                   long allocatedMinor, long remainingCreditMinor,

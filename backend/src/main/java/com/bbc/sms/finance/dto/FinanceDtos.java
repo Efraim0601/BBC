@@ -25,7 +25,10 @@ public class FinanceDtos {
             /** Référence de transaction chez l'opérateur (mobile money, carte, virement). */
             String reference,
             Integer tranche,
-            LocalDate paidOn) {}
+            LocalDate paidOn,
+            UUID treasuryAccountId,
+            String treasuryAccountName,
+            UUID journalEntryId) {}
 
     public record PaymentRequest(
             @NotNull UUID studentId,
@@ -33,20 +36,26 @@ public class FinanceDtos {
             @NotBlank String method,
             String reference,
             Integer tranche,
-            LocalDate paidOn) {}
+            LocalDate paidOn,
+            @NotNull UUID treasuryAccountId) {}
 
     public record ExpenseView(
             UUID id,
             LocalDate spentOn,
             String category,
             String label,
-            long amount) {}
+            long amount,
+            UUID treasuryAccountId,
+            String treasuryAccountName,
+            UUID journalEntryId,
+            String status) {}
 
     public record ExpenseRequest(
             @NotNull LocalDate spentOn,
             @NotBlank String category,
             @NotBlank String label,
-            @Positive long amount) {}
+            @Positive long amount,
+            @NotNull UUID treasuryAccountId) {}
 
     public record RevenuePoint(
             LocalDate date,

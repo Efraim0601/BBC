@@ -25,6 +25,7 @@ public class FinancePayment {
     @Column(name = "student_enrollment_id", nullable = false) private UUID studentEnrollmentId;
     @Column(name = "academic_session_id", nullable = false) private UUID academicSessionId;
     @Column(name = "payment_channel_id", nullable = false) private UUID paymentChannelId;
+    @Column(name = "treasury_account_id") private UUID treasuryAccountId;
     @Column(name = "channel_code_snapshot", nullable = false, length = 20) private String channelCodeSnapshot;
     @Column(name = "amount_minor", nullable = false) private long amountMinor;
     @Column(nullable = false, length = 3) private String currency = "XAF";

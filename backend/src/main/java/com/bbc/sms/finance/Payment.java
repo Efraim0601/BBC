@@ -42,6 +42,12 @@ public class Payment {
     @Column(name = "paid_on", nullable = false)
     private LocalDate paidOn;
 
+    @Column(name = "treasury_account_id")
+    private UUID treasuryAccountId;
+
+    @Column(name = "journal_entry_id")
+    private UUID journalEntryId;
+
     @Column(name = "created_by")
     private UUID createdBy;
 

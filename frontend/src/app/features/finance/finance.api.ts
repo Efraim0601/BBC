@@ -13,6 +13,8 @@ export interface PaymentRequest {
   reference?: string | null;
   tranche?: number;
   paidOn?: string;
+  /** Compte de trésorerie réellement crédité par cette opération. */
+  treasuryAccountId: string;
 }
 
 /** A student's running fee position — the shape behind both /situation and /debtors. */
@@ -34,6 +36,10 @@ export interface ExpenseView {
   category: string;
   label: string;
   amount: number;
+  treasuryAccountId?: string | null;
+  treasuryAccountName?: string | null;
+  journalEntryId?: string | null;
+  status?: string;
 }
 
 export interface ExpenseRequest {
@@ -41,6 +47,7 @@ export interface ExpenseRequest {
   category: string;
   label: string;
   amount: number;
+  treasuryAccountId: string;
 }
 
 export interface FinanceContextClassOption {
@@ -99,6 +106,7 @@ export interface PaymentChannelView {
   enabled: boolean;
   visibleToParents: boolean;
   sortOrder: number;
+  debitAccountId: string | null;
 }
 
 export interface PaymentChannelUpdate {

@@ -110,6 +110,11 @@ export const routes: Routes = [
         loadComponent: () => import('./features/attendance/attendance').then((m) => m.AttendanceComponent),
       },
       {
+        path: 'finance/treasury',
+        canActivate: [permissionGuard('finance')],
+        loadComponent: () => import('./features/finance/finance-treasury').then((m) => m.FinanceTreasuryComponent),
+      },
+      {
         path: 'finance/fee-types',
         canActivate: [permissionGuard('finance')],
         loadComponent: () => import('./features/finance/finance-fee-types').then((m) => m.FinanceFeeTypesComponent),

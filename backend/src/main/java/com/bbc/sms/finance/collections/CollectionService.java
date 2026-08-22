@@ -46,6 +46,8 @@ import java.util.Map;
 import java.util.UUID;
 
 import static com.bbc.sms.finance.collections.CollectionDtos.*;
+import com.bbc.sms.finance.treasury.TreasuryService;
+import com.bbc.sms.finance.treasury.TreasuryDtos;
 
 /** Quote and post boundary for allocation-aware collections. */
 @Service
@@ -75,6 +77,7 @@ public class CollectionService {
     private final FinanceReceiptRepository receipts;
     private final FinanceDocumentService financeDocuments;
     private final FinancePolicyService financePolicy;
+    private final TreasuryService treasury;
 
     public CollectionService(FinancePaymentRepository payments,
                              PaymentAllocationRepository allocations,
@@ -95,7 +98,8 @@ public class CollectionService {
                               JdbcTemplate jdbc,
                               FinanceReceiptRepository receipts,
                               FinanceDocumentService financeDocuments,
-                              FinancePolicyService financePolicy) {
+                              FinancePolicyService financePolicy,
+                              TreasuryService treasury) {
         this.payments = payments;
         this.allocations = allocations;
         this.credits = credits;
@@ -116,6 +120,7 @@ public class CollectionService {
         this.receipts = receipts;
         this.financeDocuments = financeDocuments;
         this.financePolicy = financePolicy;
+        this.treasury = treasury;
     }
 
     @Transactional(readOnly = true)
@@ -196,7 +201,10 @@ public class CollectionService {
                 session.getId(), enrollment.getClassNameSnapshot(), request.amountMinor(), credit,
                 proposed, Math.max(0, request.amountMinor() - proposed), Math.max(0, openTotal - proposed), CURRENCY,
                 blockers.stream().noneMatch(b -> "POSTING_PERIOD_CLOSED".equals(b.code())), periodCode,
-                proposals, channelViews, blockers);
+                proposals, channelViews, blockers, treasury.listAccountsForWorkflow().stream()
+                        .filter(TreasuryDtos.TreasuryAccountView::active)
+                        .map(a -> new TreasuryAccountOption(a.id(), a.chartAccountId(), a.displayName(), a.kind(), a.currency(), a.balanceMinor()))
+                        .toList());
     }
 
     @Transactional
@@ -260,7 +268,11 @@ public class CollectionService {
             throw fieldError("allocations", "Les allocations ne peuvent pas dépasser le montant reçu.");
         }
         long creditMinor = request.amountMinor() - allocatedMinor;
-        ChartOfAccount debit = requirePaymentDebitAccount(channel, request.paymentDate());
+        TreasuryService.TreasuryRecord selectedTreasury = request.treasuryAccountId() == null
+                ? treasury.findForChartAccountForWorkflow(channel.getDebitAccountId()) : treasury.requireActiveRecord(request.treasuryAccountId());
+        ChartOfAccount debit = selectedTreasury != null
+                ? requirePostingAccount(selectedTreasury.chartAccountId(), request.paymentDate(), "Compte de trésorerie", "ASSET")
+                : requirePaymentDebitAccount(channel, request.paymentDate());
         ChartOfAccount receivable = requirePostingAccount("1100", request.paymentDate(), "Créances élèves", "ASSET");
         ChartOfAccount creditAccount = creditMinor > 0
                 ? requirePostingAccount("2100", request.paymentDate(), "Crédits élèves", "LIABILITY")
@@ -274,6 +286,7 @@ public class CollectionService {
         payment.setStudentEnrollmentId(enrollment.getId());
         payment.setAcademicSessionId(session.getId());
         payment.setPaymentChannelId(channel.getId());
+        payment.setTreasuryAccountId(selectedTreasury == null ? null : selectedTreasury.id());
         payment.setChannelCodeSnapshot(channel.getCode().trim().toUpperCase(Locale.ROOT));
         payment.setAmountMinor(request.amountMinor());
         payment.setCurrency(CURRENCY);
@@ -543,7 +556,8 @@ public class CollectionService {
                 payment.getLegacyReceiptNo(), payment.getJournalEntryId(), allocated, credit, outstanding,
                 payment.getVersion(), views, receipt == null ? null : receipt.getGeneratedDocumentId(),
                 receipt == null ? null : receipt.getReceiptNumber(), receipt == null ? null : receipt.getStatus(),
-                receipt == null ? null : receipt.getGenerationError());
+                receipt == null ? null : receipt.getGenerationError(), payment.getTreasuryAccountId(),
+                payment.getTreasuryAccountId() == null ? null : treasury.displayNameForWorkflow(payment.getTreasuryAccountId()));
     }
 
     private long creditForPayment(UUID paymentId) {
