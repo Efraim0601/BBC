@@ -30,7 +30,6 @@ public class TimetableService {
     private final TimetableSlotRepository slotRepo;
     private final EmployeeRepository employees;
     private final TeacherScopeService teacherScope;
-    private final TeacherScopeService teacherScope;
     private final SetupService setup;
     private final AcademicSessionRepository sessions;
     private final JdbcTemplate jdbc;
@@ -44,7 +43,7 @@ public class TimetableService {
                             TeachingAssignmentResolver assignments, TimetableVersionService versions,
                             AuthorizationPolicyService policy) {
         this.classRepo=classRepo; this.slotRepo=slotRepo; this.employees=employees;
-        this.teacherScope=teacherScope; this.teacherScope=teacherScope; this.setup=setup; this.sessions=sessions; this.jdbc=jdbc;
+        this.teacherScope=teacherScope; this.setup=setup; this.sessions=sessions; this.jdbc=jdbc;
         this.assignments=assignments; this.versions=versions; this.policy=policy;
     }
 

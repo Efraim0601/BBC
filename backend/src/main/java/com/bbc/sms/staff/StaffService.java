@@ -57,7 +57,6 @@ public class StaffService {
     private final SchoolClassRepository classes;
     private final SetupService setup;
     private final TeacherScopeService teacherScope;
-    private final TeacherScopeService teacherScope;
     private final JdbcTemplate jdbc;
     private final AuthorizationPolicyService policy;
 
@@ -72,7 +71,6 @@ public class StaffService {
         this.users = users;
         this.classes = classes;
         this.setup = setup;
-        this.teacherScope = teacherScope;
         this.teacherScope = teacherScope;
         this.jdbc = jdbc;
         this.policy = policy;
