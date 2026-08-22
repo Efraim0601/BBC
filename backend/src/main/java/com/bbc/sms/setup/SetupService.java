@@ -49,7 +49,7 @@ public class SetupService {
     private final SubjectClassCoefRepository coefs;
     private final StudentRepository students;
     private final EmployeeRepository employees;
-    private final TeacherScopeService accessScope;
+    private final TeacherScopeService teacherScope;
     private final JdbcTemplate jdbc;
     private final AuditService audit;
     private final AuthorizationPolicyService policy;
@@ -65,7 +65,7 @@ public class SetupService {
         this.coefs = coefs;
         this.students = students;
         this.employees = employees;
-        this.accessScope = teacherScope;
+        this.teacherScope = teacherScope;
         this.jdbc = jdbc;
         this.audit = audit;
         this.policy = policy;
@@ -89,7 +89,7 @@ public class SetupService {
     public SectionView createSection(SectionUpsert in) {
         requireSchool("CLASS_MANAGE");
         UUID schoolId = TenantContext.get();
-        accessScope.assertSection(in.level());
+        teacherScope.assertSection(in.level());
         Section s = new Section();
         s.setId(uniqueSectionId(schoolId, in.subsystem(), in.level()));
         s.setSchoolId(schoolId);
@@ -105,8 +105,8 @@ public class SetupService {
         UUID schoolId = TenantContext.get();
         Section s = sections.findByIdAndSchoolId(id, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Section"));
-        accessScope.assertSection(s.getLevel());
-        accessScope.assertSection(in.level());
+        teacherScope.assertSection(s.getLevel());
+        teacherScope.assertSection(in.level());
         s.setLabel(in.label().trim());
         s.setSubsystem(in.subsystem());
         s.setLevel(in.level());
@@ -119,7 +119,7 @@ public class SetupService {
         UUID schoolId = TenantContext.get();
         Section s = sections.findByIdAndSchoolId(id, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Section"));
-        accessScope.assertSection(s.getLevel());
+        teacherScope.assertSection(s.getLevel());
         if (classes.existsBySchoolIdAndSectionId(schoolId, id)) {
             throw ApiException.conflict("Cette section contient des classes — supprimez-les d'abord");
         }
@@ -166,7 +166,7 @@ public class SetupService {
                 .collect(java.util.stream.Collectors.toMap(Section::getId, x -> x));
         Scope scope = ParcoursContext.get();
         // Un enseignant ne voit que les classes qui lui sont assignées.
-        Set<UUID> allowed = accessScope.allowedClassIds();
+        Set<UUID> allowed = teacherScope.allowedClassIds();
         return classes.findBySchoolIdOrderByName(schoolId).stream()
                 .filter(c -> allowed == null || allowed.contains(c.getId()))
                 .filter(c -> StudentService.inScope(scope, c.getLevel(), c.getSubsystem()))
@@ -181,7 +181,7 @@ public class SetupService {
         Section section = sections.findByIdAndSchoolId(in.sectionId(), schoolId)
                 .orElseThrow(() -> ApiException.notFound("Section"));
         // Un admin de cycle ouvre des classes dans son cycle, et nulle part ailleurs.
-        accessScope.assertSection(section.getLevel());
+        teacherScope.assertSection(section.getLevel());
         String name = in.name().trim();
         if (classes.existsBySchoolIdAndName(schoolId, name)) {
             throw ApiException.conflict("Une classe « " + name + " » existe déjà");
@@ -261,11 +261,11 @@ public class SetupService {
         UUID schoolId = TenantContext.get();
         SchoolClass c = classes.findByIdAndSchoolId(id, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Classe"));
-        accessScope.assertClass(c.getId());
+        teacherScope.assertClass(c.getId());
         Section section = sections.findByIdAndSchoolId(in.sectionId(), schoolId)
                 .orElseThrow(() -> ApiException.notFound("Section"));
         // Déplacer une classe vers un autre cycle la ferait sortir de son périmètre.
-        accessScope.assertSection(section.getLevel());
+        teacherScope.assertSection(section.getLevel());
         String name = in.name().trim();
         if (!name.equalsIgnoreCase(c.getName()) && classes.existsBySchoolIdAndName(schoolId, name)) {
             throw ApiException.conflict("Une classe « " + name + " » existe déjà");
@@ -283,7 +283,7 @@ public class SetupService {
         UUID schoolId = TenantContext.get();
         SchoolClass c = classes.findByIdAndSchoolId(id, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Classe"));
-        accessScope.assertClass(c.getId());
+        teacherScope.assertClass(c.getId());
         if (students.countBySchoolIdAndClassIdAndActiveTrue(schoolId, id) > 0) {
             throw ApiException.conflict("Des élèves sont inscrits dans cette classe — réaffectez-les d'abord");
         }
@@ -379,7 +379,7 @@ public class SetupService {
         UUID schoolId = TenantContext.get();
         SchoolClass cls = classes.findByIdAndSchoolId(classId, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Classe"));
-        accessScope.assertClass(cls.getId());
+        teacherScope.assertClass(cls.getId());
         jdbc.update("DELETE FROM teacher_class WHERE class_id = ?", classId);
         if (employeeIds != null) {
             for (UUID empId : employeeIds.stream().distinct().toList()) {

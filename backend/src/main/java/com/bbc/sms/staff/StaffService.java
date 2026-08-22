@@ -56,7 +56,7 @@ public class StaffService {
     private final AppUserRepository users;
     private final SchoolClassRepository classes;
     private final SetupService setup;
-    private final TeacherScopeService accessScope;
+    private final TeacherScopeService teacherScope;
     private final TeacherScopeService teacherScope;
     private final JdbcTemplate jdbc;
     private final AuthorizationPolicyService policy;
@@ -72,7 +72,7 @@ public class StaffService {
         this.users = users;
         this.classes = classes;
         this.setup = setup;
-        this.accessScope = teacherScope;
+        this.teacherScope = teacherScope;
         this.teacherScope = teacherScope;
         this.jdbc = jdbc;
         this.policy = policy;
@@ -412,7 +412,7 @@ public class StaffService {
     private Employee find(UUID id) {
         Employee e = repo.findByIdAndSchoolId(id, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Employé"));
-        accessScope.assertEmployee(e.getId());
+        teacherScope.assertEmployee(e.getId());
         return e;
     }
 
@@ -486,13 +486,13 @@ public class StaffService {
         if (section != null && !SECTIONS.contains(section)) {
             throw ApiException.badRequest("Section inconnue (attendu maternelle, primary ou secondary)");
         }
-        String adminSection = accessScope.adminSection();
+        String adminSection = teacherScope.adminSection();
         if (adminSection != null) {
             // Un admin de cycle recrute dans son cycle : à défaut de section
             // saisie il impose la sienne, et ne peut muter personne ailleurs —
             // ce serait faire sortir un agent de son propre périmètre.
             if (section == null) section = adminSection;
-            else accessScope.assertSection(section);
+            else teacherScope.assertSection(section);
         }
         String previous = e.getLevel();
         e.setLevel(section);

@@ -29,7 +29,7 @@ public class ClassKitService {
 
     private final ClassResourceItemRepository items;
     private final SchoolClassRepository classes;
-    private final TeacherScopeService accessScope;
+    private final TeacherScopeService teacherScope;
     private final TeacherScopeService teacherScope;
     private final JdbcTemplate jdbc;
     private final AuthorizationPolicyService policy;
@@ -41,7 +41,7 @@ public class ClassKitService {
                            AuthorizationPolicyService policy) {
         this.items = items;
         this.classes = classes;
-        this.accessScope = teacherScope;
+        this.teacherScope = teacherScope;
         this.teacherScope = teacherScope;
         this.jdbc = jdbc;
         this.policy = policy;
@@ -56,7 +56,7 @@ public class ClassKitService {
         SchoolClass cls = classes.findByIdAndSchoolId(classId, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Classe"));
         // Un enseignant n'ouvre le kit que d'une classe qui lui est assignée.
-        accessScope.assertClass(cls.getId());
+        teacherScope.assertClass(cls.getId());
         return cls;
     }
 

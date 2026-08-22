@@ -28,7 +28,7 @@ import java.util.UUID;
 public class CoursebookService {
 
     private final CoursebookRepository repo;
-    private final TeacherScopeService accessScope;
+    private final TeacherScopeService teacherScope;
     private final TeacherScopeService teacherScope;
     private final JdbcTemplate jdbc;
     private final AuthorizationPolicyService policy;
@@ -36,7 +36,7 @@ public class CoursebookService {
     public CoursebookService(CoursebookRepository repo, TeacherScopeService teacherScope, JdbcTemplate jdbc,
                              AuthorizationPolicyService policy) {
         this.repo = repo;
-        this.accessScope = teacherScope;
+        this.teacherScope = teacherScope;
         this.teacherScope = teacherScope;
         this.jdbc = jdbc;
         this.policy = policy;
