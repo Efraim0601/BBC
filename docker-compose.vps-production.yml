@@ -33,6 +33,15 @@ services:
     volumes: !override
       - ./frontend/nginx.ssl.production.conf:/etc/nginx/conf.d/default.conf:ro
 
+  # MinIO publie 29000/29001 dans le fichier de base ; le stack `working` les
+  # occupe déjà sur ce serveur. On décale ici comme pour db (25433) et backend
+  # (28081). Ces ports ne servent qu'à l'administration via tunnel SSH : le
+  # backend joint MinIO par le réseau interne (http://minio:9000).
+  minio:
+    ports: !override
+      - "127.0.0.1:29002:9000"
+      - "127.0.0.1:29003:9001"
+
   caddy:
     image: caddy:2-alpine
     depends_on:
