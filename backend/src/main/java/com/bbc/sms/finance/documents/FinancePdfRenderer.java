@@ -4,6 +4,8 @@ import com.bbc.sms.finance.documents.FinanceDocumentDtos.InvoiceLineView;
 import com.bbc.sms.finance.documents.FinanceDocumentDtos.InvoiceView;
 import com.bbc.sms.finance.documents.FinanceDocumentDtos.ReceiptLineView;
 import com.bbc.sms.finance.documents.FinanceDocumentDtos.ReceiptView;
+import com.bbc.sms.finance.accounts.FinanceAccountDtos.AccountPaymentView;
+import com.bbc.sms.finance.accounts.FinanceAccountDtos.ConsolidatedReceiptView;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
@@ -83,6 +85,42 @@ public class FinancePdfRenderer {
         lines.add("Empreinte / Integrity hash: " + receipt.snapshotHash());
         lines.add("Vérification / Verification: " + verificationUrl + receipt.receiptNumber());
         return render(lines, "REÇU / RECEIPT " + receipt.receiptNumber());
+    }
+
+    public byte[] consolidatedReceipt(ConsolidatedReceiptView receipt, SchoolSnapshot school,
+                                      String verificationUrl) {
+        List<String> lines = new ArrayList<>();
+        lines.add(school.name());
+        if (school.authority() != null) lines.add(school.authority());
+        lines.add(join(school.address(), school.city(), school.country()));
+        lines.add(join(school.phone(), school.email()));
+        lines.add("");
+        lines.add("RELEVÉ DES PAIEMENTS / CONSOLIDATED RECEIPT    " + receipt.receiptNumber());
+        lines.add("Émis le / Issued: " + receipt.issueDate());
+        lines.add("Élève / Student: " + receipt.studentName() + "    Matricule: " + blank(receipt.matricule()));
+        lines.add("Classe / Class: " + blank(receipt.className()) + "    Session: " + blank(receipt.sessionLabel()));
+        lines.add("");
+        lines.add("Situation / Account summary");
+        lines.add("Facturé / Billed: " + money(receipt.billedMinor(), receipt.currency()));
+        lines.add("Payé / Paid: " + money(receipt.paidMinor(), receipt.currency()));
+        lines.add("Solde dû / Balance due: " + money(receipt.outstandingMinor(), receipt.currency()));
+        lines.add("Crédit / Credit: " + money(receipt.creditMinor(), receipt.currency()));
+        lines.add("");
+        lines.add("Versements / Payments");
+        for (AccountPaymentView payment : receipt.payments()) {
+            lines.add(payment.paymentDate() + " | " + blank(payment.receiptNo()) + " | "
+                    + payment.channelLabel() + " | " + blank(payment.treasuryAccountName())
+                    + " | " + money(payment.netAmountMinor(), payment.currency())
+                    + " | " + payment.status());
+            if (payment.reference() != null && !payment.reference().isBlank()) {
+                lines.add("  Référence / Reference: " + payment.reference());
+            }
+        }
+        lines.add("");
+        lines.add("Total des versements / Total payments: " + money(receipt.paidMinor(), receipt.currency()));
+        lines.add("Empreinte / Integrity hash: " + receipt.snapshotHash());
+        lines.add("Vérification / Verification: " + verificationUrl + receipt.receiptNumber());
+        return render(lines, "RELEVÉ DES PAIEMENTS / CONSOLIDATED RECEIPT " + receipt.receiptNumber());
     }
 
     private byte[] render(List<String> lines, String title) {

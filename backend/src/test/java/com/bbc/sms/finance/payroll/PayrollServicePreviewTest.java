@@ -6,6 +6,7 @@ import com.bbc.sms.finance.accounting.AccountingPeriodService;
 import com.bbc.sms.finance.accounting.ChartOfAccountRepository;
 import com.bbc.sms.finance.accounting.DocumentSequenceService;
 import com.bbc.sms.finance.accounting.LedgerPostingService;
+import com.bbc.sms.finance.treasury.TreasuryService;
 import com.bbc.sms.foundation.audit.AuditService;
 import com.bbc.sms.foundation.idempotency.IdempotencyService;
 import com.bbc.sms.platform.tenant.TenantContext;
@@ -55,6 +56,7 @@ class PayrollServicePreviewTest {
     @Mock PayrollPdfRenderer pdf;
     @Mock JdbcTemplate jdbc;
     @Mock AuthorizationPolicyService policy;
+    @Mock TreasuryService treasury;
 
     private PayrollService service;
     private PayrollPeriod period;
@@ -64,7 +66,7 @@ class PayrollServicePreviewTest {
         TenantContext.set(SCHOOL_ID);
         service = new PayrollService(components, periods, runs, employeePayrolls, payrollLines, payments, payslipJobs,
                 payslipJobResults, payslips, employees, accounts, channels, accountingPeriods, ledger, sequences,
-                idempotency, audit, officialDocuments, pdf, jdbc, policy);
+                idempotency, audit, officialDocuments, pdf, jdbc, policy, treasury);
         period = new PayrollPeriod();
         period.setId(PERIOD_ID);
         period.setSchoolId(SCHOOL_ID);

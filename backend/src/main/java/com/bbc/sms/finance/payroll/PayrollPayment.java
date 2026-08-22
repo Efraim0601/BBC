@@ -24,6 +24,7 @@ public class PayrollPayment {
     @Column(name = "payment_channel_id") private UUID paymentChannelId;
     @Column(name = "channel_code", nullable = false, length = 48) private String channelCode;
     @Column(name = "payment_account_id", nullable = false) private UUID paymentAccountId;
+    @Column(name = "treasury_account_id") private UUID treasuryAccountId;
     @Column(name = "payment_reference", length = 180) private String paymentReference;
     @Column(name = "amount_minor", nullable = false) private long amountMinor;
     @Column(nullable = false, length = 3) private String currency = "XAF";

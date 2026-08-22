@@ -67,7 +67,8 @@ public final class PayrollDtos {
 
     public record PaymentView(UUID id, String channelCode, String paymentReference,
                               long amountMinor, String currency, LocalDate paymentDate,
-                              String status, UUID journalEntryId, long version) {}
+                              String status, UUID journalEntryId, UUID treasuryAccountId,
+                              String treasuryAccountName, long version) {}
 
     public record EmployeeView(UUID id, UUID employeeId, String employeeCode,
                                String employeeName, String employeeEmail,
@@ -100,7 +101,7 @@ public final class PayrollDtos {
 
     public record ActionRequest(@NotNull Long version, String reason) {}
 
-    public record PayRequest(@NotNull UUID paymentChannelId, @NotNull UUID paymentAccountId,
+    public record PayRequest(@NotNull UUID paymentChannelId, @NotNull UUID treasuryAccountId,
                              @NotNull LocalDate paymentDate, @NotBlank String reference,
                              Map<UUID, String> employeeReferences, @NotNull Long version) {}
 
@@ -110,7 +111,12 @@ public final class PayrollDtos {
     public record AccountOption(UUID id, String code, String nameFr, String nameEn,
                                 String accountType, String currency) {}
 
-    public record PaymentOptionsView(List<PaymentOptionView> channels, List<AccountOption> accounts) {}
+    public record TreasuryOption(UUID id, UUID chartAccountId, String displayName,
+                                 String kind, String currency, long balanceMinor) {}
+
+    public record PaymentOptionsView(List<PaymentOptionView> channels,
+                                     List<AccountOption> accounts,
+                                     List<TreasuryOption> treasuryAccounts) {}
 
     public record PaymentResultView(UUID employeePayrollId, String employeeName,
                                     String status, String reference, long amountMinor,

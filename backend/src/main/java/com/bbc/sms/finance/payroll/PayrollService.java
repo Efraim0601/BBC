@@ -5,6 +5,7 @@ import com.bbc.sms.documents.OfficialDocumentDtos.RevokeRequest;
 import com.bbc.sms.documents.OfficialDocumentService;
 import com.bbc.sms.finance.PaymentChannel;
 import com.bbc.sms.finance.PaymentChannelRepository;
+import com.bbc.sms.finance.treasury.TreasuryService;
 import com.bbc.sms.finance.accounting.AccountingDtos.JournalLineInput;
 import com.bbc.sms.finance.accounting.AccountingDtos.JournalView;
 import com.bbc.sms.finance.accounting.AccountingDtos.JournalUpsert;
@@ -83,6 +84,7 @@ public class PayrollService {
     private final PayrollPdfRenderer pdf;
     private final JdbcTemplate jdbc;
     private final AuthorizationPolicyService policy;
+    private final TreasuryService treasury;
 
     public PayrollService(PayrollComponentTypeRepository components,
                           PayrollPeriodRepository periods,
@@ -104,7 +106,8 @@ public class PayrollService {
                           OfficialDocumentService officialDocuments,
                           PayrollPdfRenderer pdf,
                           JdbcTemplate jdbc,
-                          AuthorizationPolicyService policy) {
+                          AuthorizationPolicyService policy,
+                          TreasuryService treasury) {
         this.components = components;
         this.periods = periods;
         this.runs = runs;
@@ -126,6 +129,7 @@ public class PayrollService {
         this.pdf = pdf;
         this.jdbc = jdbc;
         this.policy = policy;
+        this.treasury = treasury;
     }
 
     @Transactional(readOnly = true)
@@ -186,7 +190,11 @@ public class PayrollService {
                 .filter(ChartOfAccount::isPostingAllowed)
                 .map(a -> new AccountOption(a.getId(), a.getCode(), a.getNameFr(), a.getNameEn(), a.getAccountType(),
                         a.getCurrency() == null ? CURRENCY : a.getCurrency())).toList();
-        return new PaymentOptionsView(channelViews, accountViews);
+        List<TreasuryOption> treasuryViews = treasury.listAccountsForWorkflow().stream()
+                .filter(value -> value.active() && CURRENCY.equals(value.currency()))
+                .map(value -> new TreasuryOption(value.id(), value.chartAccountId(), value.displayName(),
+                        value.kind(), value.currency(), value.balanceMinor())).toList();
+        return new PaymentOptionsView(channelViews, accountViews, treasuryViews);
     }
 
     @Transactional
@@ -584,7 +592,8 @@ public class PayrollService {
                     "Une session de caisse ouverte est requise pour payer la paie en espèces.",
                     Map.of("paymentChannelId", "Ouvrez le tiroir de caisse avant de continuer."), List.of());
         }
-        ChartOfAccount paymentAccount = requirePostingAccount(request.paymentAccountId(), paymentDate, "Compte de paiement");
+        TreasuryService.TreasuryRecord treasuryRecord = treasury.requireActiveRecord(request.treasuryAccountId());
+        ChartOfAccount paymentAccount = requirePostingAccount(treasuryRecord.chartAccountId(), paymentDate, "Compte de paiement");
         ChartOfAccount payable = requireAccountByCode("2200", "Passif de paie", "LIABILITY", paymentDate);
         List<EmployeePayroll> rows = employeePayrolls.findBySchoolIdAndPayrollRunIdOrderByEmployeeNameAsc(TenantContext.get(), id);
         List<JournalLineInput> journalLines = new ArrayList<>();
@@ -621,6 +630,7 @@ public class PayrollService {
                 payment.setPaymentChannelId(channel.getId());
                 payment.setChannelCode(channel.getCode().trim().toUpperCase(Locale.ROOT));
                 payment.setPaymentAccountId(paymentAccount.getId());
+                payment.setTreasuryAccountId(treasuryRecord.id());
                 payment.setPaymentReference(ref);
                 payment.setAmountMinor(row.getNetMinor());
                 payment.setCurrency(CURRENCY);
@@ -1101,7 +1111,9 @@ public class PayrollService {
 
     private PaymentView paymentView(PayrollPayment payment) {
         return new PaymentView(payment.getId(), payment.getChannelCode(), payment.getPaymentReference(), payment.getAmountMinor(),
-                payment.getCurrency(), payment.getPaymentDate(), payment.getStatus(), payment.getJournalEntryId(), payment.getVersion());
+                payment.getCurrency(), payment.getPaymentDate(), payment.getStatus(), payment.getJournalEntryId(),
+                payment.getTreasuryAccountId(), payment.getTreasuryAccountId() == null ? null
+                        : treasury.displayNameForWorkflow(payment.getTreasuryAccountId()), payment.getVersion());
     }
 
     private RunView runView(PayrollRun run) {

@@ -43,6 +43,10 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
             class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-cyan-50 border border-cyan-200 text-cyan-800 hover:bg-cyan-100">
             <bbc-icon name="wallet" [s]="16" /> {{ fr() ? 'Comptes & mouvements' : 'Accounts & movements' }}
           </a>
+          <a href="/finance/student-accounts"
+            class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 hover:bg-emerald-100">
+            <bbc-icon name="users" [s]="16" /> {{ fr() ? 'Compte élève' : 'Student accounts' }}
+          </a>
           @if (!canWrite) {
             <span class="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1.5 rounded-lg">
               <bbc-icon name="eye" [s]="14" /> {{ fr() ? 'Lecture seule' : 'Read-only' }}
@@ -1027,7 +1031,7 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
             <button (click)="receipt.set(null)" class="text-mute hover:text-ink"><bbc-icon name="x" [s]="18" /></button>
           </div>
           <div class="p-5">
-            <div class="receipt-bg rounded-lg p-6 border border-slate-200">
+            <div class="receipt-print-paper receipt-bg rounded-lg p-6 border border-slate-200">
               <div class="flex items-center gap-3 pb-4 border-b-2 border-brand-600">
                 <div class="w-12 h-12 rounded-lg bg-brand-600 text-white flex items-center justify-center font-display font-bold text-lg shrink-0">B</div>
                 <div class="flex-1 min-w-0">
@@ -1814,7 +1818,9 @@ export class FinanceComponent {
     this.receipt.set(p);
   }
   protected print(): void {
+    document.body.classList.add('printing-receipt');
     window.print();
+    window.setTimeout(() => document.body.classList.remove('printing-receipt'), 250);
   }
 
   protected save(): void {

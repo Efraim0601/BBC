@@ -135,6 +135,11 @@ export const routes: Routes = [
         loadComponent: () => import('./features/finance/finance-collections').then((m) => m.FinanceCollectionsComponent),
       },
       {
+        path: 'finance/student-accounts',
+        canActivate: [permissionGuard('finance')],
+        loadComponent: () => import('./features/finance/finance-account').then((m) => m.FinanceAccountComponent),
+      },
+      {
         path: 'finance/documents',
         canActivate: [permissionGuard('finance')],
         loadComponent: () => import('./features/finance/finance-documents').then((m) => m.FinanceDocumentsComponent),

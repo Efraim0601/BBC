@@ -34,7 +34,7 @@ export interface PayrollLine {
 }
 export interface PayrollPayment {
   id: string; channelCode: string; paymentReference: string | null; amountMinor: number; currency: string; paymentDate: string;
-  status: string; journalEntryId: string | null; version: number;
+  status: string; journalEntryId: string | null; treasuryAccountId: string | null; treasuryAccountName: string | null; version: number;
 }
 export interface PayrollEmployee {
   id: string; employeeId: string; employeeCode: string; employeeName: string; employeeEmail: string | null; employmentType: string;
@@ -57,7 +57,8 @@ export interface PayrollPreview {
 }
 export interface PayrollPaymentOption { id: string; code: string; labelFr: string; labelEn: string; requiresReference: boolean; enabled: boolean; debitAccountId: string | null; }
 export interface PayrollAccountOption { id: string; code: string; nameFr: string; nameEn: string; accountType: string; currency: string; }
-export interface PayrollPaymentOptions { channels: PayrollPaymentOption[]; accounts: PayrollAccountOption[]; }
+export interface PayrollTreasuryOption { id: string; chartAccountId: string; displayName: string; kind: string; currency: string; balanceMinor: number; }
+export interface PayrollPaymentOptions { channels: PayrollPaymentOption[]; accounts: PayrollAccountOption[]; treasuryAccounts: PayrollTreasuryOption[]; }
 export interface PayrollPayResult { runId: string; status: string; totalPaidMinor: number; paidCount: number; failedCount: number; results: unknown[]; payslipJob: PayslipJob; }
 export interface Payslip {
   id: string; employeePayrollId: string; employeeId: string | null; employeeName: string | null; payslipNumber: string;

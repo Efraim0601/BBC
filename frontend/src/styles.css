@@ -106,6 +106,17 @@ body { overflow: hidden; font-family: 'Manrope', ui-sans-serif, system-ui, -appl
 @media print {
   .no-print { display:none !important; }
   body { overflow: visible; }
+  body.printing-receipt * { visibility: hidden !important; }
+  body.printing-receipt .receipt-print-paper,
+  body.printing-receipt .receipt-print-paper * { visibility: visible !important; }
+  body.printing-receipt .receipt-print-paper {
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+  }
 }
 
 /* nav active indicator */
