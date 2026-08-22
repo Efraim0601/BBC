@@ -9,6 +9,19 @@
 --
 --  Le module `promotion` est distinct de `journey` : on peut confier l'exécution
 --  du passage au censeur sans lui ouvrir la réécriture de l'historique.
+--
+--  NOMMAGE — préfixe `year_` (ajouté à la livraison).
+--  Cette branche a été développée en parallèle de la lignée V65→V140 de main,
+--  qui possède déjà son propre dispositif de promotion (`promotion_rule`,
+--  `promotion_batch`, `promotion_decision`, `promotion_register`…) piloté par
+--  `journey` et organisé par session académique. Les deux jeux de tables
+--  portaient les mêmes noms sans avoir les mêmes colonnes : la migration
+--  échouait avec « relation "promotion_rule" already exists ».
+--  Les tables de CE module sont donc préfixées `year_` — cohérent avec
+--  `year_closure` (V158) et fidèle à sa logique : un passage de classe décidé
+--  par année scolaire, là où `journey` raisonne par session. Les deux modules
+--  coexistent ; leurs API sont déjà distinctes (/api/promotions et
+--  /api/journey/progression).
 -- ============================================================================
 
 -- ---- 1. Progression : quelle classe vient après ---------------------------
@@ -30,7 +43,7 @@ CREATE INDEX IF NOT EXISTS idx_school_class_order ON school_class (school_id, se
 --                    proposé « à examiner » plutôt que redoublant d'office.
 --   max_repeats    : au-delà de N redoublements déjà enregistrés au parcours, on
 --                    n'ose plus proposer un redoublement de plus : conseil de classe.
-CREATE TABLE promotion_rule (
+CREATE TABLE year_promotion_rule (
     id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     school_id      UUID NOT NULL REFERENCES school(id),
     level          VARCHAR(12) CHECK (level IS NULL OR level IN ('maternelle','primary','secondary')),
@@ -46,21 +59,21 @@ CREATE TABLE promotion_rule (
 );
 
 -- Une seule règle par périmètre (les NULL ne se dédupliquant pas tout seuls).
-CREATE UNIQUE INDEX uq_promotion_rule_class ON promotion_rule (school_id, class_id)
+CREATE UNIQUE INDEX uq_year_promotion_rule_class ON year_promotion_rule (school_id, class_id)
     WHERE class_id IS NOT NULL;
-CREATE UNIQUE INDEX uq_promotion_rule_scope
-    ON promotion_rule (school_id, COALESCE(level, '*'), COALESCE(subsystem, '*'))
+CREATE UNIQUE INDEX uq_year_promotion_rule_scope
+    ON year_promotion_rule (school_id, COALESCE(level, '*'), COALESCE(subsystem, '*'))
     WHERE class_id IS NULL;
 
 -- Règle par défaut : 10/20, 1 point de zone conseil, 2 redoublements maximum.
-INSERT INTO promotion_rule (school_id, pass_mark, council_margin, max_repeats)
+INSERT INTO year_promotion_rule (school_id, pass_mark, council_margin, max_repeats)
 SELECT s.id, 10.00, 1.00, 2 FROM school s
- WHERE NOT EXISTS (SELECT 1 FROM promotion_rule r
+ WHERE NOT EXISTS (SELECT 1 FROM year_promotion_rule r
                     WHERE r.school_id = s.id
                       AND r.class_id IS NULL AND r.level IS NULL AND r.subsystem IS NULL);
 
 -- ---- 3. Lots appliqués et décisions ----------------------------------------
-CREATE TABLE promotion_batch (
+CREATE TABLE year_promotion_batch (
     id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     school_id          UUID NOT NULL REFERENCES school(id),
     academic_year      VARCHAR(16) NOT NULL,   -- année qui se termine
@@ -76,14 +89,14 @@ CREATE TABLE promotion_batch (
     applied_by         UUID REFERENCES app_user(id),
     applied_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX idx_promotion_batch_year ON promotion_batch (school_id, academic_year, applied_at DESC);
+CREATE INDEX idx_year_promotion_batch ON year_promotion_batch (school_id, academic_year, applied_at DESC);
 
 -- Une décision par élève et par année : ce que la règle proposait, ce que
 -- l'administration a retenu, et pourquoi quand les deux diffèrent.
-CREATE TABLE promotion_decision (
+CREATE TABLE year_promotion_decision (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     school_id         UUID NOT NULL REFERENCES school(id),
-    batch_id          UUID NOT NULL REFERENCES promotion_batch(id) ON DELETE CASCADE,
+    batch_id          UUID NOT NULL REFERENCES year_promotion_batch(id) ON DELETE CASCADE,
     student_id        UUID NOT NULL REFERENCES student(id) ON DELETE CASCADE,
     academic_year     VARCHAR(16) NOT NULL,
     from_class_id     UUID,
@@ -105,8 +118,8 @@ CREATE TABLE promotion_decision (
     decided_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (school_id, student_id, academic_year)
 );
-CREATE INDEX idx_promotion_decision_batch ON promotion_decision (batch_id);
-CREATE INDEX idx_promotion_decision_student ON promotion_decision (school_id, student_id);
+CREATE INDEX idx_year_promotion_decision_batch ON year_promotion_decision (batch_id);
+CREATE INDEX idx_year_promotion_decision_student ON year_promotion_decision (school_id, student_id);
 
 -- ---- 4. Droits -------------------------------------------------------------
 -- Direction et censeur exécutent le passage ; le professeur principal le consulte.

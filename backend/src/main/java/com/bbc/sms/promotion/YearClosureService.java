@@ -74,7 +74,7 @@ public class YearClosureService {
         int decided = count("""
                 SELECT COUNT(*) FROM student s
                  WHERE s.school_id = ? AND s.active = true
-                   AND EXISTS (SELECT 1 FROM promotion_decision d
+                   AND EXISTS (SELECT 1 FROM year_promotion_decision d
                                 WHERE d.school_id = s.school_id AND d.student_id = s.id
                                   AND d.academic_year = ?)
                 """, schoolId, year);
@@ -85,7 +85,7 @@ public class YearClosureService {
                 SELECT COALESCE(s.class_name, '—') AS class_name, COUNT(*) AS n
                   FROM student s
                  WHERE s.school_id = ? AND s.active = true
-                   AND NOT EXISTS (SELECT 1 FROM promotion_decision d
+                   AND NOT EXISTS (SELECT 1 FROM year_promotion_decision d
                                     WHERE d.school_id = s.school_id AND d.student_id = s.id
                                       AND d.academic_year = ?)
                  GROUP BY 1 ORDER BY 1

@@ -472,7 +472,7 @@ public class PromotionService {
         args[0] = schoolId;
         args[1] = year;
         for (int i = 0; i < roster.size(); i++) args[i + 2] = roster.get(i).getId();
-        jdbc.query("SELECT student_id, final_result, from_class_id, from_class_name FROM promotion_decision "
+        jdbc.query("SELECT student_id, final_result, from_class_id, from_class_name FROM year_promotion_decision "
                  + "WHERE school_id = ? AND academic_year = ? AND student_id IN (" + placeholders + ")",
                 rs -> {
                     String from = rs.getString("from_class_id");

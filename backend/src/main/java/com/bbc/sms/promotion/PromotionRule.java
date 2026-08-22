@@ -15,7 +15,7 @@ import java.util.UUID;
  * règle la plus spécifique l'emporte au moment du calcul.
  */
 @Entity
-@Table(name = "promotion_rule")
+@Table(name = "year_promotion_rule")
 @Getter
 @Setter
 public class PromotionRule {

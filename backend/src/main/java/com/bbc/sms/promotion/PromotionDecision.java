@@ -16,7 +16,7 @@ import java.util.UUID;
  * l'arbitrage manuel auditable, avec son motif obligatoire.
  */
 @Entity
-@Table(name = "promotion_decision")
+@Table(name = "year_promotion_decision")
 @Getter
 @Setter
 public class PromotionDecision {

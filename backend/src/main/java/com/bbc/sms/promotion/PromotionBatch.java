@@ -9,7 +9,7 @@ import java.util.UUID;
 
 /** Un passage de classe appliqué : une classe, une année, un compte rendu chiffré. */
 @Entity
-@Table(name = "promotion_batch")
+@Table(name = "year_promotion_batch")
 @Getter
 @Setter
 public class PromotionBatch {
