@@ -1,0 +1,31 @@
+# Ajoute le site institutionnel au stack de production VPS, derrière le même Caddy.
+#
+#   docker compose --env-file .env.vps-production -p bbc-production \
+#     -f docker-compose.server.yml \
+#     -f docker-compose.vps-production.yml \
+#     -f docker-compose.website-production.yml up -d --build
+#
+# Répartition des noms de domaine (voir Caddyfile.production.website) :
+#   bbcomplex.com, www.bbcomplex.com → site institutionnel (ce service)
+#   app.bbcomplex.com                → application de gestion scolaire (frontend)
+#
+# ⚠ Avant de lancer : créer l'enregistrement DNS A « app » pointant sur le
+#   serveur, sinon Let's Encrypt ne pourra pas émettre le certificat de
+#   app.bbcomplex.com et l'application resterait injoignable.
+services:
+  website:
+    build: ./website
+    security_opt:
+      - apparmor=unconfined
+    expose:
+      - "80"
+    restart: unless-stopped
+
+  caddy:
+    depends_on:
+      - frontend
+      - website
+    volumes: !override
+      - ./Caddyfile.production.website:/etc/caddy/Caddyfile:ro
+      - bbc_production_caddy_data:/data
+      - bbc_production_caddy_config:/config

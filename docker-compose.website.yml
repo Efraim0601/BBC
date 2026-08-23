@@ -1,0 +1,17 @@
+# Site institutionnel (vitrine) de Bayo Bilingual Complex — aperçu local.
+#
+#   docker compose -f docker-compose.website.yml up -d --build
+#   → http://localhost:8082
+#
+# Ce fichier est autonome : il ne démarre ni la base, ni l'API, ni l'application
+# de gestion scolaire. Le site est 100 % statique et n'en a pas besoin.
+services:
+  website:
+    build: ./website
+    image: bbc-website:local
+    container_name: bbc-website
+    security_opt:
+      - apparmor=unconfined
+    ports:
+      - "8082:80"
+    restart: unless-stopped
