@@ -14,8 +14,14 @@ RUN if [ -s /tmp/ca.pem ]; then export NODE_EXTRA_CA_CERTS=/tmp/ca.pem; echo "�
     npm install
 
 COPY . .
+
+# Base href de l'application. Par defaut « / » : rien ne change pour les
+# deploiements existants. Le site institutionnel sert l'application sous /app/
+# (meme origine, pour que la session ouverte sur la page de connexion du site
+# soit celle de l'application) et passe donc BASE_HREF=/app/.
+ARG BASE_HREF=/
 RUN if [ -s /tmp/ca.pem ]; then export NODE_EXTRA_CA_CERTS=/tmp/ca.pem; fi; \
-    npm run build
+    npm run build -- --base-href "${BASE_HREF}"
 
 # ---- serve stage ----
 FROM nginx:1.27-alpine

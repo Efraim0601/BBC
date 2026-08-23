@@ -18,14 +18,17 @@ l'application, la base de données ou l'API sont arrêtées pour maintenance.
 | `programmes.html` | Programmes — sous-systèmes, maternelle / primaire / secondaire, évaluation |
 | `admissions.html` | Admissions — procédure, dossier, frais, pré-inscription, FAQ |
 | `contact.html` | Contact — coordonnées, horaires, formulaire, accès |
+| `connexion.html` | Connexion — adossée à l'API du système de gestion scolaire |
 | `404.html` | Page d'erreur |
 | `assets/css/site.css` | Feuille de style unique (jetons repris de la charte de l'app) |
 | `assets/js/site.js` | Bascule FR/EN, menu mobile, formulaires |
 | `assets/js/anim-init.js` | Amorçage des animations, chargé avant le premier rendu |
 | `assets/js/animations.js` | Bannière animée, apparitions au défilement, bandeau d'annonces |
+| `assets/js/auth.js` | Connexion et mot de passe oublié, contre l'API existante |
 | `assets/js/vendor/` | GSAP 3.13 et ScrollTrigger, servis depuis le site ([détail](assets/js/vendor/README.md)) |
 | `assets/img/bbc-logo.png` | Logo (copie de `frontend/public/bbc-logo.png`) |
 | `tests/animations.test.mjs` | Tests d'exécution (jsdom) de la bascule de langue et des animations |
+| `tests/login.test.mjs` | Tests d'exécution de la connexion (session écrite, erreurs, replis) |
 
 ---
 
@@ -76,6 +79,83 @@ le site reste entièrement lisible. La langue choisie est mémorisée dans le
 **Règle à respecter en modifiant une page :** corriger les *trois* endroits —
 le texte visible, `data-fr` et `data-en`. Un texte visible différent de `data-fr`
 réapparaîtrait au premier changement de langue.
+
+---
+
+## Connexion
+
+`connexion.html` n'est pas une page de connexion décorative : elle appelle
+**le même endpoint que l'application** (`POST /api/auth/login`) et écrit
+**les mêmes clés de session** que `frontend/src/app/core/auth.service.ts` :
+
+| Clé `localStorage` | Contenu |
+|---|---|
+| `bbc-access` | jeton d'accès |
+| `bbc-refresh` | jeton de rafraîchissement |
+| `bbc-user` | profil utilisateur sérialisé |
+| `bbc-access-expires-at` | date absolue d'expiration (`Date.now() + expiresInMs`) |
+
+L'application, au chargement, restaure la session depuis ces clés :
+l'utilisateur qui se connecte ici arrive **déjà connecté** dans l'application.
+L'aiguillage reprend celui de l'écran de connexion existant — un parent va sur
+`/app/parent`, tout autre rôle sur `/app/parcours`.
+
+Le formulaire « mot de passe oublié » appelle de même `POST /api/auth/forgot-password`
+et affiche la réponse du serveur, volontairement identique que le compte
+existe ou non.
+
+### La contrainte qui commande toute l'architecture
+
+`localStorage` est **cloisonné par origine**. Une connexion faite sur
+`bbcomplex.com` est invisible depuis `app.bbcomplex.com` : l'utilisateur
+verrait « connexion réussie », puis l'application lui redemanderait ses
+identifiants, sans erreur nulle part.
+
+**Le site et l'application doivent donc être servis depuis le même hôte et le
+même port.** C'est ce que fait `nginx.conf` :
+
+| Chemin | Sert |
+|---|---|
+| `/` | le site institutionnel (ce dossier) |
+| `/app/` | l'application, proxifiée vers le conteneur `frontend` |
+| `/api/`, `/ws/` | l'API et le temps réel, proxifiés vers le conteneur `backend` |
+
+Deux pièges de configuration sont désamorcés dans `nginx.conf`, et commentés
+sur place parce qu'ils se réintroduisent facilement :
+
+1. les trois `location` portent `^~`. Sans lui, la règle de cache
+   `location ~* \.(css|js)$` — une regex — l'emporterait sur un préfixe
+   simple, et les fichiers de l'application seraient cherchés dans la racine
+   du site : **application blanche** ;
+2. les cibles de `proxy_pass` passent par une variable et un `resolver`. Avec
+   un nom littéral, nginx refuse de démarrer tant que le conteneur `backend`
+   n'existe pas — ce qui casserait l'aperçu du site seul.
+
+L'application doit être construite avec `--base-href /app/`, sinon elle
+demande ses fichiers à la racine. `frontend/Dockerfile` accepte pour cela
+l'argument `BASE_HREF`, dont la valeur par défaut (`/`) ne change rien aux
+déploiements existants.
+
+### Aperçu complet, site + application + API
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.demo.yml \
+  -f docker-compose.website-integrated.yml -p bbc-integre up -d --build
+```
+
+- http://localhost:8082 — le site
+- http://localhost:8082/app/ — l'application
+- http://localhost:8082/api/ — l'API
+
+En mode démo, `principal` / `password` permet d'essayer la connexion de bout
+en bout.
+
+### Si l'API n'est pas joignable
+
+Le site reste entièrement consultable ; seule la connexion échoue, avec le
+message « Serveur injoignable ». C'est le comportement attendu de l'aperçu
+lancé avec `docker-compose.website.yml` seul, qui ne démarre ni l'API ni la
+base.
 
 ---
 
@@ -136,6 +216,12 @@ Les tests vérifient le découpage du titre, la préservation du `<em>`, les
 compteurs, le bandeau d'annonces, la survie des astérisques « champ requis » au
 changement de langue, et les trois chemins de repli ci-dessus.
 
+La suite de connexion se lance de la même façon, en remplaçant
+`animations.test.mjs` par `login.test.mjs`. Elle fige le contrat de session
+(les quatre clés `localStorage`), l'aiguillage parent / personnel, et le
+comportement en cas d'identifiants refusés, de serveur injoignable ou de
+réponse incomplète.
+
 ---
 
 ## À compléter avant la mise en ligne
@@ -182,38 +268,42 @@ Pour brancher un traitement réel plus tard, remplacer `setupMailForms()` dans
 
 ## Mise en production
 
-Le site prend le domaine principal, l'application de gestion scolaire passe sur
-un sous-domaine :
+Le site et l'application partagent **une seule origine** — c'est ce qui rend la
+page de connexion utilisable (voir la section « Connexion » ci-dessus) :
 
-| Domaine | Sert |
+| Chemin sur le domaine public | Sert |
 |---|---|
-| `bbcomplex.com`, `www.bbcomplex.com` | le site institutionnel (ce dossier) |
-| `app.bbcomplex.com` | l'application de gestion scolaire (`frontend/`) |
+| `/` | le site institutionnel |
+| `/app/` | l'application de gestion scolaire |
+| `/api/`, `/ws/` | l'API et le temps réel |
 
-1. **DNS** — créer l'enregistrement `A` pour `app.bbcomplex.com` pointant vers le
-   serveur, et attendre sa propagation. Sans cela, Let's Encrypt ne peut pas
-   émettre le certificat et l'application deviendrait injoignable.
-2. **Déployer** :
+Ce que cela suppose, quel que soit le serveur :
 
-   ```bash
-   docker compose --env-file .env.vps-production -p bbc-production \
-     -f docker-compose.server.yml \
-     -f docker-compose.vps-production.yml \
-     -f docker-compose.website-production.yml up -d --build
-   ```
+1. reconstruire l'application avec `BASE_HREF=/app/` ;
+2. placer le conteneur du site **devant** l'application et l'API, et ne plus
+   publier celles-ci directement ;
+3. faire terminer TLS par le composant déjà en place, en le faisant pointer sur
+   le conteneur du site.
 
-   Cet override ajoute le service `website` et fait pointer Caddy sur
-   `Caddyfile.production.website`, qui déclare les deux domaines.
-3. **Vérifier** `https://bbcomplex.com` (site) puis `https://app.bbcomplex.com`
-   (connexion à l'application).
-4. **Revenir en arrière** en cas de problème : relancer sans le troisième fichier
-   `-f`, ce qui restaure `Caddyfile.production` et l'application sur le domaine
-   principal.
+`docker-compose.website-integrated.yml` fait exactement cela pour un stack bâti
+sur `docker-compose.yml`, et c'est la configuration qui a été vérifiée : site,
+application sous `/app/`, connexion réelle contre l'API.
 
-Tant que l'enregistrement DNS `app` n'existe pas, les liens « Espace parents »
-du site pointent vers une adresse qui ne résout pas encore. Deux options :
-créer le DNS avant la mise en ligne, ou remplacer temporairement
-`https://app.bbcomplex.com` par l'URL actuelle de l'application.
+> **À adapter avant tout déploiement réel.** Le stack en service sur ce serveur
+> est `docker-compose.letsencrypt.yml` (projet `bbc-prod`, nginx + certbot),
+> dans lequel c'est le conteneur `frontend` qui termine TLS. Y insérer le site
+> demande de déplacer la terminaison TLS vers le conteneur du site, ou d'ajouter
+> les trois `location` ci-dessus à `nginx-domain.generated.conf`. Cette
+> variante n'a pas été écrite ici parce qu'elle n'a pas pu être vérifiée : au
+> moment de la rédaction, `bbcomplex.com` résout vers `191.215.38.141`, alors
+> que ce serveur répond en `72.62.211.104` — le domaine public n'est pas servi
+> par cette machine.
+
+### Revenir en arrière
+
+Le site n'ajoute qu'un conteneur devant les autres. Relancer le stack sans
+`-f docker-compose.website-integrated.yml` restaure l'application sur le
+domaine, telle qu'avant.
 
 ---
 

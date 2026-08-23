@@ -41,7 +41,7 @@
     <div class="topbar__tools">
       <span class="ticker" data-ticker aria-live="off">
         <span class="ticker__item" data-fr="Rentrée 2026–2027 : inscriptions ouvertes" data-en="2026–2027 intake: admissions open">Rentrée 2026–2027 : inscriptions ouvertes</span>
-        <span class="ticker__item" data-fr="Espace parents accessible 24 h/24" data-en="Parent portal open around the clock">Espace parents accessible 24 h/24</span>
+        <span class="ticker__item" data-fr="Votre compte accessible 24 h/24" data-en="Your account, available around the clock">Votre compte accessible 24 h/24</span>
         <span class="ticker__item" data-fr="Visites de l’établissement sur rendez-vous" data-en="School visits by appointment">Visites de l’établissement sur rendez-vous</span>
       </span>
       <div class="langswitch" role="group" aria-label="Langue / Language">
@@ -67,10 +67,13 @@
       <a href="programmes.html" data-fr="Programmes" data-en="Programmes">Programmes</a>
       <a href="admissions.html" data-fr="Admissions" data-en="Admissions">Admissions</a>
       <a href="contact.html" data-fr="Contact" data-en="Contact">Contact</a>
+      <!-- Visible seulement en menu mobile : sur grand écran, le bouton
+           « Connexion » de l'en-tête joue déjà ce rôle. -->
+      <a class="nav__login" href="connexion.html" data-fr="Connexion" data-en="Sign in">Connexion</a>
     </nav>
     <div class="header__cta">
-      <a class="btn btn--sm btn--dark" href="https://app.bbcomplex.com" rel="noopener"
-         data-fr="Espace parents" data-en="Parent portal">Espace parents</a>
+      <a class="btn btn--sm btn--dark" href="connexion.html"
+         data-fr="Connexion" data-en="Sign in">Connexion</a>
       <button class="burger" type="button" data-burger aria-expanded="false" aria-controls="site-nav"
               data-fr-aria="Ouvrir le menu" data-en-aria="Open menu" aria-label="Ouvrir le menu">
         <span></span><span></span><span></span>
@@ -125,7 +128,7 @@
              data-en="You receive a written answer stating the class and stream offered. You then submit the required documents and pay the registration fee.">Vous recevez une réponse écrite avec la classe et la filière proposées. Vous déposez alors les pièces du dossier et réglez les frais d’inscription.</p>
         </article>
         <article class="step">
-          <h3 data-fr="Ouverture de l’espace parents" data-en="Parent portal activated">Ouverture de l’espace parents</h3>
+          <h3 data-fr="Ouverture de votre compte" data-en="Your account is opened">Ouverture de votre compte</h3>
           <p data-fr="Vos identifiants vous sont remis avec le reçu. Dès la rentrée, vous suivez les notes, les présences et les frais de votre enfant en ligne."
              data-en="Your credentials are issued with the receipt. From the first day of term you follow your child’s marks, attendance and fees online.">Vos identifiants vous sont remis avec le reçu. Dès la rentrée, vous suivez les notes, les présences et les frais de votre enfant en ligne.</p>
         </article>
@@ -164,9 +167,9 @@
            data-en="An incomplete file may be submitted: the place is held for fifteen days while the missing documents are gathered.">
           Un dossier incomplet peut être déposé : la place est réservée quinze jours, le temps de réunir les pièces manquantes.
         </p>
-        <p style="margin-bottom:0" data-fr="Deux parents ou tuteurs peuvent être déclarés. Chacun reçoit son propre accès à l’espace parents."
-           data-en="Two parents or guardians may be declared. Each receives their own access to the parent portal.">
-          Deux parents ou tuteurs peuvent être déclarés. Chacun reçoit son propre accès à l’espace parents.
+        <p style="margin-bottom:0" data-fr="Deux parents ou tuteurs peuvent être déclarés. Chacun reçoit son propre accès au compte de l’élève."
+           data-en="Two parents or guardians may be declared. Each receives their own access to the pupil’s account.">
+          Deux parents ou tuteurs peuvent être déclarés. Chacun reçoit son propre accès au compte de l’élève.
         </p>
       </div>
     </div>
@@ -178,9 +181,9 @@
       <div style="margin-bottom:32px">
         <span class="eyebrow" data-fr="Frais de scolarité" data-en="School fees">Frais de scolarité</span>
         <h2 data-fr="Ce que vous payez, et quand" data-en="What you pay, and when">Ce que vous payez, et quand</h2>
-        <p class="lead" data-fr="Les frais sont annoncés en début d’année et ne changent pas en cours d’année. Chaque versement est enregistré et donne lieu à un reçu numéroté, consultable dans l’espace parents."
-           data-en="Fees are announced at the start of the year and do not change during it. Every payment is recorded and receipted with a numbered receipt, viewable in the parent portal.">
-          Les frais sont annoncés en début d’année et ne changent pas en cours d’année. Chaque versement est enregistré et donne lieu à un reçu numéroté, consultable dans l’espace parents.
+        <p class="lead" data-fr="Les frais sont annoncés en début d’année et ne changent pas en cours d’année. Chaque versement est enregistré et donne lieu à un reçu numéroté, consultable dans votre compte."
+           data-en="Fees are announced at the start of the year and do not change during it. Every payment is recorded and receipted with a numbered receipt, viewable in your account.">
+          Les frais sont annoncés en début d’année et ne changent pas en cours d’année. Chaque versement est enregistré et donne lieu à un reçu numéroté, consultable dans votre compte.
         </p>
       </div>
 
@@ -228,8 +231,8 @@
       <div class="grid grid-3">
         <article class="card">
           <h3 data-fr="Paiement en trois tranches" data-en="Payment in three instalments">Paiement en trois tranches</h3>
-          <p data-fr="La scolarité peut être réglée en trois versements, alignés sur les trimestres. L’échéancier est remis à l’inscription et rappelé dans l’espace parents."
-             data-en="Tuition may be paid in three instalments, aligned with the terms. The schedule is issued at enrolment and repeated in the parent portal.">La scolarité peut être réglée en trois versements, alignés sur les trimestres. L’échéancier est remis à l’inscription et rappelé dans l’espace parents.</p>
+          <p data-fr="La scolarité peut être réglée en trois versements, alignés sur les trimestres. L’échéancier est remis à l’inscription et rappelé dans votre compte."
+             data-en="Tuition may be paid in three instalments, aligned with the terms. The schedule is issued at enrolment and repeated in your account.">La scolarité peut être réglée en trois versements, alignés sur les trimestres. L’échéancier est remis à l’inscription et rappelé dans votre compte.</p>
         </article>
         <article class="card">
           <h3 data-fr="Réduction fratrie" data-en="Sibling discount">Réduction fratrie</h3>
@@ -376,16 +379,16 @@
         <details class="qa">
           <summary data-fr="Comment suivre la scolarité si je suis à l’étranger ?" data-en="How can I follow my child’s schooling from abroad?">Comment suivre la scolarité si je suis à l’étranger ?</summary>
           <div class="qa__body">
-            <p data-fr="L’espace parents est accessible depuis n’importe quel navigateur. Vous y consultez les notes, les présences, les bulletins et la situation financière sans avoir à téléphoner à l’établissement."
-               data-en="The parent portal works from any browser. You can check marks, attendance, report cards and the fee statement without having to telephone the school.">L’espace parents est accessible depuis n’importe quel navigateur. Vous y consultez les notes, les présences, les bulletins et la situation financière sans avoir à téléphoner à l’établissement.</p>
+            <p data-fr="Votre compte est accessible depuis n’importe quel navigateur. Vous y consultez les notes, les présences, les bulletins et la situation financière sans avoir à téléphoner à l’établissement."
+               data-en="Your account works from any browser. You can check marks, attendance, report cards and the fee statement without having to telephone the school.">Votre compte est accessible depuis n’importe quel navigateur. Vous y consultez les notes, les présences, les bulletins et la situation financière sans avoir à téléphoner à l’établissement.</p>
           </div>
         </details>
 
         <details class="qa">
           <summary data-fr="Quels moyens de paiement acceptez-vous ?" data-en="Which payment methods do you accept?">Quels moyens de paiement acceptez-vous ?</summary>
           <div class="qa__body">
-            <p data-fr="Espèces à l’économat et paiement par mobile money. Dans tous les cas, un reçu numéroté est délivré et le versement apparaît immédiatement dans votre espace parents."
-               data-en="Cash at the bursary and mobile money. In every case a numbered receipt is issued and the payment appears immediately in your parent portal.">Espèces à l’économat et paiement par mobile money. Dans tous les cas, un reçu numéroté est délivré et le versement apparaît immédiatement dans votre espace parents.</p>
+            <p data-fr="Espèces à l’économat et paiement par mobile money. Dans tous les cas, un reçu numéroté est délivré et le versement apparaît immédiatement dans votre compte."
+               data-en="Cash at the bursary and mobile money. In every case a numbered receipt is issued and the payment appears immediately in your account.">Espèces à l’économat et paiement par mobile money. Dans tous les cas, un reçu numéroté est délivré et le versement apparaît immédiatement dans votre compte.</p>
           </div>
         </details>
 
@@ -445,7 +448,7 @@
           <li data-fr="BP 0000 — Douala, Cameroun" data-en="P.O. Box 0000 — Douala, Cameroon">BP 0000 — Douala, Cameroun</li>
           <li><a href="tel:+2376XXXXXXXX">+237 6 XX XX XX XX</a></li>
           <li><a href="mailto:contact@bbcomplex.com">contact@bbcomplex.com</a></li>
-          <li><a href="https://app.bbcomplex.com" rel="noopener" data-fr="Espace parents" data-en="Parent portal">Espace parents</a></li>
+          <li><a href="connexion.html" data-fr="Connexion" data-en="Sign in">Connexion</a></li>
         </ul>
       </div>
     </div>

@@ -602,3 +602,44 @@ html.anim .ticker__item { position: absolute; inset: 0; }
   .ticker { height: auto; min-width: 0; }
   .ticker__item + .ticker__item { display: none; }
 }
+
+/* ==========================================================================
+   Page de connexion
+   ========================================================================== */
+
+/* Lien « Connexion » du menu : doublon du bouton d'en-tête, il ne sert que
+   lorsque ce bouton est masqué, c'est-à-dire en menu mobile. */
+.nav__login { display: none; }
+
+.form__error {
+  margin: 0;
+  padding: 12px 15px;
+  border: 1px solid #FECACA;
+  border-left: 4px solid #DC2626;
+  border-radius: var(--radius-sm);
+  background: #FEF2F2;
+  color: #991B1B;
+  font-size: .89rem;
+  font-weight: 600;
+}
+
+/* Champ mot de passe + bouton « Afficher » intégré. */
+.field-with-action { position: relative; display: block; }
+.field-with-action input { padding-right: 92px; }
+.field-action {
+  position: absolute; top: 50%; right: 6px; transform: translateY(-50%);
+  border: 0; background: transparent;
+  font: inherit; font-size: .78rem; font-weight: 800;
+  color: var(--brand-500); cursor: pointer;
+  padding: 6px 10px; border-radius: 8px;
+}
+.field-action:hover { background: var(--brand-50); color: var(--brand-600); }
+
+/* Le repli du <details> « mot de passe oublié » ne doit pas ressembler à une
+   question de FAQ perdue au milieu d'un formulaire. */
+.card > details.qa { border-color: var(--line); background: var(--brand-50); }
+.card > details.qa summary { font-size: .9rem; }
+
+@media (max-width: 860px) {
+  .nav__login { display: block; }
+}

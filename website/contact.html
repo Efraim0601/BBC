@@ -41,7 +41,7 @@
     <div class="topbar__tools">
       <span class="ticker" data-ticker aria-live="off">
         <span class="ticker__item" data-fr="Rentrée 2026–2027 : inscriptions ouvertes" data-en="2026–2027 intake: admissions open">Rentrée 2026–2027 : inscriptions ouvertes</span>
-        <span class="ticker__item" data-fr="Espace parents accessible 24 h/24" data-en="Parent portal open around the clock">Espace parents accessible 24 h/24</span>
+        <span class="ticker__item" data-fr="Votre compte accessible 24 h/24" data-en="Your account, available around the clock">Votre compte accessible 24 h/24</span>
         <span class="ticker__item" data-fr="Visites de l’établissement sur rendez-vous" data-en="School visits by appointment">Visites de l’établissement sur rendez-vous</span>
       </span>
       <div class="langswitch" role="group" aria-label="Langue / Language">
@@ -67,10 +67,13 @@
       <a href="programmes.html" data-fr="Programmes" data-en="Programmes">Programmes</a>
       <a href="admissions.html" data-fr="Admissions" data-en="Admissions">Admissions</a>
       <a href="contact.html" data-fr="Contact" data-en="Contact">Contact</a>
+      <!-- Visible seulement en menu mobile : sur grand écran, le bouton
+           « Connexion » de l'en-tête joue déjà ce rôle. -->
+      <a class="nav__login" href="connexion.html" data-fr="Connexion" data-en="Sign in">Connexion</a>
     </nav>
     <div class="header__cta">
-      <a class="btn btn--sm btn--dark" href="https://app.bbcomplex.com" rel="noopener"
-         data-fr="Espace parents" data-en="Parent portal">Espace parents</a>
+      <a class="btn btn--sm btn--dark" href="connexion.html"
+         data-fr="Connexion" data-en="Sign in">Connexion</a>
       <button class="burger" type="button" data-burger aria-expanded="false" aria-controls="site-nav"
               data-fr-aria="Ouvrir le menu" data-en-aria="Open menu" aria-label="Ouvrir le menu">
         <span></span><span></span><span></span>
@@ -134,8 +137,8 @@
           <li>
             <span class="ci" aria-hidden="true">🔐</span>
             <span>
-              <b data-fr="Espace parents" data-en="Parent portal">Espace parents</b>
-              <span><a href="https://app.bbcomplex.com" rel="noopener">app.bbcomplex.com</a></span>
+              <b data-fr="Connexion" data-en="Sign in">Connexion</b>
+              <span><a href="connexion.html">bbcomplex.com/connexion</a></span>
             </span>
           </li>
         </ul>
@@ -211,7 +214,7 @@
               <option value="Visite" data-fr="Demande de visite de l’établissement" data-en="Request to visit the school">Demande de visite de l’établissement</option>
               <option value="Scolarite" data-fr="Suivi de scolarité (notes, absences)" data-en="Schooling follow-up (marks, absences)">Suivi de scolarité (notes, absences)</option>
               <option value="Finance" data-fr="Frais de scolarité et paiements" data-en="School fees and payments">Frais de scolarité et paiements</option>
-              <option value="Portail" data-fr="Accès à l’espace parents" data-en="Parent portal access">Accès à l’espace parents</option>
+              <option value="Portail" data-fr="Accès à mon compte" data-en="Account access">Accès à mon compte</option>
               <option value="Autre" data-fr="Autre" data-en="Other">Autre</option>
             </select>
           </div>
@@ -310,7 +313,7 @@
           <li data-fr="BP 0000 — Douala, Cameroun" data-en="P.O. Box 0000 — Douala, Cameroon">BP 0000 — Douala, Cameroun</li>
           <li><a href="tel:+2376XXXXXXXX">+237 6 XX XX XX XX</a></li>
           <li><a href="mailto:contact@bbcomplex.com">contact@bbcomplex.com</a></li>
-          <li><a href="https://app.bbcomplex.com" rel="noopener" data-fr="Espace parents" data-en="Parent portal">Espace parents</a></li>
+          <li><a href="connexion.html" data-fr="Connexion" data-en="Sign in">Connexion</a></li>
         </ul>
       </div>
     </div>
