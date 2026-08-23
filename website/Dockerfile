@@ -9,7 +9,8 @@ COPY . /usr/share/nginx/html
 RUN rm -f /usr/share/nginx/html/Dockerfile \
           /usr/share/nginx/html/.dockerignore \
           /usr/share/nginx/html/nginx.conf \
-          /usr/share/nginx/html/README.md
+    && find /usr/share/nginx/html -name '*.md' -delete \
+    && rm -rf /usr/share/nginx/html/tests
 
 EXPOSE 80
 

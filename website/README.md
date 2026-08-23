@@ -21,7 +21,11 @@ l'application, la base de données ou l'API sont arrêtées pour maintenance.
 | `404.html` | Page d'erreur |
 | `assets/css/site.css` | Feuille de style unique (jetons repris de la charte de l'app) |
 | `assets/js/site.js` | Bascule FR/EN, menu mobile, formulaires |
+| `assets/js/anim-init.js` | Amorçage des animations, chargé avant le premier rendu |
+| `assets/js/animations.js` | Bannière animée, apparitions au défilement, bandeau d'annonces |
+| `assets/js/vendor/` | GSAP 3.13 et ScrollTrigger, servis depuis le site ([détail](assets/js/vendor/README.md)) |
 | `assets/img/bbc-logo.png` | Logo (copie de `frontend/public/bbc-logo.png`) |
+| `tests/animations.test.mjs` | Tests d'exécution (jsdom) de la bascule de langue et des animations |
 
 ---
 
@@ -72,6 +76,65 @@ le site reste entièrement lisible. La langue choisie est mémorisée dans le
 **Règle à respecter en modifiant une page :** corriger les *trois* endroits —
 le texte visible, `data-fr` et `data-en`. Un texte visible différent de `data-fr`
 réapparaîtrait au premier changement de langue.
+
+---
+
+## Animations (GSAP)
+
+La bannière est animée avec **GSAP 3.13 + ScrollTrigger**, servis depuis
+`assets/js/vendor/` et non depuis un CDN : la CSP du site n'autorise que
+`script-src 'self'`, et une connexion instable ne doit pas priver la page
+d'accueil de sa bannière.
+
+Ce qui bouge :
+
+| Élément | Animation |
+|---|---|
+| Bannière d'accueil | titre découpé mot à mot, apparition en cascade du texte, de la carte et de ses puces |
+| Décor de bannière | trois halos lumineux qui dérivent en continu, avec parallaxe au défilement |
+| Chiffres clés | comptage progressif jusqu'à la valeur affichée |
+| Bandeau supérieur | trois annonces qui défilent en boucle |
+| Bandeaux des pages intérieures | titre mot à mot, deux halos |
+| Sections | apparition au défilement, par groupes (`ScrollTrigger.batch`) |
+| En-tête | ombre au défilement, barre de progression de lecture dorée |
+| Boutons et cartes | micro-interactions au survol |
+
+**Le contenu ne dépend jamais des animations.** Trois protections, chacune
+couverte par un test :
+
+1. `prefers-reduced-motion: reduce` → aucune animation, aucun masquage, aucun décor ;
+2. GSAP absent (fichier manquant, réseau coupé) → `anim-init.js` lève le masquage
+   au bout de 2 s, la page s'affiche normalement ;
+3. une erreur pendant la mise en place → tout est rendu visible et les animations
+   sont abandonnées.
+
+Le décor (halos, barre de progression) est **créé en JavaScript**, pas écrit dans
+les pages : le HTML reste du contenu éditorial relisible par le secrétariat.
+
+### Contrainte à connaître avant de modifier
+
+`site.js` réécrit le contenu des éléments à chaque changement de langue, ce qui
+détruit le découpage en mots du titre. `animations.js` écoute l'évènement
+`bbc:langchange` et le refait. Deux conséquences :
+
+- l'ordre des `<script>` en bas de page compte : `site.js` **avant**
+  `animations.js`, sinon le titre est découpé puis écrasé ;
+- un texte animé ne doit jamais contenir d'élément qu'on veut conserver, à moins
+  de le déclarer avec `data-fr-html` / `data-en-html` (le titre d'accueil et son
+  `<em>` doré fonctionnent ainsi).
+
+### Tests
+
+```bash
+cd website
+docker run --rm -v "$PWD":/site:ro -w /tmp node:20-alpine sh -c \
+  "npm i --silent --no-fund --no-audit jsdom && cp /site/tests/animations.test.mjs . \
+   && SITE_DIR=/site node animations.test.mjs"
+```
+
+Les tests vérifient le découpage du titre, la préservation du `<em>`, les
+compteurs, le bandeau d'annonces, la survie des astérisques « champ requis » au
+changement de langue, et les trois chemins de repli ci-dessus.
 
 ---
 
@@ -159,8 +222,9 @@ créer le DNS avant la mise en ligne, ou remplacer temporairement
 - Lien d'évitement, `aria-label` sur les navigations, `aria-pressed` sur la
   bascule de langue, `aria-expanded` sur le menu mobile.
 - Contrastes conformes AA sur les fonds navy et or de la charte.
-- `prefers-reduced-motion` respecté ; feuille de style d'impression.
-- Aucune bibliothèque tierce : une seule feuille de style, un seul script.
+- `prefers-reduced-motion` respecté : ni animation, ni décor, ni masquage.
+- Feuille de style d'impression (bandeaux, menus et boutons retirés).
+- Une seule bibliothèque tierce (GSAP), servie depuis le site, jamais depuis un CDN.
   Les polices Manrope et Fraunces viennent de Google Fonts, comme dans
   l'application — les remplacer par des polices auto-hébergées si l'établissement
   souhaite se passer de toute requête externe.

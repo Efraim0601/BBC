@@ -525,3 +525,80 @@ details.qa .qa__body p:last-child { margin-bottom: 0; }
 /* ---------- ajustements identité de marque ---------- */
 .brand__name, .brand__tag { display: block; }
 .brand > span { display: block; }
+
+/* ==========================================================================
+   Animations (GSAP) — voir assets/js/animations.js
+   Le masquage initial est injecté par anim-init.js et retiré dès que GSAP
+   prend la main : rien ici ne peut laisser un contenu invisible.
+   ========================================================================== */
+
+/* ---------- décor animé de la bannière ---------- */
+.aurora { position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+.aurora__blob {
+  position: absolute; display: block; border-radius: 50%;
+  filter: blur(52px); opacity: .45; will-change: transform, opacity;
+}
+.aurora__blob--1 {
+  width: 46vw; height: 46vw; max-width: 620px; max-height: 620px; top: -14%; left: -8%;
+  background: radial-gradient(circle, rgba(79, 117, 160, .85) 0%, rgba(79, 117, 160, 0) 70%);
+}
+.aurora__blob--2 {
+  width: 38vw; height: 38vw; max-width: 520px; max-height: 520px; bottom: -20%; right: -6%;
+  background: radial-gradient(circle, rgba(212, 168, 67, .55) 0%, rgba(212, 168, 67, 0) 70%);
+}
+.aurora__blob--3 {
+  width: 30vw; height: 30vw; max-width: 420px; max-height: 420px; top: 32%; right: 26%;
+  background: radial-gradient(circle, rgba(45, 85, 134, .7) 0%, rgba(45, 85, 134, 0) 70%);
+}
+
+/* Le décor passe sous le contenu, jamais devant. */
+.hero > .wrap, .pagehead > .wrap { position: relative; z-index: 1; }
+.pagehead { position: relative; overflow: hidden; }
+
+/* ---------- titre découpé en mots ---------- */
+/* overflow:hidden coupe les jambages (« g », « j ») : on rend la place perdue. */
+.w {
+  display: inline-block; overflow: hidden; vertical-align: top;
+  padding-bottom: .14em; margin-bottom: -.14em;
+}
+.wi { display: inline-block; will-change: transform; }
+
+/* ---------- bandeau d'annonces défilantes ---------- */
+.ticker {
+  position: relative; display: inline-block; vertical-align: middle;
+  height: 1.5em; min-width: 27ch; overflow: hidden;
+}
+.ticker__item { display: block; white-space: nowrap; }
+/* Sans JavaScript, une seule annonce s'affiche — rien ne se superpose. */
+.ticker__item + .ticker__item { display: none; }
+html.anim .ticker__item,
+html .ticker__item.is-stacked { display: block; }
+html.anim .ticker__item + .ticker__item { display: block; }
+html.anim .ticker__item { position: absolute; inset: 0; }
+
+/* ---------- en-tête au défilement ---------- */
+.header { transition: box-shadow .2s ease, background-color .2s ease; }
+.header.is-scrolled {
+  background: rgba(255, 255, 255, .98);
+  box-shadow: 0 6px 24px rgba(15, 34, 56, .10);
+}
+
+/* ---------- barre de progression de lecture ---------- */
+.scroll-progress {
+  position: absolute; left: 0; right: 0; bottom: -1px; height: 3px;
+  pointer-events: none; overflow: hidden;
+}
+.scroll-progress i {
+  display: block; height: 100%; width: 100%;
+  background: linear-gradient(90deg, var(--gold-500), var(--gold-300));
+  transform: scaleX(0); transform-origin: left center;
+}
+
+/* ---------- mouvement réduit ----------
+   anim-init.js n'active alors aucune animation ; on neutralise aussi le
+   décor, qui n'a plus de raison d'être si rien ne bouge. */
+@media (prefers-reduced-motion: reduce) {
+  .aurora { display: none; }
+  .ticker { height: auto; min-width: 0; }
+  .ticker__item + .ticker__item { display: none; }
+}
