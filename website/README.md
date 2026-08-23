@@ -49,6 +49,10 @@ docker compose -f docker-compose.website.yml up -d --build
 docker compose -f docker-compose.website.yml down
 ```
 
+Cet aperçu ne démarre **que** le site : la page de connexion n'a pas d'API à
+appeler. Pour l'ensemble site + application + API, voir « Aperçu complet »
+dans la section [Connexion](#connexion).
+
 ---
 
 ## Bilingue FR / EN
@@ -111,51 +115,62 @@ existe ou non.
 verrait « connexion réussie », puis l'application lui redemanderait ses
 identifiants, sans erreur nulle part.
 
-**Le site et l'application doivent donc être servis depuis le même hôte et le
-même port.** C'est ce que fait `nginx.conf` :
+**Le site et l'application sont donc servis depuis le même hôte et le même
+port.** Le routage est fait par le conteneur `frontend`, qui reste la façade
+publique (c'est lui qui termine TLS) :
 
 | Chemin | Sert |
 |---|---|
-| `/` | le site institutionnel (ce dossier) |
-| `/app/` | l'application, proxifiée vers le conteneur `frontend` |
+| `/` | le site institutionnel, proxifié vers le conteneur `website` |
+| `/app/` | l'application, servie depuis les fichiers du conteneur `frontend` |
 | `/api/`, `/ws/` | l'API et le temps réel, proxifiés vers le conteneur `backend` |
 
-Deux pièges de configuration sont désamorcés dans `nginx.conf`, et commentés
-sur place parce qu'ils se réintroduisent facilement :
+Ce conteneur `website` ne fait donc que servir des fichiers statiques : il ne
+proxifie rien.
 
-1. les trois `location` portent `^~`. Sans lui, la règle de cache
-   `location ~* \.(css|js)$` — une regex — l'emporterait sur un préfixe
-   simple, et les fichiers de l'application seraient cherchés dans la racine
-   du site : **application blanche** ;
-2. les cibles de `proxy_pass` passent par une variable et un `resolver`. Avec
-   un nom littéral, nginx refuse de démarrer tant que le conteneur `backend`
-   n'existe pas — ce qui casserait l'aperçu du site seul.
+Trois pièges de configuration sont désamorcés dans les fichiers
+`frontend/nginx.ssl*.conf` et `frontend/nginx.letsencrypt.conf`, et commentés
+sur place parce qu'ils se réintroduisent au premier « nettoyage » :
+
+1. la règle de cache des actifs est **ancrée sur `/app/`**
+   (`location ~* ^/app/.+\.(js|css|…)$`). Non ancrée, cette regex l'emporterait
+   sur le préfixe `/` et chercherait `/assets/css/site.css` dans la racine de
+   l'application : le site perdrait sa feuille de style ;
+2. le repli de la SPA s'écrit `try_files $uri /index.html =404;` et non
+   `try_files $uri /index.html;`. Le **dernier** paramètre de `try_files` est
+   traité comme une redirection interne : elle repasserait par le routage,
+   retomberait sur `location /` et servirait le site institutionnel à la place
+   de l'application ;
+3. la cible du site passe par une variable et un `resolver`. Avec un nom
+   littéral, nginx refuserait de démarrer tant que le conteneur `website`
+   n'existe pas, emportant avec lui l'application et l'API.
 
 L'application doit être construite avec `--base-href /app/`, sinon elle
 demande ses fichiers à la racine. `frontend/Dockerfile` accepte pour cela
-l'argument `BASE_HREF`, dont la valeur par défaut (`/`) ne change rien aux
-déploiements existants.
+l'argument `BASE_HREF`, dont la valeur par défaut (`/`) laisse intacts le
+stack de base et les parcours Playwright de `qa/browser-e2e`.
 
 ### Aperçu complet, site + application + API
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.demo.yml \
-  -f docker-compose.website-integrated.yml -p bbc-integre up -d --build
+  -f docker-compose.website-local.yml -p bbc-site up -d --build
 ```
 
-- http://localhost:8082 — le site
-- http://localhost:8082/app/ — l'application
-- http://localhost:8082/api/ — l'API
+- http://localhost:8081/ — le site
+- http://localhost:8081/connexion — la connexion (démo : `principal` / `password`)
+- http://localhost:8081/app/ — l'application
+- http://localhost:8081/api/ — l'API
 
-En mode démo, `principal` / `password` permet d'essayer la connexion de bout
-en bout.
+Cet aperçu monte **la même configuration nginx que le déploiement VPS**
+(`frontend/nginx.ssl.production.conf`, en HTTP simple) : ce qui est vérifié
+localement est ce qui tournera en production.
 
 ### Si l'API n'est pas joignable
 
-Le site reste entièrement consultable ; seule la connexion échoue, avec le
-message « Serveur injoignable ». C'est le comportement attendu de l'aperçu
-lancé avec `docker-compose.website.yml` seul, qui ne démarre ni l'API ni la
-base.
+Le site reste entièrement consultable ; seule la connexion échoue, avec un
+message d'indisponibilité. C'est le comportement attendu de l'aperçu lancé
+avec `docker-compose.website.yml` seul, qui ne démarre ni l'API ni la base.
 
 ---
 
@@ -268,42 +283,45 @@ Pour brancher un traitement réel plus tard, remplacer `setupMailForms()` dans
 
 ## Mise en production
 
-Le site et l'application partagent **une seule origine** — c'est ce qui rend la
-page de connexion utilisable (voir la section « Connexion » ci-dessus) :
+**Rien de particulier à faire : les deux scripts de déploiement embarquent
+désormais le site.** Le service `website` fait partie des stacks
+`docker-compose.server.yml` et `docker-compose.letsencrypt.yml`, et le
+frontend est construit avec `BASE_HREF=/app/`.
 
-| Chemin sur le domaine public | Sert |
-|---|---|
-| `/` | le site institutionnel |
-| `/app/` | l'application de gestion scolaire |
-| `/api/`, `/ws/` | l'API et le temps réel |
+| Script | Stack | Résultat |
+|---|---|---|
+| `./deploy-domain.sh` | `docker-compose.letsencrypt.yml` | `https://<domaine>/` le site, `/app/` l'application |
+| `./deploy.sh` | `docker-compose.server.yml` | `https://<hôte>:20443/` le site, `/app/` l'application |
 
-Ce que cela suppose, quel que soit le serveur :
+Les stacks de recette et de développement sont **inchangés** :
+`docker-compose.yml` seul (`make demo`, `make prod`), `acceptance`,
+`full-e2e`, `production-replica` et `local` servent toujours l'application à
+la racine. C'est délibéré : les parcours Playwright de `qa/browser-e2e`
+visent `http://localhost:8100/` et n'ont pas à être réécrits.
 
-1. reconstruire l'application avec `BASE_HREF=/app/` ;
-2. placer le conteneur du site **devant** l'application et l'API, et ne plus
-   publier celles-ci directement ;
-3. faire terminer TLS par le composant déjà en place, en le faisant pointer sur
-   le conteneur du site.
+### Ce qui change pour les utilisateurs déjà en place
 
-`docker-compose.website-integrated.yml` fait exactement cela pour un stack bâti
-sur `docker-compose.yml`, et c'est la configuration qui a été vérifiée : site,
-application sous `/app/`, connexion réelle contre l'API.
-
-> **À adapter avant tout déploiement réel.** Le stack en service sur ce serveur
-> est `docker-compose.letsencrypt.yml` (projet `bbc-prod`, nginx + certbot),
-> dans lequel c'est le conteneur `frontend` qui termine TLS. Y insérer le site
-> demande de déplacer la terminaison TLS vers le conteneur du site, ou d'ajouter
-> les trois `location` ci-dessus à `nginx-domain.generated.conf`. Cette
-> variante n'a pas été écrite ici parce qu'elle n'a pas pu être vérifiée : au
-> moment de la rédaction, `bbcomplex.com` résout vers `191.215.38.141`, alors
-> que ce serveur répond en `72.62.211.104` — le domaine public n'est pas servi
-> par cette machine.
+L'application n'est plus à la racine du domaine mais sous `/app/`. Les
+signets existants vers `https://<domaine>/dashboard` aboutiront sur la page
+404 du site. La page de connexion, elle, est atteignable depuis toutes les
+pages du site.
 
 ### Revenir en arrière
 
-Le site n'ajoute qu'un conteneur devant les autres. Relancer le stack sans
-`-f docker-compose.website-integrated.yml` restaure l'application sur le
-domaine, telle qu'avant.
+Le site n'ajoute qu'un conteneur derrière le frontend. Pour restaurer
+l'application à la racine : retirer le service `website` et l'argument
+`BASE_HREF` du fichier de stack, et remettre dans la configuration nginx
+concernée le `location /` d'origine (`try_files $uri $uri/ /index.html;`) à la
+place du bloc de proxy. `git revert` du commit d'intégration fait les trois
+d'un coup.
+
+### Vérifications effectuées
+
+- `nginx -t` sur les trois configurations de déploiement ;
+- routage complet contre le backend en service : `/` le site, `/connexion` la
+  page de connexion, `/app/` et `/app/dashboard` l'application avec
+  `<base href="/app/">`, ses actifs hachés servis avec un cache d'un an, et
+  `POST /api/auth/login` répondant 401 puis 200 avec un jeton réel.
 
 ---
 
