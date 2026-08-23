@@ -5,10 +5,13 @@ import { environment } from '../../../environments/environment';
 
 export interface ClassRef { id:string; name:string; sectionId:string; subsystem:string; level:string;
   model:'HOMEROOM'|'DEPARTMENTAL'; status:'DRAFT'|'PUBLISHED'; homeroomTeacherId:string|null;
-  homeroomTeacherName:string|null; version:number; }
+  homeroomTeacherName:string|null; version:number; scheduleGroupId:string|null; scheduleOwnerId:string;
+  scheduleDisplayName:string; sharedSchedule:boolean; scheduleClasses:Array<{id:string;name:string;subsystem:string|null;
+    homeroomTeacherId:string|null;homeroomTeacherName:string|null}>; }
 export interface SubjectTeacherView { subjectCode:string; teacherId:string|null; teacherName:string|null;
   teacherCode:string|null; source:string|null; locked:boolean; message:string|null;
-  status?:'RESOLVED'|'MISSING'|'AMBIGUOUS'; errorCode?:string|null; assignmentId?:string|null; assignmentVersion?:number; }
+  status?:'RESOLVED'|'MISSING'|'AMBIGUOUS'; errorCode?:string|null; assignmentId?:string|null; assignmentVersion?:number;
+  classId:string|null; className:string|null; subsystem:string|null; }
 export interface PeriodView { id:string; slotIdx:number; label:string; startTime:string; endTime:string; active:boolean; }
 export interface SlotView { id:string; dayIdx:number; slotIdx:number; subjectCode:string|null;
   teacherId:string|null; room:string|null; className:string|null; subjectName?:string|null; }

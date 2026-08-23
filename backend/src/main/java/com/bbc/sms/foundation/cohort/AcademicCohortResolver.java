@@ -135,4 +135,42 @@ public class AcademicCohortResolver {
                 TenantContext.get(), sessionId, cohortId);
         return Boolean.TRUE.equals(shared);
     }
+
+    /**
+     * Timetable scope for a class. A shared bilingual cohort owns one physical
+     * weekly grid, while every returned programme class keeps its own subjects
+     * and teacher assignment.
+     */
+    public TimetableScope timetableScope(UUID sessionId, UUID classId, String fallbackName) {
+        UUID cohortId = cohortForClass(sessionId, classId);
+        if (cohortId == null || !isSharedBilingual(sessionId, cohortId)) {
+            return new TimetableScope(null, classId, fallbackName, false,
+                    List.of(new TimetableProgramme(classId, fallbackName, null)));
+        }
+        List<TimetableProgramme> programmes = jdbc.query("""
+                SELECT p.school_class_id,c.name,p.subsystem
+                  FROM academic_cohort_programme p
+                  JOIN school_class c ON c.id=p.school_class_id AND c.school_id=p.school_id
+                 WHERE p.school_id=? AND p.academic_session_id=? AND p.cohort_id=? AND p.active
+                 ORDER BY p.display_order,p.subsystem,c.name
+                """, (rs, n) -> new TimetableProgramme(rs.getObject(1, UUID.class),
+                        rs.getString(2), rs.getString(3)),
+                TenantContext.get(), sessionId, cohortId);
+        if (programmes.size() < 2) {
+            return new TimetableScope(null, classId, fallbackName, false,
+                    List.of(new TimetableProgramme(classId, fallbackName, null)));
+        }
+        String displayName = programmes.stream().map(TimetableProgramme::className)
+                .collect(java.util.stream.Collectors.joining(" / "));
+        return new TimetableScope(cohortId, programmes.getFirst().classId(), displayName, true, programmes);
+    }
+
+    public List<UUID> timetableClassIds(UUID sessionId, UUID classId, String fallbackName) {
+        return timetableScope(sessionId, classId, fallbackName).programmes().stream()
+                .map(TimetableProgramme::classId).toList();
+    }
+
+    public record TimetableProgramme(UUID classId, String className, String subsystem) {}
+    public record TimetableScope(UUID cohortId, UUID ownerClassId, String displayName,
+                                 boolean shared, List<TimetableProgramme> programmes) {}
 }

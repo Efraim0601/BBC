@@ -2,6 +2,7 @@ package com.bbc.sms.timetable;
 
 import com.bbc.sms.foundation.session.AcademicSession;
 import com.bbc.sms.foundation.session.AcademicSessionRepository;
+import com.bbc.sms.foundation.cohort.AcademicCohortResolver;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AppUserPrincipal;
 import com.bbc.sms.platform.security.AuthorizationPolicyService;
@@ -36,15 +37,17 @@ public class TimetableService {
     private final TeachingAssignmentResolver assignments;
     private final TimetableVersionService versions;
     private final AuthorizationPolicyService policy;
+    private final AcademicCohortResolver cohorts;
 
     public TimetableService(SchoolClassRepository classRepo, TimetableSlotRepository slotRepo,
                             EmployeeRepository employees, TeacherScopeService teacherScope,
                             SetupService setup, AcademicSessionRepository sessions, JdbcTemplate jdbc,
                             TeachingAssignmentResolver assignments, TimetableVersionService versions,
-                            AuthorizationPolicyService policy) {
+                            AuthorizationPolicyService policy, AcademicCohortResolver cohorts) {
         this.classRepo=classRepo; this.slotRepo=slotRepo; this.employees=employees;
         this.teacherScope=teacherScope; this.setup=setup; this.sessions=sessions; this.jdbc=jdbc;
         this.assignments=assignments; this.versions=versions; this.policy=policy;
+        this.cohorts=cohorts;
     }
 
     @Transactional
@@ -67,14 +70,19 @@ public class TimetableService {
         UUID schoolId=TenantContext.get(); UUID sessionId=currentSession().getId();
         SchoolClass cls=requireClass(schoolId,classId); teacherScope.assertClass(classId);
         policy.require("TIMETABLE_CLASS_SCHEDULE_VIEW", classContext(sessionId, classId));
-        List<String> subjectCodes=jdbc.query("""
-            SELECT s.code
-              FROM academic_curriculum_subject cs
-              JOIN subject s ON s.id=cs.subject_id
-             WHERE cs.school_id=? AND cs.academic_session_id=? AND cs.class_id=?
-             ORDER BY cs.display_order,s.code
-            """,(rs,n)->rs.getString(1),schoolId,sessionId,classId);
-        return subjectCodes.stream().map(code->resolveSubjectTeacher(cls, currentSession(), code)).toList();
+        AcademicSession academic=currentSession();
+        return timetableClasses(cls,sessionId).stream()
+            .filter(c -> policy.decide("TIMETABLE_CLASS_SCHEDULE_VIEW", classContext(sessionId, c.getId())).allowed())
+            .flatMap(programme -> jdbc.query("""
+                SELECT s.code
+                  FROM academic_curriculum_subject cs
+                  JOIN subject s ON s.id=cs.subject_id
+                 WHERE cs.school_id=? AND cs.academic_session_id=? AND cs.class_id=?
+                 ORDER BY cs.display_order,s.code
+                """,(rs,n)->rs.getString(1),schoolId,sessionId,programme.getId()).stream()
+                .map(code->resolveSubjectTeacher(programme, academic, code)
+                    .forClass(programme.getId(), programme.getName(), programme.getSubsystem())))
+            .toList();
     }
 
     @Transactional(readOnly=true)
@@ -127,18 +135,25 @@ public class TimetableService {
         UUID schoolId=TenantContext.get(); AcademicSession academic=currentSession();
         SchoolClass cls=findClass(schoolId,className); teacherScope.assertClass(cls.getId());
         policy.require("TIMETABLE_CLASS_SCHEDULE_VIEW", classContext(academic.getId(), cls.getId()));
-        UUID versionId = requestedVersionId == null ? versions.versionForClass(academic.getId(), cls.getId()) : requestedVersionId;
-        if (versionId != null) {
+        if (requestedVersionId != null) {
             Integer owned = jdbc.queryForObject("SELECT count(*) FROM timetable_version WHERE id=? AND school_id=? AND academic_session_id=?",
-                    Integer.class, versionId, schoolId, academic.getId());
+                    Integer.class, requestedVersionId, schoolId, academic.getId());
             if (owned == null || owned == 0) throw ApiException.badRequest("La version du planning n'appartient pas à la session active.");
         }
-        List<TimetableSlot> sourceSlots = versionId == null
-                ? slotRepo.findBySchoolIdAndAcademicSessionIdAndClassId(schoolId,academic.getId(),cls.getId())
-                : slotRepo.findBySchoolIdAndAcademicSessionIdAndTimetableVersionIdAndClassId(schoolId,academic.getId(),versionId,cls.getId());
+        List<TimetableSlot> sourceSlots = new ArrayList<>();
+        Map<UUID,SchoolClass> scheduleClasses = timetableClasses(cls, academic.getId()).stream()
+                .filter(c -> policy.decide("TIMETABLE_CLASS_SCHEDULE_VIEW", classContext(academic.getId(), c.getId())).allowed())
+                .collect(Collectors.toMap(SchoolClass::getId, c -> c));
+        for (SchoolClass programme : scheduleClasses.values()) {
+            UUID versionId = requestedVersionId == null
+                    ? versions.versionForClass(academic.getId(), programme.getId()) : requestedVersionId;
+            if (versionId == null) continue;
+            sourceSlots.addAll(slotRepo.findBySchoolIdAndAcademicSessionIdAndTimetableVersionIdAndClassId(
+                    schoolId,academic.getId(),versionId,programme.getId()));
+        }
         return sourceSlots.stream()
             .sorted(Comparator.comparingInt(TimetableSlot::getDayIdx).thenComparingInt(TimetableSlot::getSlotIdx))
-            .map(s->toEffectiveView(s,cls,academic.getId())).toList();
+            .map(s->toEffectiveView(s,scheduleClasses.get(s.getClassId()),academic.getId())).toList();
     }
 
     @Transactional(readOnly=true)
@@ -208,7 +223,8 @@ public class TimetableService {
         SchoolClass cls=findClass(schoolId,in.className()); teacherScope.assertClass(cls.getId());
         policy.require("TIMETABLE_DRAFT", classContext(academic.getId(), cls.getId()));
         ensureConfig(cls,academic.getId());
-        ensureDraft(cls.getId(),academic.getId());
+        List<SchoolClass> scheduleClasses=timetableClasses(cls,academic.getId());
+        scheduleClasses.forEach(c -> { ensureConfig(c, academic.getId()); ensureDraft(c.getId(),academic.getId()); });
         UUID timetableVersionId = versions.ensureDraftVersion(academic.getId());
         if(in.dayIdx()<0||in.dayIdx()>5) throw ApiException.badRequest("Jour invalide");
         if(!periodExists(in.slotIdx())) throw ApiException.badRequest("Cette période n'est pas configurée");
@@ -221,6 +237,17 @@ public class TimetableService {
         SlotUpsert canonical=new SlotUpsert(in.className(),in.dayIdx(),in.slotIdx(),subjectCode,teacherId,in.room());
         jdbc.queryForObject("SELECT pg_advisory_xact_lock(hashtext(?))", Object.class,
                 schoolId + ":timetable:" + academic.getId() + ":" + timetableVersionId + ":" + in.dayIdx() + ":" + in.slotIdx());
+        for (SchoolClass programme : scheduleClasses) {
+            if (programme.getId().equals(cls.getId())) continue;
+            slotRepo.findBySchoolIdAndAcademicSessionIdAndTimetableVersionIdAndClassIdAndDayIdxAndSlotIdx(
+                    schoolId,academic.getId(),timetableVersionId,programme.getId(),in.dayIdx(),in.slotIdx())
+                .ifPresent(existing -> {
+                    slotRepo.delete(existing);
+                    jdbc.update("UPDATE timetable_class_config SET version=version+1,updated_at=now() WHERE school_id=? AND academic_session_id=? AND class_id=?",
+                            schoolId,academic.getId(),programme.getId());
+                });
+        }
+        slotRepo.flush();
         versions.assertSlotResourcesAvailable(academic.getId(), timetableVersionId, cls.getId(), teacherId,
                 in.dayIdx(), in.slotIdx(), in.room());
         assertNoEffectiveTeacherConflict(schoolId,academic.getId(),timetableVersionId,cls,canonical);
@@ -250,7 +277,7 @@ public class TimetableService {
         UUID schoolId=TenantContext.get(); AcademicSession academic=currentSession();
         SchoolClass cls=findClass(schoolId,className); teacherScope.assertClass(cls.getId());
         policy.require("TIMETABLE_DRAFT", classContext(academic.getId(), cls.getId()));
-        ensureDraft(cls.getId(),academic.getId());
+        timetableClasses(cls,academic.getId()).forEach(c -> ensureDraft(c.getId(),academic.getId()));
         UUID timetableVersionId = versions.versionForClass(academic.getId(), cls.getId());
         if (timetableVersionId == null) return;
         slotRepo.findBySchoolIdAndAcademicSessionIdAndTimetableVersionIdAndClassIdAndDayIdxAndSlotIdx(schoolId,academic.getId(),timetableVersionId,cls.getId(),dayIdx,slotIdx).ifPresent(slotRepo::delete);
@@ -262,7 +289,11 @@ public class TimetableService {
         policy.require("TIMETABLE_PUBLISH", classContext(academic.getId(), classId));
         SchoolClass cls = requireClass(TenantContext.get(), classId);
         teacherScope.assertClass(classId);
-        versions.publishClass(academic.getId(), classId, in.version(), in.reason());
+        for (SchoolClass programme : timetableClasses(cls, academic.getId())) {
+            long version = programme.getId().equals(classId) ? in.version()
+                    : classConfigVersion(academic.getId(), programme.getId());
+            versions.publishClass(academic.getId(), programme.getId(), version, in.reason());
+        }
         return toRef(cls, academic.getId());
     }
 
@@ -272,7 +303,11 @@ public class TimetableService {
         policy.require("TIMETABLE_REOPEN", classContext(academic.getId(), classId));
         SchoolClass cls = requireClass(TenantContext.get(), classId);
         teacherScope.assertClass(classId);
-        versions.reopenClass(academic.getId(), classId, in.version(), in.reason());
+        for (SchoolClass programme : timetableClasses(cls, academic.getId())) {
+            long version = programme.getId().equals(classId) ? in.version()
+                    : classConfigVersion(academic.getId(), programme.getId());
+            versions.reopenClass(academic.getId(), programme.getId(), version, in.reason());
+        }
         return toRef(cls, academic.getId());
     }
 
@@ -452,8 +487,28 @@ public class TimetableService {
           ) a ON true
           LEFT JOIN employee e ON e.id=a.employee_id
           WHERE x.school_id=? AND x.academic_session_id=? AND x.class_id=?
-          """,(rs,n)->new ClassRef(c.getId(),c.getName(),c.getSectionId(),c.getSubsystem(),c.getLevel(),
-            rs.getString(1),rs.getString(2),rs.getObject(3,UUID.class),rs.getString(4),rs.getLong(5)),TenantContext.get(),sessionId,c.getId());
+          """,(rs,n)->classRef(c,sessionId,rs.getString(1),rs.getString(2),
+            rs.getObject(3,UUID.class),rs.getString(4),rs.getLong(5)),TenantContext.get(),sessionId,c.getId());
+    }
+
+    private ClassRef classRef(SchoolClass c, UUID sessionId, String model, String status,
+                              UUID teacherId, String teacherName, long version) {
+        AcademicCohortResolver.TimetableScope scope=cohorts.timetableScope(sessionId,c.getId(),c.getName());
+        List<ScheduleClassRef> scheduleClasses=scope.programmes().stream().map(programme -> {
+            Map<String,Object> teacher=jdbc.query("""
+                SELECT a.employee_id,e.name FROM class_teacher_assignment a
+                  JOIN employee e ON e.id=a.employee_id
+                 WHERE a.school_id=? AND a.academic_session_id=? AND a.class_id=?
+                   AND a.role='HOMEROOM' AND a.status='ACTIVE'
+                 ORDER BY a.effective_from DESC,a.created_at DESC LIMIT 1
+                """,rs -> rs.next()?Map.of("id",rs.getObject(1,UUID.class),"name",rs.getString(2)):null,
+                    TenantContext.get(),sessionId,programme.classId());
+            return new ScheduleClassRef(programme.classId(),programme.className(),programme.subsystem(),
+                    teacher==null?null:(UUID)teacher.get("id"),teacher==null?null:(String)teacher.get("name"));
+        }).toList();
+        return new ClassRef(c.getId(),c.getName(),c.getSectionId(),c.getSubsystem(),c.getLevel(),
+                model,status,teacherId,teacherName,version,scope.cohortId(),scope.ownerClassId(),
+                scope.displayName(),scope.shared(),scheduleClasses);
     }
 
     private void ensureConfig(SchoolClass c,UUID sessionId) {
@@ -469,6 +524,8 @@ public class TimetableService {
     }
     private boolean periodExists(int idx){Integer n=jdbc.queryForObject("SELECT count(*) FROM timetable_period WHERE school_id=? AND slot_idx=? AND active",Integer.class,TenantContext.get(),idx);return n!=null&&n>0;}
     private boolean isPublished(UUID classId,UUID sessionId){Boolean b=jdbc.queryForObject("SELECT status='PUBLISHED' FROM timetable_class_config WHERE school_id=? AND academic_session_id=? AND class_id=?",Boolean.class,TenantContext.get(),sessionId,classId);return Boolean.TRUE.equals(b);}
+    private long classConfigVersion(UUID sessionId,UUID classId){Long v=jdbc.queryForObject("SELECT version FROM timetable_class_config WHERE school_id=? AND academic_session_id=? AND class_id=?",Long.class,TenantContext.get(),sessionId,classId);return v==null?0:v;}
+    private List<SchoolClass> timetableClasses(SchoolClass cls,UUID sessionId){return cohorts.timetableClassIds(sessionId,cls.getId(),cls.getName()).stream().map(id->requireClass(TenantContext.get(),id)).toList();}
     private AcademicSession currentSession(){return sessions.findBySchoolIdOrderByStartDateDesc(TenantContext.get()).stream().filter(AcademicSession::isCurrent).findFirst().orElseThrow(()->ApiException.badRequest("Aucune année scolaire active"));}
     private SchoolClass findClass(UUID schoolId,String name){return classRepo.findBySchoolIdAndName(schoolId,name).orElseThrow(()->ApiException.notFound("Classe"));}
     private SchoolClass requireClass(UUID schoolId,UUID id){return classRepo.findByIdAndSchoolId(id,schoolId).orElseThrow(()->ApiException.notFound("Classe"));}
@@ -476,7 +533,7 @@ public class TimetableService {
     private SlotView toView(TimetableSlot s,String className){return new SlotView(s.getId(),s.getDayIdx(),s.getSlotIdx(),s.getSubjectCode(),s.getTeacherId(),s.getRoom(),className);}
     private SlotView toEffectiveView(TimetableSlot s,SchoolClass cls,UUID sessionId){
         return new SlotView(s.getId(),s.getDayIdx(),s.getSlotIdx(),s.getSubjectCode(),
-            teacherForSlot(s,cls,sessionId),s.getRoom(),cls.getName());
+            teacherForSlot(s,cls,sessionId),s.getRoom(),cls==null?null:cls.getName());
     }
     private List<TeacherConflict> buildConflicts(UUID schoolId,List<TimetableSlot> slots){
         Map<String,List<TimetableSlot>> groups=slots.stream().collect(Collectors.groupingBy(s->s.getDayIdx()+"|"+s.getSlotIdx()+"|"+s.getTeacherId()));

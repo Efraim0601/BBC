@@ -7,9 +7,14 @@ import java.util.List;
 import java.util.UUID;
 
 public class TimetableDtos {
+    public record ScheduleClassRef(UUID id, String name, String subsystem,
+                                   UUID homeroomTeacherId, String homeroomTeacherName) {}
+
     public record ClassRef(UUID id, String name, String sectionId, String subsystem, String level,
                            String model, String status, UUID homeroomTeacherId,
-                           String homeroomTeacherName, long version) {}
+                           String homeroomTeacherName, long version,
+                           UUID scheduleGroupId, UUID scheduleOwnerId, String scheduleDisplayName,
+                           boolean sharedSchedule, List<ScheduleClassRef> scheduleClasses) {}
 
     /**
      * The effective teacher for one subject in one class for the current session.
@@ -18,13 +23,29 @@ public class TimetableDtos {
     public record SubjectTeacherView(String subjectCode, UUID teacherId, String teacherName,
                                      String teacherCode, String source, boolean locked,
                                      String message, String status, String errorCode,
-                                     UUID assignmentId, long assignmentVersion) {
+                                     UUID assignmentId, long assignmentVersion,
+                                     UUID classId, String className, String subsystem) {
+        public SubjectTeacherView(String subjectCode, UUID teacherId, String teacherName,
+                                  String teacherCode, String source, boolean locked,
+                                  String message, String status, String errorCode,
+                                  UUID assignmentId, long assignmentVersion) {
+            this(subjectCode, teacherId, teacherName, teacherCode, source, locked,
+                    message, status, errorCode, assignmentId, assignmentVersion,
+                    null, null, null);
+        }
+
         public SubjectTeacherView(String subjectCode, UUID teacherId, String teacherName,
                                   String teacherCode, String source, boolean locked, String message) {
             this(subjectCode, teacherId, teacherName, teacherCode, source, locked, message,
                     teacherId == null ? "MISSING" : "RESOLVED",
                     teacherId == null ? "ASSIGNMENT_MISSING" : "ASSIGNMENT_RESOLVED",
-                    null, 0);
+                    null, 0, null, null, null);
+        }
+
+        public SubjectTeacherView forClass(UUID id, String name, String classSubsystem) {
+            return new SubjectTeacherView(subjectCode, teacherId, teacherName, teacherCode,
+                    source, locked, message, status, errorCode, assignmentId,
+                    assignmentVersion, id, name, classSubsystem);
         }
     }
 

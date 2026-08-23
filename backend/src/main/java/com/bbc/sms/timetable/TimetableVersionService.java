@@ -159,6 +159,7 @@ public class TimetableVersionService {
         }
         if (!assignmentConflicts.isEmpty()) throw ApiException.conflict("TIMETABLE_ASSIGNMENT_BLOCKED",
                 "Le planning contient des cours sans affectation canonique résolue.", assignmentConflicts);
+        assertNoSharedCohortOverlaps(sessionId, id);
         canonicalHomerooms.forEach((classId, teacherId) -> jdbc.update("""
             UPDATE timetable_class_config
                SET homeroom_teacher_id=?, version=version+1, updated_at=now()
@@ -288,6 +289,7 @@ public class TimetableVersionService {
             throw ApiException.conflict("TIMETABLE_ASSIGNMENT_BLOCKED",
                     "Cette classe contient des cours sans enseignant résolu.", assignmentConflicts);
         }
+        assertNoSharedCohortOverlaps(sessionId, draftId);
 
         // Preserve the complete editable workspace before removing unfinished
         // classes from the immutable snapshot that is about to be published.
@@ -986,6 +988,51 @@ public class TimetableVersionService {
             throw ApiException.blockers("TIMETABLE_CONFLICTS",
                     "Le planning de cette classe entre en conflit avec un planning déjà publié.", blockers);
         }
+    }
+
+    /** One shared student cohort cannot receive two programme lessons at once. */
+    private void assertNoSharedCohortOverlaps(UUID sessionId, UUID versionId) {
+        List<Map<String,Object>> rows=jdbc.queryForList("""
+            SELECT h.id AS cohort_id,h.display_name,a.day_idx,a.slot_idx,
+                   ca.name AS class_a,cb.name AS class_b
+              FROM timetable_slot a
+              JOIN academic_cohort_programme pa
+                ON pa.school_id=a.school_id AND pa.academic_session_id=a.academic_session_id
+               AND pa.school_class_id=a.class_id AND pa.active
+              JOIN academic_cohort h
+                ON h.id=pa.cohort_id AND h.school_id=pa.school_id
+               AND h.academic_session_id=pa.academic_session_id
+               AND h.mode='SHARED_BILINGUAL' AND h.status='ACTIVE'
+              JOIN academic_cohort_programme pb
+                ON pb.school_id=pa.school_id AND pb.academic_session_id=pa.academic_session_id
+               AND pb.cohort_id=pa.cohort_id AND pb.active
+               AND pb.school_class_id<>pa.school_class_id
+              JOIN timetable_slot b
+                ON b.school_id=a.school_id AND b.academic_session_id=a.academic_session_id
+               AND b.timetable_version_id=a.timetable_version_id
+               AND b.class_id=pb.school_class_id
+               AND b.day_idx=a.day_idx AND b.slot_idx=a.slot_idx
+              JOIN school_class ca ON ca.id=a.class_id
+              JOIN school_class cb ON cb.id=b.class_id
+             WHERE a.school_id=? AND a.academic_session_id=? AND a.timetable_version_id=?
+               AND a.class_id::text<b.class_id::text
+             ORDER BY h.display_name,a.day_idx,a.slot_idx
+            """,TenantContext.get(),sessionId,versionId);
+        if (rows.isEmpty()) return;
+        List<Map<String,Object>> blockers=rows.stream().map(row -> {
+            Map<String,Object> blocker=new LinkedHashMap<>();
+            blocker.put("resourceType","SHARED_COHORT");
+            blocker.put("cohortId",row.get("cohort_id"));
+            blocker.put("cohort",row.get("display_name"));
+            blocker.put("classA",row.get("class_a"));
+            blocker.put("classB",row.get("class_b"));
+            blocker.put("dayIdx",row.get("day_idx"));
+            blocker.put("slotIdx",row.get("slot_idx"));
+            blocker.put("repair","Keep only the programme lesson actually taught to the shared cohort in this period.");
+            return blocker;
+        }).toList();
+        throw ApiException.conflict("TIMETABLE_SHARED_COHORT_OVERLAP",
+                "Un groupe bilingue partagé contient deux cours au même moment.",blockers);
     }
 
     /** Create one new draft from the effective published version when a legacy class editor first writes. */
