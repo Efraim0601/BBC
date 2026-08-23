@@ -1,0 +1,270 @@
+<!doctype html>
+<!--
+  Bayo Bilingual Complex — page « Connexion » (adossée à l'API du systeme de gestion scolaire).
+  Textes traduisibles : attributs data-fr / data-en (voir assets/js/site.js).
+-->
+<html lang="fr" data-title-fr="Connexion — Bayo Bilingual Complex"
+      data-title-en="Sign in — Bayo Bilingual Complex">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Connexion — Bayo Bilingual Complex</title>
+  <meta name="description"
+        data-fr-content="Connexion à la plateforme de Bayo Bilingual Complex : notes, présences, bulletins et frais de scolarité, pour les parents, les enseignants et le personnel."
+        data-en-content="Sign in to the Bayo Bilingual Complex platform: marks, attendance, report cards and school fees, for parents, teachers and staff."
+        content="Connexion à la plateforme de Bayo Bilingual Complex : notes, présences, bulletins et frais de scolarité, pour les parents, les enseignants et le personnel.">
+  <meta name="theme-color" content="#1B3A5C">
+  <link rel="canonical" href="https://bbcomplex.com/connexion.html">
+  <meta name="robots" content="noindex">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Bayo Bilingual Complex">
+  <meta property="og:title" content="Connexion — Bayo Bilingual Complex">
+  <meta property="og:description" content="Connexion à la plateforme de Bayo Bilingual Complex : notes, présences, bulletins et frais de scolarité, pour les parents, les enseignants et le personnel.">
+  <meta property="og:image" content="https://bbcomplex.com/assets/img/bbc-logo.png">
+  <link rel="icon" type="image/png" href="assets/img/bbc-logo.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/site.css">
+  <!-- Sans defer : doit s'exécuter avant le premier rendu (voir anim-init.js). -->
+  <script src="assets/js/anim-init.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main" data-fr="Aller au contenu principal" data-en="Skip to main content">Aller au contenu principal</a>
+
+<div class="topbar">
+  <div class="wrap topbar__inner">
+    <div class="topbar__contact">
+      <a href="tel:+2376XXXXXXXX">☎ +237 6 XX XX XX XX</a>
+      <a href="mailto:contact@bbcomplex.com">✉ contact@bbcomplex.com</a>
+    </div>
+    <div class="topbar__tools">
+      <span class="ticker" data-ticker aria-live="off">
+        <span class="ticker__item" data-fr="Rentrée 2026–2027 : inscriptions ouvertes" data-en="2026–2027 intake: admissions open">Rentrée 2026–2027 : inscriptions ouvertes</span>
+        <span class="ticker__item" data-fr="Votre compte accessible 24 h/24" data-en="Your account, available around the clock">Votre compte accessible 24 h/24</span>
+        <span class="ticker__item" data-fr="Visites de l’établissement sur rendez-vous" data-en="School visits by appointment">Visites de l’établissement sur rendez-vous</span>
+      </span>
+      <div class="langswitch" role="group" aria-label="Langue / Language">
+        <button type="button" data-lang-btn="fr" aria-pressed="true">FR</button>
+        <button type="button" data-lang-btn="en" aria-pressed="false">EN</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<header class="header">
+  <div class="wrap header__inner">
+    <a class="brand" href="index.html">
+      <img src="assets/img/bbc-logo.png" alt="Bayo Bilingual Complex" width="46" height="41">
+      <span>
+        <span class="brand__name">Bayo Bilingual Complex</span>
+        <span class="brand__tag" data-fr="Excellence bilingue" data-en="Bilingual excellence">Excellence bilingue</span>
+      </span>
+    </a>
+    <nav class="nav" id="site-nav" data-nav data-fr-aria="Navigation principale" data-en-aria="Main navigation" aria-label="Navigation principale">
+      <a href="index.html" data-fr="Accueil" data-en="Home">Accueil</a>
+      <a href="a-propos.html" data-fr="L’école" data-en="Our school">L’école</a>
+      <a href="programmes.html" data-fr="Programmes" data-en="Programmes">Programmes</a>
+      <a href="admissions.html" data-fr="Admissions" data-en="Admissions">Admissions</a>
+      <a href="contact.html" data-fr="Contact" data-en="Contact">Contact</a>
+      <!-- Visible seulement en menu mobile : sur grand écran, le bouton
+           « Connexion » de l'en-tête joue déjà ce rôle. -->
+      <a class="nav__login" href="connexion.html" data-fr="Connexion" data-en="Sign in">Connexion</a>
+    </nav>
+    <div class="header__cta">
+      <a class="btn btn--sm btn--dark" href="connexion.html"
+         data-fr="Connexion" data-en="Sign in">Connexion</a>
+      <button class="burger" type="button" data-burger aria-expanded="false" aria-controls="site-nav"
+              data-fr-aria="Ouvrir le menu" data-en-aria="Open menu" aria-label="Ouvrir le menu">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+
+  <section class="pagehead">
+    <div class="wrap">
+      <nav class="breadcrumb" data-fr-aria="Fil d’Ariane" data-en-aria="Breadcrumb" aria-label="Fil d’Ariane">
+        <a href="index.html" data-fr="Accueil" data-en="Home">Accueil</a> ›
+        <span data-fr="Connexion" data-en="Sign in">Connexion</span>
+      </nav>
+      <h1 data-fr="Connexion" data-en="Sign in">Connexion</h1>
+      <p data-fr="Parents, enseignants et personnel accèdent ici à la plateforme de l’établissement : notes, présences, bulletins, frais de scolarité et documents."
+         data-en="Parents, teachers and staff sign in here to the school platform: marks, attendance, report cards, school fees and documents.">
+        Parents, enseignants et personnel accèdent ici à la plateforme de l’établissement : notes, présences, bulletins, frais de scolarité et documents.
+      </p>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap split split--wide">
+
+      <!-- ============================ FORMULAIRE ============================ -->
+      <div class="card">
+        <h2 style="font-size:1.5rem" data-fr="Accéder à mon compte" data-en="Access my account">Accéder à mon compte</h2>
+        <p style="color:var(--mute);font-size:.94rem"
+           data-fr="Utilisez l’identifiant remis par le secrétariat lors de l’inscription."
+           data-en="Use the username issued by the school office at enrolment.">
+          Utilisez l’identifiant remis par le secrétariat lors de l’inscription.
+        </p>
+
+        <form class="form" data-login-form data-api-base="/api" data-app-base="/app/" novalidate>
+          <p class="form__error" data-login-error role="alert" hidden></p>
+
+          <div class="field">
+            <label for="lg-user">
+              <span data-fr="Identifiant" data-en="Username">Identifiant</span> <span class="req">*</span>
+            </label>
+            <input id="lg-user" name="username" type="text" required
+                   autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false">
+          </div>
+
+          <div class="field">
+            <label for="lg-pwd">
+              <span data-fr="Mot de passe" data-en="Password">Mot de passe</span> <span class="req">*</span>
+            </label>
+            <div class="field-with-action">
+              <input id="lg-pwd" name="password" type="password" required autocomplete="current-password">
+              <button type="button" class="field-action" data-toggle-password aria-pressed="false"
+                      aria-controls="lg-pwd" data-fr="Afficher" data-en="Show">Afficher</button>
+            </div>
+          </div>
+
+          <button class="btn btn--dark btn--block" type="submit" data-fr="Se connecter" data-en="Sign in">Se connecter</button>
+        </form>
+
+        <details class="qa" style="margin-top:22px;box-shadow:none">
+          <summary data-fr="Mot de passe oublié ?" data-en="Forgotten your password?">Mot de passe oublié ?</summary>
+          <div class="qa__body">
+            <p data-fr="Saisissez votre identifiant : si le compte existe, la marche à suivre est envoyée à l’adresse déclarée à l’inscription."
+               data-en="Enter your username: if the account exists, instructions are sent to the address given at enrolment.">
+              Saisissez votre identifiant : si le compte existe, la marche à suivre est envoyée à l’adresse déclarée à l’inscription.
+            </p>
+            <form class="form" data-forgot-form data-api-base="/api" novalidate>
+              <div class="field">
+                <label for="fg-user">
+                  <span data-fr="Identifiant" data-en="Username">Identifiant</span> <span class="req">*</span>
+                </label>
+                <input id="fg-user" name="username" type="text" required
+                       autocomplete="username" autocapitalize="none" spellcheck="false">
+              </div>
+              <button class="btn btn--outline btn--block" type="submit"
+                      data-fr="Envoyer la marche à suivre" data-en="Send instructions">Envoyer la marche à suivre</button>
+              <p class="form__note" data-forgot-feedback hidden></p>
+            </form>
+          </div>
+        </details>
+      </div>
+
+      <!-- ============================ AIDE ============================ -->
+      <div>
+        <span class="eyebrow" data-fr="Votre compte" data-en="Your account">Votre compte</span>
+        <h2 data-fr="Un seul compte, toute la scolarité" data-en="One account, the whole school year">Un seul compte, toute la scolarité</h2>
+        <p class="lead" data-fr="Le même identifiant vaut pour tous vos enfants scolarisés dans l’établissement, et reste valable d’une année à l’autre."
+           data-en="The same username covers all your children enrolled at the school, and stays valid from one year to the next.">
+          Le même identifiant vaut pour tous vos enfants scolarisés dans l’établissement, et reste valable d’une année à l’autre.
+        </p>
+
+        <ul class="checklist" style="margin:24px 0 30px">
+          <li data-fr="Notes par séquence et bulletins téléchargeables en PDF" data-en="Sequence marks and report cards downloadable as PDF">Notes par séquence et bulletins téléchargeables en PDF</li>
+          <li data-fr="Présences et retards, signalés le jour même" data-en="Attendance and lateness, reported the same day">Présences et retards, signalés le jour même</li>
+          <li data-fr="Frais de scolarité : échéancier, versements enregistrés, reçus" data-en="School fees: schedule, recorded payments, receipts">Frais de scolarité : échéancier, versements enregistrés, reçus</li>
+          <li data-fr="Emploi du temps de la classe et circulaires de l’établissement" data-en="Class timetable and school circulars">Emploi du temps de la classe et circulaires de l’établissement</li>
+        </ul>
+
+        <div class="panel">
+          <h3 data-fr="Première connexion" data-en="First sign-in">Première connexion</h3>
+          <p data-fr="Vos identifiants vous sont remis par le secrétariat lors de l’inscription, avec le reçu. Deux parents ou tuteurs déclarés au dossier reçoivent chacun le leur."
+             data-en="Your credentials are issued by the school office at enrolment, together with the receipt. Two parents or guardians listed on the file each receive their own.">
+            Vos identifiants vous sont remis par le secrétariat lors de l’inscription, avec le reçu. Deux parents ou tuteurs déclarés au dossier reçoivent chacun le leur.
+          </p>
+          <p style="margin-bottom:0"
+             data-fr-html="Pas encore de compte ? <a href=&quot;admissions.html#preinscription&quot;>Déposez une demande d’inscription</a> ou écrivez à <a href=&quot;mailto:contact@bbcomplex.com&quot;>contact@bbcomplex.com</a> depuis l’adresse déclarée à l’inscription."
+             data-en-html="No account yet? <a href=&quot;admissions.html#preinscription&quot;>Submit an admission request</a> or write to <a href=&quot;mailto:contact@bbcomplex.com&quot;>contact@bbcomplex.com</a> from the address given at enrolment.">
+            Pas encore de compte ? <a href="admissions.html#preinscription">Déposez une demande d’inscription</a> ou écrivez à <a href="mailto:contact@bbcomplex.com">contact@bbcomplex.com</a> depuis l’adresse déclarée à l’inscription.
+          </p>
+        </div>
+
+        <div class="panel panel--quiet" style="margin-top:20px">
+          <h3 data-fr="Sécurité" data-en="Security">Sécurité</h3>
+          <p style="margin-bottom:0"
+             data-fr="Ne communiquez jamais votre mot de passe, même à un membre du personnel : l’établissement ne vous le demandera jamais. Sur un appareil partagé, déconnectez-vous en quittant."
+             data-en="Never share your password, not even with a member of staff: the school will never ask for it. On a shared device, sign out when you leave.">
+            Ne communiquez jamais votre mot de passe, même à un membre du personnel : l’établissement ne vous le demandera jamais. Sur un appareil partagé, déconnectez-vous en quittant.
+          </p>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+</main>
+
+<footer class="footer">
+  <div class="wrap">
+    <div class="footer__grid">
+      <div>
+        <div class="footer__brand">
+          <img src="assets/img/bbc-logo.png" alt="" width="52" height="47">
+          <span>
+            <span class="brand__name">Bayo Bilingual Complex</span>
+            <span class="brand__tag" data-fr="Excellence bilingue" data-en="Bilingual excellence">Excellence bilingue</span>
+          </span>
+        </div>
+        <p data-fr="Établissement scolaire bilingue au Cameroun : maternelle, primaire et secondaire, dans les sous-systèmes francophone et anglophone."
+           data-en="A bilingual school in Cameroon: nursery, primary and secondary, in both the Francophone and Anglophone subsystems.">
+          Établissement scolaire bilingue au Cameroun : maternelle, primaire et secondaire, dans les sous-systèmes francophone et anglophone.
+        </p>
+      </div>
+
+      <div>
+        <h4 data-fr="L’école" data-en="Our school">L’école</h4>
+        <ul>
+          <li><a href="a-propos.html" data-fr="Qui sommes-nous" data-en="Who we are">Qui sommes-nous</a></li>
+          <li><a href="a-propos.html#valeurs" data-fr="Nos valeurs" data-en="Our values">Nos valeurs</a></li>
+          <li><a href="programmes.html" data-fr="Programmes" data-en="Programmes">Programmes</a></li>
+          <li><a href="a-propos.html#equipe" data-fr="Équipe pédagogique" data-en="Teaching team">Équipe pédagogique</a></li>
+        </ul>
+      </div>
+
+      <div>
+        <h4 data-fr="Admissions" data-en="Admissions">Admissions</h4>
+        <ul>
+          <li><a href="admissions.html#etapes" data-fr="Comment s’inscrire" data-en="How to enrol">Comment s’inscrire</a></li>
+          <li><a href="admissions.html#dossier" data-fr="Pièces à fournir" data-en="Required documents">Pièces à fournir</a></li>
+          <li><a href="admissions.html#frais" data-fr="Frais de scolarité" data-en="School fees">Frais de scolarité</a></li>
+          <li><a href="admissions.html#faq" data-fr="Questions fréquentes" data-en="Frequently asked questions">Questions fréquentes</a></li>
+        </ul>
+      </div>
+
+      <div>
+        <h4 data-fr="Contact" data-en="Contact">Contact</h4>
+        <ul>
+          <li data-fr="BP 0000 — Douala, Cameroun" data-en="P.O. Box 0000 — Douala, Cameroon">BP 0000 — Douala, Cameroun</li>
+          <li><a href="tel:+2376XXXXXXXX">+237 6 XX XX XX XX</a></li>
+          <li><a href="mailto:contact@bbcomplex.com">contact@bbcomplex.com</a></li>
+          <li><a href="connexion.html" data-fr="Connexion" data-en="Sign in">Connexion</a></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="footer__bottom">
+      <span>© <span data-year>2026</span> Bayo Bilingual Complex — <span data-fr="Tous droits réservés." data-en="All rights reserved.">Tous droits réservés.</span></span>
+      <span data-fr="République du Cameroun · Établissement sous tutelle MINEDUB / MINESEC" data-en="Republic of Cameroon · Under MINEDUB / MINESEC supervision">République du Cameroun · Établissement sous tutelle MINEDUB / MINESEC</span>
+    </div>
+  </div>
+</footer>
+
+<!-- GSAP est servi depuis le site lui-même : la CSP n'autorise que 'self',
+     et la bannière ne doit pas dépendre d'un CDN joignable. -->
+<script src="assets/js/vendor/gsap-3.13.0.min.js" defer></script>
+<script src="assets/js/vendor/ScrollTrigger-3.13.0.min.js" defer></script>
+<!-- site.js avant animations.js : la langue doit être posée avant que le
+     titre ne soit découpé en mots. -->
+<script src="assets/js/site.js" defer></script>
+<script src="assets/js/animations.js" defer></script>
+<script src="assets/js/auth.js" defer></script>
+</body>
+</html>

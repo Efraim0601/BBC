@@ -56,6 +56,38 @@ pour un déploiement réel.
 
 ---
 
+## Site institutionnel
+
+En **déploiement**, le domaine public sert le site institutionnel de
+l'établissement (présentation, programmes, admissions, contact) et
+l'application passe sous `/app/` :
+
+| Chemin | Sert |
+|---|---|
+| `/` | site institutionnel — [`website/`](website/README.md) |
+| `/connexion` | connexion, adossée à `POST /api/auth/login` |
+| `/app/` | l'application de gestion scolaire |
+| `/api/`, `/ws/` | l'API et le temps réel |
+
+Les deux scripts de déploiement (`deploy.sh`, `deploy-domain.sh`) embarquent
+le site : il n'y a rien à lancer en plus. Le site et l'application partagent
+volontairement une seule origine — les jetons de session vivent dans
+`localStorage`, cloisonné par origine, donc une connexion faite sur le site
+n'ouvre une session dans l'application qu'à cette condition.
+
+Les stacks de développement et de recette (`make demo`, `make prod`,
+`acceptance`, `full-e2e`, `local`) sont inchangés : l'application y reste
+servie à la racine.
+
+```bash
+# Aperçu local du tout, sur une seule origine, avec les comptes de démo
+docker compose -f docker-compose.yml -f docker-compose.demo.yml \
+  -f docker-compose.website-local.yml -p bbc-site up -d --build
+# → http://localhost:8081/  puis  /connexion  (principal / password)
+```
+
+---
+
 ## Déploiement serveur (HTTPS auto-signé)
 
 Pour un serveur, `docker-compose.server.yml` lance la **production derrière nginx en TLS**

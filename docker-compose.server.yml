@@ -87,12 +87,32 @@ services:
       - "127.0.0.1:28080:8080"
     restart: unless-stopped
 
+
+  # Site institutionnel (vitrine publique + page de connexion). Le frontend le
+  # sert a la racine du domaine ; l'application passe sous /app/. Voir
+  # website/README.md, section « Connexion », pour la raison : les jetons de
+  # session vivent dans localStorage, cloisonne par origine.
+  website:
+    build: ./website
+    security_opt:
+      - apparmor=unconfined
+    expose:
+      - "80"
+    restart: unless-stopped
+
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      # L'application vit sous /app/ : le domaine racine est pris par le
+      # site institutionnel. Sans cet argument, la SPA demanderait ses
+      # fichiers a la racine et s'afficherait blanche.
+      args:
+        BASE_HREF: /app/
     security_opt:
       - apparmor=unconfined
     depends_on:
       - backend
+      - website
     ports:
       - "20080:80"
       - "20443:443"
