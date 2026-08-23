@@ -9,10 +9,10 @@ DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
-         WHERE conname = 'fk_payroll_payment_treasury_account_v168'
+         WHERE conname = 'fk_payroll_payment_treasury_account_v170'
     ) THEN
         ALTER TABLE payroll_payment
-            ADD CONSTRAINT fk_payroll_payment_treasury_account_v168
+            ADD CONSTRAINT fk_payroll_payment_treasury_account_v170
             FOREIGN KEY (school_id, treasury_account_id)
             REFERENCES treasury_account(school_id, id) ON DELETE RESTRICT;
     END IF;
@@ -25,7 +25,7 @@ UPDATE payroll_payment p
    AND t.chart_account_id=p.payment_account_id
    AND p.treasury_account_id IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_payroll_payment_treasury_account_v168
+CREATE INDEX IF NOT EXISTS idx_payroll_payment_treasury_account_v170
     ON payroll_payment(school_id, treasury_account_id, payment_date DESC);
 
 INSERT INTO permission_action
@@ -85,7 +85,7 @@ WITH authorities(role_code, action_code) AS (VALUES
 INSERT INTO permission_role_action
     (school_id,role_code,action_code,effect,scope_mode,is_permanent,reason)
 SELECT s.id,a.role_code,a.action_code,'ALLOW','SCHOOL_ALL',true,
-       'V168 student finance account and consolidated receipt authority'
+       'V170 student finance account and consolidated receipt authority'
   FROM school s
  CROSS JOIN authorities a
  JOIN role r ON r.code=a.role_code
