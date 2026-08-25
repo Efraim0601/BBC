@@ -17,6 +17,7 @@ import org.springframework.jdbc.core.ResultSetExtractor;
 import org.springframework.jdbc.core.RowMapper;
 
 import java.time.LocalDate;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -81,6 +82,16 @@ class AttendanceWorkflowServiceTest {
         assertThat(service.sessionOptions(classId, today)).isEmpty();
         verify(teacherScope).assertClass(sessionId, classId, today);
         verify(teacherScope, never()).assertClass(classId);
+    }
+
+    @Test
+    void excusedSessionsAreNeutralInAttendanceRate() {
+        assertThat(AttendanceWorkflowService.attendancePercent(0, 0, 1, 1))
+                .isEqualByComparingTo(new BigDecimal("100.00"));
+        assertThat(AttendanceWorkflowService.attendancePercent(3, 1, 1, 5))
+                .isEqualByComparingTo(new BigDecimal("100.00"));
+        assertThat(AttendanceWorkflowService.attendancePercent(2, 0, 1, 5))
+                .isEqualByComparingTo(new BigDecimal("50.00"));
     }
 
     private JdbcTemplate jdbcForDailyModel() {

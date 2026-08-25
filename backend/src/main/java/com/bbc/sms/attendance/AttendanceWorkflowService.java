@@ -146,9 +146,9 @@ public class AttendanceWorkflowService {
     @Transactional
     public List<SessionSummary> sessionOptions(UUID classId, LocalDate date) {
         AcademicSession academic = requireAcademicSession(date);
+        assertAttendanceSelection(academic.getId(), classId, date);
         classId = canonicalAttendanceClass(academic.getId(), classId);
         SchoolClass schoolClass = requireClass(classId);
-        teacherScope.assertClass(academic.getId(), classId, date);
         String model = modelFor(schoolClass.getLevel());
         List<SessionKey> keys = keysFor(schoolClass, date, model).stream()
                 .filter(key -> policy.decide("ATTENDANCE_ROSTER_VIEW",
@@ -161,9 +161,9 @@ public class AttendanceWorkflowService {
     @Transactional
     public RosterView roster(UUID classId, LocalDate date, String periodKey) {
         AcademicSession academic = requireAcademicSession(date);
+        assertAttendanceSelection(academic.getId(), classId, date);
         classId = canonicalAttendanceClass(academic.getId(), classId);
         SchoolClass schoolClass = requireClass(classId);
-        teacherScope.assertClass(academic.getId(), classId, date);
         String model = modelFor(schoolClass.getLevel());
         List<SessionKey> keys = keysFor(schoolClass, date, model);
         SessionKey key;
@@ -325,7 +325,6 @@ public class AttendanceWorkflowService {
     @Transactional(readOnly = true)
     public AnalyticsView analytics(LocalDate from, LocalDate to, UUID classId) {
         if (from == null || to == null || from.isAfter(to)) throw ApiException.badRequest("Période d'analyse invalide");
-        if (classId != null) teacherScope.assertClass(classId);
         Set<UUID> allowed = teacherScope.allowedClassIds();
         Set<UUID> permittedSessions = permittedAnalyticsSessions(from, to, classId, allowed);
         if (permittedSessions.isEmpty()) return emptyAnalytics(from, to);
@@ -345,19 +344,17 @@ public class AttendanceWorkflowService {
             """);
         List<Object> args = new ArrayList<>(List.of(TenantContext.get(), Date.valueOf(from), Date.valueOf(to)));
         if (classId != null) { sql.append(" AND s.school_class_id=?"); args.add(classId); }
-        if (allowed != null) {
-            if (allowed.isEmpty()) return emptyAnalytics(from, to);
-            sql.append(" AND s.school_class_id IN (").append(String.join(",", Collections.nCopies(allowed.size(), "?"))).append(")");
-            args.addAll(allowed);
-        }
+        if (allowed != null && allowed.isEmpty()) return emptyAnalytics(from, to);
         sql.append(" AND s.id IN (").append(String.join(",", Collections.nCopies(permittedSessions.size(), "?"))).append(")");
         args.addAll(permittedSessions);
         sql.append(" GROUP BY st.id, st.matricule, st.last_name, st.first_name, c.name ORDER BY c.name, st.last_name, st.first_name");
         List<StudentAnalytics> students = jdbc.query(sql.toString(), (rs, n) -> {
             int expected = rs.getInt("expected"), present = rs.getInt("present"), late = rs.getInt("late");
+            int excused = rs.getInt("excused");
             return new StudentAnalytics(rs.getObject("student_id", UUID.class), rs.getString("matricule"),
                 rs.getString("student_name"), rs.getString("class_name"), expected, present, late,
-                rs.getInt("absent"), rs.getInt("excused"), rs.getInt("unmarked"), percent(present + late, expected));
+                rs.getInt("absent"), excused, rs.getInt("unmarked"),
+                attendancePercent(present, late, excused, expected));
         }, args.toArray());
         int expected = students.stream().mapToInt(StudentAnalytics::expected).sum();
         int present = students.stream().mapToInt(StudentAnalytics::present).sum();
@@ -366,7 +363,7 @@ public class AttendanceWorkflowService {
         int excused = students.stream().mapToInt(StudentAnalytics::excused).sum();
         int unmarked = students.stream().mapToInt(StudentAnalytics::unmarked).sum();
         return new AnalyticsView(from, to, expected, present, late, absent, excused, unmarked,
-            percent(present + late, expected), students);
+            attendancePercent(present, late, excused, expected), students);
     }
 
     @Transactional(readOnly = true)
@@ -683,6 +680,17 @@ public class AttendanceWorkflowService {
         return denominator == 0 ? BigDecimal.ZERO.setScale(2) : BigDecimal.valueOf(numerator)
             .multiply(BigDecimal.valueOf(100)).divide(BigDecimal.valueOf(denominator), 2, RoundingMode.HALF_UP);
     }
+
+    /** Excused sessions are neutral, not failed attendance. */
+    static BigDecimal attendancePercent(int present, int late, int excused, int expected) {
+        int accountable = Math.max(0, expected - excused);
+        if (accountable == 0) {
+            return expected > 0 && excused >= expected
+                    ? new BigDecimal("100.00") : BigDecimal.ZERO.setScale(2);
+        }
+        return BigDecimal.valueOf(present + late).multiply(BigDecimal.valueOf(100))
+                .divide(BigDecimal.valueOf(accountable), 2, RoundingMode.HALF_UP);
+    }
     private AnalyticsView emptyAnalytics(LocalDate from, LocalDate to) {
         return new AnalyticsView(from, to, 0, 0, 0, 0, 0, 0, BigDecimal.ZERO.setScale(2), List.of());
     }
@@ -732,10 +740,27 @@ public class AttendanceWorkflowService {
     private void assertAttendanceClass(PolicyResourceContext context) {
         if (context == null || context.classId() == null) return;
         if (context.academicSessionId() != null && context.effectiveDate() != null) {
-            teacherScope.assertClass(context.academicSessionId(), context.classId(), context.effectiveDate());
+            assertAttendanceSelection(context.academicSessionId(), context.classId(), context.effectiveDate());
         } else {
             teacherScope.assertClass(context.classId());
         }
+    }
+
+    /**
+     * A shared bilingual DAILY roster is stored once under its canonical class.
+     * Either programme's dated homeroom teacher may operate that same roster,
+     * while every non-shared class keeps the ordinary direct assignment check.
+     */
+    private void assertAttendanceSelection(UUID sessionId, UUID classId, LocalDate date) {
+        if (cohorts == null) {
+            teacherScope.assertClass(sessionId, classId, date);
+            return;
+        }
+        Set<UUID> allowed = teacherScope.allowedClassIds(sessionId, date);
+        if (allowed == null || allowed.contains(classId)) return;
+        SchoolClass schoolClass = requireClass(classId);
+        if (sharedAllowed(schoolClass, sessionId, allowed)) return;
+        teacherScope.assertClass(sessionId, classId, date);
     }
 
     private boolean attendanceClassAllowed(SchoolClass schoolClass, UUID academicSessionId, LocalDate date) {
@@ -786,9 +811,10 @@ public class AttendanceWorkflowService {
         Set<UUID> permitted = new LinkedHashSet<>();
         for (AnalyticsSession candidate : candidates) {
             if (requestedClassId != null && !requestedClassId.equals(candidate.classId())) continue;
-            if (teacherClasses != null && !teacherClasses.contains(candidate.classId())) continue;
             SchoolClass schoolClass = classesById.get(candidate.classId());
             if (schoolClass == null) continue;
+            if (teacherClasses != null && !teacherClasses.contains(candidate.classId())
+                    && !sharedAllowed(schoolClass, candidate.academicSessionId(), teacherClasses)) continue;
             UUID occurrenceId = "DAILY".equalsIgnoreCase(candidate.model()) ? null
                     : resolvePublishedOccurrence(candidate.academicSessionId(), candidate.classId(), candidate.date(),
                     candidate.periodKey(), candidate.subjectCode());

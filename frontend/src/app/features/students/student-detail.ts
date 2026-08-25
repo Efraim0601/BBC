@@ -4,6 +4,7 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { Student } from '../../core/models';
 import { ClassView } from '../../core/setup.api';
 import { I18nService } from '../../core/i18n.service';
+import { AuthService } from '../../core/auth.service';
 import { PhotoApi } from '../../core/photo.api';
 import { AvatarComponent, CardComponent, IconComponent, PageHeaderComponent } from '../../core/ui';
 import { StudentEnrollmentPanelComponent } from './student-enrollment-panel';
@@ -28,7 +29,7 @@ import { GuardianAccessMode, GuardianInput, GuardianRelationshipView, GuardianSe
           <div class="flex flex-wrap items-center gap-4">
             <bbc-avatar [name]="s.name" [hue]="s.photoHue" [size]="72" [photoUrl]="photo()"/>
             <div class="flex-1 min-w-48"><div class="text-2xl font-bold text-ink">{{s.name}}</div><div class="text-sm text-mute">{{s.className||'—'}} · {{s.subsystem||'—'}} · {{s.level||'—'}}</div></div>
-            <button class="btn-secondary" (click)="openEdit(s)"><bbc-icon name="edit" [s]="14"/> {{fr()?'Modifier la fiche':'Edit profile'}}</button>
+            @if(canEditProfile()){<button class="btn-secondary" (click)="openEdit(s)"><bbc-icon name="edit" [s]="14"/> {{fr()?'Modifier la fiche':'Edit profile'}}</button>}
           </div>
           <div class="grid sm:grid-cols-2 md:grid-cols-4 gap-3 mt-6 text-sm">
             <div class="detail-field"><span class="meta">NIU</span><div class="font-semibold mt-1">{{s.niu||'—'}}</div></div>
@@ -38,32 +39,34 @@ import { GuardianAccessMode, GuardianInput, GuardianRelationshipView, GuardianSe
           </div>
         </bbc-card>
 
-        <bbc-student-enrollment-panel [student]="s" [classes]="classes()"/>
+        @if(canViewEnrollment()){<bbc-student-enrollment-panel [student]="s" [classes]="classes()"/>}
 
+        @if(canViewGuardians()){
         <bbc-card [title]="fr()?'Famille et accès parent':'Family and parent access'">
-          <div class="flex flex-wrap justify-between items-center gap-3 mb-4"><p class="text-sm text-mute">{{fr()?'Chaque adulte possède ses propres droits pour cet élève.':'Each adult has individual permissions for this student.'}}</p><button class="btn-primary" (click)="openAdd()"><bbc-icon name="plus" [s]="14"/> {{fr()?'Ajouter un parent':'Add guardian'}}</button></div>
+          <div class="flex flex-wrap justify-between items-center gap-3 mb-4"><p class="text-sm text-mute">{{fr()?'Chaque adulte possède ses propres droits pour cet élève.':'Each adult has individual permissions for this student.'}}</p>@if(canManageGuardians()){<button class="btn-primary" (click)="openAdd()"><bbc-icon name="plus" [s]="14"/> {{fr()?'Ajouter un parent':'Add guardian'}}</button>}</div>
           @for(g of guardians();track g.relationshipId){
             <div class="p-5 mb-3 rounded-xl border border-slate-200 bg-slate-50/60">
               <div class="flex flex-wrap items-start gap-3"><div class="flex-1 min-w-48"><div class="font-bold text-base">{{g.displayName}}</div><div class="text-xs text-mute mt-1">{{g.relationshipType}} · {{g.email||g.phone||'—'}} · {{g.accountStatus}}</div></div>
-                @if(g.invitationStatus==='PENDING'){<button class="btn-secondary" (click)="resend(g)">{{fr()?'Renvoyer invitation':'Resend invite'}}</button>}
-                @if(!g.email || g.accountStatus==='NO_PORTAL'){<button class="btn-secondary" (click)="openPortalAccess(g)">{{fr()?'Ajouter e-mail / activer portail':'Add email / enable portal'}}</button>}
-                <button class="min-h-10 px-3 text-rose-700 text-xs font-bold border border-rose-200 bg-white rounded-lg hover:bg-rose-50" (click)="end(g)">{{fr()?'Terminer le lien':'End link'}}</button>
+                @if(canManageGuardians() && g.invitationStatus==='PENDING'){<button class="btn-secondary" (click)="resend(g)">{{fr()?'Renvoyer invitation':'Resend invite'}}</button>}
+                @if(canManageGuardians() && (!g.email || g.accountStatus==='NO_PORTAL')){<button class="btn-secondary" (click)="openPortalAccess(g)">{{fr()?'Ajouter e-mail / activer portail':'Add email / enable portal'}}</button>}
+                @if(canManageGuardians()){<button class="min-h-10 px-3 text-rose-700 text-xs font-bold border border-rose-200 bg-white rounded-lg hover:bg-rose-50" (click)="end(g)">{{fr()?'Terminer le lien':'End link'}}</button>}
               </div>
               <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-2 mt-4 text-xs">
-                <label class="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-2.5"><input type="checkbox" [(ngModel)]="g.legalGuardian"/> {{fr()?'Responsable légal':'Legal guardian'}}</label>
-                <label class="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-2.5"><input type="checkbox" [(ngModel)]="g.pickupAuthorized"/> {{fr()?'Autorisé à récupérer':'Pickup authorized'}}</label>
-                <label class="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-2.5"><input type="checkbox" [(ngModel)]="g.financeResponsible"/> {{fr()?'Responsable financier':'Finance responsible'}}</label>
-                <label class="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-2.5"><input type="checkbox" [(ngModel)]="g.receivesAcademic"/> {{fr()?'Notes et bulletins':'Academics'}}</label>
-                <label class="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-2.5"><input type="checkbox" [(ngModel)]="g.receivesAttendance"/> {{fr()?'Présences':'Attendance'}}</label>
-                <label class="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-2.5"><input type="checkbox" [(ngModel)]="g.receivesFinance"/> {{fr()?'Finances':'Finance'}}</label>
+                <label class="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-2.5"><input type="checkbox" [(ngModel)]="g.legalGuardian" [disabled]="!canManageGuardians()"/> {{fr()?'Responsable légal':'Legal guardian'}}</label>
+                <label class="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-2.5"><input type="checkbox" [(ngModel)]="g.pickupAuthorized" [disabled]="!canManageGuardians()"/> {{fr()?'Autorisé à récupérer':'Pickup authorized'}}</label>
+                <label class="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-2.5"><input type="checkbox" [(ngModel)]="g.financeResponsible" [disabled]="!canManageGuardians()"/> {{fr()?'Responsable financier':'Finance responsible'}}</label>
+                <label class="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-2.5"><input type="checkbox" [(ngModel)]="g.receivesAcademic" [disabled]="!canManageGuardians()"/> {{fr()?'Notes et bulletins':'Academics'}}</label>
+                <label class="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-2.5"><input type="checkbox" [(ngModel)]="g.receivesAttendance" [disabled]="!canManageGuardians()"/> {{fr()?'Présences':'Attendance'}}</label>
+                <label class="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-2.5"><input type="checkbox" [(ngModel)]="g.receivesFinance" [disabled]="!canManageGuardians()"/> {{fr()?'Finances':'Finance'}}</label>
               </div>
-              <div class="text-right mt-3"><button class="btn-secondary" (click)="savePermissions(g)">{{fr()?'Enregistrer les droits':'Save permissions'}}</button></div>
+              @if(canManageGuardians()){<div class="text-right mt-3"><button class="btn-secondary" (click)="savePermissions(g)">{{fr()?'Enregistrer les droits':'Save permissions'}}</button></div>}
             </div>
           } @empty {<div class="p-4 border border-amber-200 bg-amber-50 rounded-xl text-amber-800">{{fr()?'Aucun parent lié. Utilisez « Ajouter un parent » pour créer le premier lien.':'No guardian linked. Use “Add guardian” to create the first link.'}}</div>}
         </bbc-card>
+        }
       }
 
-      @if(adding()){
+      @if(adding() && canManageGuardians()){
         <div class="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
           <form novalidate (ngSubmit)="addGuardian()" class="bg-white rounded-2xl shadow-xl border border-slate-200 p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto space-y-5">
             <div class="flex justify-between gap-3"><div><h2 class="text-lg font-bold">{{fr()?'Ajouter ou retrouver un parent':'Add or find guardian'}}</h2><p class="text-sm text-mute mt-1">{{fr()?'Recherchez d’abord un compte existant, ou complétez les informations ci-dessous.':'Search for an existing account first, or complete the information below.'}}</p></div><button type="button" class="text-2xl text-slate-500" (click)="closeAdd()">×</button></div>
@@ -86,7 +89,7 @@ import { GuardianAccessMode, GuardianInput, GuardianRelationshipView, GuardianSe
         </div>
       }
 
-      @if(portalTarget();as target){
+      @if(allowedPortalTarget();as target){
         <div class="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
           <form novalidate (ngSubmit)="savePortalAccess()" class="bg-white rounded-2xl shadow-xl border border-slate-200 p-6 w-full max-w-lg space-y-5">
             <div class="flex justify-between gap-3"><div><h2 class="text-lg font-bold">{{fr()?'Ajouter un e-mail au parent':'Add an email to the guardian'}}</h2><p class="text-sm text-mute mt-1">{{target.displayName}} · {{fr()?'Vous pourrez activer le portail maintenant ou plus tard.':'Enable portal access now or leave it disabled.'}}</p></div><button type="button" class="text-2xl text-slate-500" (click)="closePortalAccess()">×</button></div>
@@ -101,7 +104,7 @@ import { GuardianAccessMode, GuardianInput, GuardianRelationshipView, GuardianSe
         </div>
       }
 
-      @if(editing()){
+      @if(editing() && canEditProfile()){
         <div class="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
           <form novalidate (ngSubmit)="saveStudent()" class="bg-white rounded-2xl shadow-xl border border-slate-200 p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto space-y-5">
             <div class="flex justify-between"><div><h2 class="text-lg font-bold">{{fr()?'Modifier la fiche élève':'Edit student profile'}}</h2><p class="text-sm text-mute mt-1">{{fr()?'Les champs obligatoires sont clairement indiqués.':'Required fields are clearly marked.'}}</p></div><button type="button" class="text-2xl text-slate-500" (click)="editing.set(false)">×</button></div>
@@ -119,7 +122,7 @@ import { GuardianAccessMode, GuardianInput, GuardianRelationshipView, GuardianSe
         </div>
       }
 
-      @if(endTarget();as target){
+      @if(allowedEndTarget();as target){
         <div class="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4"><div class="bg-white rounded-2xl shadow-xl border border-slate-200 p-6 w-full max-w-md space-y-4">
           <h2 class="text-lg font-bold">{{fr()?'Terminer cette relation familiale ?':'End this family relationship?'}}</h2>
           <p class="text-sm text-mute">{{fr()?'Le parent perdra immédiatement l’accès à cet élève. Son compte restera actif s’il est encore lié à un autre enfant. Cette action sera auditée.':'The guardian immediately loses access to this student. Their account remains active if linked to another child. This action is audited.'}}</p>
@@ -130,10 +133,18 @@ import { GuardianAccessMode, GuardianInput, GuardianRelationshipView, GuardianSe
     </div>`,
 })
 export class StudentDetailComponent {
-  private api=inject(StudentApi); private route=inject(ActivatedRoute); private photoApi=inject(PhotoApi); protected i18n=inject(I18nService);
+  private api=inject(StudentApi); private route=inject(ActivatedRoute); private photoApi=inject(PhotoApi); private auth=inject(AuthService); protected i18n=inject(I18nService);
   protected fr=()=>this.i18n.lang()==='fr'; protected student=signal<Student|null>(null); protected guardians=signal<GuardianRelationshipView[]>([]); protected classes=signal<ClassView[]>([]); protected photo=signal<string|null>(null); protected error=signal<string|null>(null); protected notice=signal<string|null>(null);
   protected adding=signal(false); protected editing=signal(false); protected saving=signal(false); protected addAttempted=signal(false); protected editAttempted=signal(false); protected endAttempted=signal(false); protected portalAttempted=signal(false); protected formError=signal<string|null>(null); protected results=signal<GuardianSearchView[]>([]); protected searchQ='';
   protected draft:GuardianInput=this.blank(); protected editDraft:StudentUpsert={firstName:'',lastName:'',sex:'M',repeats:false,classId:null}; protected endTarget=signal<GuardianRelationshipView|null>(null); protected portalTarget=signal<GuardianRelationshipView|null>(null); protected portalEmail=''; protected portalMode:GuardianAccessMode='SEND_INVITE'; protected portalPassword=''; protected endReason=''; private id=this.route.snapshot.paramMap.get('id')!;
+
+  private actionAvailable(code:string){return ['ALLOW','CONTEXT_REQUIRED'].includes(this.auth.actionState(code));}
+  protected canEditProfile=()=>this.actionAvailable('STUDENT_PROFILE_EDIT');
+  protected canViewEnrollment=()=>this.actionAvailable('ENROLLMENT_VIEW');
+  protected canViewGuardians=()=>this.actionAvailable('GUARDIAN_VIEW')||this.actionAvailable('GUARDIAN_LINK_MANAGE');
+  protected canManageGuardians=()=>this.actionAvailable('GUARDIAN_LINK_MANAGE');
+  protected allowedPortalTarget=()=>this.canManageGuardians()?this.portalTarget():null;
+  protected allowedEndTarget=()=>this.canManageGuardians()?this.endTarget():null;
 
   constructor(){this.reload();this.api.listClassOptions().subscribe({next:c=>this.classes.set(c),error:()=>this.classes.set([])});this.photoApi.load('students',this.id).subscribe(p=>this.photo.set(p));}
   private reload(){this.api.get(this.id).subscribe({next:s=>this.student.set(s),error:e=>this.error.set(e.error?.message||'Élève introuvable')});this.api.guardians(this.id).subscribe({next:g=>this.guardians.set(g),error:()=>this.guardians.set([])});}

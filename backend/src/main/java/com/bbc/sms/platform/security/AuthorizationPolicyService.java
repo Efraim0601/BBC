@@ -240,6 +240,16 @@ public class AuthorizationPolicyService {
         if (mode == null || !scopeCompatible(action, mode)) return false;
         if ("GRADE_EDIT_ANY_SUBJECT_IN_TITULAIRE_CLASS".equals(action.code())
                 && mode != PolicyScopeMode.CLASS_SET) return false;
+        // Attendance has its own resource semantics: a primary bilingual pair
+        // owns one canonical DAILY session, while either programme titulaire
+        // may be the authorized operator.  Do not pre-filter those rules with
+        // the academic owner of the canonical class.
+        if (isAttendanceOperational(action.code())
+                && (mode == PolicyScopeMode.TITULAIRE_CLASSES
+                || mode == PolicyScopeMode.ASSIGNED_CLASSES
+                || mode == PolicyScopeMode.TIMETABLE_OCCURRENCES_ASSIGNED)) {
+            return attendanceScopes.allowsTeacher(principal, context, rule.scopeMode());
+        }
         return switch (mode) {
             case NONE -> true;
             case SCHOOL_ALL -> true;
@@ -349,8 +359,8 @@ public class AuthorizationPolicyService {
         return count != null && count > 0;
     }
 
-    private boolean activeEnrollmentInvariant(Action action, PolicyResourceContext context,
-                                             List<String> roles) {
+    boolean activeEnrollmentInvariant(Action action, PolicyResourceContext context,
+                                      List<String> roles) {
         if (context.studentId() == null || context.academicSessionId() == null) return true;
         if (!"STUDENT".equalsIgnoreCase(action.scopeType())
                 && !"CHILD".equalsIgnoreCase(action.scopeType())) return true;
@@ -372,11 +382,17 @@ public class AuthorizationPolicyService {
         if (count == null || count == 0) return false;
         if (context.classId() == null) return true;
         Integer classCount = jdbc.queryForObject("""
-                SELECT count(*) FROM student_enrollment
-                 WHERE school_id=? AND student_id=? AND academic_session_id=? AND status='ACTIVE'
-                   AND school_class_id=? AND enrolled_on<=? AND (exited_on IS NULL OR exited_on>=?)
+                SELECT count(*) FROM student_enrollment e
+                 WHERE e.school_id=? AND e.student_id=? AND e.academic_session_id=? AND e.status='ACTIVE'
+                   AND (e.school_class_id=? OR (e.cohort_id IS NOT NULL AND EXISTS (
+                       SELECT 1 FROM academic_cohort_programme p
+                        WHERE p.school_id=e.school_id
+                          AND p.academic_session_id=e.academic_session_id
+                          AND p.cohort_id=e.cohort_id
+                          AND p.school_class_id=? AND p.active)))
+                   AND e.enrolled_on<=? AND (e.exited_on IS NULL OR e.exited_on>=?)
                 """, Integer.class, context.schoolId(), context.studentId(),
-                context.academicSessionId(), context.classId(), date, date);
+                context.academicSessionId(), context.classId(), context.classId(), date, date);
         return classCount != null && classCount > 0;
     }
 

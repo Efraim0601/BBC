@@ -42,11 +42,27 @@ interface HeaderMap {
       <bbc-page-header [title]="i18n.t('students')" [subtitle]="headerSub()">
         <div right class="flex items-center gap-2">
           @if (mode() === 'list') {
-            <button (click)="exportList()"
-              class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
-              <bbc-icon name="download" [s]="16" /> {{ fr() ? 'Exporter liste' : 'Export list' }}
-            </button>
-            @if (canWrite) {
+            <div class="relative">
+              <button type="button" (click)="exportMenuOpen.set(!exportMenuOpen())"
+                class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50"
+                aria-haspopup="menu" [attr.aria-expanded]="exportMenuOpen()">
+                <bbc-icon name="download" [s]="16" /> {{ fr() ? 'Exporter liste' : 'Export list' }}
+                <bbc-icon name="chevronDown" [s]="13" />
+              </button>
+              @if (exportMenuOpen()) {
+                <div class="absolute right-0 z-20 mt-2 w-48 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg" role="menu">
+                  <button type="button" role="menuitem" (click)="exportList()"
+                    class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-ink hover:bg-slate-50">
+                    <bbc-icon name="download" [s]="14" /> {{ fr() ? 'Excel / CSV' : 'Excel / CSV' }}
+                  </button>
+                  <button type="button" role="menuitem" (click)="exportPdf()"
+                    class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-ink hover:bg-slate-50">
+                    <bbc-icon name="download" [s]="14" /> PDF
+                  </button>
+                </div>
+              }
+            </div>
+            @if (canImportStudents) {
               <button (click)="downloadStudentTemplate()"
                 class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
                 <bbc-icon name="download" [s]="16" /> {{ fr() ? 'Modèle import' : 'Import template' }}
@@ -55,6 +71,8 @@ interface HeaderMap {
                 class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
                 <bbc-icon name="download" [s]="16" /> {{ fr() ? 'Importer' : 'Import' }}
               </button>
+            }
+            @if (canCreateStudent) {
               <button (click)="openCreate()"
                 class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-brand-600 hover:bg-brand-700 text-white">
                 <bbc-icon name="plus" [s]="16" /> {{ i18n.t('newStudent') }}
@@ -124,7 +142,7 @@ interface HeaderMap {
               <div class="flex items-center justify-between px-5 py-3 border-b border-slate-100">
                 <div class="text-sm font-semibold">{{ filtered().length }} {{ fr() ? 'résultats' : 'results' }}</div>
                 <div class="text-xs text-mute">
-                  {{ canWrite
+                  {{ canDeactivateStudents
                       ? (fr() ? 'Cochez pour agir en groupe · cliquez une ligne pour la fiche' : 'Tick rows for bulk actions · click a row for the profile')
                       : (fr() ? 'Cliquez une ligne pour ouvrir la fiche' : 'Click a row to open the profile') }}
                 </div>
@@ -133,7 +151,7 @@ interface HeaderMap {
             <bbc-data-table [columns]="columns()" [rows]="filtered()"
               [pagination]="true" [initialPageSize]="25" [language]="fr() ? 'fr' : 'en'"
               [trackBy]="trackId" [activeId]="selectedId()"
-              [selectable]="canWrite" [selectedIds]="selection()"
+              [selectable]="canDeactivateStudents" [selectedIds]="selection()"
               [selectAllLabel]="fr() ? 'Tout sélectionner' : 'Select all'"
               (selectionChange)="onSelectionChange($event)"
               [emptyLabel]="fr() ? 'Aucun résultat' : 'No results'"
@@ -192,15 +210,15 @@ interface HeaderMap {
                   <div class="text-xl font-bold leading-tight">{{ sel.name }}</div>
                   <div class="text-sm text-brand-100">{{ sel.className }} · {{ subsystemLabel(sel.subsystem) }} · {{ sexLabel(sel.sex) }}</div>
                 </div>
-                @if (canWrite) {
+                @if (canEditStudents || canDeactivateStudents) {
                   <div class="flex flex-col gap-1.5">
-                    <button (click)="openEdit(sel)"
+                    @if (canEditStudents) {<button (click)="openEdit(sel)"
                       class="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-lg bg-gold-400 hover:bg-gold-500 text-brand-800">
                       <bbc-icon name="edit" [s]="14" /> {{ fr() ? 'Modifier' : 'Edit' }}
-                    </button>
-                    <button (click)="confirmDel.set(sel)" class="text-xs text-rose-200 hover:text-white px-2 py-1">
+                    </button>}
+                    @if (canDeactivateStudents) {<button (click)="confirmDel.set(sel)" class="text-xs text-rose-200 hover:text-white px-2 py-1">
                       {{ fr() ? 'Supprimer' : 'Delete' }}
-                    </button>
+                    </button>}
                   </div>
                 }
               </div>
@@ -238,7 +256,7 @@ interface HeaderMap {
               <div>
                 <div class="flex items-center justify-between mb-2">
                   <div class="text-[11px] uppercase tracking-wider text-mute font-semibold">{{ fr() ? 'Comptes parents' : 'Parent accounts' }}</div>
-                  @if (canWrite && !parentForm()) {
+                  @if (canManageGuardians && !parentForm()) {
                     <button (click)="openParentForm()" class="inline-flex items-center gap-1.5 h-7 px-2.5 text-[11px] font-semibold rounded-lg bg-brand-50 text-brand-700 hover:bg-brand-100">
                       <bbc-icon name="plus" [s]="13" /> {{ fr() ? 'Ajouter' : 'Add' }}
                     </button>
@@ -258,7 +276,7 @@ interface HeaderMap {
                         @if (!p.active) { · <span class="text-rose-600">{{ fr() ? 'inactif' : 'inactive' }}</span> }
                       </div>
                     </div>
-                    @if (canWrite) {
+                    @if (canManageGuardians) {
                       <button (click)="unlinkParent(p)" class="text-mute hover:text-rose-600 px-1.5" title="{{ fr() ? 'Détacher' : 'Unlink' }}"><bbc-icon name="trash" [s]="14" /></button>
                     }
                   </div>
@@ -959,6 +977,7 @@ export class StudentsComponent {
   protected subFilter = signal<string | null>(null);
   protected levelFilter = signal<string | null>(null);
   protected classFilter = signal<string | null>(null);
+  protected exportMenuOpen = signal(false);
   private currentSessionId = signal<string | null>(null);
   protected selectedId = signal<string | null>(null);
 
@@ -1002,14 +1021,15 @@ export class StudentsComponent {
   protected importError = signal<string | null>(null);
   protected importProgress = signal<{ done: number; total: number } | null>(null);
 
-  /** Action-authorized registrar users may use scoped student controls even
-   * when the legacy module matrix intentionally has no students entry. */
-  protected get canWrite(): boolean {
-    return this.auth.can('students', 'write')
-      || this.auth.canModuleOrAction('students', 'STUDENT_PROFILE_CREATE')
-      || this.auth.canModuleOrAction('students', 'STUDENT_PROFILE_EDIT')
-      || this.auth.canModuleOrAction('students', 'GUARDIAN_LINK_MANAGE');
+  /** Exact action checks prevent a read-only teacher from seeing registrar controls. */
+  private actionAvailable(code: string): boolean {
+    return ['ALLOW', 'CONTEXT_REQUIRED'].includes(this.auth.actionState(code));
   }
+  protected get canCreateStudent(): boolean { return this.actionAvailable('STUDENT_PROFILE_CREATE'); }
+  protected get canImportStudents(): boolean { return this.actionAvailable('STUDENT_IMPORT'); }
+  protected get canEditStudents(): boolean { return this.actionAvailable('STUDENT_PROFILE_EDIT'); }
+  protected get canDeactivateStudents(): boolean { return this.actionAvailable('STUDENT_PROFILE_DEACTIVATE'); }
+  protected get canManageGuardians(): boolean { return this.actionAvailable('GUARDIAN_LINK_MANAGE'); }
   protected draft: StudentUpsert = this.blank();
   /**
    * Photo saisie dans le formulaire (data URL) ; envoyée APRÈS l'enregistrement,
@@ -1538,6 +1558,7 @@ export class StudentsComponent {
   ];
 
   protected exportList(): void {
+    this.exportMenuOpen.set(false);
     // Same column names as the import template (plus matricule / class) so an
     // exported list can be corrected in a spreadsheet and imported straight back.
     const rows = this.filtered().map((s) => [
@@ -1554,6 +1575,44 @@ export class StudentsComponent {
        'mere_nom', 'mere_telephone', 'mere_email',
        'tuteur_nom', 'tuteur_lien', 'tuteur_telephone', 'tuteur_email'],
       rows);
+  }
+
+  protected async exportPdf(): Promise<void> {
+    this.exportMenuOpen.set(false);
+    const { renderStudentListPdf } = await import('./student-list-pdf');
+    const rows = this.filtered().map((s) => ({
+      matricule: s.matricule,
+      name: s.name,
+      className: s.className || '—',
+      subsystem: this.subsystemLabel(s.subsystem),
+      level: this.levelLabel(s.level),
+      sex: this.sexLabel(s.sex),
+      parent: [s.parentName, s.parentPhone].filter(Boolean).join(' · ') || '—',
+    }));
+    const filterParts = [
+      this.search().trim() ? `${this.fr() ? 'Recherche' : 'Search'}: ${this.search().trim()}` : '',
+      this.subFilter() ? this.subsystemLabel(this.subFilter()!) : '',
+      this.levelFilter() ? this.levelLabel(this.levelFilter()!) : '',
+      this.classFilter() ? (this.classes().find((c) => c.id === this.classFilter())?.name || '') : '',
+    ].filter(Boolean);
+    const bytes = await renderStudentListPdf(rows, {
+      french: this.fr(),
+      filterSummary: filterParts.join(' · ') || (this.fr() ? 'Tous les élèves visibles' : 'All visible students'),
+    });
+    // Copy into a plain ArrayBuffer so strict DOM typings do not treat the
+    // PDF library's ArrayBufferLike result as a possible SharedArrayBuffer.
+    const pdfBuffer = new Uint8Array(bytes.byteLength);
+    pdfBuffer.set(bytes);
+    const blob = new Blob([pdfBuffer.buffer], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `eleves-${new Date().toISOString().slice(0, 10)}.pdf`;
+    anchor.style.display = 'none';
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
   }
 
   protected downloadStudentTemplate(): void {

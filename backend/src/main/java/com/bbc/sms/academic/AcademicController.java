@@ -169,6 +169,16 @@ public class AcademicController {
                 ("en".equalsIgnoreCase(locale) ? "School report card" : "Bulletin scolaire") + " - " + snapshot.studentName(), "PARENT", pdf, idempotencyKey);
     }
 
+    @GetMapping("/bulletin-snapshots/{snapshotId}/documents/{documentId}/content")
+    @PreAuthorize("@perm.staffOnly()")
+    public ResponseEntity<byte[]> reportCardDocumentContent(@PathVariable UUID snapshotId,
+                                                             @PathVariable UUID documentId) {
+        return ResponseEntity.ok().contentType(MediaType.APPLICATION_PDF)
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=official-report-card.pdf")
+                .cacheControl(CacheControl.noStore())
+                .body(officialDocuments.reportCardContent(documentId, snapshotId));
+    }
+
     @PostMapping("/bulletin-snapshots/{id}/validate")
     @PreAuthorize("@perm.canAction('ACADEMIC_REPORT_CARD_VALIDATE') and @perm.staffOnly()")
     public BulletinSnapshotView validateSnapshot(@PathVariable UUID id) { return snapshotService.validate(id); }

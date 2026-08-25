@@ -165,8 +165,27 @@ export const routes: Routes = [
         loadComponent: () => import('./features/finance/finance').then((m) => m.FinanceComponent),
       },
       {
+        path: 'staff/create',
+        canActivate: [actionGuard('HR_MANAGE')],
+        data: { staffView: 'create' },
+        loadComponent: () => import('./features/staff/staff').then((m) => m.StaffComponent),
+      },
+      {
+        path: 'staff/:employeeId/edit',
+        canActivate: [actionGuard('HR_MANAGE')],
+        data: { staffView: 'edit' },
+        loadComponent: () => import('./features/staff/staff').then((m) => m.StaffComponent),
+      },
+      {
+        path: 'staff/:employeeId',
+        canActivate: [contextualActionGuard('HR_VIEW')],
+        data: { staffView: 'detail' },
+        loadComponent: () => import('./features/staff/staff').then((m) => m.StaffComponent),
+      },
+      {
         path: 'staff',
         canActivate: [contextualActionGuard('HR_VIEW')],
+        data: { staffView: 'list' },
         loadComponent: () => import('./features/staff/staff').then((m) => m.StaffComponent),
       },
       {

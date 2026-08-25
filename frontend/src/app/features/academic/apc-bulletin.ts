@@ -1,5 +1,4 @@
 import { Component, ChangeDetectionStrategy, inject, input, computed } from '@angular/core';
-import { I18nService } from '../../core/i18n.service';
 import { AuthService } from '../../core/auth.service';
 import { BulletinView } from './academic.api';
 
@@ -35,7 +34,7 @@ import { BulletinView } from './academic.api';
           <td class="border border-black px-2 py-1"><b>{{ fr() ? 'Classe' : 'Class' }}:</b> {{ view().className }}</td>
         </tr>
         <tr>
-          <td class="border border-black px-2 py-1"><b>{{ fr() ? 'Enseignant titulaire' : 'Class teacher' }}:</b> ____________________</td>
+          <td class="border border-black px-2 py-1"><b>{{ fr() ? 'Enseignant titulaire' : 'Class teacher' }}:</b> {{ view().classMasterName || '—' }}</td>
           <td class="border border-black px-2 py-1"><b>{{ fr() ? 'Effectif' : 'Enrolment' }}:</b> {{ view().classSize || '____' }}</td>
         </tr>
       </table>
@@ -89,6 +88,22 @@ import { BulletinView } from './academic.api';
         </tr>
       </table>
 
+      @if (view().attendance; as attendance) {
+        <table class="w-full border-2 border-t-0 border-black text-[11px]">
+          <tr class="bg-slate-100 font-bold">
+            <td class="border border-black px-2 py-1" colspan="6">{{ fr() ? 'ASSIDUITÉ' : 'ATTENDANCE' }}</td>
+          </tr>
+          <tr>
+            <td class="border border-black px-2 py-1"><b>{{ fr() ? 'Appels finalisés' : 'Finalized calls' }}</b><br />{{ attendance.finalizedSessions }}</td>
+            <td class="border border-black px-2 py-1"><b>{{ fr() ? 'Présences' : 'Present' }}</b><br />{{ attendance.presentCount }}</td>
+            <td class="border border-black px-2 py-1"><b>{{ fr() ? 'Absences' : 'Absent' }}</b><br />{{ attendance.absentCount }}</td>
+            <td class="border border-black px-2 py-1"><b>{{ fr() ? 'Justifiées' : 'Excused' }}</b><br />{{ attendance.excusedCount }}</td>
+            <td class="border border-black px-2 py-1"><b>{{ fr() ? 'Retards' : 'Late' }}</b><br />{{ attendance.lateCount }} · {{ attendance.lateMinutes }} min</td>
+            <td class="border border-black px-2 py-1"><b>{{ fr() ? 'Heures d’absence' : 'Absence hours' }}</b><br />{{ attendance.justifiedAbsenceHours + attendance.unjustifiedAbsenceHours }}</td>
+          </tr>
+        </table>
+      }
+
       <!-- Appreciation + signatures -->
       <table class="w-full border-2 border-t-0 border-black text-[11px]">
         <tr>
@@ -123,12 +138,13 @@ import { BulletinView } from './academic.api';
   `],
 })
 export class ApcBulletinComponent {
-  private i18n = inject(I18nService);
   private auth = inject(AuthService);
 
   readonly view = input.required<BulletinView>();
 
-  protected fr = () => this.i18n.lang() === 'fr';
+  // A bilingual pupil receives one report per programme. The document language
+  // follows that programme, independently from the operator's UI language.
+  protected fr = computed(() => (this.view().subsystem ?? 'FR').toUpperCase() !== 'EN');
   protected readonly schoolYear = new Date().getFullYear() + '-' + (new Date().getFullYear() + 1);
 
   protected periodColumns = computed(() => Array.from(new Set(

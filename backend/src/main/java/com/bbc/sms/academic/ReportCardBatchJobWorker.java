@@ -95,12 +95,13 @@ public class ReportCardBatchJobWorker {
         int attempts = jdbc.queryForObject("SELECT attempts FROM bulletin_batch_item WHERE school_id=? AND id=?", Integer.class, schoolId, item.id());
         jdbc.update("UPDATE bulletin_batch_item SET status='RUNNING',attempts=?,started_at=now(),error=NULL,version=version+1 WHERE school_id=? AND id=? AND status='QUEUED'", attempts + 1, schoolId, item.id());
         try {
-            UUID snapshotId = publishedOrValidated(schoolId, item.studentId(), scope.reportingPeriodId(), scope.classId());
+            UUID snapshotId = publishedSnapshot(schoolId, item.studentId(), scope.reportingPeriodId(), scope.classId());
             // Parent-visible archives are intentionally published-only.  A
             // validated draft may be reviewed by staff but must never become a
             // parent document until the publication transition is complete.
             if (snapshotId == null) {
-                markTerminal(schoolId, item.id(), "BLOCKED", null, null, null, null, null, null, null, "No validated or published snapshot");
+                markTerminal(schoolId, item.id(), "BLOCKED", null, null, null, null, null, null, null,
+                        "No published report card for this programme class");
                 refreshCounts(schoolId, jobId);
                 return;
             }
@@ -122,7 +123,7 @@ public class ReportCardBatchJobWorker {
         }
     }
 
-    private UUID publishedOrValidated(UUID schoolId, UUID studentId, UUID periodId, UUID classId) {
+    private UUID publishedSnapshot(UUID schoolId, UUID studentId, UUID periodId, UUID classId) {
         return jdbc.query("""
                 SELECT v.id FROM bulletin_version v
                  JOIN student_enrollment e ON e.id=v.enrollment_id

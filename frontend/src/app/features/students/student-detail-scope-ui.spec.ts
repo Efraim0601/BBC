@@ -4,6 +4,7 @@ import { ActivatedRoute } from '@angular/router';
 import { of, throwError } from 'rxjs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { I18nService } from '../../core/i18n.service';
+import { AuthService } from '../../core/auth.service';
 import { PhotoApi } from '../../core/photo.api';
 import { StudentApi } from './students.api';
 import { StudentDetailComponent } from './student-detail';
@@ -26,6 +27,7 @@ describe('Student detail optional-read scope boundary', () => {
         { provide: PhotoApi, useValue: photoApi },
         { provide: ActivatedRoute, useValue: { snapshot: { paramMap: { get: () => 'student-1' } } } },
         { provide: I18nService, useValue: { lang: signal('fr') } },
+        { provide: AuthService, useValue: { actionState: vi.fn(() => 'DENY') } },
       ],
     });
     TestBed.overrideComponent(StudentDetailComponent, { set: { template: '' } });

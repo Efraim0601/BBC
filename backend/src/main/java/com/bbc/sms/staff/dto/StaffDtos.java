@@ -61,6 +61,18 @@ public class StaffDtos {
             String sectionLabel,
             int studentCount) {}
 
+    /** Metadata for a private personnel document; the file is streamed by its own endpoint. */
+    public record StaffDocumentView(
+            UUID id,
+            UUID employeeId,
+            String documentType,
+            String label,
+            String fileName,
+            String contentType,
+            long byteSize,
+            String uploadedByName,
+            java.time.Instant uploadedAt) {}
+
     /** Remplace la totalité des classes d'un enseignant (liste vide = plus aucune). */
     public record SetTeacherClasses(List<UUID> classIds) {}
 

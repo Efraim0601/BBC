@@ -147,10 +147,34 @@ public class OfficialDocumentService {
     public byte[] content(UUID id) {
         GeneratedDocument d = find(id);
         requireAcademicDocumentScope(d.getAggregateType(), d.getAggregateId());
+        return verifiedContent(d);
+    }
+
+    /**
+     * Download an issued report card through its academic resource boundary.
+     *
+     * The generic official-document endpoint is guarded by the broad legacy
+     * DOCUMENT_VIEW permission. Teachers who may generate a report card for a
+     * dated Titulaire class must not receive that broad permission merely to
+     * download the document they just generated. This method verifies both the
+     * immutable document aggregate and the caller's class-report scope.
+     */
+    @Transactional
+    public byte[] reportCardContent(UUID documentId, UUID snapshotId) {
+        GeneratedDocument d = find(documentId);
+        if (!"BulletinVersion".equalsIgnoreCase(d.getAggregateType())
+                || !snapshotId.toString().equalsIgnoreCase(d.getAggregateId())) {
+            throw ApiException.forbidden("Ce document ne correspond pas au bulletin demandé.");
+        }
+        requireAcademicDocumentScope(d.getAggregateType(), d.getAggregateId());
+        return verifiedContent(d);
+    }
+
+    private byte[] verifiedContent(GeneratedDocument d) {
         if ("REVOKED".equals(d.getStatus())) throw ApiException.conflict("Ce document a été révoqué");
         byte[] bytes = storage.read(d.getStorageKey());
         if (!sha256(bytes).equals(d.getSha256())) throw new IllegalStateException("Intégrité du document compromise");
-        audit.record("DOCUMENT_DOWNLOADED", "GeneratedDocument", id.toString(), null, Map.of("sha256", d.getSha256()), null);
+        audit.record("DOCUMENT_DOWNLOADED", "GeneratedDocument", d.getId().toString(), null, Map.of("sha256", d.getSha256()), null);
         return bytes;
     }
 

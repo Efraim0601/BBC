@@ -24,7 +24,7 @@ interface DayGroup { date: string; entries: EntryView[]; }
       <bbc-page-header [title]="fr() ? 'Cahier de textes' : 'Coursebook'"
         [subtitle]="fr() ? 'Journal de classe & devoirs — jour par jour' : 'Daily class log & homework — day by day'">
         <div right class="flex items-center gap-2">
-          @if (canWrite && selectedClass()) {
+          @if (canCreateForSelectedClass()) {
             <button (click)="toggleForm()"
               class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-brand-600 text-white hover:bg-brand-700">
               <bbc-icon name="plus" [s]="16" /> {{ fr() ? 'Nouvelle entrée' : 'New entry' }}
@@ -58,7 +58,7 @@ interface DayGroup { date: string; entries: EntryView[]; }
       </bbc-card>
 
       <!-- Add / edit form -->
-      @if (canWrite && showForm() && selectedClass()) {
+      @if (canCreateForSelectedClass() && showForm() && selectedClass()) {
         <bbc-card className="mb-4"
           [title]="editingId() ? (fr() ? 'Modifier l’entrée' : 'Edit entry') : (fr() ? 'Nouvelle entrée' : 'New entry')"
           [subtitle]="selectedClass()!">
@@ -112,6 +112,10 @@ interface DayGroup { date: string; entries: EntryView[]; }
       @if (!selectedClass()) {
         <bbc-card>
           <bbc-empty icon="book" [label]="fr() ? 'Sélectionnez une classe pour voir son cahier de textes' : 'Select a class to see its coursebook'" />
+        </bbc-card>
+      } @else if (subjectsForClass().length === 0) {
+        <bbc-card>
+          <bbc-empty icon="alertTri" [label]="fr() ? 'Aucune matière n’est disponible pour la saisie. Cette classe est peut-être en lecture seule pour votre compte, ou son curriculum et ses affectations restent à configurer.' : 'No subject is available for entry. This class may be read-only for your account, or its curriculum and teaching assignments still need configuration.'" />
         </bbc-card>
       } @else if (entries().length === 0) {
         <bbc-card>
@@ -182,7 +186,7 @@ interface DayGroup { date: string; entries: EntryView[]; }
                           </div>
                         }
                       </div>
-                      @if (canWrite) {
+                      @if (canManageEntry(e)) {
                         <div class="flex items-center gap-1 self-start opacity-0 group-hover:opacity-100 transition">
                           <button (click)="edit(e)"
                             class="w-7 h-7 rounded text-mute hover:text-brand-600 hover:bg-brand-50 flex items-center justify-center"
@@ -243,6 +247,7 @@ export class CoursebookComponent {
     if (!cls?.subsystem) return all;
     return all.filter((s) => !s.subsystem || s.subsystem === cls.subsystem);
   });
+  protected canCreateForSelectedClass = computed(() => this.canWrite && this.subjectsForClass().length > 0);
 
   protected entrySubjects = computed(() => {
     const subjects = new Map<string, string>();
@@ -319,6 +324,7 @@ export class CoursebookComponent {
   }
 
   protected edit(e: EntryView): void {
+    if (!this.canManageEntry(e)) return;
     this.editingId.set(e.id);
     this.draft = {
       className: e.className, subjectCode: e.subjectCode, entryDate: e.entryDate,
@@ -351,7 +357,12 @@ export class CoursebookComponent {
   }
 
   protected remove(e: EntryView): void {
+    if (!this.canManageEntry(e)) return;
     this.api.remove(e.id).subscribe(() => this.reload());
+  }
+
+  protected canManageEntry(entry: EntryView): boolean {
+    return this.canWrite && this.subjectsForClass().some((subject) => subject.code === entry.subjectCode);
   }
 
   protected formatDate(iso: string): string {

@@ -108,7 +108,8 @@ public class GradeEntryService {
                         TenantContext.get(), periodId, studentIds, subjectCode)
                 .stream().collect(Collectors.groupingBy(AcademicGrade::getStudentId));
         Map<UUID, SubjectResultComment> commentByStudent = studentIds.isEmpty() ? Map.of() : comments
-                .findBySchoolIdAndReportingPeriodIdAndStudentIdInAndSubjectCode(TenantContext.get(), periodId, studentIds, subjectCode)
+                .findBySchoolIdAndReportingPeriodIdAndStudentIdInAndProgrammeClassIdAndSubjectCode(
+                        TenantContext.get(), periodId, studentIds, classId, subjectCode)
                 .stream().collect(Collectors.toMap(SubjectResultComment::getStudentId, Function.identity()));
         AcademicGradePacket packet = packets.findBySchoolIdAndReportingPeriodIdAndClassIdAndSubjectCode(
                 TenantContext.get(), periodId, classId, subjectCode).orElse(null);
@@ -162,7 +163,11 @@ public class GradeEntryService {
                 period.getAcademicSessionId(), classId, subjectCode, null, period.getStartDate())
                 && submissionWindowOpen && submissionBlockers.isEmpty();
         boolean canReview = accessPolicy.can(AcademicAccessPolicyService.Capability.GRADE_PACKET_REVIEW,
-                period.getAcademicSessionId(), classId, subjectCode, null, period.getStartDate());
+                period.getAcademicSessionId(), classId, subjectCode, null, period.getStartDate())
+                // Four-eyes workflow: the person who submitted a packet can
+                // never accept or return that same packet, even when they are
+                // also the class titulaire.
+                && (packet == null || !sameReviewer(packet.getSubmittedBy(), currentUserId()));
         int completed = (int) rows.stream().filter(r -> rowComplete(definition, r, subject.remarkRequired())).count();
         return new GradeEntryView(period.getAcademicSessionId(), periodId, classId, schoolClass.getName(),
                 subject.code(), subject.label(), subject.coefficient(), subject.teacherId(), subject.teacherName(),
@@ -206,10 +211,8 @@ public class GradeEntryService {
         Set<UUID> rosterIds = roster(period.getAcademicSessionId(), in.classId()).stream().map(RosterStudent::id).collect(Collectors.toSet());
         for (GradeEntryStudentUpsert row : in.students()) {
             if (!rosterIds.contains(row.studentId())) throw ApiException.badRequest("L'élève ne fait pas partie de la classe pour cette session");
-            StudentEnrollment enrollment = enrollments.findFirstBySchoolIdAndStudentIdAndAcademicSessionIdAndStatus(
-                    TenantContext.get(), row.studentId(), period.getAcademicSessionId(), "ACTIVE")
-                    .filter(e -> in.classId().equals(e.getSchoolClassId()))
-                    .orElseThrow(() -> ApiException.badRequest("Inscription active introuvable pour l'élève"));
+            UUID enrollmentId = resolveEnrollmentId(period.getAcademicSessionId(), in.classId(),
+                    row.studentId(), period.getStartDate());
             for (GradeEntryCellUpsert cell : row.values() == null ? List.<GradeEntryCellUpsert>of() : row.values()) {
                 AcademicAssessment assessment = definition.get(cell.assessmentId());
                 if (assessment == null) throw ApiException.badRequest("L'évaluation n'appartient pas à cette période");
@@ -221,16 +224,16 @@ public class GradeEntryService {
                     throw ApiException.conflict("Une note de " + studentName(row.studentId()) + " a été modifiée par un autre utilisateur");
                 }
                 grade.setSchoolId(TenantContext.get()); grade.setAcademicSessionId(period.getAcademicSessionId()); grade.setReportingPeriodId(period.getId());
-                grade.setAssessmentId(assessment.getId()); grade.setStudentId(row.studentId()); grade.setEnrollmentId(enrollment.getId());
+                grade.setAssessmentId(assessment.getId()); grade.setStudentId(row.studentId()); grade.setEnrollmentId(enrollmentId);
                 grade.setSubjectCode(subjectCode); grade.setMark("SCORED".equals(status) ? cell.mark() : null);
                 grade.setValueStatus(status); grade.setWorkflowStatus("DRAFT"); grade.setEnteredBy(currentUserId()); grade.setTeacherId(subject.teacherId());
                 grades.save(grade);
             }
-            SubjectResultComment comment = comments.findBySchoolIdAndStudentIdAndReportingPeriodIdAndSubjectCode(
-                    TenantContext.get(), row.studentId(), period.getId(), subjectCode).orElseGet(SubjectResultComment::new);
+            SubjectResultComment comment = comments.findBySchoolIdAndStudentIdAndReportingPeriodIdAndProgrammeClassIdAndSubjectCode(
+                    TenantContext.get(), row.studentId(), period.getId(), in.classId(), subjectCode).orElseGet(SubjectResultComment::new);
             if (row.comment() != null && row.comment().length() > 500) throw ApiException.badRequest("La remarque ne peut pas dépasser 500 caractères");
             comment.setSchoolId(TenantContext.get()); comment.setAcademicSessionId(period.getAcademicSessionId()); comment.setReportingPeriodId(period.getId());
-            comment.setStudentId(row.studentId()); comment.setEnrollmentId(enrollment.getId()); comment.setSubjectCode(subjectCode);
+            comment.setStudentId(row.studentId()); comment.setEnrollmentId(enrollmentId); comment.setProgrammeClassId(in.classId()); comment.setSubjectCode(subjectCode);
             comment.setComment(row.comment() == null ? null : row.comment().trim()); comment.setWorkflowStatus("DRAFT"); comment.setTeacherId(subject.teacherId());
             comments.save(comment);
         }
@@ -244,13 +247,15 @@ public class GradeEntryService {
         Integer blocked = jdbc.queryForObject("""
             SELECT count(*) FROM bulletin_version v
              WHERE v.school_id=? AND v.reporting_period_id=? AND v.state IN ('VALIDATED','PUBLISHED')
-               AND v.student_id IN (SELECT e.student_id FROM student_enrollment e
-                                      WHERE e.school_id=? AND e.academic_session_id=? AND e.school_class_id=? AND e.status='ACTIVE')
+               AND (v.programme_class_id=? OR (v.programme_class_id IS NULL
+                    AND v.student_id IN (SELECT e.student_id FROM student_enrollment e
+                                          WHERE e.school_id=? AND e.academic_session_id=? AND e.school_class_id=? AND e.status='ACTIVE')))
                AND NOT EXISTS (SELECT 1 FROM bulletin_version correction
                                  WHERE correction.school_id=v.school_id
                                    AND correction.corrects_bulletin_version_id=v.id
                                    AND correction.state='DRAFT')
-            """, Integer.class, TenantContext.get(), periodId, TenantContext.get(), sessionId, classId);
+            """, Integer.class, TenantContext.get(), periodId, classId,
+                TenantContext.get(), sessionId, classId);
         if (blocked != null && blocked > 0) {
             windows.assertOpen(periodId, AcademicWindowPolicyService.Action.CORRECTION);
             throw ApiException.conflict("Un bulletin validé ou publié existe encore. Ouvrez d'abord une correction explicite depuis le bulletin concerné.");
@@ -258,9 +263,11 @@ public class GradeEntryService {
         int published = jdbc.queryForObject("""
             SELECT count(*) FROM bulletin_version v
              WHERE v.school_id=? AND v.reporting_period_id=? AND v.state='PUBLISHED'
-               AND v.student_id IN (SELECT e.student_id FROM student_enrollment e
-                                      WHERE e.school_id=? AND e.academic_session_id=? AND e.school_class_id=? AND e.status='ACTIVE')
-            """, Integer.class, TenantContext.get(), periodId, TenantContext.get(), sessionId, classId);
+               AND (v.programme_class_id=? OR (v.programme_class_id IS NULL
+                    AND v.student_id IN (SELECT e.student_id FROM student_enrollment e
+                                          WHERE e.school_id=? AND e.academic_session_id=? AND e.school_class_id=? AND e.status='ACTIVE')))
+            """, Integer.class, TenantContext.get(), periodId, classId,
+                TenantContext.get(), sessionId, classId);
         if (published > 0) windows.assertOpen(periodId, AcademicWindowPolicyService.Action.CORRECTION);
     }
 
@@ -298,6 +305,7 @@ public class GradeEntryService {
             packet.setStatus("SUBMITTED"); packet.setSubmittedBy(currentUserId()); packet.setSubmittedAt(Instant.now());
             updateWorkflow(period.getId(), in.classId(), subjectCode, "SUBMITTED");
         } else {
+            requireIndependentReviewer(packet.getSubmittedBy(), currentUserId());
             windows.assertOpen(period.getId(), AcademicWindowPolicyService.Action.REVIEW);
             if (!"SUBMITTED".equals(previousPacketStatus)) {
                 throw ApiException.conflict("Seule une feuille soumise peut être acceptée ou retournée.");
@@ -317,11 +325,16 @@ public class GradeEntryService {
     }
 
     private void updateWorkflow(UUID periodId, UUID classId, String subjectCode, String state) {
-        List<UUID> ids = roster(period(periodId).getAcademicSessionId(), classId).stream().map(RosterStudent::id).toList();
-        if (!ids.isEmpty()) jdbc.update("UPDATE academic_grade SET workflow_status=? WHERE school_id=? AND reporting_period_id=? AND subject_code=? AND student_id = ANY(?)", state, TenantContext.get(), periodId, subjectCode, jdbc.getDataSource() == null ? new UUID[0] : ids.toArray(UUID[]::new));
-        // The PostgreSQL ANY update above is intentionally paired with a no-op-safe
-        // comment update below; comments are not required for calculation.
-        if (!ids.isEmpty()) jdbc.update("UPDATE subject_result_comment SET workflow_status=? WHERE school_id=? AND reporting_period_id=? AND subject_code=? AND student_id = ANY(?)", state, TenantContext.get(), periodId, subjectCode, ids.toArray(UUID[]::new));
+        jdbc.update("""
+                UPDATE academic_grade g SET workflow_status=?
+                 WHERE g.school_id=? AND g.reporting_period_id=? AND g.subject_code=?
+                   AND EXISTS (SELECT 1 FROM academic_assessment a
+                                WHERE a.id=g.assessment_id AND a.school_id=g.school_id AND a.class_id=?)
+                """, state, TenantContext.get(), periodId, subjectCode, classId);
+        jdbc.update("""
+                UPDATE subject_result_comment SET workflow_status=?
+                 WHERE school_id=? AND reporting_period_id=? AND programme_class_id=? AND subject_code=?
+                """, state, TenantContext.get(), periodId, classId, subjectCode);
     }
 
     private List<GradeEntrySubjectView> availableSubjects(UUID sessionId, UUID classId, String className,
@@ -424,6 +437,21 @@ public class GradeEntryService {
                 TenantContext.get(), sessionId, classId);
     }
 
+    UUID resolveEnrollmentId(UUID sessionId, UUID classId, UUID studentId,
+                             java.time.LocalDate effectiveDate) {
+        if (cohorts != null) {
+            UUID enrollmentId = cohorts.enrollmentIdForClass(
+                    sessionId, classId, studentId, "ACTIVE", effectiveDate);
+            if (enrollmentId != null) return enrollmentId;
+            throw ApiException.badRequest("Inscription active introuvable pour l'élève");
+        }
+        return enrollments.findFirstBySchoolIdAndStudentIdAndAcademicSessionIdAndStatus(
+                        TenantContext.get(), studentId, sessionId, "ACTIVE")
+                .filter(e -> classId.equals(e.getSchoolClassId()))
+                .map(StudentEnrollment::getId)
+                .orElseThrow(() -> ApiException.badRequest("Inscription active introuvable pour l'élève"));
+    }
+
     private AcademicGradePacket packet(AcademicReportingPeriod period, UUID classId, String subjectCode,
                                        GradeEntrySubjectView subject) {
         return packets.findBySchoolIdAndReportingPeriodIdAndClassIdAndSubjectCode(TenantContext.get(), period.getId(), classId, subjectCode).orElseGet(() -> {
@@ -464,20 +492,17 @@ public class GradeEntryService {
                 UPDATE academic_grade g SET teacher_id=?
                  WHERE g.school_id=? AND g.academic_session_id=? AND g.reporting_period_id=?
                    AND g.subject_code=? AND g.workflow_status IN ('DRAFT','RETURNED')
-                   AND g.student_id IN (SELECT e.student_id FROM student_enrollment e
-                                         WHERE e.school_id=? AND e.academic_session_id=?
-                                           AND e.school_class_id=? AND e.status='ACTIVE')
+                   AND EXISTS (SELECT 1 FROM academic_assessment a
+                                WHERE a.id=g.assessment_id AND a.school_id=g.school_id AND a.class_id=?)
                 """, teacherId, TenantContext.get(), packet.getAcademicSessionId(), packet.getReportingPeriodId(),
-                packet.getSubjectCode(), TenantContext.get(), packet.getAcademicSessionId(), packet.getClassId());
+                packet.getSubjectCode(), packet.getClassId());
         jdbc.update("""
                 UPDATE subject_result_comment c SET teacher_id=?
                  WHERE c.school_id=? AND c.academic_session_id=? AND c.reporting_period_id=?
                    AND c.subject_code=? AND c.workflow_status IN ('DRAFT','RETURNED')
-                   AND c.student_id IN (SELECT e.student_id FROM student_enrollment e
-                                         WHERE e.school_id=? AND e.academic_session_id=?
-                                           AND e.school_class_id=? AND e.status='ACTIVE')
+                   AND c.programme_class_id=?
                 """, teacherId, TenantContext.get(), packet.getAcademicSessionId(), packet.getReportingPeriodId(),
-                packet.getSubjectCode(), TenantContext.get(), packet.getAcademicSessionId(), packet.getClassId());
+                packet.getSubjectCode(), packet.getClassId());
     }
 
     private void recordPacketTransition(AcademicGradePacket packet, String from, String to, String reason) {
@@ -518,6 +543,18 @@ public class GradeEntryService {
     private GradeEntryAssessmentView assessmentView(AcademicAssessment a) { return new GradeEntryAssessmentView(a.getId(), a.getCode(), a.getLabel(), a.getMaxScore(), a.getWeight(), a.isMandatory(), a.getDisplayOrder()); }
     private String studentName(UUID id) { return students.findByIdAndSchoolId(id, TenantContext.get()).map(s -> s.getLastName() + " " + s.getFirstName()).orElse("élève"); }
     private UUID currentUserId() { var auth = SecurityContextHolder.getContext().getAuthentication(); return auth != null && auth.getPrincipal() instanceof AppUserPrincipal p ? p.userId() : null; }
+
+    static boolean sameReviewer(UUID submittedBy, UUID reviewerId) {
+        return submittedBy != null && Objects.equals(submittedBy, reviewerId);
+    }
+
+    static void requireIndependentReviewer(UUID submittedBy, UUID reviewerId) {
+        if (sameReviewer(submittedBy, reviewerId)) {
+            throw ApiException.coded(org.springframework.http.HttpStatus.FORBIDDEN,
+                    "GRADE_PACKET_SELF_REVIEW_DENIED",
+                    "La personne qui a soumis cette feuille ne peut pas l'accepter ni la retourner.");
+        }
+    }
     private UUID currentEmployeeId() { UUID user = currentUserId(); return user == null ? null : jdbc.query("SELECT employee_id FROM app_user WHERE id=?", rs -> rs.next() ? rs.getObject(1, UUID.class) : null, user); }
     private String currentRole() { var auth = SecurityContextHolder.getContext().getAuthentication(); return auth != null && auth.getPrincipal() instanceof AppUserPrincipal p ? p.roleCode() : ""; }
     private void requireReviewer() { if (!Set.of("admin","principal","dean_of_studies","censor").contains(currentRole())) throw ApiException.forbidden("Seule la direction peut accepter ou retourner une feuille de notes"); }

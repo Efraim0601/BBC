@@ -43,6 +43,11 @@ class AttendanceScopeResolverTest {
         verify(jdbc, org.mockito.Mockito.times(2)).queryForObject(
                 org.mockito.ArgumentMatchers.contains("a.role='HOMEROOM'"),
                 eq(Integer.class), any(Object[].class));
+        verify(jdbc, org.mockito.Mockito.times(2)).queryForObject(
+                org.mockito.ArgumentMatchers.argThat(sql -> sql.contains("academic_cohort_programme requested")
+                        && sql.contains("h.mode='SHARED_BILINGUAL'")
+                        && sql.contains("assigned.school_class_id=a.class_id")),
+                eq(Integer.class), any(Object[].class));
     }
 
     @Test
@@ -112,6 +117,28 @@ class AttendanceScopeResolverTest {
         assertThat(resolver.allowsTeacher(principal,
                 context(UUID.randomUUID(), "SCIENCE", "P9"),
                 "TIMETABLE_OCCURRENCES_ASSIGNED")).isFalse();
+    }
+
+    @Test
+    void ownScheduleRemainsViewableWhenTheTeacherHasNoPublishedSlots() {
+        JdbcTemplate jdbc = jdbcForLevel("secondary");
+        AttendanceScopeResolver resolver = new AttendanceScopeResolver(jdbc);
+        PolicyResourceContext ownSchedule = new PolicyResourceContext(
+                schoolId, null, date, null, null, null,
+                null, null, null, employeeId, null, null);
+
+        assertThat(resolver.ownPublishedSchedule(principal(), ownSchedule)).isTrue();
+    }
+
+    @Test
+    void ownScheduleRejectsAnotherTeacherIdentifier() {
+        JdbcTemplate jdbc = jdbcForLevel("secondary");
+        AttendanceScopeResolver resolver = new AttendanceScopeResolver(jdbc);
+        PolicyResourceContext anotherTeacher = new PolicyResourceContext(
+                schoolId, null, date, null, null, null,
+                null, null, null, UUID.randomUUID(), null, null);
+
+        assertThat(resolver.ownPublishedSchedule(principal(), anotherTeacher)).isFalse();
     }
 
     private JdbcTemplate jdbcForLevel(String level) {

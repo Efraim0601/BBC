@@ -6,7 +6,8 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface SubjectResultCommentRepository extends JpaRepository<SubjectResultComment, UUID> {
-    Optional<SubjectResultComment> findBySchoolIdAndStudentIdAndReportingPeriodIdAndSubjectCode(UUID schoolId, UUID studentId, UUID periodId, String subjectCode);
-    List<SubjectResultComment> findBySchoolIdAndReportingPeriodIdAndStudentIdInAndSubjectCode(
-            UUID schoolId, UUID periodId, List<UUID> studentIds, String subjectCode);
+    Optional<SubjectResultComment> findBySchoolIdAndStudentIdAndReportingPeriodIdAndProgrammeClassIdAndSubjectCode(
+            UUID schoolId, UUID studentId, UUID periodId, UUID programmeClassId, String subjectCode);
+    List<SubjectResultComment> findBySchoolIdAndReportingPeriodIdAndStudentIdInAndProgrammeClassIdAndSubjectCode(
+            UUID schoolId, UUID periodId, List<UUID> studentIds, UUID programmeClassId, String subjectCode);
 }

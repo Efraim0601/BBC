@@ -109,7 +109,7 @@ const appreciation = (avg: number, fr: boolean): string => {
       <bbc-page-header [title]="i18n.t('academic')"
         [subtitle]="fr() ? 'Saisie des notes, bulletins, procès-verbaux' : 'Grade entry, report cards, master sheets'">
         <div right class="flex items-center gap-2 print:hidden">
-          @if (mode() === 'bulletin' && selectedClass() && classStudents().length) {
+          @if (mode() === 'bulletin' && canUseClassOverview() && selectedClass() && classStudents().length) {
             <button (click)="printAllBulletins()" [disabled]="bulkBusy()"
               class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-brand-600 hover:bg-brand-700 text-white disabled:opacity-50">
               <bbc-icon name="download" [s]="16" />
@@ -248,8 +248,12 @@ const appreciation = (avg: number, fr: boolean): string => {
         @if (!selectedClass()) {
           <bbc-card className="border-brand-200">
             <div class="flex items-start gap-3">
-              <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-100 text-brand-700 font-bold">1</div>
-              <div><h2 class="text-lg font-bold text-ink">{{ fr() ? 'Commencer une feuille de notes' : 'Start a grade sheet' }}</h2><p class="mt-1 text-sm text-mute">{{ fr() ? 'Choisissez une classe ci-dessus. La période et la matière vous permettront ensuite de voir exactement les élèves à noter.' : 'Choose a class above. The period and subject will then show you exactly which students need marks.' }}</p></div>
+              <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-100 text-brand-700 font-bold">{{ classes().length ? '1' : '!' }}</div>
+              @if (classes().length) {
+                <div><h2 class="text-lg font-bold text-ink">{{ fr() ? 'Commencer une feuille de notes' : 'Start a grade sheet' }}</h2><p class="mt-1 text-sm text-mute">{{ fr() ? 'Choisissez une classe ci-dessus. La période et la matière vous permettront ensuite de voir exactement les élèves à noter.' : 'Choose a class above. The period and subject will then show you exactly which students need marks.' }}</p></div>
+              } @else {
+                <div><h2 class="text-lg font-bold text-ink">{{ fr() ? 'Configuration académique requise' : 'Academic setup required' }}</h2><p class="mt-1 text-sm text-mute">{{ fr() ? 'Aucune classe académique n’est disponible pour cette période. Si une classe vous est affectée, la direction doit encore configurer son curriculum, ses évaluations ou ses affectations.' : 'No academic class is available for this period. If you are assigned to a class, management still needs to configure its curriculum, assessments, or teaching assignments.' }}</p></div>
+              }
             </div>
           </bbc-card>
         } @else if (gradeEntryError(); as error) {
@@ -825,7 +829,7 @@ const appreciation = (avg: number, fr: boolean): string => {
       }
 
       <!-- ============ PV ============ -->
-      @if (mode() === 'batch') {
+      @if (mode() === 'batch' && canPublishReportCards()) {
         @if (!selectedClass()) {
           <bbc-card><bbc-empty icon="users" [label]="fr() ? 'Choisissez une classe pour générer les bulletins.' : 'Pick a class to generate report cards.'" /></bbc-card>
         } @else {
@@ -834,7 +838,7 @@ const appreciation = (avg: number, fr: boolean): string => {
               <div>
                 <div class="text-lg font-bold text-ink">{{ fr() ? 'Génération de la classe' : 'Class report-card generation' }}</div>
                 <div class="text-sm text-mute mt-1">{{ selectedClass() }} · {{ selectedReportingPeriodCode() || selectedReportingPeriodId() }}</div>
-                <div class="text-xs text-mute mt-2 max-w-2xl">{{ fr() ? 'La génération se fait élève par élève. Les bulletins validés ou publiés sont exportés; les lignes bloquées expliquent exactement ce qui manque et peuvent être relancées après correction.' : 'Generation runs one student at a time. Validated or published report cards are exported; blocked rows explain what is missing and can be retried after correction.' }}</div>
+                <div class="text-xs text-mute mt-2 max-w-2xl">{{ fr() ? 'La génération se fait élève par élève et exporte uniquement les bulletins publiés. Les lignes bloquées indiquent ce qui doit encore être publié.' : 'Generation runs one student at a time and exports published report cards only. Blocked rows identify what still needs to be published.' }}</div>
               </div>
               <button (click)="startBatchGeneration()" [disabled]="batchBusy() || !selectedClassId() || !selectedReportingPeriodId()"
                 class="inline-flex items-center gap-2 h-10 px-4 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold disabled:opacity-50">
@@ -986,10 +990,22 @@ export class AcademicComponent {
   private route = inject(ActivatedRoute);
   private router = inject(Router);
 
+  protected classOverviewIds = signal<string[]>([]);
+  protected canUseClassOverview = computed(() => {
+    const teacherScoped = ['teacher', 'secondary_teacher', 'form_teacher'].includes(this.auth.user()?.role ?? '');
+    if (!teacherScoped) return true;
+    const selected = this.selectedClassId();
+    return selected
+      ? this.classOverviewIds().includes(selected)
+      : this.classOverviewIds().length > 0;
+  });
   protected canWrite = this.auth.can('academic', 'write');
-  protected canValidateReportCards = computed(() => this.auth.canModuleOrAction('academic', 'ACADEMIC_REPORT_CARD_VALIDATE', 'write'));
-  protected canPublishReportCards = computed(() => this.auth.canModuleOrAction('academic', 'ACADEMIC_REPORT_CARD_PUBLISH', 'write'));
-  protected canGenerateReportCards = computed(() => this.auth.canModuleOrAction('academic', 'DOCUMENT_GENERATE', 'write'));
+  protected canValidateReportCards = computed(() => this.canUseClassOverview() && ['ALLOW', 'CONTEXT_REQUIRED'].includes(
+    this.auth.actionState('ACADEMIC_REPORT_CARD_VALIDATE')));
+  protected canPublishReportCards = computed(() => this.canUseClassOverview() && ['ALLOW', 'CONTEXT_REQUIRED'].includes(
+    this.auth.actionState('ACADEMIC_REPORT_CARD_PUBLISH')));
+  protected canGenerateReportCards = computed(() => this.canUseClassOverview() && ['ALLOW', 'CONTEXT_REQUIRED'].includes(
+    this.auth.actionState('DOCUMENT_GENERATE')));
 
   /**
    * Maternelle et primaire s'évaluent par compétences, le secondaire par matières.
@@ -1062,12 +1078,20 @@ export class AcademicComponent {
   protected display(value: string | null | undefined): string { return cleanDisplay(value); }
 
   protected tabs = computed(() => [
-    { id: 'batch', label: this.fr() ? 'Génération en lot' : 'Batch generation' },
-    { id: 'bulletin', label: this.fr() ? 'Bulletin' : 'Report card' },
+    ...(this.canPublishReportCards()
+      ? [{ id: 'batch', label: this.fr() ? 'Génération en lot' : 'Batch generation' }]
+      : []),
+    ...(this.canUseClassOverview()
+      ? [{ id: 'bulletin', label: this.fr() ? 'Bulletin' : 'Report card' }]
+      : []),
     { id: 'grade-entry', label: this.fr() ? 'Saisie des notes' : 'Grade entry' },
-    { id: 'inputs', label: this.fr() ? 'Assiduité & conseil' : 'Attendance & council' },
-    { id: 'overview', label: this.fr() ? 'Vue de classe (lecture)' : 'Class overview (read-only)' },
-    { id: 'pv', label: this.fr() ? 'Procès-verbal' : 'Master sheet' },
+    ...(this.canUseClassOverview()
+      ? [
+          { id: 'inputs', label: this.fr() ? 'Assiduité & conseil' : 'Attendance & council' },
+          { id: 'overview', label: this.fr() ? 'Vue de classe (lecture)' : 'Class overview (read-only)' },
+          { id: 'pv', label: this.fr() ? 'Procès-verbal' : 'Master sheet' },
+        ]
+      : []),
   ]);
 
   protected canReview = computed(() => ['admin', 'principal', 'dean_of_studies', 'censor'].includes(this.auth.user()?.role ?? ''));
@@ -1112,15 +1136,26 @@ export class AcademicComponent {
               teacherCount: 0,
             }));
           this.classes.set(classes);
+          this.classOverviewIds.set([...new Set(scope.classOverviews.map((item) => item.classId))]);
+          // A teacher can arrive with the default report-card mode before the
+          // asynchronous scope response proves that no class overview is
+          // available. Keep the active mode aligned with the only visible tab
+          // so the grade-entry empty state (and its setup guidance) is shown.
+          if (!this.canUseClassOverview() && this.mode() !== 'grade-entry') this.setMode('grade-entry');
           afterLoad?.();
         },
-        error: () => { this.classes.set([]); afterLoad?.(); },
+        error: () => {
+          this.classes.set([]);
+          this.classOverviewIds.set([]);
+          if (this.mode() !== 'grade-entry') this.setMode('grade-entry');
+          afterLoad?.();
+        },
       });
       return;
     }
     this.setupApi.listClasses().subscribe({
-      next: (classes) => { this.classes.set(classes); afterLoad?.(); },
-      error: () => { this.classes.set([]); afterLoad?.(); },
+      next: (classes) => { this.classes.set(classes); this.classOverviewIds.set(classes.map((item) => item.id)); afterLoad?.(); },
+      error: () => { this.classes.set([]); this.classOverviewIds.set([]); afterLoad?.(); },
     });
   }
 
@@ -1189,6 +1224,7 @@ export class AcademicComponent {
   }
 
   protected setMode(m: Mode): void {
+    if (!this.canUseClassOverview() && m !== 'grade-entry') m = 'grade-entry';
     if (m === 'grade-entry' && this.reportingPeriods().find((p) => p.id === this.selectedReportingPeriodId())?.periodType !== 'SEQUENCE') {
       const firstSequence = this.sequenceReportingPeriods()[0];
       if (firstSequence) this.selectedReportingPeriodId.set(firstSequence.id);
@@ -1208,6 +1244,7 @@ export class AcademicComponent {
     this.gradeEntryError.set(null);
     this.selectedClass.set(name);
     this.selectedClassId.set(this.classes().find((c) => c.name === name)?.id ?? '');
+    if (!this.canUseClassOverview() && this.mode() !== 'grade-entry') this.mode.set('grade-entry');
     this.selectedStudentId.set('');
     this.clearBulletinState();
     this.pv.set(null);
@@ -1804,7 +1841,7 @@ export class AcademicComponent {
       sex: student?.sex,
       repeater: student?.repeats,
       parentContact: [student?.parentName, student?.parentPhone].filter(Boolean).join(' / ') || null,
-      classMasterName: this.classMasterName() || null,
+      classMasterName: snapshot.classMasterName || this.classMasterName() || null,
       className: snapshot.className ?? '',
       educationalLevel: snapshot.educationalLevel,
       subsystem: snapshot.subsystem,
@@ -1901,7 +1938,7 @@ export class AcademicComponent {
         this.notice.set({ ok: true, text: this.fr()
           ? `Document officiel ${generated.documentNumber} généré (${generated.sizeBytes} octets). Téléchargement en cours.`
           : `Official document ${generated.documentNumber} generated (${generated.sizeBytes} bytes). Download starting.` });
-        this.foundationApi.documentContent(generated.id).subscribe({
+        this.api.reportCardDocumentContent(b.id!, generated.id).subscribe({
           next: (blob) => {
             const url = URL.createObjectURL(blob);
             const anchor = window.document.createElement('a');

@@ -2,6 +2,7 @@ package com.bbc.sms.academic;
 
 import com.bbc.sms.academic.dto.AcademicDtos.GradeEntryReviewRequest;
 import com.bbc.sms.academic.security.AcademicAccessPolicyService;
+import com.bbc.sms.foundation.cohort.AcademicCohortResolver;
 import com.bbc.sms.foundation.enrollment.StudentEnrollmentRepository;
 import com.bbc.sms.foundation.session.AcademicReportingPeriod;
 import com.bbc.sms.foundation.session.AcademicReportingPeriodRepository;
@@ -21,6 +22,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -100,6 +102,35 @@ class GradeEntryServiceWorkflowTest {
                 eq(sessionId), eq(classId), eq("FRANCAIS"), isNull(), eq(periodStart));
         verify(access, never()).require(eq(AcademicAccessPolicyService.Capability.SUBJECT_GRADE_VIEW),
                 any(UUID.class), any(UUID.class), anyString(), isNull(), any(LocalDate.class));
+    }
+
+    @Test
+    void submitterCannotReviewTheirOwnGradePacket() {
+        UUID userId = UUID.randomUUID();
+
+        assertThatThrownBy(() -> GradeEntryService.requireIndependentReviewer(userId, userId))
+                .isInstanceOf(com.bbc.sms.platform.common.ApiException.class)
+                .extracting("code").isEqualTo("GRADE_PACKET_SELF_REVIEW_DENIED");
+    }
+
+    @Test
+    void pairedProgrammeGradeUsesTheSharedCohortEnrollment() {
+        TenantContext.set(schoolId);
+        UUID studentId = UUID.randomUUID();
+        UUID enrollmentId = UUID.randomUUID();
+        AcademicCohortResolver cohorts = mock(AcademicCohortResolver.class);
+        when(cohorts.enrollmentIdForClass(sessionId, classId, studentId, "ACTIVE", periodStart))
+                .thenReturn(enrollmentId);
+
+        GradeEntryService service = new GradeEntryService(
+                periods(), mock(AcademicAssessmentRepository.class), mock(AcademicGradeRepository.class),
+                mock(SubjectResultCommentRepository.class), packets(), mock(StudentEnrollmentRepository.class),
+                mock(StudentRepository.class), mock(SubjectRepository.class), classes(),
+                mock(AcademicWindowPolicyService.class), mock(AcademicAccessPolicyService.class),
+                mock(TeachingAssignmentResolver.class), mock(JdbcTemplate.class), cohorts);
+
+        assertThat(service.resolveEnrollmentId(sessionId, classId, studentId, periodStart))
+                .isEqualTo(enrollmentId);
     }
 
     private AcademicReportingPeriodRepository periods() {

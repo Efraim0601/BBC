@@ -16,10 +16,12 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -58,30 +60,39 @@ public class CoursebookService {
                     String level = rs.getString("level");
                     if ((allowed == null || allowed.contains(id))
                             && inScope(scope, level, subsystem)
-                            && policy.decide("COURSEBOOK_VIEW", coursebookContext(id)).allowed()) {
+                            && policy.decide("COURSEBOOK_VIEW", coursebookContext(id, null)).allowed()) {
                         out.add(new ClassRef(id, rs.getString("name"), rs.getString("section_id"), subsystem, level));
                     }
                 }, schoolId);
         return out;
     }
 
-    /** Return only subjects attached to the selected, already authorized class. */
+    /**
+     * Return only subjects that the current user may manage in the selected class.
+     *
+     * A secondary subject teacher may view the whole class coursebook, but must not
+     * be offered another teacher's subject when creating or editing an entry.
+     * Primary/Kindergarten homeroom teachers and school-wide administrators keep
+     * all subjects allowed by their contextual COURSEBOOK_MANAGE rule.
+     */
     @Transactional(readOnly = true)
     public List<SubjectView> subjects(String className) {
         String name = className == null ? "" : className.trim();
         if (name.isBlank()) return List.of();
         teacherScope.assertClassName(name);
         UUID classId = classId(name);
-        requirePolicy("COURSEBOOK_VIEW", classId);
+        requirePolicy("COURSEBOOK_VIEW", classId, null);
         UUID schoolId = TenantContext.get();
-        return jdbc.query("""
+        AcademicContext academic = currentAcademicContext();
+        if (academic == null) return List.of();
+        List<SubjectView> curriculum = jdbc.query("""
                 SELECT s.id,s.code,s.subsystem,s.label->>'fr',s.label->>'en',cs.coefficient
                   FROM academic_curriculum_subject cs
                   JOIN subject s ON s.id=cs.subject_id
                  WHERE cs.school_id=? AND cs.class_id=?
-                   AND cs.academic_session_id=(SELECT id FROM academic_session WHERE school_id=? AND is_current=true LIMIT 1)
-                   AND (cs.active_from IS NULL OR cs.active_from<=current_date)
-                   AND (cs.active_to IS NULL OR cs.active_to>=current_date)
+                   AND cs.academic_session_id=?
+                   AND (cs.active_from IS NULL OR cs.active_from<=?)
+                   AND (cs.active_to IS NULL OR cs.active_to>=?)
                  ORDER BY cs.display_order,s.code
                 """, (rs, n) -> {
                     Map<String, String> label = new LinkedHashMap<>();
@@ -89,14 +100,18 @@ public class CoursebookService {
                     if (rs.getString(5) != null) label.put("en", rs.getString(5));
                     return new SubjectView(rs.getObject(1, UUID.class), rs.getString(2), rs.getString(3),
                             label, rs.getInt(6));
-                }, schoolId, classId, schoolId);
+                }, schoolId, classId, academic.sessionId(), academic.effectiveDate(), academic.effectiveDate());
+        return curriculum.stream()
+                .filter(subject -> policy.decide("COURSEBOOK_MANAGE",
+                        coursebookContext(classId, normalizeSubject(subject.code()))).allowed())
+                .toList();
     }
 
     @Transactional(readOnly = true)
     public List<EntryView> forClass(String className) {
         if (className == null || className.isBlank()) return List.of();
         teacherScope.assertClassName(className.trim());
-        requirePolicy("COURSEBOOK_VIEW", classId(className.trim()));
+        requirePolicy("COURSEBOOK_VIEW", classId(className.trim()), null);
         UUID schoolId = TenantContext.get();
         Map<String, String> labels = subjectLabels(schoolId);
         return repo.findBySchoolIdAndClassNameOrderByEntryDateDesc(schoolId, className.trim())
@@ -106,7 +121,7 @@ public class CoursebookService {
     @Transactional
     public EntryView create(EntryUpsert in) {
         teacherScope.assertClassName(in.className());
-        requirePolicy("COURSEBOOK_MANAGE", classId(in.className().trim()));
+        requirePolicy("COURSEBOOK_MANAGE", classId(in.className().trim()), normalizeSubject(in.subjectCode()));
         UUID schoolId = TenantContext.get();
         CoursebookEntry e = new CoursebookEntry();
         apply(e, in, schoolId);
@@ -121,8 +136,8 @@ public class CoursebookService {
                 .orElseThrow(() -> ApiException.notFound("Entrée du cahier de textes"));
         teacherScope.assertClassName(e.getClassName());
         teacherScope.assertClassName(in.className());
-        requirePolicy("COURSEBOOK_MANAGE", classId(e.getClassName()));
-        requirePolicy("COURSEBOOK_MANAGE", classId(in.className().trim()));
+        requirePolicy("COURSEBOOK_MANAGE", classId(e.getClassName()), normalizeSubject(e.getSubjectCode()));
+        requirePolicy("COURSEBOOK_MANAGE", classId(in.className().trim()), normalizeSubject(in.subjectCode()));
         apply(e, in, schoolId);
         return toView(repo.save(e), subjectLabels(schoolId));
     }
@@ -132,14 +147,14 @@ public class CoursebookService {
         CoursebookEntry e = repo.findByIdAndSchoolId(id, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Entrée du cahier de textes"));
         teacherScope.assertClassName(e.getClassName());
-        requirePolicy("COURSEBOOK_MANAGE", classId(e.getClassName()));
+        requirePolicy("COURSEBOOK_MANAGE", classId(e.getClassName()), normalizeSubject(e.getSubjectCode()));
         repo.delete(e);
     }
 
     private void apply(CoursebookEntry e, EntryUpsert in, UUID schoolId) {
         e.setSchoolId(schoolId);
         e.setClassName(in.className().trim());
-        e.setSubjectCode(in.subjectCode().trim());
+        e.setSubjectCode(normalizeSubject(in.subjectCode()));
         e.setEntryDate(in.entryDate());
         e.setContent(in.content().trim());
         e.setHomework(in.homework() == null || in.homework().isBlank() ? null : in.homework().trim());
@@ -175,17 +190,39 @@ public class CoursebookService {
         return id;
     }
 
-    private void requirePolicy(String action, UUID classId) {
-        policy.require(action, coursebookContext(classId));
+    private void requirePolicy(String action, UUID classId, String subjectCode) {
+        policy.require(action, coursebookContext(classId, subjectCode));
     }
 
-    private PolicyResourceContext coursebookContext(UUID classId) {
-        return new PolicyResourceContext(TenantContext.get(), null, java.time.LocalDate.now(),
-                null, classId, null, null, null, null, null, null, null);
+    private PolicyResourceContext coursebookContext(UUID classId, String subjectCode) {
+        AcademicContext academic = currentAcademicContext();
+        return new PolicyResourceContext(TenantContext.get(), academic == null ? null : academic.sessionId(),
+                academic == null ? LocalDate.now() : academic.effectiveDate(),
+                ParcoursContext.get(), classId, subjectCode, null, null, null, null, null, null);
+    }
+
+    private AcademicContext currentAcademicContext() {
+        return jdbc.query("""
+                SELECT id,start_date,end_date FROM academic_session
+                 WHERE school_id=? AND is_current=true ORDER BY start_date DESC LIMIT 1
+                """, rs -> {
+            if (!rs.next()) return null;
+            LocalDate start = rs.getObject("start_date", LocalDate.class);
+            LocalDate end = rs.getObject("end_date", LocalDate.class);
+            LocalDate now = LocalDate.now();
+            LocalDate effective = now.isBefore(start) ? start : now.isAfter(end) ? end : now;
+            return new AcademicContext(rs.getObject("id", UUID.class), effective);
+        }, TenantContext.get());
+    }
+
+    private static String normalizeSubject(String subjectCode) {
+        return subjectCode == null ? "" : subjectCode.trim().toUpperCase(Locale.ROOT);
     }
 
     private static boolean inScope(ParcoursContext.Scope scope, String level, String subsystem) {
         if (scope == null || level == null || level.isBlank() || subsystem == null || subsystem.isBlank()) return true;
         return scope.level().equalsIgnoreCase(level) && scope.subsystem().equalsIgnoreCase(subsystem);
     }
+
+    private record AcademicContext(UUID sessionId, LocalDate effectiveDate) {}
 }

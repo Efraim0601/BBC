@@ -668,15 +668,16 @@ public class ReportCardPdfService {
                 SELECT s.dob,s.birthplace,s.sex,s.repeats,
                        concat_ws(' / ',nullif(s.parent_name,''),nullif(s.parent_phone,'')) parent_contact,
                        coalesce((SELECT e.name
-                                   FROM student_enrollment se
-                                   JOIN class_teacher_assignment a
-                                     ON a.school_id=se.school_id
-                                    AND a.academic_session_id=se.academic_session_id
-                                    AND a.class_id=se.school_class_id
-                                    AND a.role='HOMEROOM' AND a.status='ACTIVE'
+                                   FROM class_teacher_assignment a
                                    JOIN employee e ON e.id=a.employee_id AND e.school_id=a.school_id
-                                  WHERE se.school_id=s.school_id AND se.student_id=s.id
-                                    AND se.academic_session_id=? AND se.status='ACTIVE'
+                                  WHERE a.school_id=s.school_id AND a.academic_session_id=?
+                                    AND a.class_id=coalesce(?, (SELECT se.school_class_id
+                                          FROM student_enrollment se
+                                         WHERE se.school_id=s.school_id AND se.student_id=s.id
+                                           AND se.academic_session_id=a.academic_session_id
+                                           AND se.status='ACTIVE'
+                                         ORDER BY se.enrolled_on DESC,se.created_at DESC LIMIT 1))
+                                    AND a.role='HOMEROOM' AND a.status='ACTIVE'
                                   ORDER BY a.effective_from DESC LIMIT 1),'-') class_master,
                        coalesce((SELECT code FROM academic_session WHERE id=? AND school_id=s.school_id),'-') school_year
                   FROM student s WHERE s.id=? AND s.school_id=?
@@ -687,7 +688,8 @@ public class ReportCardPdfService {
                     rs.getBoolean("repeats") ? "Oui / Yes" : "Non / No",
                     safeText(rs.getString("parent_contact")), safeText(rs.getString("class_master")),
                     safeText(rs.getString("school_year"))),
-                    bulletin.academicSessionId(), bulletin.academicSessionId(), bulletin.studentId(), TenantContext.get());
+                    bulletin.academicSessionId(), bulletin.programmeClassId(), bulletin.academicSessionId(),
+                    bulletin.studentId(), TenantContext.get());
             return rows == null || rows.isEmpty() ? fallback : rows.getFirst();
         } catch (RuntimeException ignored) {
             return fallback;

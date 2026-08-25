@@ -226,9 +226,10 @@ public class SessionAcademicService {
                 period.getAcademicSessionId(), enrollment.getSchoolClassId(), subjectCode, in.studentId(),
                 period.getStartDate());
         if (in.comment() != null && in.comment().length() > 500) throw ApiException.badRequest("La remarque ne peut pas dépasser 500 caractères");
-        SubjectResultComment c = comments.findBySchoolIdAndStudentIdAndReportingPeriodIdAndSubjectCode(TenantContext.get(), in.studentId(), period.getId(), subjectCode).orElseGet(SubjectResultComment::new);
+        SubjectResultComment c = comments.findBySchoolIdAndStudentIdAndReportingPeriodIdAndProgrammeClassIdAndSubjectCode(
+                TenantContext.get(), in.studentId(), period.getId(), enrollment.getSchoolClassId(), subjectCode).orElseGet(SubjectResultComment::new);
         if (in.version() != null && c.getId() != null && in.version() != c.getVersion()) throw ApiException.conflict("Cette remarque a été modifiée par un autre utilisateur");
-        c.setSchoolId(TenantContext.get()); c.setAcademicSessionId(period.getAcademicSessionId()); c.setReportingPeriodId(period.getId()); c.setStudentId(in.studentId()); c.setEnrollmentId(enrollment.getId()); c.setSubjectCode(subjectCode); c.setComment(in.comment() == null ? null : in.comment().trim()); c.setAppreciationCode(in.appreciationCode()); c.setWorkflowStatus("DRAFT");
+        c.setSchoolId(TenantContext.get()); c.setAcademicSessionId(period.getAcademicSessionId()); c.setReportingPeriodId(period.getId()); c.setStudentId(in.studentId()); c.setEnrollmentId(enrollment.getId()); c.setProgrammeClassId(enrollment.getSchoolClassId()); c.setSubjectCode(subjectCode); c.setComment(in.comment() == null ? null : in.comment().trim()); c.setAppreciationCode(in.appreciationCode()); c.setWorkflowStatus("DRAFT");
         return commentView(comments.save(c));
     }
 

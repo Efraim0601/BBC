@@ -338,6 +338,46 @@ class AcademicAccessPolicyServiceTest {
     }
 
     @Test
+    void secondaryTitulaireCanValidateOwnClassReportCardsButNotAnotherClass() {
+        TenantContext.set(school);
+        UUID userId = UUID.randomUUID();
+        UUID employeeId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        UUID classId = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2026, 9, 1);
+        AppUserPrincipal principal = new AppUserPrincipal(userId, school, "secondary_teacher",
+                "secondary_teacher", "Secondary teacher", "ST");
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
+
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        stubScopeQueries(jdbc, employeeId, sessionId, classId, date);
+        TeachingAssignmentResolver assignments = mock(TeachingAssignmentResolver.class);
+        when(assignments.resolveHomeroom(sessionId, classId, date))
+                .thenReturn(new TeachingAssignmentResolver.Resolution("HOMEROOM", employeeId,
+                        "Secondary teacher", "EMP-1", UUID.randomUUID(), 2L, "HOMEROOM",
+                        "RESOLVED", "ASSIGNMENT_RESOLVED", "Dated titulaire",
+                        "Dated homeroom", true));
+
+        AcademicAccessPolicyService policy = new AcademicAccessPolicyService(
+                jdbc, mock(PermissionService.class), assignments);
+
+        assertThat(policy.resolveDomain(AcademicAccessPolicyService.Capability.REPORT_CARD_VALIDATE,
+                sessionId, classId, null, null, date).allowed()).isTrue();
+
+        when(assignments.resolveHomeroom(sessionId, classId, date))
+                .thenReturn(new TeachingAssignmentResolver.Resolution("HOMEROOM", UUID.randomUUID(),
+                        "Other teacher", "EMP-2", UUID.randomUUID(), 3L, "HOMEROOM",
+                        "RESOLVED", "ASSIGNMENT_RESOLVED", "Dated titulaire",
+                        "Dated homeroom", true));
+        AcademicAccessPolicyService.AccessDecision denied = policy.resolveDomain(
+                AcademicAccessPolicyService.Capability.REPORT_CARD_VALIDATE,
+                sessionId, classId, null, null, date);
+        assertThat(denied.allowed()).isFalse();
+        assertThat(denied.code()).isEqualTo("CLASS_RESULTS_ACCESS_DENIED");
+    }
+
+    @Test
     void secondaryTitulaireCanViewRosterWithoutAnyResponsibleSubjectAssignment() {
         TenantContext.set(school);
         UUID userId = UUID.randomUUID();

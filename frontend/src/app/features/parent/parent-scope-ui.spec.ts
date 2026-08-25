@@ -21,6 +21,8 @@ describe('parent optional-read scope boundary', () => {
       paymentChannels: vi.fn(() => of([])),
       children: vi.fn(() => of([])),
       mySuggestions: vi.fn(() => of([])),
+      sharedResources: vi.fn(() => of([])),
+      programmeClasses: vi.fn(() => of([])),
       latestPublishedBulletin: vi.fn(() => throwError(() => new Error('404 NOT_FOUND'))),
       fees: vi.fn(() => of(null)),
       resources: vi.fn(() => of(null)),

@@ -100,6 +100,7 @@ export interface BulletinSnapshotView {
   reportingPeriodCode: string; reportingPeriodLabel: string; studentId: string;
   studentName: string; matricule: string; educationalLevel?: string | null; subsystem?: string | null; className: string | null;
   programmeClassId?: string | null;
+  classMasterName?: string | null;
   lines: Array<{ subjectCode: string; subjectLabel: string; coefficient: number; mark: number | null; weighted: number | null; teacherRemark: string | null; appreciation: string; assessments: AssessmentEvidence[]; periodMarks?: Array<{ periodCode: string; mark: number | null }> | null; teacherName?: string | null; subjectGroupCode?: string | null; subjectGroupLabel?: string | null }>;
   average: number | null; rank: number | null; classSize: number; state: string; complete: boolean;
   blockers: string[]; snapshotHash: string; calculationPolicy: string; generalAppreciation: string | null; version: number;
@@ -346,6 +347,13 @@ export class AcademicApi {
     return this.http.post<GeneratedDocumentView>(`${this.base}/bulletin-snapshots/${encodeURIComponent(id)}/document`, {}, {
       params: { locale }, headers: { 'Idempotency-Key': idempotencyKey },
     });
+  }
+
+  reportCardDocumentContent(snapshotId: string, documentId: string): Observable<Blob> {
+    return this.http.get(
+      `${this.base}/bulletin-snapshots/${encodeURIComponent(snapshotId)}/documents/${encodeURIComponent(documentId)}/content`,
+      { responseType: 'blob' },
+    );
   }
 
   validate(studentId: string, sequence: number, appreciation: string): Observable<BulletinView> {

@@ -14,6 +14,8 @@ describe('settings academic-setup scope boundary', () => {
   function create(actionState: (action: string) => string): ComponentFixture<SettingsComponent> {
     const auth = {
       user: signal({ role: 'principal', displayName: 'Direction A' }),
+      schoolWide: signal(true),
+      section: signal(null),
       actionState: vi.fn(actionState),
       canAction: vi.fn((action: string) => actionState(action) === 'ALLOW'),
     };
@@ -23,6 +25,7 @@ describe('settings academic-setup scope boundary', () => {
       getSchool: vi.fn(() => of({ code: 'BBC-E2E', name: 'School', motto: null, city: 'Yaoundé', country: 'Cameroun', address: '12 Test Avenue, Bastos', phone: null, email: null, website: null, currency: 'XAF', authority: null, academicYear: '2026-2027', schoolStartTime: '07:30', schoolEndTime: '15:30' })),
       listHolidays: vi.fn(() => of([])),
       listCatalog: vi.fn(() => of([])),
+      listAdmins: vi.fn(() => of([])),
     };
 
     TestBed.configureTestingModule({

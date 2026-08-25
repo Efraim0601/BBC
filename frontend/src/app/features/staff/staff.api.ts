@@ -54,6 +54,18 @@ export interface TeacherClassView {
   studentCount: number;
 }
 
+export interface StaffDocumentView {
+  id: string;
+  employeeId: string;
+  documentType: 'cv' | 'diploma' | 'certificate' | 'identity' | 'contract' | 'other';
+  label: string;
+  fileName: string;
+  contentType: string;
+  byteSize: number;
+  uploadedByName: string | null;
+  uploadedAt: string;
+}
+
 export interface AccountResult {
   hasAccount: boolean;
   username: string;
@@ -235,6 +247,26 @@ export class StaffApi {
   /** Remplace la liste ; une liste vide détache l'enseignant de toutes ses classes. */
   setClasses(id: string, classIds: string[]): Observable<TeacherClassView[]> {
     return this.http.put<TeacherClassView[]>(`${this.base}/${id}/classes`, { classIds });
+  }
+
+  listDocuments(id: string): Observable<StaffDocumentView[]> {
+    return this.http.get<StaffDocumentView[]>(`${this.base}/${id}/documents`);
+  }
+
+  uploadDocument(id: string, file: File, documentType: StaffDocumentView['documentType'], label: string): Observable<StaffDocumentView> {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    form.append('documentType', documentType);
+    if (label.trim()) form.append('label', label.trim());
+    return this.http.post<StaffDocumentView>(`${this.base}/${id}/documents`, form);
+  }
+
+  downloadDocument(employeeId: string, documentId: string): Observable<Blob> {
+    return this.http.get(`${this.base}/${employeeId}/documents/${documentId}`, { responseType: 'blob' });
+  }
+
+  removeDocument(employeeId: string, documentId: string): Observable<void> {
+    return this.http.delete<void>(`${this.base}/${employeeId}/documents/${documentId}`);
   }
 
   finalizeApplication(id: string, body: StaffApplicationFinalize): Observable<StaffApplicationView> {

@@ -173,13 +173,23 @@ export class AppsHomeComponent {
   protected visibleGroups = computed(() => {
     const allowed = new Set(this.auth.user()?.modules ?? []);
     return NAV_GROUPS
-      .map((g) => ({ ...g, mods: g.mods.filter((m) =>
-        allowed.has(m.id)
-        || (m.id === 'access-control' && this.auth.canAction('PERMISSION_VIEW'))
-        || (m.id === 'students' && this.auth.canModuleOrAction('students', 'STUDENT_DIRECTORY_VIEW'))
-      ) }))
+      .map((g) => ({ ...g, mods: g.mods.filter((m) => this.moduleVisible(m.id, allowed)) }))
       .filter((g) => g.mods.length > 0);
   });
+
+  private moduleVisible(id: string, allowed: Set<string>): boolean {
+    const scopedAction: Record<string, string> = {
+      coursebook: 'COURSEBOOK_VIEW',
+      events: 'EVENTS_VIEW',
+      messages: 'MESSAGES_VIEW',
+    };
+    if (scopedAction[id]) {
+      return ['ALLOW', 'CONTEXT_REQUIRED'].includes(this.auth.actionState(scopedAction[id]));
+    }
+    return allowed.has(id)
+      || (id === 'access-control' && this.auth.canAction('PERMISSION_VIEW'))
+      || (id === 'students' && this.auth.canModuleOrAction('students', 'STUDENT_DIRECTORY_VIEW'));
+  }
 
   /** Recently opened modules the user still has access to. */
   protected recentMods = computed<Mod[]>(() => {

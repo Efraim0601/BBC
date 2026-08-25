@@ -43,4 +43,19 @@ describe('AcademicApi access-control surfaces', () => {
     create.flush({});
     http.verify();
   });
+
+  it('downloads an official report through the matching bulletin scope', () => {
+    TestBed.configureTestingModule({ providers: [AcademicApi, provideHttpClient(), provideHttpClientTesting()] });
+    const api = TestBed.inject(AcademicApi);
+    const http = TestBed.inject(HttpTestingController);
+
+    api.reportCardDocumentContent('snapshot-1', 'document-1').subscribe();
+    const request = http.expectOne(
+      `${environment.apiUrl}/academic/bulletin-snapshots/snapshot-1/documents/document-1/content`,
+    );
+    expect(request.request.method).toBe('GET');
+    expect(request.request.responseType).toBe('blob');
+    request.flush(new Blob(['pdf'], { type: 'application/pdf' }));
+    http.verify();
+  });
 });

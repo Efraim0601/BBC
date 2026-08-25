@@ -446,7 +446,7 @@ class SharedFoundationIntegrationTest {
     }
 
     @Test
-    void secondaryHomeroomAloneDoesNotReplaceResponsibleSubjectAssignmentForStudentAccess() {
+    void secondaryHomeroomGrantsClassRosterAccessWithoutResponsibleSubjectAssignment() {
         UUID academicId = UUID.randomUUID();
         String sectionId = "hs" + schoolId.toString().substring(0, 8);
         jdbc.update("INSERT INTO academic_session(id,school_id,code,label,start_date,end_date,status,is_current) VALUES (?,?, '2026-2027','2026-2027','2026-09-01','2027-07-31','OPEN',true)",
@@ -460,9 +460,10 @@ class SharedFoundationIntegrationTest {
 
         authenticateTeacherForStudent(studentId);
 
-        assertThat(students.list(null)).isEmpty();
-        assertThatThrownBy(() -> students.get(studentId))
-                .isInstanceOf(ApiException.class);
+        assertThat(students.list(null)).extracting(v -> v.id()).containsExactly(studentId);
+        assertThat(students.get(studentId)).isNotNull();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM academic_class_subject_teacher WHERE school_id=? AND academic_session_id=?",
+                Integer.class, schoolId, academicId)).isZero();
     }
 
     private UUID insertHomeroomOnlyRosterFixture(UUID academicId, String sectionId, String level,

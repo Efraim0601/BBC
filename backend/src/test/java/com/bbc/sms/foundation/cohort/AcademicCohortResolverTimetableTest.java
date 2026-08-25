@@ -60,6 +60,32 @@ class AcademicCohortResolverTimetableTest {
                 .containsExactly(frClassId, enClassId);
     }
 
+    @Test
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    void pairedProgrammeClassResolvesItsSharedCohortEnrollment() throws Exception {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        TenantContext.set(schoolId);
+        UUID studentId = UUID.randomUUID();
+        UUID enrollmentId = UUID.randomUUID();
+        java.util.ArrayList<String> queries = new java.util.ArrayList<>();
+        doAnswer(invocation -> {
+            String sql = invocation.getArgument(0, String.class);
+            queries.add(sql);
+            ResultSetExtractor extractor = invocation.getArgument(1, ResultSetExtractor.class);
+            ResultSet rs = mock(ResultSet.class);
+            when(rs.next()).thenReturn(true, false);
+            when(rs.getObject(1, UUID.class)).thenReturn(
+                    sql.contains("SELECT cohort_id") ? cohortId : enrollmentId);
+            return extractor.extractData(rs);
+        }).when(jdbc).query(anyString(), any(ResultSetExtractor.class), any(Object[].class));
+
+        UUID resolved = new AcademicCohortResolver(jdbc).enrollmentIdForClass(
+                sessionId, enClassId, studentId, "ACTIVE", java.time.LocalDate.of(2026, 9, 1));
+
+        assertThat(resolved).isEqualTo(enrollmentId);
+        assertThat(queries).anyMatch(sql -> sql.contains("e.cohort_id=?"));
+    }
+
     private ResultSet programme(UUID id, String name, String subsystem) throws Exception {
         ResultSet row = mock(ResultSet.class);
         when(row.getObject(1, UUID.class)).thenReturn(id);

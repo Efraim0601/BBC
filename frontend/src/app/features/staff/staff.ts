@@ -1,11 +1,12 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed, effect } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
+import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import {
   StaffApi, EmployeeUpsert, EmployeeView, AccountResult, StaffImportRow, StaffImportResult,
-  StaffApplicationView, StaffPortalSettingsView, StaffApplicationFinalize, TeacherClassView,
+  StaffApplicationView, StaffPortalSettingsView, StaffApplicationFinalize, TeacherClassView, StaffDocumentView,
 } from './staff.api';
 import { HrApi, DepartmentView, DepartmentUpsert, LeaveView, LeaveCreate } from './hr.api';
 import { SettingsApi, RoleView } from '../settings/settings.api';
@@ -24,6 +25,12 @@ import { PhotoApi } from '../../core/photo.api';
 const fmtMoney = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} FCFA`;
 const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? Math.round(n / 1e3) + 'k' : '' + n);
 
+interface StaffDocumentDraft {
+  file: File;
+  documentType: StaffDocumentView['documentType'];
+  label: string;
+}
+
 @Component({
   selector: 'bbc-staff',
   standalone: true,
@@ -35,10 +42,11 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
   ],
   template: `
     <div class="fade-in max-w-7xl mx-auto">
-      <bbc-page-header [title]="i18n.t('hr')"
-        [subtitle]="fr() ? 'Annuaire du personnel, rôles et masse salariale' : 'Staff directory, roles and payroll'">
+      <bbc-page-header
+        [title]="isDetailPage() ? (fr() ? 'Fiche employé' : 'Employee profile') : i18n.t('hr')"
+        [subtitle]="isDetailPage() ? (selected()?.name ?? '') : (fr() ? 'Annuaire du personnel, rôles et masse salariale' : 'Staff directory, roles and payroll')">
         <div right class="flex items-center gap-2">
-          @if (mode() === 'list') {
+          @if (mode() === 'list' && !isDetailPage()) {
             <button (click)="exportList()"
               class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
               <bbc-icon name="download" [s]="16" /> {{ fr() ? 'Exporter' : 'Export' }}
@@ -62,14 +70,20 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
               </button>
             }
           }
+          @if (isDetailPage()) {
+            <a routerLink="/staff"
+              class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
+              <bbc-icon name="chevronLeft" [s]="15" /> {{ fr() ? 'Retour à l’annuaire' : 'Back to directory' }}
+            </a>
+          }
         </div>
       </bbc-page-header>
 
       @if (mode() === 'list') {
-        <bbc-tabs [tabs]="tabs()" [value]="tab()" (change)="setTab($event)" />
+        <bbc-tabs [class.hidden]="isDetailPage()" [tabs]="tabs()" [value]="tab()" (change)="setTab($event)" />
 
         <!-- KPIs -->
-        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
+        <div [class.hidden]="isDetailPage()" class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
           <bbc-kpi tone="neutral" icon="users" [label]="fr() ? 'Effectif personnel' : 'Total staff'"
             [value]="rows().length" [sub]="teacherCount() + (fr() ? ' enseignants' : ' teachers')" />
           <bbc-kpi tone="ok" icon="check" [label]="fr() ? 'Permanents' : 'Permanent'"
@@ -82,6 +96,7 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
 
         @switch (tab()) {
           @case ('directory') {
+            @if (!isDetailPage()) {
             <!-- Filters -->
             <bbc-card className="mb-5">
               <div class="flex items-center gap-3 flex-wrap">
@@ -189,9 +204,11 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                 </bbc-data-table>
               </div>
             </bbc-card>
+            }
 
             <!-- Detail panel -->
-            @if (selected(); as e) {
+            @if (isDetailPage()) {
+              @if (selected(); as e) {
               <div class="bg-white rounded-xl2 shadow-card border border-slate-100 overflow-hidden">
                 <div class="p-6 bg-gradient-to-br from-brand-700 to-brand-800 text-white relative overflow-hidden">
                   <div class="absolute -top-12 -right-8 w-40 h-40 rounded-full bg-gold-400/15 blur-2xl"></div>
@@ -323,6 +340,98 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                     }
                   </div>
 
+                  <!-- Documents RH : visibles directement depuis la fiche -->
+                  <div class="rounded-xl border border-slate-100 p-4">
+                    <div class="flex items-start justify-between gap-3 mb-3">
+                      <div>
+                        <div class="text-[11px] uppercase tracking-wider text-mute font-semibold">
+                          {{ fr() ? 'Documents du personnel' : 'Personnel documents' }}
+                        </div>
+                        <div class="text-xs text-mute mt-0.5">
+                          {{ fr() ? 'Cliquez sur un document pour le consulter ici, ou téléchargez-le.' : 'Click a document to view it here, or download it.' }}
+                        </div>
+                      </div>
+                      @if (profileDocuments().length) {
+                        <span class="text-[11px] font-semibold text-mute">{{ profileDocuments().length }}</span>
+                      }
+                    </div>
+
+                    @if (profileDocumentsBusy()) {
+                      <div class="text-xs text-mute py-2">{{ fr() ? 'Chargement des documents…' : 'Loading documents…' }}</div>
+                    } @else if (profileDocuments().length) {
+                      <div class="grid gap-2 sm:grid-cols-2">
+                        @for (doc of profileDocuments(); track doc.id) {
+                          <div class="flex items-stretch gap-2 rounded-lg border border-slate-200 bg-slate-50/60 p-2 hover:border-brand-200 hover:bg-brand-50/30">
+                            <button type="button" (click)="openDocumentPreview(doc)"
+                              class="flex min-w-0 flex-1 items-center gap-2.5 text-left">
+                              <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-white text-brand-700 border border-slate-200">
+                                <bbc-icon [name]="documentPreviewKind(doc) === 'image' ? 'image' : documentPreviewKind(doc) === 'pdf' ? 'fileText' : 'file'" [s]="16" />
+                              </span>
+                              <span class="min-w-0">
+                                <span class="block truncate text-sm font-semibold text-ink">{{ doc.label }}</span>
+                                <span class="block truncate text-[11px] text-mute">{{ documentTypeLabel(doc.documentType) }} · {{ formatBytes(doc.byteSize) }} · {{ doc.fileName }}</span>
+                              </span>
+                            </button>
+                            <button type="button" (click)="downloadDocument(doc)"
+                              class="shrink-0 self-center rounded-md px-2 py-1 text-[11px] font-semibold text-brand-700 hover:bg-white hover:text-brand-900"
+                              [attr.aria-label]="fr() ? 'Télécharger ' + doc.label : 'Download ' + doc.label">
+                              {{ fr() ? 'Télécharger' : 'Download' }}
+                            </button>
+                          </div>
+                        }
+                      </div>
+                    } @else {
+                      <div class="rounded-lg bg-slate-50 px-3 py-2.5 text-xs text-mute">
+                        {{ fr() ? 'Aucun document enregistré pour cet employé.' : 'No documents are on file for this employee.' }}
+                      </div>
+                    }
+
+                    @if (previewedDocument(); as doc) {
+                      <div class="mt-4 overflow-hidden rounded-lg border border-brand-100 bg-white">
+                        <div class="flex items-center justify-between gap-3 border-b border-slate-100 bg-brand-50/60 px-3 py-2">
+                          <div class="min-w-0">
+                            <div class="truncate text-sm font-semibold text-ink">{{ doc.label }}</div>
+                            <div class="text-[11px] text-mute">{{ doc.fileName }}</div>
+                          </div>
+                          <button type="button" (click)="closeDocumentPreview()"
+                            class="shrink-0 rounded-md px-2 py-1 text-xs font-semibold text-mute hover:bg-white hover:text-ink">
+                            {{ fr() ? 'Fermer' : 'Close' }}
+                          </button>
+                        </div>
+                        @if (previewDocumentBusy()) {
+                          <div class="flex min-h-24 items-center justify-center p-5 text-xs text-mute">
+                            {{ fr() ? 'Ouverture du document…' : 'Opening document…' }}
+                          </div>
+                        } @else if (previewDocumentError(); as error) {
+                          <div class="p-4 text-xs text-amber-700">{{ error }}</div>
+                        } @else {
+                          @switch (documentPreviewKind(doc)) {
+                            @case ('image') {
+                              @if (previewDocumentUrl(); as url) {
+                                <div class="bg-slate-100 p-3 text-center">
+                                  <img [src]="url" [alt]="doc.label" class="mx-auto max-h-[560px] max-w-full rounded-md object-contain shadow-sm" />
+                                </div>
+                              }
+                            }
+                            @case ('pdf') {
+                              @if (previewDocumentResourceUrl(); as url) {
+                                <iframe [src]="url" [title]="doc.label" class="h-[650px] w-full border-0 bg-slate-100"></iframe>
+                              }
+                            }
+                            @case ('text') {
+                              <pre class="max-h-[560px] overflow-auto whitespace-pre-wrap p-4 text-left text-xs leading-5 text-ink">{{ previewDocumentText() }}</pre>
+                            }
+                            @default {
+                              <div class="p-4 text-xs text-mute">
+                                {{ fr() ? 'Ce format ne peut pas être prévisualisé dans le navigateur. Utilisez Télécharger pour l’ouvrir.' : 'This format cannot be previewed in the browser. Use Download to open it.' }}
+                              </div>
+                            }
+                          }
+                        }
+                      </div>
+                    }
+                  </div>
+
                   <!-- Compensation -->
                   <div>
                     <div class="text-[11px] uppercase tracking-wider text-mute font-semibold mb-2">{{ fr() ? 'Rémunération' : 'Compensation' }}</div>
@@ -358,6 +467,18 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
                   </div>
                 </div>
               </div>
+              } @else {
+                <bbc-card>
+                  <div class="flex flex-col items-center justify-center gap-3 py-12 text-center">
+                    <bbc-icon name="users" [s]="28" />
+                    <div class="text-sm font-semibold text-ink">{{ fr() ? 'Employé introuvable' : 'Employee not found' }}</div>
+                    <div class="text-xs text-mute">{{ fr() ? 'Cette fiche n’est pas disponible dans votre périmètre.' : 'This employee record is not available in your scope.' }}</div>
+                    <a routerLink="/staff" class="mt-2 inline-flex items-center gap-2 h-9 px-3.5 rounded-lg bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700">
+                      {{ fr() ? 'Retour à l’annuaire' : 'Back to directory' }}
+                    </a>
+                  </div>
+                </bbc-card>
+              }
             }
           }
 
@@ -1172,6 +1293,76 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
               </label>
             </section>
 
+            <section class="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+              <div class="flex items-start justify-between gap-3 mb-1">
+                <div>
+                  <div class="text-[11px] uppercase tracking-wider text-mute font-bold">{{ fr() ? 'Documents du dossier' : 'Personnel documents' }}</div>
+                  <div class="text-sm font-semibold text-ink mt-1">{{ fr() ? 'CV, diplômes et pièces complémentaires' : 'CV, diplomas and supporting documents' }}</div>
+                </div>
+                <bbc-icon name="doc" [s]="18" />
+              </div>
+              <p class="text-[11px] text-mute mb-4">
+                {{ fr() ? 'Les fichiers restent privés et sont accessibles uniquement aux utilisateurs autorisés des ressources humaines. Vous pouvez en ajouter maintenant ou plus tard.'
+                        : 'Files stay private and are available only to authorized HR users. Add them now or later.' }}
+              </p>
+              <div class="flex flex-col sm:flex-row gap-2 sm:items-end">
+                <label class="block sm:w-52">
+                  <span class="text-xs font-semibold text-ink">{{ fr() ? 'Catégorie des prochains fichiers' : 'Category for the next files' }}</span>
+                  <select [(ngModel)]="documentTypeDraft" class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400">
+                    @for (type of documentTypeOptions(); track type.value) { <option [value]="type.value">{{ type.label }}</option> }
+                  </select>
+                </label>
+                <label class="relative inline-flex items-center justify-center gap-2 h-10 px-4 rounded-lg border border-brand-200 bg-white text-sm font-semibold text-brand-700 hover:bg-brand-50 cursor-pointer">
+                  <bbc-icon name="download" [s]="15" />
+                  {{ fr() ? 'Ajouter dans cette catégorie' : 'Add to this category' }}
+                  <input type="file" multiple class="sr-only"
+                    accept=".pdf,.doc,.docx,.odt,.rtf,.jpg,.jpeg,.png,.webp,.gif,.txt"
+                    (change)="queueDocuments($event)" />
+                </label>
+                <span class="text-[11px] text-mute sm:pb-2">{{ fr() ? 'Changez la catégorie puis ajoutez d’autres fichiers.' : 'Change the category, then add more files.' }}</span>
+              </div>
+              <div class="mt-2 text-[11px] text-mute">{{ fr() ? 'Vous pouvez joindre plusieurs catégories au même employé : CV + diplôme + pièce d’identité, par exemple. Chaque fichier peut aussi être reclassé ci-dessous.' : 'One employee can have several categories: CV + diploma + identity document, for example. Each file can also be reclassified below.' }}</div>
+
+              @if (pendingDocuments().length) {
+                <div class="mt-4 space-y-2">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <div class="text-xs font-semibold text-ink">{{ pendingDocuments().length }} {{ fr() ? 'fichier(s) à envoyer' : 'file(s) to upload' }}</div>
+                    @for (category of pendingDocumentCategories(); track category.value) { <span class="px-2 py-1 rounded-full bg-brand-50 border border-brand-100 text-[11px] font-semibold text-brand-700">{{ category.label }}</span> }
+                  </div>
+                  @for (doc of pendingDocuments(); track $index; let i = $index) {
+                    <div class="flex flex-col md:flex-row gap-2 md:items-center rounded-lg border border-brand-100 bg-white p-2.5">
+                      <div class="min-w-0 flex-1">
+                        <input [(ngModel)]="doc.label" class="w-full h-8 px-2 rounded border border-slate-200 text-sm focus:outline-none focus:border-brand-400" />
+                        <div class="text-[11px] text-mute truncate mt-1">{{ doc.file.name }} · {{ formatBytes(doc.file.size) }}</div>
+                      </div>
+                      <select [(ngModel)]="doc.documentType" class="h-8 px-2 rounded border border-slate-200 bg-white text-xs md:w-40">
+                        @for (type of documentTypeOptions(); track type.value) { <option [value]="type.value">{{ type.label }}</option> }
+                      </select>
+                      <button type="button" (click)="removePendingDocument(i)" class="h-8 px-2 rounded text-xs font-semibold text-rose-600 hover:bg-rose-50">{{ fr() ? 'Retirer' : 'Remove' }}</button>
+                    </div>
+                  }
+                </div>
+              }
+
+              @if (editId()) {
+                <div class="mt-5 pt-4 border-t border-slate-200">
+                  <div class="text-xs font-semibold text-ink mb-2">{{ fr() ? 'Documents déjà au dossier' : 'Documents already on file' }}</div>
+                  @if (existingDocuments().length) {
+                    <div class="space-y-2">
+                      @for (doc of existingDocuments(); track doc.id) {
+                        <div class="flex flex-col sm:flex-row sm:items-center gap-2 rounded-lg bg-white border border-slate-200 px-3 py-2">
+                          <div class="min-w-0 flex-1"><div class="text-sm font-semibold text-ink truncate">{{ doc.label }}</div><div class="text-[11px] text-mute">{{ documentTypeLabel(doc.documentType) }} · {{ formatBytes(doc.byteSize) }} · {{ doc.fileName }}</div></div>
+                          <div class="flex gap-2 shrink-0"><button type="button" (click)="downloadDocument(doc)" class="text-xs font-semibold text-brand-700 hover:underline">{{ fr() ? 'Télécharger' : 'Download' }}</button><button type="button" (click)="deleteDocument(doc)" class="text-xs font-semibold text-rose-600 hover:underline">{{ fr() ? 'Supprimer' : 'Delete' }}</button></div>
+                        </div>
+                      }
+                    </div>
+                  } @else {
+                    <div class="text-xs text-mute">{{ fr() ? 'Aucun document pour le moment.' : 'No documents yet.' }}</div>
+                  }
+                </div>
+              }
+            </section>
+
             <section>
               <div class="text-[11px] uppercase tracking-wider text-mute font-bold mb-3">{{ fr() ? 'Contrat & rémunération' : 'Contract & compensation' }}</div>
               <div class="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3">
@@ -1212,9 +1403,9 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
 
           <div class="flex items-center justify-end gap-2 mt-8 pt-5 border-t border-slate-100">
             <button (click)="closeEditor()" class="h-10 px-5 rounded-lg bg-slate-100 text-sm font-semibold text-ink hover:bg-slate-200">{{ i18n.t('cancel') }}</button>
-            <button (click)="save()" [disabled]="!draft.name?.trim()"
+            <button (click)="save()" [disabled]="!draft.name?.trim() || saving()"
               class="inline-flex items-center gap-1.5 h-10 px-6 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-semibold">
-              <bbc-icon name="check" [s]="16" /> {{ i18n.t('save') }}
+              <bbc-icon name="check" [s]="16" /> {{ saving() ? (fr() ? 'Enregistrement…' : 'Saving…') : i18n.t('save') }}
             </button>
           </div>
         </bbc-card>
@@ -1261,7 +1452,10 @@ export class StaffComponent {
   private hrApi = inject(HrApi);
   private settingsApi = inject(SettingsApi);
   private setupApi = inject(SetupApi);
+  private sanitizer = inject(DomSanitizer);
   protected auth = inject(AuthService);
+  private route = inject(ActivatedRoute);
+  private router = inject(Router);
 
   protected rows = signal<EmployeeView[]>([]);
   protected roleDefs = signal<RoleView[]>([]);
@@ -1311,6 +1505,10 @@ export class StaffComponent {
   protected payrollPage = signal(1);
   protected payrollPageSize = signal(25);
   protected selectedId = signal<string | null>(null);
+  protected routeView = signal<'list' | 'detail' | 'create' | 'edit'>('list');
+  protected isDetailPage = computed(() => this.routeView() === 'detail');
+  private routeViewKey = '';
+  private populatedEditId: string | null = null;
 
   // Sélection multiple (actions groupées)
   protected selection = signal<Set<string>>(new Set());
@@ -1328,6 +1526,11 @@ export class StaffComponent {
   protected draftRoles = signal<string[]>([]);
   protected draftManagementLevels = signal<Set<string>>(new Set());
   protected principalScopeAttempted = signal(false);
+  protected pendingDocuments = signal<StaffDocumentDraft[]>([]);
+  protected existingDocuments = signal<StaffDocumentView[]>([]);
+  protected documentsBusy = signal(false);
+  protected saving = signal(false);
+  protected documentTypeDraft: StaffDocumentView['documentType'] = 'other';
   /** Photo saisie au formulaire (data URL), envoyée après l'enregistrement. */
   protected photoDraft = signal<string | null>(null);
   private photoWasSet = false;
@@ -1342,6 +1545,16 @@ export class StaffComponent {
   protected selectedPhoto = signal<string | null>(null);
   /** Classes de l'employé sélectionné, affichées sur sa fiche. */
   protected selectedClasses = signal<TeacherClassView[]>([]);
+  /** Documents de l'employé sélectionné, affichés sur sa fiche. */
+  protected profileDocuments = signal<StaffDocumentView[]>([]);
+  protected profileDocumentsBusy = signal(false);
+  protected previewedDocument = signal<StaffDocumentView | null>(null);
+  protected previewDocumentUrl = signal<string | null>(null);
+  protected previewDocumentResourceUrl = signal<SafeResourceUrl | null>(null);
+  protected previewDocumentText = signal<string | null>(null);
+  protected previewDocumentBusy = signal(false);
+  protected previewDocumentError = signal<string | null>(null);
+  private previewObjectUrl: string | null = null;
   /** Les rôles cloisonnés par section : eux seuls portent un cycle de rattachement. */
   protected teachingRole = computed(() =>
     this.draftRoles().some((r) => r === 'teacher' || r === 'secondary_teacher' || r === 'form_teacher'));
@@ -1351,6 +1564,18 @@ export class StaffComponent {
     { value: 'primary', label: this.fr() ? 'Primaire' : 'Primary' },
     { value: 'secondary', label: this.fr() ? 'Secondaire' : 'Secondary' },
   ]);
+  protected documentTypeOptions = computed(() => [
+    { value: 'cv' as const, label: 'CV' },
+    { value: 'diploma' as const, label: this.fr() ? 'Diplôme' : 'Diploma' },
+    { value: 'certificate' as const, label: this.fr() ? 'Certificat' : 'Certificate' },
+    { value: 'identity' as const, label: this.fr() ? 'Pièce d’identité' : 'Identity document' },
+    { value: 'contract' as const, label: this.fr() ? 'Contrat' : 'Contract' },
+    { value: 'other' as const, label: this.fr() ? 'Autre' : 'Other' },
+  ]);
+  protected pendingDocumentCategories = computed(() => {
+    const values = [...new Set(this.pendingDocuments().map((document) => document.documentType))];
+    return values.map((value) => ({ value, label: this.documentTypeLabel(value) }));
+  });
   protected createLogin = signal(true);
   protected accountMsg = signal<{ text: string; ok: boolean } | null>(null);
   protected resetting = signal(false);
@@ -1435,7 +1660,7 @@ export class StaffComponent {
 
   protected selected = computed(() => {
     const id = this.selectedId();
-    return this.rows().find((e) => e.id === id) ?? this.filtered()[0] ?? null;
+    return id ? this.rows().find((e) => e.id === id) ?? null : null;
   });
 
   // ---- Sélection multiple --------------------------------------------------
@@ -1470,11 +1695,15 @@ export class StaffComponent {
     if (previous?.startsWith('blob:')) URL.revokeObjectURL(previous);
     this.selectedPhoto.set(null);
     this.selectedClasses.set([]);
-    if (!emp) return;
+    this.profileDocuments.set([]);
+    this.profileDocumentsBusy.set(false);
+    this.closeDocumentPreview();
+    if (!emp || !this.isDetailPage()) return;
     this.photoApi.load('staff', emp.id).subscribe((url) => this.selectedPhoto.set(url));
     if (this.isTeacher(emp)) {
       this.api.classesOf(emp.id).subscribe((cs) => this.selectedClasses.set(cs));
     }
+    this.loadProfileDocuments(emp.id);
   }, { allowSignalWrites: true });
 
   /** Un employé porte-t-il un rôle enseignant ? */
@@ -1551,6 +1780,8 @@ export class StaffComponent {
   protected setApplicationPageSize(value: number): void { this.applicationPageSize.set(value); this.applicationPage.set(1); }
 
   constructor() {
+    this.route.data.subscribe(() => this.syncRoute());
+    this.route.paramMap.subscribe(() => this.syncRoute());
     this.reload();
     this.loadRoles();
     this.loadDepartments();
@@ -1563,8 +1794,51 @@ export class StaffComponent {
   private reload(): void {
     this.api.list().subscribe((r) => {
       this.rows.set(r);
-      if (!this.selectedId() && r.length) this.selectedId.set(r[0].id);
+      this.applyRouteEmployee(r);
     });
+  }
+
+  private syncRoute(): void {
+    const view = (this.route.snapshot.data['staffView'] ?? 'list') as 'list' | 'detail' | 'create' | 'edit';
+    const employeeId = this.route.snapshot.paramMap.get('employeeId');
+    const key = `${view}:${employeeId ?? ''}`;
+    if (key === this.routeViewKey) return;
+    this.routeViewKey = key;
+    this.routeView.set(view);
+    this.accountMsg.set(null);
+    this.populatedEditId = null;
+
+    if (view === 'create') {
+      this.selectedId.set(null);
+      this.prepareCreate();
+      return;
+    }
+    if (view === 'edit' && employeeId) {
+      this.mode.set('edit');
+      this.selectedId.set(employeeId);
+      this.applyRouteEmployee();
+      return;
+    }
+    if (view === 'detail' && employeeId) {
+      this.mode.set('list');
+      this.selectedId.set(employeeId);
+      this.clearEditorState();
+      return;
+    }
+
+    this.mode.set('list');
+    this.selectedId.set(null);
+    this.clearEditorState();
+  }
+
+  private applyRouteEmployee(rows = this.rows()): void {
+    const view = this.routeView();
+    const employeeId = this.route.snapshot.paramMap.get('employeeId');
+    if (view !== 'edit' || !employeeId || this.populatedEditId === employeeId) return;
+    const employee = rows.find((e) => e.id === employeeId);
+    if (!employee) return;
+    this.populateEdit(employee);
+    this.populatedEditId = employeeId;
   }
 
   private loadRoles(): void {
@@ -1792,8 +2066,8 @@ export class StaffComponent {
   }
 
   protected select(e: EmployeeView): void {
-    this.selectedId.set(e.id);
     this.accountMsg.set(null);
+    void this.router.navigate(['/staff', e.id]);
   }
 
   protected hue(id: string): number {
@@ -1814,6 +2088,10 @@ export class StaffComponent {
   }
 
   protected openCreate(): void {
+    void this.router.navigate(['/staff', 'create']);
+  }
+
+  private prepareCreate(): void {
     this.draft = this.blank();
     this.draftRoles.set(['teacher']);
     this.createLogin.set(true);
@@ -1822,8 +2100,25 @@ export class StaffComponent {
     this.photoWasSet = false;
     this.pickedClasses.set(new Set());
     this.draftManagementLevels.set(new Set());
+    this.pendingDocuments.set([]);
+    this.existingDocuments.set([]);
+    this.documentTypeDraft = 'other';
+    this.saving.set(false);
     this.principalScopeAttempted.set(false);
     this.mode.set('edit');
+  }
+
+  private clearEditorState(): void {
+    this.editId.set(null);
+    this.photoDraft.set(null);
+    this.photoWasSet = false;
+    this.pickedClasses.set(new Set());
+    this.draftManagementLevels.set(new Set());
+    this.pendingDocuments.set([]);
+    this.existingDocuments.set([]);
+    this.documentTypeDraft = 'other';
+    this.saving.set(false);
+    this.principalScopeAttempted.set(false);
   }
 
   /**
@@ -1834,7 +2129,7 @@ export class StaffComponent {
   private saveClasses(employeeId: string): void {
     if (!this.teachingRole()) return;
     this.api.setClasses(employeeId, [...this.pickedClasses()]).subscribe({
-      next: () => this.reload(),
+      next: () => {},
       error: (err) => this.accountMsg.set({
         text: err?.error?.message ?? (this.fr() ? 'Classes non enregistrées.' : 'Classes not saved.'),
         ok: false,
@@ -1877,10 +2172,19 @@ export class StaffComponent {
   }
 
   protected openEdit(e: EmployeeView): void {
+    void this.router.navigate(['/staff', e.id, 'edit']);
+  }
+
+  private populateEdit(e: EmployeeView): void {
     this.photoDraft.set(null);
     this.photoWasSet = false;
     this.pickedClasses.set(new Set());
+    this.pendingDocuments.set([]);
+    this.existingDocuments.set([]);
+    this.documentTypeDraft = 'other';
+    this.saving.set(false);
     this.api.classesOf(e.id).subscribe((cs) => this.pickedClasses.set(new Set(cs.map((c) => c.id))));
+    this.loadDocuments(e.id);
     this.photoApi.load('staff', e.id).subscribe((url) => {
       if (url) { this.photoDraft.set(url); this.photoWasSet = true; }
     });
@@ -1931,16 +2235,201 @@ export class StaffComponent {
   }
 
   protected closeEditor(): void {
-    this.mode.set('list');
-    this.photoDraft.set(null);
-    this.photoWasSet = false;
-    this.pickedClasses.set(new Set());
-    this.draftManagementLevels.set(new Set());
-    this.principalScopeAttempted.set(false);
+    void this.router.navigate(['/staff']);
+  }
+
+  protected queueDocuments(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const files = Array.from(input.files ?? []);
+    const allowed = new Set(['pdf', 'doc', 'docx', 'odt', 'rtf', 'jpg', 'jpeg', 'png', 'webp', 'gif', 'txt']);
+    const valid: File[] = [];
+    const rejected: string[] = [];
+    for (const file of files) {
+      const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+      if (file.size > 25 * 1024 * 1024 || !allowed.has(ext)) rejected.push(file.name);
+      else valid.push(file);
+    }
+    if (rejected.length) {
+      alert(this.fr()
+        ? `Fichier(s) refusé(s) : ${rejected.join(', ')}. Formats acceptés et 25 Mo maximum par fichier.`
+        : `File(s) rejected: ${rejected.join(', ')}. Accepted formats and 25 MB maximum per file.`);
+    }
+    if (valid.length) {
+      this.pendingDocuments.update((current) => [
+        ...current,
+        ...valid.map((file) => ({ file, documentType: this.documentTypeDraft, label: file.name })),
+      ]);
+    }
+    input.value = '';
+  }
+
+  protected removePendingDocument(index: number): void {
+    this.pendingDocuments.update((documents) => documents.filter((_, i) => i !== index));
+  }
+
+  protected documentTypeLabel(type: StaffDocumentView['documentType']): string {
+    return this.documentTypeOptions().find((option) => option.value === type)?.label ?? type;
+  }
+
+  protected formatBytes(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  protected documentPreviewKind(document: StaffDocumentView): 'image' | 'pdf' | 'text' | 'unsupported' {
+    const contentType = (document.contentType || '').toLowerCase();
+    const extension = document.fileName.toLowerCase().split('.').pop() ?? '';
+    if (contentType.startsWith('image/') || ['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(extension)) return 'image';
+    if (contentType === 'application/pdf' || extension === 'pdf') return 'pdf';
+    if (contentType.startsWith('text/') || extension === 'txt') return 'text';
+    return 'unsupported';
+  }
+
+  private documentPreviewMime(document: StaffDocumentView): string {
+    const extension = document.fileName.toLowerCase().split('.').pop() ?? '';
+    const byExtension: Record<string, string> = {
+      jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif',
+      pdf: 'application/pdf', txt: 'text/plain',
+    };
+    return byExtension[extension] ?? document.contentType ?? 'application/octet-stream';
+  }
+
+  protected openDocumentPreview(document: StaffDocumentView): void {
+    const employeeId = this.selectedId();
+    if (!employeeId) return;
+    this.closeDocumentPreview();
+    this.previewedDocument.set(document);
+    this.previewDocumentError.set(null);
+    this.previewDocumentBusy.set(false);
+
+    const kind = this.documentPreviewKind(document);
+    if (kind === 'unsupported') {
+      this.previewDocumentError.set(this.fr()
+        ? 'Ce format ne peut pas être prévisualisé dans le navigateur. Utilisez Télécharger pour l’ouvrir.'
+        : 'This format cannot be previewed in the browser. Use Download to open it.');
+      return;
+    }
+
+    this.previewDocumentBusy.set(true);
+    this.api.downloadDocument(employeeId, document.id).subscribe({
+      next: (blob) => {
+        const typedBlob = new Blob([blob], { type: this.documentPreviewMime(document) });
+        if (kind === 'text') {
+          typedBlob.text().then((text) => {
+            if (this.previewedDocument()?.id !== document.id) return;
+            this.previewDocumentText.set(text);
+            this.previewDocumentBusy.set(false);
+          }).catch(() => {
+            this.previewDocumentError.set(this.fr() ? 'Lecture impossible.' : 'Could not read this file.');
+            this.previewDocumentBusy.set(false);
+          });
+          return;
+        }
+        const url = URL.createObjectURL(typedBlob);
+        this.previewObjectUrl = url;
+        this.previewDocumentUrl.set(url);
+        if (kind === 'pdf') {
+          this.previewDocumentResourceUrl.set(this.sanitizer.bypassSecurityTrustResourceUrl(url));
+        }
+        this.previewDocumentBusy.set(false);
+      },
+      error: () => {
+        this.previewDocumentError.set(this.fr() ? 'Ouverture impossible.' : 'Could not open this document.');
+        this.previewDocumentBusy.set(false);
+      },
+    });
+  }
+
+  protected closeDocumentPreview(): void {
+    if (this.previewObjectUrl) URL.revokeObjectURL(this.previewObjectUrl);
+    this.previewObjectUrl = null;
+    this.previewedDocument.set(null);
+    this.previewDocumentUrl.set(null);
+    this.previewDocumentResourceUrl.set(null);
+    this.previewDocumentText.set(null);
+    this.previewDocumentBusy.set(false);
+    this.previewDocumentError.set(null);
+  }
+
+  private loadProfileDocuments(employeeId: string): void {
+    this.profileDocumentsBusy.set(true);
+    this.api.listDocuments(employeeId).subscribe({
+      next: (documents) => {
+        if (this.selectedId() !== employeeId || !this.isDetailPage()) return;
+        this.profileDocuments.set(documents);
+        this.profileDocumentsBusy.set(false);
+      },
+      error: () => {
+        if (this.selectedId() !== employeeId || !this.isDetailPage()) return;
+        this.profileDocuments.set([]);
+        this.profileDocumentsBusy.set(false);
+      },
+    });
+  }
+
+  private loadDocuments(employeeId: string): void {
+    this.documentsBusy.set(true);
+    this.api.listDocuments(employeeId).subscribe({
+      next: (documents) => { this.existingDocuments.set(documents); this.documentsBusy.set(false); },
+      error: () => { this.existingDocuments.set([]); this.documentsBusy.set(false); },
+    });
+  }
+
+  protected downloadDocument(document: StaffDocumentView): void {
+    const employeeId = this.editId() ?? this.selectedId();
+    if (!employeeId) return;
+    this.api.downloadDocument(employeeId, document.id).subscribe({
+      next: (blob) => {
+        const url = URL.createObjectURL(blob);
+        const anchor = window.document.createElement('a');
+        anchor.href = url;
+        anchor.download = document.fileName;
+        anchor.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      },
+      error: () => this.accountMsg.set({ text: this.fr() ? 'Téléchargement impossible.' : 'Download failed.', ok: false }),
+    });
+  }
+
+  protected deleteDocument(document: StaffDocumentView): void {
+    const employeeId = this.editId();
+    if (!employeeId || !confirm(this.fr() ? `Supprimer « ${document.label} » ?` : `Delete “${document.label}”?`)) return;
+    this.api.removeDocument(employeeId, document.id).subscribe({
+      next: () => this.loadDocuments(employeeId),
+      error: (err) => this.accountMsg.set({ text: err?.error?.message ?? (this.fr() ? 'Suppression impossible.' : 'Delete failed.'), ok: false }),
+    });
+  }
+
+  private saveDocuments(employeeId: string, done: () => void): void {
+    const upload = (): void => {
+      const document = this.pendingDocuments()[0];
+      if (!document) {
+        this.pendingDocuments.set([]);
+        done();
+        return;
+      }
+      this.api.uploadDocument(employeeId, document.file, document.documentType, document.label).subscribe({
+        next: () => {
+          this.pendingDocuments.update((documents) => documents.filter((candidate) => candidate !== document));
+          upload();
+        },
+        error: (err) => {
+          this.saving.set(false);
+          this.editId.set(employeeId);
+          this.accountMsg.set({
+            text: err?.error?.message ?? (this.fr() ? `Le document « ${document.label} » n’a pas pu être envoyé.` : `Document “${document.label}” could not be uploaded.`),
+            ok: false,
+          });
+          this.loadDocuments(employeeId);
+        },
+      });
+    };
+    upload();
   }
 
   save(): void {
-    if (!this.draft.name?.trim()) return;
+    if (!this.canWrite || !this.draft.name?.trim() || this.saving()) return;
     this.principalScopeAttempted.set(true);
     if (this.principalRole() && !this.draftManagementLevels().size) return;
     const email = this.draft.email?.trim() || '';
@@ -1964,26 +2453,27 @@ export class StaffComponent {
       createLogin: wantsLogin,
     };
     const id = this.editId();
+    this.saving.set(true);
     const req = id ? this.api.update(id, body) : this.api.create(body);
     req.subscribe({
       next: (res) => {
-        this.mode.set('list');
         this.selectedId.set(res?.id ?? id);
         this.accountMsg.set(null);
         if (res?.id) {
           this.savePhoto(res.id);
           this.saveClasses(res.id);
-        }
-        if (wantsLogin && res?.id) {
-          this.api.resetCredentials(res.id).subscribe({
-            next: (r: AccountResult) => { this.accountMsg.set({ text: r.message, ok: r.emailSent }); this.reload(); },
-            error: (err) => { this.accountMsg.set({ text: err?.error?.message ?? (this.fr() ? 'Compte non créé.' : 'Account not created.'), ok: false }); this.reload(); },
+          this.editId.set(res.id);
+          this.saveDocuments(res.id, () => {
+            this.saving.set(false);
+            this.completeSave(res.id, wantsLogin);
           });
         } else {
-          this.reload();
+          this.saving.set(false);
+          void this.router.navigate(['/staff']);
         }
       },
       error: (err) => {
+        this.saving.set(false);
         const msg = err?.error?.message;
         const text = msg && typeof msg === 'object'
           ? Object.values(msg).join(' · ')
@@ -1993,10 +2483,26 @@ export class StaffComponent {
     });
   }
 
+  private completeSave(employeeId: string, wantsLogin: boolean): void {
+    const finish = (): void => {
+      this.reload();
+      void this.router.navigate(['/staff', employeeId]);
+    };
+    if (wantsLogin) {
+      this.api.resetCredentials(employeeId).subscribe({
+        next: (r: AccountResult) => { this.accountMsg.set({ text: r.message, ok: r.emailSent }); finish(); },
+        error: (err) => { this.accountMsg.set({ text: err?.error?.message ?? (this.fr() ? 'Compte non créé.' : 'Account not created.'), ok: false }); finish(); },
+      });
+    } else {
+      finish();
+    }
+  }
+
   remove(e: EmployeeView): void {
     this.api.remove(e.id).subscribe(() => {
       if (this.selectedId() === e.id) this.selectedId.set(null);
       this.reload();
+      if (this.isDetailPage()) void this.router.navigate(['/staff']);
     });
   }
 

@@ -10,5 +10,7 @@ public interface SubjectRepository extends JpaRepository<Subject, UUID> {
     List<Subject> findBySchoolIdOrderByCode(UUID schoolId);
     Optional<Subject> findByIdAndSchoolId(UUID id, UUID schoolId);
     Optional<Subject> findBySchoolIdAndCode(UUID schoolId, String code);
+    Optional<Subject> findBySchoolIdAndCodeAndSubsystem(UUID schoolId, String code, String subsystem);
+    List<Subject> findAllBySchoolIdAndCode(UUID schoolId, String code);
     boolean existsBySchoolIdAndCode(UUID schoolId, String code);
 }

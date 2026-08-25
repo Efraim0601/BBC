@@ -92,6 +92,29 @@ public class AcademicCohortResolver {
         return count != null && count > 0;
     }
 
+    /**
+     * Resolve the enrollment row behind a programme-class roster. Shared
+     * bilingual classes intentionally reuse one cohort enrollment for both
+     * programme streams, so school_class_id need not equal classId here.
+     */
+    public UUID enrollmentIdForClass(UUID sessionId, UUID classId, UUID studentId,
+                                     String status, java.time.LocalDate effectiveDate) {
+        UUID cohortId = cohortForClass(sessionId, classId);
+        String scope = cohortId == null ? "e.school_class_id=?" : "e.cohort_id=?";
+        UUID membership = cohortId == null ? classId : cohortId;
+        String dateClause = effectiveDate == null ? "" :
+                " AND e.enrolled_on<=? AND (e.exited_on IS NULL OR e.exited_on>=?)";
+        List<Object> args = new java.util.ArrayList<>(List.of(
+                TenantContext.get(), sessionId, membership, studentId, status));
+        if (effectiveDate != null) args.addAll(List.of(effectiveDate, effectiveDate));
+        String sql = "SELECT e.id FROM student_enrollment e "
+                + "WHERE e.school_id=? AND e.academic_session_id=? AND " + scope
+                + " AND e.student_id=? AND e.status=?" + dateClause
+                + " ORDER BY e.created_at,e.id LIMIT 1";
+        return jdbc.query(sql, rs -> rs.next() ? rs.getObject(1, UUID.class) : null,
+                args.toArray());
+    }
+
     public int rosterCount(UUID sessionId, UUID classId, String status) {
         return rosterStudentIds(sessionId, classId, status).size();
     }

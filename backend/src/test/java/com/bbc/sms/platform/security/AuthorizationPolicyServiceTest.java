@@ -16,6 +16,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
@@ -118,6 +119,29 @@ class AuthorizationPolicyServiceTest {
         assertThat(decision).isNotNull();
         assertThat(decision.allowed()).isTrue();
         assertThat(decision.matchedScope()).isEqualTo("TIMETABLE_OCCURRENCES_ASSIGNED");
+    }
+
+    @Test
+    void attendanceTitulaireRuleUsesAttendanceResolverAtMatchStage() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        AcademicScopeResolver academic = mock(AcademicScopeResolver.class);
+        AttendanceScopeResolver attendance = mock(AttendanceScopeResolver.class);
+        AuthorizationPolicyService service = new AuthorizationPolicyService(jdbc, new ObjectMapper(),
+                academic, mock(ParcoursAccessService.class), mock(GuardianAccessService.class), attendance);
+        PolicyResourceContext context = new PolicyResourceContext(schoolId, UUID.randomUUID(),
+                LocalDate.of(2026, 9, 1), null, UUID.randomUUID(), null, null,
+                null, null, null, "DAILY", "primary");
+        AuthorizationPolicyService.Action action = new AuthorizationPolicyService.Action(
+                "ATTENDANCE_ROSTER_VIEW", "presence", "TIMETABLE_OCCURRENCE", "read");
+        AuthorizationPolicyService.Rule rule = new AuthorizationPolicyService.Rule(
+                "ROLE:teacher", "ALLOW", "TITULAIRE_CLASSES", null, null, null);
+        AppUserPrincipal principal = principal();
+
+        when(attendance.allowsTeacher(principal, context, "TITULAIRE_CLASSES")).thenReturn(true);
+
+        assertThat(service.matches(rule, action, context, principal)).isTrue();
+        verify(attendance).allowsTeacher(principal, context, "TITULAIRE_CLASSES");
+        verify(academic, org.mockito.Mockito.never()).can(anyString(), any());
     }
 
     @Test
@@ -265,6 +289,31 @@ class AuthorizationPolicyServiceTest {
                 "PARENT_DOCUMENT_DOWNLOAD", "parent", "CHILD", "read"),
                 context, principal, List.of(roleAllow), List.of("parent"), 1).allowed()).isTrue();
         verify(guardian, times(2)).canAccess(eq(schoolId), eq(userId), eq(childId), eq("finance"), any(LocalDate.class));
+    }
+
+    @Test
+    void teacherStudentEnrollmentInvariantAcceptsAnotherProgrammeClassInSameCohort() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        AuthorizationPolicyService service = service(jdbc);
+        UUID sessionId = UUID.randomUUID();
+        UUID classId = UUID.randomUUID();
+        UUID studentId = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2026, 9, 1);
+        AuthorizationPolicyService.Action action = new AuthorizationPolicyService.Action(
+                "STUDENT_DIRECTORY_VIEW", "students", "STUDENT", "read");
+        PolicyResourceContext context = new PolicyResourceContext(schoolId, sessionId, date,
+                null, classId, null, studentId, null, null, null, null, "primary");
+
+        when(jdbc.queryForObject(contains("FROM student WHERE"), eq(Integer.class), any(Object[].class)))
+                .thenReturn(1);
+        when(jdbc.queryForObject(contains("FROM student_enrollment\n"), eq(Integer.class), any(Object[].class)))
+                .thenReturn(1);
+        when(jdbc.queryForObject(contains("academic_cohort_programme"), eq(Integer.class), any(Object[].class)))
+                .thenReturn(1);
+
+        assertThat(service.activeEnrollmentInvariant(action, context, List.of("teacher"))).isTrue();
+        verify(jdbc).queryForObject(contains("p.school_class_id=? AND p.active"),
+                eq(Integer.class), any(Object[].class));
     }
 
     @Test

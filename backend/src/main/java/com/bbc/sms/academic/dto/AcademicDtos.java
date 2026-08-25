@@ -129,7 +129,8 @@ public class AcademicDtos {
                                        String reportingPeriodType, String product,
                                        BulletinWorkflowMetaView workflowMeta,
                                        List<BulletinIssueView> issues,
-                                       UUID programmeClassId) {
+                                       UUID programmeClassId,
+                                       String classMasterName) {
         public BulletinSnapshotView {
             lines = lines == null ? List.of() : List.copyOf(lines);
             blockers = blockers == null ? List.of() : List.copyOf(blockers);
@@ -157,7 +158,7 @@ public class AcademicDtos {
                     average, rank, classSize, state, complete, blockers, snapshotHash, calculationPolicy,
                     generalAppreciation, attendance, conduct, version, classStats, supersedesId,
                     correctsBulletinVersionId, correctionReason, correctionRequestedBy, correctionRequestedAt,
-                    groupStats, evidence, null, null, null, null, null);
+                    groupStats, evidence, null, null, null, null, null, null);
         }
 
         /** Compatibility constructor for callers that already supplied the extended
@@ -181,7 +182,7 @@ public class AcademicDtos {
                     average, rank, classSize, state, complete, blockers, snapshotHash, calculationPolicy,
                     generalAppreciation, attendance, conduct, version, classStats, supersedesId,
                     correctsBulletinVersionId, correctionReason, correctionRequestedBy, correctionRequestedAt,
-                    groupStats, evidence, reportingPeriodType, product, workflowMeta, issues, null);
+                    groupStats, evidence, reportingPeriodType, product, workflowMeta, issues, null, null);
         }
 
         private static String productFor(String periodType) {

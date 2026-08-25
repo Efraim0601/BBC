@@ -140,9 +140,13 @@ class ComputedReportingResultsIntegrationTest {
                 ON CONFLICT DO NOTHING
                 """, schoolId);
         jdbc.update("""
-                INSERT INTO app_user(id,school_id,username,password_hash,display_name,initials,role_code,active)
-                VALUES (?,?,'computed-test','test','Computed test','CT','principal',true)
+                INSERT INTO app_user(id,school_id,username,password_hash,display_name,initials,role_code,active,parcours_scope_mode)
+                VALUES (?,?,'computed-test','test','Computed test','CT','principal',true,'EXPLICIT')
                 """, testUserId, schoolId);
+        jdbc.update("""
+                INSERT INTO app_user_parcours(user_id,level,subsystem)
+                VALUES (?,'secondary','FR')
+                """, testUserId);
 
         Map<String, BigDecimal> marks = Map.of(
                 "S1", new BigDecimal("12"), "S2", new BigDecimal("14"),

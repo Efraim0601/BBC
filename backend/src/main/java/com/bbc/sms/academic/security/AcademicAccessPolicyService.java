@@ -320,6 +320,7 @@ public class AcademicAccessPolicyService {
 
         boolean classWide = capability == Capability.CLASS_RESULTS_VIEW
                 || capability == Capability.CLASS_REPORT_CARD_VIEW
+                || capability == Capability.REPORT_CARD_VALIDATE
                 || capability == Capability.COUNCIL_INPUT_VIEW
                 || capability == Capability.COUNCIL_INPUT_EDIT
                 || capability == Capability.GRADE_PACKET_REVIEW;
@@ -393,7 +394,8 @@ public class AcademicAccessPolicyService {
     @Transactional(readOnly = true)
     public void requireSnapshot(UUID snapshotId, Capability capability) {
         Map<String, Object> row = jdbc.query("""
-                SELECT v.academic_session_id,v.reporting_period_id,v.student_id,e.school_class_id,
+                SELECT v.academic_session_id,v.reporting_period_id,v.student_id,
+                       COALESCE(v.programme_class_id,e.school_class_id),
                        p.start_date
                   FROM bulletin_version v
                   LEFT JOIN student_enrollment e ON e.id=v.enrollment_id AND e.school_id=v.school_id

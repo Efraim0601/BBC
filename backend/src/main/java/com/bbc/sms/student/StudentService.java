@@ -27,7 +27,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.time.LocalDate;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
@@ -117,7 +116,10 @@ public class StudentService {
         boolean teacher = teacherScope.restricted();
         LocalDate rosterDate = sessionStartDate(sessionId);
         return active.stream()
-                .filter(e -> inScope(scope, e.getLevelSnapshot(), e.getSubsystemSnapshot()))
+                // A bilingual cohort has one enrollment row but two programme
+                // classes. Scope the request with the selected programme class,
+                // never with the enrollment row's original FR/EN snapshot.
+                .filter(e -> inScope(scope, requestedClass.getLevel(), requestedClass.getSubsystem()))
                 .map(e -> {
                     Student student = students.get(e.getStudentId());
                     if (student == null || !policy.decide("STUDENT_DIRECTORY_VIEW",
@@ -735,34 +737,38 @@ public class StudentService {
         StringBuilder sql = new StringBuilder("""
                 SELECT q.student_id,q.school_class_id,q.name,q.subsystem,q.level
                   FROM (
-                    SELECT DISTINCT e.student_id,e.school_class_id,c.name,c.subsystem,c.level,
-                           st.last_name,st.first_name
+                    SELECT e.student_id,pc.id school_class_id,pc.name,pc.subsystem,pc.level,
+                           st.last_name,st.first_name,
+                           row_number() OVER (
+                               PARTITION BY e.student_id
+                               ORDER BY CASE WHEN pc.id=e.school_class_id THEN 0 ELSE 1 END,lower(pc.name)
+                           ) programme_rank
                       FROM student_enrollment e
                       JOIN student st ON st.id=e.student_id AND st.school_id=e.school_id AND st.active=true
-                      JOIN school_class c ON c.id=e.school_class_id AND c.school_id=e.school_id
+                      JOIN school_class pc ON pc.school_id=e.school_id
+                       AND (pc.id=e.school_class_id OR (
+                            e.cohort_id IS NOT NULL AND EXISTS (
+                                SELECT 1 FROM academic_cohort_programme p
+                                 WHERE p.school_id=e.school_id
+                                   AND p.academic_session_id=e.academic_session_id
+                                   AND p.cohort_id=e.cohort_id
+                                   AND p.school_class_id=pc.id AND p.active)))
                      WHERE e.school_id=? AND e.academic_session_id=? AND e.status='ACTIVE'
                        AND e.enrolled_on<=? AND (e.exited_on IS NULL OR e.exited_on>=?)
                 """);
         List<Object> args = new ArrayList<>(List.of(schoolId, sessionId, date, date));
         String allowedPlaceholders = String.join(",", java.util.Collections.nCopies(allowedClasses.size(), "?"));
-        sql.append(" AND (e.school_class_id IN (").append(allowedPlaceholders)
-                .append(") OR e.cohort_id IN (SELECT p.cohort_id FROM academic_cohort_programme p")
-                .append(" WHERE p.school_id=? AND p.academic_session_id=? AND p.school_class_id IN (")
-                .append(allowedPlaceholders).append(")))");
+        sql.append(" AND pc.id IN (").append(allowedPlaceholders).append(")");
         args.addAll(allowedClasses);
-        args.add(schoolId); args.add(sessionId); args.addAll(allowedClasses);
         if (className != null && !className.isBlank()) {
-            UUID requestedClassId = jdbc.query("SELECT id FROM school_class WHERE school_id=? AND name=? ORDER BY id LIMIT 1",
-                    rs -> rs.next() ? rs.getObject(1, UUID.class) : null, schoolId, className.trim());
-            if (requestedClassId == null) return List.of();
-            sql.append(" AND (e.school_class_id=? OR e.cohort_id IN (SELECT p.cohort_id FROM academic_cohort_programme p WHERE p.school_id=? AND p.academic_session_id=? AND p.school_class_id=?))");
-            args.add(requestedClassId); args.add(schoolId); args.add(sessionId); args.add(requestedClassId);
+            sql.append(" AND pc.name=?");
+            args.add(className.trim());
         }
         if (scope != null) {
-            sql.append(" AND lower(c.level)=lower(?) AND lower(c.subsystem)=lower(?)");
+            sql.append(" AND lower(pc.level)=lower(?) AND lower(pc.subsystem)=lower(?)");
             args.add(scope.level()); args.add(scope.subsystem());
         }
-        sql.append(" ) q ORDER BY lower(q.name), lower(q.last_name), lower(q.first_name)");
+        sql.append(" ) q WHERE q.programme_rank=1 ORDER BY lower(q.name), lower(q.last_name), lower(q.first_name)");
         List<EnrollmentProjection> projections = jdbc.query(sql.toString(), (rs, n) -> new EnrollmentProjection(
                 rs.getObject("student_id", UUID.class), rs.getObject("school_class_id", UUID.class),
                 rs.getString("name"), rs.getString("subsystem"), rs.getString("level")), args.toArray());
@@ -780,17 +786,39 @@ public class StudentService {
 
     private EnrollmentProjection activeEnrollment(UUID studentId, UUID sessionId, LocalDate date) {
         if (sessionId == null) return null;
-        List<EnrollmentProjection> rows = jdbc.query("""
-                SELECT e.student_id,e.school_class_id,c.name,c.subsystem,c.level
+        Set<UUID> allowedClasses = teacherScope.allowedClassIds(sessionId, date);
+        if (allowedClasses != null && allowedClasses.isEmpty()) return null;
+        StringBuilder sql = new StringBuilder("""
+                SELECT e.student_id,c.id school_class_id,c.name,c.subsystem,c.level
                   FROM student_enrollment e
-                  LEFT JOIN school_class c ON c.id=e.school_class_id AND c.school_id=e.school_id
+                  JOIN school_class c ON c.school_id=e.school_id
+                   AND (c.id=e.school_class_id OR (
+                        e.cohort_id IS NOT NULL AND EXISTS (
+                            SELECT 1 FROM academic_cohort_programme p
+                             WHERE p.school_id=e.school_id
+                               AND p.academic_session_id=e.academic_session_id
+                               AND p.cohort_id=e.cohort_id
+                               AND p.school_class_id=c.id AND p.active)))
                  WHERE e.school_id=? AND e.student_id=? AND e.academic_session_id=? AND e.status='ACTIVE'
                    AND e.enrolled_on<=? AND (e.exited_on IS NULL OR e.exited_on>=?)
-                 ORDER BY e.enrolled_on DESC,e.created_at DESC LIMIT 1
-                """, (rs, n) -> new EnrollmentProjection(rs.getObject("student_id", UUID.class),
+                """);
+        List<Object> args = new ArrayList<>(List.of(TenantContext.get(), studentId, sessionId, date, date));
+        if (allowedClasses != null) {
+            sql.append(" AND c.id IN (")
+                    .append(String.join(",", java.util.Collections.nCopies(allowedClasses.size(), "?")))
+                    .append(")");
+            args.addAll(allowedClasses);
+        }
+        Scope scope = ParcoursContext.get();
+        if (scope != null) {
+            sql.append(" AND lower(c.level)=lower(?) AND lower(c.subsystem)=lower(?)");
+            args.add(scope.level());
+            args.add(scope.subsystem());
+        }
+        sql.append(" ORDER BY CASE WHEN c.id=e.school_class_id THEN 0 ELSE 1 END,e.enrolled_on DESC,e.created_at DESC,c.name LIMIT 1");
+        List<EnrollmentProjection> rows = jdbc.query(sql.toString(), (rs, n) -> new EnrollmentProjection(rs.getObject("student_id", UUID.class),
                 rs.getObject("school_class_id", UUID.class), rs.getString("name"),
-                rs.getString("subsystem"), rs.getString("level")), TenantContext.get(), studentId,
-                sessionId, date, date);
+                rs.getString("subsystem"), rs.getString("level")), args.toArray());
         return rows.isEmpty() ? null : rows.getFirst();
     }
 
@@ -841,14 +869,8 @@ public class StudentService {
     }
 
     private UUID activeEnrollmentClass(UUID studentId, UUID sessionId, LocalDate date) {
-        if (sessionId == null) return null;
-        return jdbc.query("""
-                SELECT school_class_id FROM student_enrollment
-                 WHERE school_id=? AND student_id=? AND academic_session_id=? AND status='ACTIVE'
-                   AND enrolled_on<=? AND (exited_on IS NULL OR exited_on>=?)
-                 ORDER BY enrolled_on DESC, created_at DESC LIMIT 1
-                """, rs -> rs.next() ? rs.getObject(1, UUID.class) : null,
-                TenantContext.get(), studentId, sessionId, date, date);
+        EnrollmentProjection enrollment = activeEnrollment(studentId, sessionId, date);
+        return enrollment == null ? null : enrollment.classId();
     }
 
     private LocalDate sessionStartDate(UUID sessionId) {

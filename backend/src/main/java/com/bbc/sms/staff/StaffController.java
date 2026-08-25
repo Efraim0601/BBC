@@ -6,11 +6,17 @@ import com.bbc.sms.media.ProfilePhoto;
 import com.bbc.sms.staff.dto.StaffDtos.*;
 import jakarta.validation.Valid;
 import org.springframework.http.CacheControl;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.core.io.InputStreamResource;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.nio.charset.StandardCharsets;
 
 import java.util.List;
 import java.util.UUID;
@@ -21,10 +27,12 @@ public class StaffController {
 
     private final StaffService service;
     private final PhotoService photos;
+    private final StaffDocumentService documents;
 
-    public StaffController(StaffService service, PhotoService photos) {
+    public StaffController(StaffService service, PhotoService photos, StaffDocumentService documents) {
         this.service = service;
         this.photos = photos;
+        this.documents = documents;
     }
 
     // ---- Classes d'un enseignant --------------------------------------------
@@ -74,6 +82,46 @@ public class StaffController {
         photos.delete(PhotoService.EMPLOYEE, id);
     }
 
+    // ---- Documents RH privés -----------------------------------------------
+
+    @GetMapping("/{employeeId}/documents")
+    @PreAuthorize("@policy.canAction('HR_VIEW')")
+    public List<StaffDocumentView> documents(@PathVariable UUID employeeId) {
+        return documents.list(employeeId);
+    }
+
+    @PostMapping(value = "/{employeeId}/documents", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("@policy.canAction('HR_MANAGE')")
+    public StaffDocumentView uploadDocument(@PathVariable UUID employeeId,
+                                            @RequestPart("file") MultipartFile file,
+                                            @RequestParam(name = "documentType", defaultValue = "other") String documentType,
+                                            @RequestParam(name = "label", required = false) String label) {
+        return documents.upload(employeeId, file, documentType, label);
+    }
+
+    @GetMapping("/{employeeId}/documents/{documentId}")
+    @PreAuthorize("@policy.canAction('HR_VIEW')")
+    public ResponseEntity<InputStreamResource> downloadDocument(@PathVariable UUID employeeId,
+                                                                 @PathVariable UUID documentId) {
+        StaffDocumentService.Download download = documents.download(employeeId, documentId);
+        ContentDisposition disposition = ContentDisposition.attachment()
+                .filename(download.fileName(), StandardCharsets.UTF_8).build();
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(download.contentType()))
+                .contentLength(download.byteSize())
+                .cacheControl(CacheControl.noStore())
+                .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
+                .body(new InputStreamResource(download.stream()));
+    }
+
+    @DeleteMapping("/{employeeId}/documents/{documentId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("@policy.canAction('HR_MANAGE')")
+    public void deleteDocument(@PathVariable UUID employeeId, @PathVariable UUID documentId) {
+        documents.delete(employeeId, documentId);
+    }
+
     @GetMapping
     @PreAuthorize("@policy.canAction('HR_VIEW')")
     public List<EmployeeView> list() {
@@ -114,7 +162,7 @@ public class StaffController {
 
     /** Suppression groupée depuis l'annuaire ; rend le détail des fiches refusées. */
     @PostMapping("/bulk-delete")
-    @PreAuthorize("@perm.can('hr','write')")
+    @PreAuthorize("@policy.canAction('HR_MANAGE')")
     public BulkDeleteResult bulkDelete(@Valid @RequestBody BulkDeleteRequest in) {
         return service.deleteAll(in.ids());
     }

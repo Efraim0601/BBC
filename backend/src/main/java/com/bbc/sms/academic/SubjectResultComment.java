@@ -16,6 +16,7 @@ public class SubjectResultComment {
     @Column(name = "reporting_period_id", nullable = false) private UUID reportingPeriodId;
     @Column(name = "student_id", nullable = false) private UUID studentId;
     @Column(name = "enrollment_id") private UUID enrollmentId;
+    @Column(name = "programme_class_id", nullable = false) private UUID programmeClassId;
     @Column(name = "subject_code", nullable = false) private String subjectCode;
     @Column(name = "teacher_id") private UUID teacherId;
     @Column(columnDefinition = "text") private String comment;

@@ -94,6 +94,25 @@ public class BulletinSnapshotService {
         return requestedClassId;
     }
 
+    /**
+     * Authorize the report-card stream the caller actually selected. A paired
+     * bilingual pupil has one enrollment row, but that row must not force both
+     * report cards through the enrollment's original programme class.
+     */
+    private UUID requireProgrammeAccess(AcademicAccessPolicyService.Capability capability,
+                                        UUID studentId, AcademicReportingPeriod period,
+                                        StudentEnrollment enrollment, UUID programmeClassId) {
+        UUID effectiveClassId = resolveProgrammeClass(studentId, period, enrollment, programmeClassId);
+        if (effectiveClassId == null) {
+            throw ApiException.coded(org.springframework.http.HttpStatus.FORBIDDEN,
+                    "ENROLLMENT_SCOPE_MISMATCH",
+                    "Aucune classe de programme active ne correspond à cet élève et cette période.");
+        }
+        accessPolicy.require(capability, period.getAcademicSessionId(), effectiveClassId,
+                null, studentId, period.getStartDate());
+        return effectiveClassId;
+    }
+
     private UUID calculationClassId(UUID studentId, AcademicReportingPeriod period, CalculationContext context) {
         if (context.programmeClassId != null) return context.programmeClassId;
         StudentEnrollment enrollment = enrollment(studentId, period);
@@ -225,12 +244,11 @@ public class BulletinSnapshotService {
     @Transactional
     public BulletinSnapshotView calculate(UUID studentId, UUID periodId, UUID programmeClassId) {
         AcademicReportingPeriod period = period(periodId);
-        accessPolicy.requireStudent(AcademicAccessPolicyService.Capability.REPORT_CARD_VALIDATE,
-                studentId, period.getAcademicSessionId(), period.getStartDate(), null);
         Student student = students.findByIdAndSchoolId(studentId, TenantContext.get()).orElseThrow(() -> ApiException.notFound("Élève"));
         StudentEnrollment enrollment = enrollment(studentId, period);
         if (enrollment == null) throw ApiException.conflict("Cet élève n'est pas inscrit dans la session académique sélectionnée. Vérifiez son inscription dans Élèves > Inscription.");
-        UUID effectiveClassId = resolveProgrammeClass(studentId, period, enrollment, programmeClassId);
+        UUID effectiveClassId = requireProgrammeAccess(AcademicAccessPolicyService.Capability.REPORT_CARD_VALIDATE,
+                studentId, period, enrollment, programmeClassId);
         BulletinVersion official = latestOfficial(studentId, periodId, programmeClassId);
         BulletinVersion active = latestActive(studentId, periodId, programmeClassId);
         if (official != null && active == null) return viewFromSnapshot(official, period, student);
@@ -269,6 +287,13 @@ public class BulletinSnapshotService {
     public BulletinSnapshotView refresh(UUID id, BulletinRefreshRequest request) {
         BulletinVersion previous = versions.findByIdAndSchoolIdForUpdate(id, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Version de bulletin"));
+        AcademicReportingPeriod period = period(previous.getReportingPeriodId());
+        Student student = students.findByIdAndSchoolId(previous.getStudentId(), TenantContext.get())
+                .orElseThrow(() -> ApiException.notFound("Élève"));
+        StudentEnrollment enrollment = enrollment(previous.getStudentId(), period);
+        if (enrollment == null) throw ApiException.conflict("Aucune inscription active pour l'actualisation.");
+        UUID effectiveClassId = requireProgrammeAccess(AcademicAccessPolicyService.Capability.REPORT_CARD_VALIDATE,
+                previous.getStudentId(), period, enrollment, previous.getProgrammeClassId());
         if (!Set.of("DRAFT", "RETURNED").contains(previous.getState())) {
             throw ApiException.conflict("Seuls les brouillons et les bulletins retournés peuvent être actualisés.");
         }
@@ -281,15 +306,7 @@ public class BulletinSnapshotService {
                     previous.getVersion(), supplied);
         }
         windows.assertOpen(previous.getReportingPeriodId(), AcademicWindowPolicyService.Action.VALIDATION);
-        AcademicReportingPeriod period = period(previous.getReportingPeriodId());
-        accessPolicy.requireStudent(AcademicAccessPolicyService.Capability.REPORT_CARD_VALIDATE,
-                previous.getStudentId(), period.getAcademicSessionId(), period.getStartDate(), null);
-        Student student = students.findByIdAndSchoolId(previous.getStudentId(), TenantContext.get())
-                .orElseThrow(() -> ApiException.notFound("Élève"));
-        StudentEnrollment enrollment = enrollment(previous.getStudentId(), period);
-        if (enrollment == null) throw ApiException.conflict("Aucune inscription active pour l'actualisation.");
-        resolveProgrammeClass(previous.getStudentId(), period, enrollment, previous.getProgrammeClassId());
-        CurrentSnapshot current = currentSnapshot(previous.getStudentId(), period, student, enrollment, previous.getProgrammeClassId());
+        CurrentSnapshot current = currentSnapshot(previous.getStudentId(), period, student, enrollment, effectiveClassId);
         List<String> blockers = officialBlockers(period, current.calculation(), current.conduct());
         if (!blockers.isEmpty()) {
             throw ApiException.blockers("BULLETIN_NOT_READY",
@@ -343,6 +360,14 @@ public class BulletinSnapshotService {
     public BulletinSnapshotView startCorrection(UUID id, BulletinCorrectionRequest request) {
         BulletinVersion previous = versions.findByIdAndSchoolId(id, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Version de bulletin"));
+        AcademicReportingPeriod period = period(previous.getReportingPeriodId());
+        Student student = students.findByIdAndSchoolId(previous.getStudentId(), TenantContext.get())
+                .orElseThrow(() -> ApiException.notFound("Élève"));
+        StudentEnrollment enrollment = enrollments.findFirstBySchoolIdAndStudentIdAndAcademicSessionIdAndStatus(
+                TenantContext.get(), previous.getStudentId(), period.getAcademicSessionId(), "ACTIVE")
+                .orElseThrow(() -> ApiException.conflict("Aucune inscription active pour la correction"));
+        UUID effectiveClassId = requireProgrammeAccess(AcademicAccessPolicyService.Capability.REPORT_CARD_VALIDATE,
+                previous.getStudentId(), period, enrollment, previous.getProgrammeClassId());
         if (!Set.of("VALIDATED", "PUBLISHED").contains(previous.getState()))
             throw ApiException.conflict("Une correction ne peut commencer que depuis un bulletin validé ou publié");
         if (request == null || request.reason() == null || request.reason().isBlank())
@@ -350,16 +375,7 @@ public class BulletinSnapshotService {
         if (request.version() != null && request.version() != previous.getVersion())
             throw ApiException.conflict("Le bulletin a été modifié entre-temps. Rechargez-le avant de corriger.");
         windows.assertOpen(previous.getReportingPeriodId(), AcademicWindowPolicyService.Action.CORRECTION);
-        AcademicReportingPeriod period = period(previous.getReportingPeriodId());
-        accessPolicy.requireStudent(AcademicAccessPolicyService.Capability.REPORT_CARD_VALIDATE,
-                previous.getStudentId(), period.getAcademicSessionId(), period.getStartDate(), null);
-        Student student = students.findByIdAndSchoolId(previous.getStudentId(), TenantContext.get())
-                .orElseThrow(() -> ApiException.notFound("Élève"));
-        StudentEnrollment enrollment = enrollments.findFirstBySchoolIdAndStudentIdAndAcademicSessionIdAndStatus(
-                TenantContext.get(), previous.getStudentId(), period.getAcademicSessionId(), "ACTIVE")
-                .orElseThrow(() -> ApiException.conflict("Aucune inscription active pour la correction"));
-        resolveProgrammeClass(previous.getStudentId(), period, enrollment, previous.getProgrammeClassId());
-        CurrentSnapshot current = currentSnapshot(previous.getStudentId(), period, student, enrollment, previous.getProgrammeClassId());
+        CurrentSnapshot current = currentSnapshot(previous.getStudentId(), period, student, enrollment, effectiveClassId);
         Calculation calculation = current.calculation();
         AttendanceSummaryView attendance = current.attendance();
         ConductSummaryView conduct = current.conduct();
@@ -398,13 +414,16 @@ public class BulletinSnapshotService {
     @Transactional(readOnly = true)
     public BulletinSnapshotView latest(UUID studentId, UUID periodId, UUID programmeClassId) {
         AcademicReportingPeriod period = period(periodId);
-        accessPolicy.requireStudent(AcademicAccessPolicyService.Capability.CLASS_REPORT_CARD_VIEW,
-                studentId, period.getAcademicSessionId(), period.getStartDate(), null);
         Student student = students.findByIdAndSchoolId(studentId, TenantContext.get()).orElseThrow(() -> ApiException.notFound("Élève"));
         BulletinVersion version = (programmeClassId == null
                 ? versions.findFirstBySchoolIdAndStudentIdAndReportingPeriodIdOrderByCreatedAtDesc(TenantContext.get(), studentId, periodId)
                 : versions.findFirstBySchoolIdAndStudentIdAndReportingPeriodIdAndProgrammeClassIdOrderByCreatedAtDesc(TenantContext.get(), studentId, periodId, programmeClassId))
                 .orElseThrow(() -> ApiException.notFound("Aucun calcul de bulletin"));
+        StudentEnrollment enrollment = enrollment(studentId, period);
+        if (enrollment == null) throw ApiException.conflict("Cet élève n'est pas inscrit dans la session académique sélectionnée.");
+        requireProgrammeAccess(AcademicAccessPolicyService.Capability.CLASS_REPORT_CARD_VIEW,
+                studentId, period, enrollment,
+                version.getProgrammeClassId() == null ? programmeClassId : version.getProgrammeClassId());
         return viewFromSnapshot(version, period, student);
     }
 
@@ -417,13 +436,12 @@ public class BulletinSnapshotService {
     @Transactional(readOnly = true)
     public BulletinSnapshotView preview(UUID studentId, UUID periodId, UUID programmeClassId) {
         AcademicReportingPeriod period = period(periodId);
-        accessPolicy.requireStudent(AcademicAccessPolicyService.Capability.CLASS_REPORT_CARD_VIEW,
-                studentId, period.getAcademicSessionId(), period.getStartDate(), null);
         Student student = students.findByIdAndSchoolId(studentId, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Élève"));
         StudentEnrollment enrollment = enrollment(studentId, period);
         if (enrollment == null) throw ApiException.conflict("Cet élève n'est pas inscrit dans la session académique sélectionnée.");
-        UUID effectiveClassId = resolveProgrammeClass(studentId, period, enrollment, programmeClassId);
+        UUID effectiveClassId = requireProgrammeAccess(AcademicAccessPolicyService.Capability.CLASS_REPORT_CARD_VIEW,
+                studentId, period, enrollment, programmeClassId);
         // A preview never creates a version. If an explicit draft/correction already
         // exists, show that durable version so the user can continue its workflow;
         // otherwise expose the latest frozen result before calculating an in-memory
@@ -445,8 +463,10 @@ public class BulletinSnapshotService {
         BulletinVersion version = versions.findByIdAndSchoolId(id, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Version de bulletin"));
         AcademicReportingPeriod period = period(version.getReportingPeriodId());
-        accessPolicy.requireStudent(AcademicAccessPolicyService.Capability.CLASS_REPORT_CARD_VIEW,
-                version.getStudentId(), period.getAcademicSessionId(), period.getStartDate(), null);
+        StudentEnrollment enrollment = enrollment(version.getStudentId(), period);
+        if (enrollment == null) throw ApiException.conflict("Cet élève n'est pas inscrit dans la session académique sélectionnée.");
+        requireProgrammeAccess(AcademicAccessPolicyService.Capability.CLASS_REPORT_CARD_VIEW,
+                version.getStudentId(), period, enrollment, version.getProgrammeClassId());
         Student student = students.findByIdAndSchoolId(version.getStudentId(), TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Élève"));
         return viewFromSnapshot(version, period, student);
@@ -481,16 +501,15 @@ public class BulletinSnapshotService {
     @Transactional
     public BulletinSnapshotView validate(UUID id) {
         BulletinVersion version = versions.findByIdAndSchoolIdForUpdate(id, TenantContext.get()).orElseThrow(() -> ApiException.notFound("Version de bulletin"));
-        if (!"DRAFT".equals(version.getState()) && !"RETURNED".equals(version.getState())) throw ApiException.conflict("Cette version n'est plus un brouillon validable");
-        windows.assertOpen(version.getReportingPeriodId(), AcademicWindowPolicyService.Action.VALIDATION);
         AcademicReportingPeriod period = period(version.getReportingPeriodId());
-        accessPolicy.requireStudent(AcademicAccessPolicyService.Capability.REPORT_CARD_VALIDATE,
-                version.getStudentId(), period.getAcademicSessionId(), period.getStartDate(), null);
         Student student = students.findByIdAndSchoolId(version.getStudentId(), TenantContext.get()).orElseThrow();
         StudentEnrollment enrollment = enrollment(version.getStudentId(), period);
         if (enrollment == null) throw ApiException.conflict("Aucune inscription active pour la validation.");
-        resolveProgrammeClass(version.getStudentId(), period, enrollment, version.getProgrammeClassId());
-        CurrentSnapshot current = currentSnapshot(version.getStudentId(), period, student, enrollment, version.getProgrammeClassId());
+        UUID effectiveClassId = requireProgrammeAccess(AcademicAccessPolicyService.Capability.REPORT_CARD_VALIDATE,
+                version.getStudentId(), period, enrollment, version.getProgrammeClassId());
+        if (!"DRAFT".equals(version.getState()) && !"RETURNED".equals(version.getState())) throw ApiException.conflict("Cette version n'est plus un brouillon validable");
+        windows.assertOpen(version.getReportingPeriodId(), AcademicWindowPolicyService.Action.VALIDATION);
+        CurrentSnapshot current = currentSnapshot(version.getStudentId(), period, student, enrollment, effectiveClassId);
         if (!Objects.equals(version.getSnapshotHash(), current.hash())) {
             throw ApiException.blockers("BULLETIN_DRAFT_STALE",
                     "Le brouillon ne correspond plus aux sources actuelles. Actualisez-le avant validation.",
@@ -511,6 +530,12 @@ public class BulletinSnapshotService {
     public BulletinSnapshotView publish(UUID id, BulletinLifecycleRequest request) {
         BulletinVersion version = versions.findByIdAndSchoolIdForUpdate(id, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Version de bulletin"));
+        AcademicReportingPeriod period = period(version.getReportingPeriodId());
+        Student student = students.findByIdAndSchoolId(version.getStudentId(), TenantContext.get()).orElseThrow();
+        StudentEnrollment enrollment = enrollment(version.getStudentId(), period);
+        if (enrollment == null) throw ApiException.conflict("Aucune inscription active pour la publication.");
+        UUID effectiveClassId = requireProgrammeAccess(AcademicAccessPolicyService.Capability.REPORT_CARD_PUBLISH,
+                version.getStudentId(), period, enrollment, version.getProgrammeClassId());
         if (!"VALIDATED".equals(version.getState())) {
             throw ApiException.conflict("Le bulletin doit être validé avant publication. État actuel : " + version.getState());
         }
@@ -521,14 +546,7 @@ public class BulletinSnapshotService {
             throw ApiException.conflict("Le bulletin a été modifié entre-temps. Rechargez-le avant de publier.");
         }
         windows.assertOpen(version.getReportingPeriodId(), AcademicWindowPolicyService.Action.PUBLICATION);
-        AcademicReportingPeriod period = period(version.getReportingPeriodId());
-        accessPolicy.requireStudent(AcademicAccessPolicyService.Capability.REPORT_CARD_PUBLISH,
-                version.getStudentId(), period.getAcademicSessionId(), period.getStartDate(), null);
-        Student student = students.findByIdAndSchoolId(version.getStudentId(), TenantContext.get()).orElseThrow();
-        StudentEnrollment enrollment = enrollment(version.getStudentId(), period);
-        if (enrollment == null) throw ApiException.conflict("Aucune inscription active pour la publication.");
-        resolveProgrammeClass(version.getStudentId(), period, enrollment, version.getProgrammeClassId());
-        CurrentSnapshot current = currentSnapshot(version.getStudentId(), period, student, enrollment, version.getProgrammeClassId());
+        CurrentSnapshot current = currentSnapshot(version.getStudentId(), period, student, enrollment, effectiveClassId);
         if (!Objects.equals(version.getSnapshotHash(), current.hash())) {
             throw ApiException.blockers("BULLETIN_DRAFT_STALE",
                     "Le bulletin validé ne correspond plus aux sources actuelles.", List.of("BULLETIN_DRAFT_STALE"));
@@ -753,7 +771,10 @@ public class BulletinSnapshotService {
         List<BulletinLineView> lines = new ArrayList<>();
         AcademicCalculationEngine.Product product = product(period);
         Map<String, Subject> subjectByCode = new HashMap<>();
-        for (String code : subjectCodes) subjects.findBySchoolIdAndCode(TenantContext.get(), code).ifPresent(s -> subjectByCode.put(code, s));
+        for (String code : subjectCodes) {
+            Subject subject = subjectForProgramme(code, profile.subsystem());
+            if (subject != null) subjectByCode.put(code, subject);
+        }
         Map<String, Integer> coefficients = effectiveCoefficients(studentId, period.getAcademicSessionId(), classId);
         for (String subjectCode : subjectCodes) {
             List<AcademicCalculationEngine.ChildInput> childInputs = new ArrayList<>();
@@ -792,7 +813,7 @@ public class BulletinSnapshotService {
             Subject subject = subjectByCode.get(subjectCode);
             int coefficient = coefficients.getOrDefault(subjectCode, subject == null ? 1 : subject.getCoef());
             CurriculumMetadata metadata = curriculumMetadata(studentId, period.getAcademicSessionId(), subjectCode, classId);
-            lines.add(new BulletinLineView(subjectCode, subjectLabel(subject, subjectCode), coefficient, mark,
+            lines.add(new BulletinLineView(subjectCode, subjectLabel(subject, subjectCode, profile.subsystem()), coefficient, mark,
                     mark == null ? null : mark.multiply(BigDecimal.valueOf(coefficient)), null, appreciation(mark), uniqueEvidence(evidence),
                     periodMarks, metadata.teacherName(), metadata.groupCode(), metadata.groupLabel()));
         }
@@ -826,9 +847,7 @@ public class BulletinSnapshotService {
                 : assessments.findApplicableForClass(TenantContext.get(), period.getId(), classId);
         List<AcademicGrade> recorded = grades.findBySchoolIdAndStudentIdAndReportingPeriodIdOrderBySubjectCodeAscAssessmentIdAsc(
                 TenantContext.get(), studentId, period.getId());
-        Map<String, List<AcademicGrade>> bySubject = new LinkedHashMap<>();
-        recorded.forEach(g -> bySubject.computeIfAbsent(g.getSubjectCode(), ignored -> new ArrayList<>()).add(g));
-        LinkedHashSet<String> subjectCodes = new LinkedHashSet<>(bySubject.keySet());
+        LinkedHashSet<String> subjectCodes = new LinkedHashSet<>();
         if (classId != null) {
             jdbc.query("SELECT s.code FROM academic_curriculum_subject c JOIN subject s ON s.id=c.subject_id "
                             + "WHERE c.school_id=? AND c.academic_session_id=? AND c.class_id=? "
@@ -837,6 +856,24 @@ public class BulletinSnapshotService {
                     rs -> { while (rs.next()) subjectCodes.add(rs.getString(1)); return null; },
                     TenantContext.get(), period.getAcademicSessionId(), classId, period.getStartDate(), period.getEndDate());
         }
+
+        // A bilingual cohort stores one student enrollment and one set of period
+        // grades, while each programme class owns a separate curriculum/report.
+        // Once a class curriculum exists, it is the authority for which subject
+        // rows may enter this calculation. Otherwise grades entered through the
+        // paired class would leak into the other language's report card.
+        boolean curriculumScoped = !subjectCodes.isEmpty();
+        Set<String> normalizedCurriculumCodes = subjectCodes.stream()
+                .map(code -> code.toUpperCase(Locale.ROOT))
+                .collect(Collectors.toSet());
+        Map<String, List<AcademicGrade>> bySubject = new LinkedHashMap<>();
+        recorded.stream()
+                .filter(grade -> !curriculumScoped || normalizedCurriculumCodes.contains(
+                        grade.getSubjectCode().toUpperCase(Locale.ROOT)))
+                .forEach(grade -> bySubject.computeIfAbsent(grade.getSubjectCode(), ignored -> new ArrayList<>()).add(grade));
+        // Legacy classes without a published curriculum still fall back to the
+        // subjects already present in their grade data.
+        if (!curriculumScoped) subjectCodes.addAll(bySubject.keySet());
 
         List<BulletinLineView> lines = new ArrayList<>();
         List<String> blockers = new ArrayList<>();
@@ -897,16 +934,16 @@ public class BulletinSnapshotService {
             AcademicCalculationEngine.Result result = AcademicCalculationEngine.sequence(inputs);
             result.blockers().forEach(blocker -> addDistinct(blockers, subjectCode + ":" + blocker));
             BigDecimal mark = result.exempt() ? null : result.value();
-            Subject subject = subjects.findBySchoolIdAndCode(TenantContext.get(), subjectCode).orElse(null);
+            Subject subject = subjectForProgramme(subjectCode, profile.subsystem());
             int coefficient = coefficients.getOrDefault(subjectCode, subject == null ? 1 : subject.getCoef());
-            SubjectResultComment comment = comments.findBySchoolIdAndStudentIdAndReportingPeriodIdAndSubjectCode(
-                    TenantContext.get(), studentId, period.getId(), subjectCode).orElse(null);
+            SubjectResultComment comment = comments.findBySchoolIdAndStudentIdAndReportingPeriodIdAndProgrammeClassIdAndSubjectCode(
+                    TenantContext.get(), studentId, period.getId(), classId, subjectCode).orElse(null);
             CurriculumMetadata metadata = curriculumMetadata(studentId, period.getAcademicSessionId(), subjectCode, classId);
             String teacherRemark = comment == null ? null : comment.getComment();
             if (metadata.remarkRequired() && (teacherRemark == null || teacherRemark.isBlank())) {
                 addDistinct(blockers, subjectCode + ":REMARK_REQUIRED");
             }
-            lines.add(new BulletinLineView(subjectCode, subjectLabel(subject, subjectCode), coefficient, mark,
+            lines.add(new BulletinLineView(subjectCode, subjectLabel(subject, subjectCode, profile.subsystem()), coefficient, mark,
                     mark == null ? null : mark.multiply(BigDecimal.valueOf(coefficient)), teacherRemark,
                     appreciation(mark), evidence, List.of(new PeriodMarkView(period.getCode(), mark)),
                     metadata.teacherName(), metadata.groupCode(), metadata.groupLabel()));
@@ -1323,7 +1360,16 @@ public class BulletinSnapshotService {
                 v.getVersion(), c.classStats(), v.getSupersedesId(), v.getCorrectsBulletinVersionId(),
                 v.getCorrectionReason(), v.getCorrectionRequestedBy(), v.getCorrectionRequestedAt(),
                 groupStats(c.lines()), evidence(trace), p.getPeriodType(), productName(p), workflow, issues,
-                v.getProgrammeClassId());
+                v.getProgrammeClassId(), classMasterName(trace));
+    }
+
+    private String classMasterName(SnapshotTrace trace) {
+        if (trace == null || trace.homeroomAssignments() == null) return null;
+        UUID teacherId = trace.homeroomAssignments().stream()
+                .map(AssignmentTrace::teacherId).filter(Objects::nonNull).findFirst().orElse(null);
+        if (teacherId == null) return null;
+        return jdbc.query("SELECT name FROM employee WHERE school_id=? AND id=? AND active=true",
+                rs -> rs.next() ? rs.getString(1) : null, TenantContext.get(), teacherId);
     }
     private BulletinSnapshotView viewFromSnapshot(BulletinVersion v, AcademicReportingPeriod p, Student s) {
         try {
@@ -1649,7 +1695,23 @@ public class BulletinSnapshotService {
         private GroupAccumulator(String code, String label) { this.code = code; this.label = label; }
     }
     private AcademicReportingPeriod period(UUID id){return periods.findByIdAndSchoolId(id,TenantContext.get()).orElseThrow(()->ApiException.notFound("Période de résultat"));}
-    private String subjectLabel(Subject s,String code){if(s==null)return code; Map<String,String> l=s.getLabel(); return l==null?code:(l.getOrDefault("fr",l.getOrDefault("en",code)));}
+    private Subject subjectForProgramme(String code, String subsystem) {
+        if (subsystem != null && !subsystem.isBlank()) {
+            Subject exact = subjects.findBySchoolIdAndCodeAndSubsystem(
+                    TenantContext.get(), code, subsystem.toUpperCase(Locale.ROOT)).orElse(null);
+            if (exact != null) return exact;
+        }
+        List<Subject> matches = subjects.findAllBySchoolIdAndCode(TenantContext.get(), code);
+        return matches.size() == 1 ? matches.getFirst() : null;
+    }
+
+    private String subjectLabel(Subject subject, String code, String subsystem) {
+        if (subject == null || subject.getLabel() == null) return code;
+        Map<String, String> labels = subject.getLabel();
+        return "EN".equalsIgnoreCase(subsystem)
+                ? labels.getOrDefault("en", labels.getOrDefault("fr", code))
+                : labels.getOrDefault("fr", labels.getOrDefault("en", code));
+    }
     /**
      * Resolve the effective coefficient for the student's enrolled class.
      * Subject.coef is only a creation default.  Once a published session
