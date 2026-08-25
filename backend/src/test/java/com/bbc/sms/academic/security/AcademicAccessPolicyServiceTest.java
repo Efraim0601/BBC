@@ -338,6 +338,68 @@ class AcademicAccessPolicyServiceTest {
     }
 
     @Test
+    void primaryHomeroomTeacherCanViewAndEditCouncilInputs() {
+        TenantContext.set(school);
+        UUID userId = UUID.randomUUID();
+        UUID employeeId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        UUID classId = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2026, 9, 1);
+        AppUserPrincipal principal = new AppUserPrincipal(userId, school, "teacher", "teacher",
+                "Primary teacher", "PT");
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
+
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        stubScopeQueries(jdbc, employeeId, sessionId, classId, date, "primary");
+        TeachingAssignmentResolver assignments = mock(TeachingAssignmentResolver.class);
+        when(assignments.resolveHomeroom(sessionId, classId, date))
+                .thenReturn(new TeachingAssignmentResolver.Resolution("HOMEROOM", employeeId,
+                        "Primary teacher", "EMP-1", UUID.randomUUID(), 2L, "HOMEROOM",
+                        "RESOLVED", "ASSIGNMENT_RESOLVED", "Dated titulaire",
+                        "Dated homeroom", true));
+
+        AcademicAccessPolicyService policy = new AcademicAccessPolicyService(
+                jdbc, mock(PermissionService.class), assignments);
+
+        assertThat(policy.resolveDomain(AcademicAccessPolicyService.Capability.COUNCIL_INPUT_VIEW,
+                sessionId, classId, null, null, date).allowed()).isTrue();
+        assertThat(policy.resolveDomain(AcademicAccessPolicyService.Capability.COUNCIL_INPUT_EDIT,
+                sessionId, classId, null, null, date).allowed()).isTrue();
+    }
+
+    @Test
+    void secondaryTitulaireCouncilInputsRemainReadOnly() {
+        TenantContext.set(school);
+        UUID userId = UUID.randomUUID();
+        UUID employeeId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        UUID classId = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2026, 9, 1);
+        AppUserPrincipal principal = new AppUserPrincipal(userId, school, "secondary_teacher",
+                "secondary_teacher", "Secondary teacher", "ST");
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
+
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        stubScopeQueries(jdbc, employeeId, sessionId, classId, date, "secondary");
+        TeachingAssignmentResolver assignments = mock(TeachingAssignmentResolver.class);
+        when(assignments.resolveHomeroom(sessionId, classId, date))
+                .thenReturn(new TeachingAssignmentResolver.Resolution("HOMEROOM", employeeId,
+                        "Secondary teacher", "EMP-1", UUID.randomUUID(), 2L, "HOMEROOM",
+                        "RESOLVED", "ASSIGNMENT_RESOLVED", "Dated titulaire",
+                        "Dated homeroom", true));
+
+        AcademicAccessPolicyService policy = new AcademicAccessPolicyService(
+                jdbc, mock(PermissionService.class), assignments);
+
+        assertThat(policy.resolveDomain(AcademicAccessPolicyService.Capability.COUNCIL_INPUT_VIEW,
+                sessionId, classId, null, null, date).allowed()).isTrue();
+        assertThat(policy.resolveDomain(AcademicAccessPolicyService.Capability.COUNCIL_INPUT_EDIT,
+                sessionId, classId, null, null, date).allowed()).isFalse();
+    }
+
+    @Test
     void secondaryTitulaireCanValidateOwnClassReportCardsButNotAnotherClass() {
         TenantContext.set(school);
         UUID userId = UUID.randomUUID();
@@ -411,6 +473,12 @@ class AcademicAccessPolicyServiceTest {
     @SuppressWarnings({"unchecked", "rawtypes"})
     private void stubScopeQueries(JdbcTemplate jdbc, UUID employeeId, UUID sessionId,
                                   UUID classId, LocalDate date) {
+        stubScopeQueries(jdbc, employeeId, sessionId, classId, date, "secondary");
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private void stubScopeQueries(JdbcTemplate jdbc, UUID employeeId, UUID sessionId,
+                                  UUID classId, LocalDate date, String level) {
         doAnswer(invocation -> {
             String sql = invocation.getArgument(0, String.class);
             org.springframework.jdbc.core.ResultSetExtractor extractor = invocation.getArgument(1,
@@ -427,7 +495,7 @@ class AcademicAccessPolicyServiceTest {
             } else if (sql.contains("lower(level)")) {
                 when(row.next()).thenReturn(true);
                 when(row.getObject(1, UUID.class)).thenReturn(classId);
-                when(row.getString(2)).thenReturn("secondary");
+                when(row.getString(2)).thenReturn(level);
             } else {
                 when(row.next()).thenReturn(false);
             }
