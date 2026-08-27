@@ -18,7 +18,6 @@ import java.util.List;
 import java.util.UUID;
 
 import static com.bbc.sms.finance.accounts.FinanceAccountDtos.*;
-import com.bbc.sms.finance.collections.CollectionDtos.StudentSearchView;
 
 @RestController
 @RequestMapping("/api/finance/v2/accounts")
@@ -31,8 +30,15 @@ public class FinanceAccountController {
 
     @GetMapping("/students/search")
     @PreAuthorize("@perm.canAction('FINANCE_STUDENT_ACCOUNT_VIEW')")
-    public List<StudentSearchView> searchStudents(@RequestParam(defaultValue = "") String q) {
-        return accounts.search(q);
+    public List<StudentAccountSearchView> searchStudents(@RequestParam(defaultValue = "") String q,
+                                                         @RequestParam(required = false) UUID classId) {
+        return accounts.search(q, classId);
+    }
+
+    @GetMapping("/context")
+    @PreAuthorize("@perm.canAction('FINANCE_STUDENT_ACCOUNT_VIEW')")
+    public StudentAccountContextView context() {
+        return accounts.context();
     }
 
     @GetMapping("/students/{studentId}")

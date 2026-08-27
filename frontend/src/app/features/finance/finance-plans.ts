@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { forkJoin } from 'rxjs';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
@@ -44,7 +45,7 @@ const blankTemplate = (sessionId: string | null): TemplateDraft => ({
   selector: 'bbc-finance-plans',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, RouterLink],
   template: `
     <div class="plans-shell mx-auto max-w-7xl space-y-5">
       <header class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -55,8 +56,8 @@ const blankTemplate = (sessionId: string | null): TemplateDraft => ({
             <p class="mt-1 max-w-3xl text-sm text-slate-500">Scope by academic session, level, subsystem and class. A class plan takes priority over a level plan.</p>
           </div>
           <div class="flex flex-wrap gap-2">
-            <a href="/finance/fee-types" class="btn-secondary">{{ fr() ? 'Catalogue des frais' : 'Fee catalogue' }}</a>
-            <a href="/finance/accounting" class="btn-secondary">{{ fr() ? 'Comptabilité' : 'Accounting' }}</a>
+            <a routerLink="/finance/fee-types" class="btn-secondary">{{ fr() ? 'Catalogue des frais' : 'Fee catalogue' }}</a>
+            <a routerLink="/finance/accounting" class="btn-secondary">{{ fr() ? 'Comptabilité' : 'Accounting' }}</a>
             <button class="btn-primary" type="button" [disabled]="!canWrite() || loading()" (click)="createDraft()">+ {{ fr() ? 'Nouveau brouillon' : 'New draft' }}</button>
           </div>
         </div>

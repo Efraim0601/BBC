@@ -1,5 +1,6 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import {
   FinanceApi, PaymentRequest, SituationView, ExpenseView, ExpenseRequest,
   FeeConfigView, FeeConfigUpdate, PaymentChannelView, PaymentChannelUpdate,
@@ -10,6 +11,7 @@ import { TreasuryApi, TreasuryAccountView } from './treasury.api';
 import { ClassView } from '../../core/setup.api';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
+import { SchoolService } from '../../core/school.service';
 import { FinanceSummary, PaymentView, Student } from '../../core/models';
 import { downloadCsv, stampedName } from '../../core/csv';
 import {
@@ -29,7 +31,7 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
   imports: [
     FormsModule, IconComponent, CardComponent, KpiComponent, PageHeaderComponent,
     EmptyComponent, StatusPillComponent, TabsComponent, ChipFilterComponent, AreaChartComponent,
-    ConfirmComponent, ListPaginationComponent,
+    ConfirmComponent, ListPaginationComponent, RouterLink,
   ],
   template: `
     <div class="fade-in max-w-6xl mx-auto">
@@ -39,11 +41,11 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
           ? (fr() ? 'Encaissements, frais, débiteurs, dépenses' : 'Payments, fees, debtors, expenses')
           : (fr() ? 'Consultation — accès lecture seule' : 'View only — read access')">
         <div right class="flex items-center gap-2">
-          <a href="/finance/treasury"
+          <a routerLink="/finance/treasury"
             class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-cyan-50 border border-cyan-200 text-cyan-800 hover:bg-cyan-100">
             <bbc-icon name="wallet" [s]="16" /> {{ fr() ? 'Comptes & mouvements' : 'Accounts & movements' }}
           </a>
-          <a href="/finance/student-accounts"
+          <a routerLink="/finance/student-accounts"
             class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 hover:bg-emerald-100">
             <bbc-icon name="users" [s]="16" /> {{ fr() ? 'Compte élève' : 'Student accounts' }}
           </a>
@@ -1025,83 +1027,68 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
     @if (receipt(); as r) {
       <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div class="absolute inset-0 bg-black/40" (click)="receipt.set(null)"></div>
-        <div class="relative bg-white rounded-xl2 shadow-card w-full max-w-md fade-in">
-          <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-            <div class="text-base font-semibold text-ink">{{ fr() ? 'Reçu' : 'Receipt' }}</div>
+        <div class="relative flex max-h-[calc(100vh-2rem)] w-full max-w-3xl flex-col overflow-hidden rounded-xl2 bg-slate-100 shadow-card fade-in">
+          <div class="flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
+            <div><div class="text-base font-semibold text-ink">{{ fr() ? 'Reçu de paiement' : 'Payment receipt' }}</div><div class="text-xs text-mute font-mono">{{ r.receiptNo }}</div></div>
             <button (click)="receipt.set(null)" class="text-mute hover:text-ink"><bbc-icon name="x" [s]="18" /></button>
           </div>
-          <div class="p-5">
-            <div class="receipt-print-paper receipt-bg rounded-lg p-6 border border-slate-200">
-              <div class="flex items-center gap-3 pb-4 border-b-2 border-brand-600">
-                <div class="w-12 h-12 rounded-lg bg-brand-600 text-white flex items-center justify-center font-display font-bold text-lg shrink-0">B</div>
+          @if (receiptError(); as message) { <div class="mx-5 mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{{ message }}</div> }
+          <div class="overflow-auto p-5">
+            <article class="receipt-print-paper finance-payment-sheet flex min-h-[700px] flex-col rounded-lg border border-slate-200 bg-white p-8 shadow-sm">
+              <div class="flex items-center gap-4 pb-5 border-b-[3px] border-brand-600">
+                <div class="w-14 h-14 rounded-xl bg-brand-700 text-gold-400 flex items-center justify-center font-display font-bold text-base shrink-0">BBC</div>
                 <div class="flex-1 min-w-0">
-                  <div class="font-display text-lg font-bold text-brand-700 leading-tight">Bayo Bilingual Complex</div>
-                  <div class="text-[11px] text-mute">Maroua, Cameroun · Tél +237 6 99 00 00 00</div>
+                  <div class="font-display text-xl font-bold text-brand-700 leading-tight">{{ school.profile()?.name || 'Bayo Bilingual Complex' }}</div>
+                  <div class="mt-1 flex flex-wrap gap-x-1 text-[11px] text-mute"><span>{{ school.location() || 'Maroua, Cameroun' }}</span>@if (school.profile()?.phone; as phone) { <span>· {{ phone }}</span> }@if (school.profile()?.email; as email) { <span>· {{ email }}</span> }</div>
                 </div>
                 <div class="text-right">
-                  <div class="text-[10px] uppercase tracking-wider text-gold-500 font-bold">{{ fr() ? 'Reçu' : 'Receipt' }}</div>
+                  <div class="text-[10px] uppercase tracking-wider text-brand-600 font-bold">{{ fr() ? 'Reçu de paiement' : 'Payment receipt' }}</div>
                   <div class="text-sm font-mono font-bold text-ink">{{ r.receiptNo }}</div>
+                  <div class="mt-1 text-[10px] text-mute">{{ r.paidOn }}</div>
                 </div>
               </div>
 
-              <div class="grid grid-cols-2 gap-4 my-5 text-sm">
-                <div>
-                  <div class="text-[10px] uppercase tracking-wide text-mute font-semibold">{{ fr() ? 'Payé par' : 'Paid by' }}</div>
-                  <div class="font-semibold text-ink font-mono text-xs">{{ shortId(r.studentId) }}</div>
+              <div class="my-6 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+                <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <div class="text-[10px] uppercase tracking-wide text-mute font-semibold">{{ fr() ? 'Élève' : 'Student' }}</div>
+                  <div class="mt-1 text-base font-bold text-ink">{{ r.studentName || (fr() ? 'Élève supprimé' : 'Deleted student') }}</div>
+                  <div class="mt-1 text-xs text-mute">{{ r.matricule || '—' }}@if (r.className) { · {{ r.className }} }</div>
                 </div>
-                <div>
-                  <div class="text-[10px] uppercase tracking-wide text-mute font-semibold">{{ fr() ? 'Date' : 'Date' }}</div>
-                  <div class="font-semibold text-ink">{{ r.paidOn }}</div>
-                  <div class="text-xs text-mute">{{ fr() ? 'Année' : 'Year' }} 2025-2026</div>
+                <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <div class="text-[10px] uppercase tracking-wide text-mute font-semibold">{{ fr() ? 'Paiement' : 'Payment' }}</div>
+                  <div class="mt-1 font-semibold text-ink">{{ fr() ? 'Enregistré le' : 'Recorded on' }} {{ r.paidOn }}</div>
+                  <div class="mt-1 text-xs text-mute">{{ fr() ? 'Année scolaire' : 'Academic year' }} {{ school.profile()?.academicYear || '—' }}</div>
                 </div>
               </div>
 
-              <div class="bg-white border border-slate-200 rounded-lg overflow-hidden mb-4">
-                <div class="flex items-center justify-between px-4 py-2.5 border-b border-slate-100">
-                  <span class="text-sm font-semibold">
-                    @if (r.tranche) { {{ fr() ? 'Tranche' : 'Installment' }} {{ r.tranche }} — }
-                    {{ fr() ? 'Scolarité' : 'Tuition' }}
-                  </span>
+              <div class="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                <div class="flex items-center justify-between px-5 py-3.5 border-b border-slate-100">
+                  <span class="text-sm font-semibold text-ink">@if (r.tranche) { {{ fr() ? 'Tranche' : 'Installment' }} {{ r.tranche }} — }{{ fr() ? 'Frais scolaires' : 'School fees' }}</span>
                   <span class="text-sm font-mono font-bold">{{ money(r.amount) }}</span>
                 </div>
-                <div class="flex items-center justify-between px-4 py-2.5 bg-gold-50">
+                <div class="flex items-center justify-between px-5 py-4 bg-emerald-50">
                   <span class="text-sm font-bold text-brand-700">{{ fr() ? 'TOTAL PAYÉ' : 'TOTAL PAID' }}</span>
-                  <span class="text-lg font-bold text-brand-700 font-mono">{{ money(r.amount) }}</span>
+                  <span class="text-2xl font-bold text-brand-700 font-mono">{{ money(r.amount) }}</span>
                 </div>
               </div>
 
-              <div class="grid grid-cols-2 gap-4 text-xs">
-                <div>
-                  <div class="text-[10px] uppercase tracking-wide text-mute font-semibold">{{ fr() ? 'Méthode' : 'Method' }}</div>
-                  <div class="font-semibold text-ink">{{ r.method }}</div>
-                </div>
-                <div>
-                  <div class="text-[10px] uppercase tracking-wide text-mute font-semibold">{{ fr() ? 'Statut' : 'Status' }}</div>
-                  <bbc-status-pill status="paid" />
-                </div>
+              <div class="mt-5 grid grid-cols-1 gap-x-8 gap-y-4 text-xs sm:grid-cols-2">
+                <div><div class="text-[10px] uppercase tracking-wide text-mute font-semibold">{{ fr() ? 'Méthode' : 'Method' }}</div><div class="mt-1 font-semibold text-ink">{{ methodLabel(r) }}</div></div>
+                <div><div class="text-[10px] uppercase tracking-wide text-mute font-semibold">{{ fr() ? 'Compte crédité' : 'Credited account' }}</div><div class="mt-1 font-semibold text-ink">{{ r.treasuryAccountName || '—' }}</div></div>
+                <div><div class="text-[10px] uppercase tracking-wide text-mute font-semibold">{{ fr() ? 'Référence' : 'Reference' }}</div><div class="mt-1 font-semibold text-ink">{{ r.reference || '—' }}</div></div>
+                <div><div class="text-[10px] uppercase tracking-wide text-mute font-semibold">{{ fr() ? 'Statut' : 'Status' }}</div><div class="mt-1"><bbc-status-pill status="paid" /></div></div>
               </div>
 
-              <div class="mt-6 pt-4 border-t border-slate-200 flex items-end justify-between">
-                <div class="text-[10px] text-mute leading-relaxed">
-                  {{ fr() ? 'Reçu généré électroniquement — valide sans signature.' : 'Electronically generated — valid without signature.' }}<br />
-                  {{ fr() ? 'Conservez ce reçu pour vos archives.' : 'Keep this receipt for your records.' }}
-                </div>
-                <div class="text-right">
-                  <div class="font-display text-gold-500 italic text-sm">Bayo</div>
-                  <div class="text-[10px] text-mute">— {{ fr() ? 'Cachet école' : 'School stamp' }}</div>
-                </div>
-              </div>
-            </div>
+              <div class="mt-auto pt-12"><div class="pt-4 border-t border-slate-200 flex items-end justify-between">
+                <div class="text-[10px] text-mute leading-relaxed">{{ fr() ? 'Reçu généré électroniquement — valide sans signature.' : 'Electronically generated — valid without signature.' }}<br />{{ fr() ? 'Conservez ce reçu pour vos archives.' : 'Keep this receipt for your records.' }}</div>
+                <div class="text-right"><div class="font-mono text-xs font-bold text-ink">{{ r.receiptNo }}</div><div class="text-[10px] text-mute">BBC SMS</div></div>
+              </div></div>
+            </article>
           </div>
-          <div class="flex items-center justify-end gap-2 px-5 py-4 border-t border-slate-100">
-            <button (click)="receipt.set(null)"
-              class="h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
-              {{ i18n.t('cancel') }}
-            </button>
-            <button (click)="print()"
-              class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-brand-600 text-white hover:bg-brand-700">
-              <bbc-icon name="printer" [s]="16" /> {{ fr() ? 'Imprimer' : 'Print' }}
-            </button>
+          <div class="flex items-center justify-end gap-2 border-t border-slate-200 bg-white px-5 py-4">
+            <button (click)="receipt.set(null)" class="h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">{{ fr() ? 'Fermer' : 'Close' }}</button>
+            <button (click)="downloadReceiptPdf()" [disabled]="receiptDownloadBusy()" class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-brand-700 hover:bg-slate-50 disabled:opacity-50"><bbc-icon name="download" [s]="16" /> {{ receiptDownloadBusy() ? '…' : (fr() ? 'Télécharger PDF' : 'Download PDF') }}</button>
+            <button (click)="print()" class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-brand-600 text-white hover:bg-brand-700"><bbc-icon name="printer" [s]="16" /> {{ fr() ? 'Imprimer' : 'Print' }}</button>
           </div>
         </div>
       </div>
@@ -1114,6 +1101,7 @@ export class FinanceComponent {
   private studentApi = inject(StudentApi);
   private auth = inject(AuthService);
   private treasuryApi = inject(TreasuryApi);
+  protected school = inject(SchoolService);
 
   protected summary = signal<FinanceSummary | null>(null);
   protected rows = signal<PaymentView[]>([]);
@@ -1130,6 +1118,8 @@ export class FinanceComponent {
   protected paymentPageSize = signal(25);
   protected paymentOpen = signal(false);
   protected receipt = signal<PaymentView | null>(null);
+  protected receiptDownloadBusy = signal(false);
+  protected receiptError = signal<string | null>(null);
   protected draft: PaymentRequest = this.blank();
 
   protected setupClasses = signal<ClassView[]>([]);
@@ -1405,6 +1395,7 @@ export class FinanceComponent {
   }
 
   constructor() {
+    this.school.ensureLoaded();
     this.reloadSummary();
     this.reloadPayments();
     this.reloadTreasuryAccounts();
@@ -1815,12 +1806,42 @@ export class FinanceComponent {
     this.draft.treasuryAccountId = (mapped ?? fallback ?? accounts[0]).id;
   }
   protected viewReceipt(p: PaymentView): void {
+    this.receiptError.set(null);
     this.receipt.set(p);
   }
   protected print(): void {
     document.body.classList.add('printing-receipt');
     window.print();
     window.setTimeout(() => document.body.classList.remove('printing-receipt'), 250);
+  }
+
+  protected async downloadReceiptPdf(): Promise<void> {
+    const payment = this.receipt();
+    if (!payment) return;
+    this.receiptDownloadBusy.set(true);
+    this.receiptError.set(null);
+    try {
+      const { renderPaymentReceiptPdf } = await import('./payment-receipt-pdf');
+      const bytes = await renderPaymentReceiptPdf({
+        french: this.fr(), payment, school: this.school.profile(),
+      });
+      const pdfBuffer = new Uint8Array(bytes.byteLength);
+      pdfBuffer.set(bytes);
+      const blob = new Blob([pdfBuffer.buffer], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `${payment.receiptNo.replace(/[^A-Za-z0-9._-]/g, '-')}.pdf`;
+      anchor.hidden = true;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+    } catch {
+      this.receiptError.set(this.fr() ? 'Le PDF du reçu n’a pas pu être généré.' : 'The receipt PDF could not be generated.');
+    } finally {
+      this.receiptDownloadBusy.set(false);
+    }
   }
 
   protected save(): void {

@@ -1,6 +1,7 @@
 import { CommonModule } from '@angular/common';
 import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import {
   CashierSessionView,
   ChannelView,
@@ -20,7 +21,7 @@ type CollectionTab = 'collect' | 'payments' | 'cashier' | 'provider';
 @Component({
   selector: 'bbc-finance-collections',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="collections-shell">
@@ -30,7 +31,7 @@ type CollectionTab = 'collect' | 'payments' | 'cashier' | 'provider';
           <h1>{{ fr() ? 'Encaissements & comptes élèves' : 'Collections & student accounts' }}</h1>
           <p>{{ fr() ? 'Recherchez un compte, affectez le paiement aux échéances les plus anciennes et postez une écriture équilibrée.' : 'Find an account, allocate to the oldest open installments and post a balanced journal.' }}</p>
         </div>
-        <div class="hero-links"><a href="/finance/charges">{{ fr() ? 'Charges' : 'Charges' }}</a><a href="/finance/accounting">{{ fr() ? 'Comptabilité' : 'Accounting' }}</a></div>
+        <div class="hero-links"><a routerLink="/finance/charges">{{ fr() ? 'Charges' : 'Charges' }}</a><a routerLink="/finance/accounting">{{ fr() ? 'Comptabilité' : 'Accounting' }}</a></div>
       </header>
 
       @if (error()) {
@@ -108,7 +109,7 @@ type CollectionTab = 'collect' | 'payments' | 'cashier' | 'provider';
                 }
 
                 @if (payment(); as posted) {
-                  <section class="success-panel" role="status"><span class="success-icon">✓</span><div><h2>{{ fr() ? 'Encaissement posté' : 'Collection posted' }}</h2><p>{{ posted.studentId.slice(0, 8) }} · {{ posted.channelCode }} · {{ posted.paymentDate }}</p><strong>{{ posted.receiptDocumentNumber || posted.receiptNo }}</strong><div class="success-details">{{ money(posted.amountMinor) }} · {{ money(posted.allocatedMinor) }} {{ fr() ? 'affecté' : 'allocated' }} · {{ money(posted.creditMinor) }} {{ fr() ? 'crédit' : 'credit' }}</div>@if (posted.receiptDocumentStatus === 'ISSUED' && posted.receiptDocumentId) { <div class="receipt-ready-note">{{ fr() ? 'Reçu PDF disponible sur le serveur.' : 'Server receipt PDF is available.' }} <b>{{ posted.receiptDocumentNumber }}</b></div><div class="actions"><button type="button" class="btn-primary" (click)="downloadReceipt(posted)">{{ fr() ? 'Télécharger le reçu' : 'Download receipt' }}</button><a class="btn-secondary" href="/finance/documents">{{ fr() ? 'Voir les documents' : 'Open documents' }}</a></div> } @if (posted.receiptDocumentStatus === 'GENERATION_FAILED') { <div class="placeholder-note">{{ fr() ? 'Le paiement est posté, mais la génération du reçu a échoué : ' : 'Payment posted, but receipt generation failed: ' }}{{ posted.receiptGenerationError || (fr() ? 'réessayez depuis Documents financiers.' : 'retry from Financial documents.') }}</div><div class="actions"><a class="btn-secondary" href="/finance/documents">{{ fr() ? 'Ouvrir les documents' : 'Open documents' }}</a></div> }<div class="actions"><button type="button" class="btn-primary" (click)="collectAnother()">{{ fr() ? 'Nouvel encaissement' : 'Collect another' }}</button><button type="button" class="btn-secondary" (click)="openPayment(posted)">{{ fr() ? 'Voir le détail' : 'Open details' }}</button></div></div></section>
+                  <section class="success-panel" role="status"><span class="success-icon">✓</span><div><h2>{{ fr() ? 'Encaissement posté' : 'Collection posted' }}</h2><p>{{ posted.studentId.slice(0, 8) }} · {{ posted.channelCode }} · {{ posted.paymentDate }}</p><strong>{{ posted.receiptDocumentNumber || posted.receiptNo }}</strong><div class="success-details">{{ money(posted.amountMinor) }} · {{ money(posted.allocatedMinor) }} {{ fr() ? 'affecté' : 'allocated' }} · {{ money(posted.creditMinor) }} {{ fr() ? 'crédit' : 'credit' }}</div>@if (posted.receiptDocumentStatus === 'ISSUED' && posted.receiptDocumentId) { <div class="receipt-ready-note">{{ fr() ? 'Reçu PDF disponible sur le serveur.' : 'Server receipt PDF is available.' }} <b>{{ posted.receiptDocumentNumber }}</b></div><div class="actions"><button type="button" class="btn-primary" (click)="downloadReceipt(posted)">{{ fr() ? 'Télécharger le reçu' : 'Download receipt' }}</button><a class="btn-secondary" routerLink="/finance/documents">{{ fr() ? 'Voir les documents' : 'Open documents' }}</a></div> } @if (posted.receiptDocumentStatus === 'GENERATION_FAILED') { <div class="placeholder-note">{{ fr() ? 'Le paiement est posté, mais la génération du reçu a échoué : ' : 'Payment posted, but receipt generation failed: ' }}{{ posted.receiptGenerationError || (fr() ? 'réessayez depuis Documents financiers.' : 'retry from Financial documents.') }}</div><div class="actions"><a class="btn-secondary" routerLink="/finance/documents">{{ fr() ? 'Ouvrir les documents' : 'Open documents' }}</a></div> }<div class="actions"><button type="button" class="btn-primary" (click)="collectAnother()">{{ fr() ? 'Nouvel encaissement' : 'Collect another' }}</button><button type="button" class="btn-secondary" (click)="openPayment(posted)">{{ fr() ? 'Voir le détail' : 'Open details' }}</button></div></div></section>
                 }
               </div>
             </section>

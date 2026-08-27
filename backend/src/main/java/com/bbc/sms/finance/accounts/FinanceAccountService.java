@@ -6,7 +6,6 @@ import com.bbc.sms.documents.OfficialDocumentDtos.GeneratedDocumentView;
 import com.bbc.sms.documents.OfficialDocumentService;
 import com.bbc.sms.finance.FinancePolicyService;
 import com.bbc.sms.finance.accounting.DocumentSequenceService;
-import com.bbc.sms.finance.collections.CollectionDtos.StudentSearchView;
 import com.bbc.sms.finance.documents.FinancePdfRenderer;
 import com.bbc.sms.foundation.audit.AuditService;
 import com.bbc.sms.platform.common.ApiException;
@@ -18,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
@@ -29,6 +29,7 @@ import static com.bbc.sms.finance.accounts.FinanceAccountDtos.*;
 @Service
 public class FinanceAccountService {
     private static final String CURRENCY = "XAF";
+    private static final String CONSOLIDATED_RECEIPT_TEMPLATE_VERSION = "layout-v2";
 
     private final JdbcTemplate jdbc;
     private final FinancePolicyService financePolicy;
@@ -61,26 +62,150 @@ public class FinanceAccountService {
     }
 
     @Transactional(readOnly = true)
-    public List<StudentSearchView> search(String query) {
+    public StudentAccountContextView context() {
+        financePolicy.requireSchool("FINANCE_STUDENT_ACCOUNT_VIEW");
+        UUID schoolId = TenantContext.get();
+        List<StudentAccountClassOption> classes = jdbc.query("""
+                SELECT c.id,c.name,c.level,c.subsystem,COUNT(DISTINCT student.id)
+                  FROM school_class c
+                  LEFT JOIN academic_session session
+                    ON session.school_id=c.school_id AND session.is_current=true
+                  LEFT JOIN academic_cohort_programme programme
+                    ON programme.school_id=c.school_id
+                   AND programme.academic_session_id=session.id
+                   AND programme.school_class_id=c.id
+                   AND programme.active=true
+                  LEFT JOIN student_enrollment enrollment
+                    ON enrollment.school_id=c.school_id
+                   AND enrollment.academic_session_id=session.id
+                   AND enrollment.status='ACTIVE'
+                   AND (enrollment.school_class_id=c.id
+                        OR (programme.cohort_id IS NOT NULL AND enrollment.cohort_id=programme.cohort_id))
+                  LEFT JOIN student student
+                    ON student.school_id=c.school_id AND student.id=enrollment.student_id AND student.active=true
+                 WHERE c.school_id=?
+                 GROUP BY c.id,c.name,c.level,c.subsystem,c.grade_order
+                 ORDER BY CASE lower(c.level)
+                            WHEN 'maternelle' THEN 1 WHEN 'kindergarten' THEN 1
+                            WHEN 'primary' THEN 2 WHEN 'secondary' THEN 3 ELSE 4 END,
+                          c.grade_order,c.name
+                """, (rs, n) -> new StudentAccountClassOption(rs.getObject(1, UUID.class), rs.getString(2),
+                rs.getString(3), rs.getString(4), rs.getLong(5)), schoolId);
+        return new StudentAccountContextView(classes);
+    }
+
+    @Transactional(readOnly = true)
+    public List<StudentAccountSearchView> search(String query, UUID classId) {
         financePolicy.requireSchool("FINANCE_STUDENT_ACCOUNT_VIEW");
         UUID schoolId = TenantContext.get();
         String needle = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
-        return jdbc.query("""
-                SELECT s.id,trim(concat_ws(' ',NULLIF(s.first_name,''),NULLIF(s.last_name,''))),
-                       s.matricule,e.id,e.academic_session_id,
-                       COALESCE(c.name,e.class_name_snapshot),e.enrolled_on,e.exited_on
-                  FROM student_enrollment e
-                  JOIN student s ON s.id=e.student_id AND s.school_id=e.school_id AND s.active=true
-                  JOIN academic_session session ON session.id=e.academic_session_id
-                                               AND session.school_id=e.school_id
-                                               AND session.is_current=true
-                  LEFT JOIN school_class c ON c.id=e.school_class_id AND c.school_id=e.school_id
-                 WHERE e.school_id=? AND e.status='ACTIVE'
-                 ORDER BY COALESCE(c.name,e.class_name_snapshot),s.last_name,s.first_name
-                """, (rs, n) -> new StudentSearchView(rs.getObject(1, UUID.class), rs.getString(2),
-                        rs.getString(3), rs.getObject(4, UUID.class), rs.getObject(5, UUID.class),
-                        rs.getString(6), rs.getObject(7, LocalDate.class), rs.getObject(8, LocalDate.class),
-                        0, 0), schoolId).stream()
+        List<Object> args = new ArrayList<>();
+        args.add(schoolId);
+        String classFilter = "";
+        if (classId != null) {
+            Integer exists = jdbc.query("SELECT 1 FROM school_class WHERE school_id=? AND id=?",
+                    rs -> rs.next() ? 1 : null, schoolId, classId);
+            if (exists == null) throw ApiException.notFound("Classe");
+            classFilter = """
+                      AND (e.school_class_id=? OR e.cohort_id=(
+                           SELECT programme.cohort_id
+                             FROM academic_cohort_programme programme
+                            WHERE programme.school_id=e.school_id
+                              AND programme.academic_session_id=e.academic_session_id
+                              AND programme.school_class_id=?
+                              AND programme.active=true
+                            LIMIT 1))
+                    """;
+            args.add(classId);
+            args.add(classId);
+        }
+
+        String sql = """
+                WITH current_students AS (
+                    SELECT e.school_id,s.id student_id,
+                           trim(concat_ws(' ',NULLIF(s.first_name,''),NULLIF(s.last_name,''))) student_name,
+                           s.matricule,e.id enrollment_id,e.academic_session_id,
+                           COALESCE((
+                               SELECT string_agg(programme_class.name,' / '
+                                                 ORDER BY programme.display_order,programme_class.name)
+                                 FROM academic_cohort_programme programme
+                                 JOIN school_class programme_class
+                                   ON programme_class.school_id=programme.school_id
+                                  AND programme_class.id=programme.school_class_id
+                                WHERE programme.school_id=e.school_id
+                                  AND programme.academic_session_id=e.academic_session_id
+                                  AND programme.cohort_id=e.cohort_id
+                                  AND programme.active=true
+                           ),c.name,e.class_name_snapshot) class_name,
+                           e.enrolled_on,e.exited_on,s.last_name,s.first_name
+                      FROM student_enrollment e
+                      JOIN student s ON s.id=e.student_id AND s.school_id=e.school_id AND s.active=true
+                      JOIN academic_session session ON session.id=e.academic_session_id
+                                                   AND session.school_id=e.school_id
+                                                   AND session.is_current=true
+                      LEFT JOIN school_class c ON c.id=e.school_class_id AND c.school_id=e.school_id
+                     WHERE e.school_id=? AND e.status='ACTIVE'
+                """ + classFilter + """
+                ), charge_totals AS (
+                    SELECT charge.student_id,
+                           SUM(GREATEST(0,charge.adjusted_amount_minor-charge.waived_minor)) billed
+                      FROM student_charge charge
+                      JOIN current_students current ON current.school_id=charge.school_id
+                                                   AND current.student_id=charge.student_id
+                     WHERE charge.status IN ('POSTED','PARTIAL','PAID','WAIVED')
+                     GROUP BY charge.student_id
+                ), legacy_fees AS (
+                    SELECT fee.student_id,MAX(fee.total) billed
+                      FROM student_fee fee
+                      JOIN current_students current ON current.school_id=fee.school_id
+                                                   AND current.student_id=fee.student_id
+                     GROUP BY fee.student_id
+                ), refunds AS (
+                    SELECT refund.payment_id,SUM(refund.amount_minor) refunded
+                      FROM refund_transaction refund
+                      JOIN finance_payment refunded_payment
+                        ON refunded_payment.school_id=refund.school_id AND refunded_payment.id=refund.payment_id
+                      JOIN current_students current ON current.school_id=refunded_payment.school_id
+                                                   AND current.student_id=refunded_payment.student_id
+                     GROUP BY refund.payment_id
+                ), v2_payments AS (
+                    SELECT payment.student_id,
+                           SUM(CASE WHEN payment.status IN ('REVERSED','VOID') THEN 0
+                                    ELSE GREATEST(0,payment.amount_minor-COALESCE(refunds.refunded,0)) END) paid,
+                           COUNT(*) FILTER (WHERE payment.status NOT IN ('REVERSED','VOID')) payment_count
+                      FROM finance_payment payment
+                      JOIN current_students current ON current.school_id=payment.school_id
+                                                   AND current.student_id=payment.student_id
+                      LEFT JOIN refunds ON refunds.payment_id=payment.id
+                     GROUP BY payment.student_id
+                ), legacy_payments AS (
+                    SELECT payment.student_id,SUM(payment.amount) paid,COUNT(*) payment_count
+                      FROM payment payment
+                      JOIN current_students current ON current.school_id=payment.school_id
+                                                   AND current.student_id=payment.student_id
+                     GROUP BY payment.student_id
+                )
+                SELECT current.student_id,current.student_name,current.matricule,current.enrollment_id,
+                       current.academic_session_id,current.class_name,current.enrolled_on,current.exited_on,
+                       COALESCE(charges.billed,0) v2_billed,COALESCE(fees.billed,0) legacy_billed,
+                       COALESCE(v2.paid,0) v2_paid,COALESCE(legacy.paid,0) legacy_paid,
+                       COALESCE(v2.payment_count,0)+COALESCE(legacy.payment_count,0) payment_count
+                  FROM current_students current
+                  LEFT JOIN charge_totals charges ON charges.student_id=current.student_id
+                  LEFT JOIN legacy_fees fees ON fees.student_id=current.student_id
+                  LEFT JOIN v2_payments v2 ON v2.student_id=current.student_id
+                  LEFT JOIN legacy_payments legacy ON legacy.student_id=current.student_id
+                 ORDER BY current.class_name,current.last_name,current.first_name
+                """;
+
+        return jdbc.query(sql, (rs, n) -> new SearchAccountRow(
+                        rs.getObject("student_id", UUID.class), rs.getString("student_name"),
+                        rs.getString("matricule"), rs.getObject("enrollment_id", UUID.class),
+                        rs.getObject("academic_session_id", UUID.class), rs.getString("class_name"),
+                        rs.getObject("enrolled_on", LocalDate.class), rs.getObject("exited_on", LocalDate.class),
+                        rs.getLong("v2_billed"), rs.getLong("legacy_billed"), rs.getLong("v2_paid"),
+                        rs.getLong("legacy_paid"), rs.getLong("payment_count")), args.toArray()).stream()
+                .map(this::searchView)
                 .filter(v -> needle.isBlank()
                         || contains(v.studentName(), needle)
                         || contains(v.matricule(), needle)
@@ -94,10 +219,11 @@ public class FinanceAccountService {
         financePolicy.requireSchool("FINANCE_CONSOLIDATED_RECEIPT_CREATE");
         StudentAccountView account = account(studentId);
         UUID schoolId = TenantContext.get();
+        String documentVersion = documentVersion(account.snapshotHash());
         GeneratedDocument existing = generatedDocuments
                 .findFirstBySchoolIdAndDocumentTypeAndAggregateTypeAndAggregateIdAndAggregateVersionAndLocale(
                         schoolId, "CONSOLIDATED_RECEIPT", "FinanceStudentAccount",
-                        studentId.toString(), account.snapshotHash(), "fr")
+                        studentId.toString(), documentVersion, "fr")
                 .orElse(null);
         if (existing != null) return consolidatedView(account, existing);
 
@@ -113,8 +239,8 @@ public class FinanceAccountService {
         byte[] content = pdf.consolidatedReceipt(draft, schoolSnapshot(), verificationBase());
         GeneratedDocumentView document = officialDocuments.registerPdf(
                 "CONSOLIDATED_RECEIPT", "FinanceStudentAccount", studentId.toString(),
-                account.snapshotHash(), "fr", "Relevé des paiements / Consolidated receipt",
-                "STAFF", content, "FINANCE_CR:" + studentId + ":" + account.snapshotHash(), number);
+                documentVersion, "fr", "Relevé des paiements / Consolidated receipt",
+                "STAFF", content, consolidatedIdempotencyKey(studentId, account.snapshotHash()), number);
         ConsolidatedReceiptView result = consolidatedView(account, document);
         audit.record("FINANCE_CONSOLIDATED_RECEIPT_ISSUED", "FinanceStudentAccount",
                 studentId.toString(), null, result, null);
@@ -132,10 +258,21 @@ public class FinanceAccountService {
         UUID schoolId = TenantContext.get();
         StudentIdentity identity = jdbc.query("""
                 SELECT s.id,trim(concat_ws(' ',NULLIF(s.first_name,''),NULLIF(s.last_name,''))),
-                       s.matricule,COALESCE(c.name,s.class_name),a.label
+                        s.matricule,COALESCE((
+                            SELECT string_agg(programme_class.name,' / '
+                                              ORDER BY programme.display_order,programme_class.name)
+                              FROM academic_cohort_programme programme
+                              JOIN school_class programme_class
+                                ON programme_class.school_id=programme.school_id
+                               AND programme_class.id=programme.school_class_id
+                             WHERE programme.school_id=s.school_id
+                               AND programme.academic_session_id=current_enrollment.academic_session_id
+                               AND programme.cohort_id=current_enrollment.cohort_id
+                               AND programme.active=true
+                        ),c.name,s.class_name),a.label
                   FROM student s
                   LEFT JOIN LATERAL (
-                       SELECT e.school_class_id,e.academic_session_id
+                       SELECT e.school_class_id,e.academic_session_id,e.cohort_id
                          FROM student_enrollment e
                          JOIN academic_session session ON session.id=e.academic_session_id
                                                        AND session.school_id=e.school_id
@@ -154,10 +291,10 @@ public class FinanceAccountService {
         if (identity == null) throw ApiException.notFound("Élève");
 
         BillingTotals billing = jdbc.queryForObject("""
-                SELECT COALESCE((SELECT SUM(c.adjusted_amount_minor)
+                SELECT COALESCE((SELECT SUM(GREATEST(0,c.adjusted_amount_minor-c.waived_minor))
                                    FROM student_charge c
                                   WHERE c.school_id=? AND c.student_id=?
-                                    AND c.status NOT IN ('VOID','CANCELLED')),0),
+                                    AND c.status IN ('POSTED','PARTIAL','PAID','WAIVED')),0),
                        COALESCE((SELECT MAX(f.total) FROM student_fee f
                                   WHERE f.school_id=? AND f.student_id=?),0)
                 """, (rs, n) -> new BillingTotals(rs.getLong(1), rs.getLong(2)),
@@ -255,6 +392,23 @@ public class FinanceAccountService {
         return value != null && value.toLowerCase(Locale.ROOT).contains(needle);
     }
 
+    private StudentAccountSearchView searchView(SearchAccountRow row) {
+        long billed = row.v2Billed() > 0 ? row.v2Billed() : row.legacyBilled();
+        long paid = row.v2Paid() + row.legacyPaid();
+        return new StudentAccountSearchView(row.studentId(), row.studentName(), row.matricule(),
+                row.enrollmentId(), row.academicSessionId(), row.className(), row.enrolledOn(), row.exitedOn(),
+                billed, paid, Math.max(0, billed - paid), Math.max(0, paid - billed), row.paymentCount());
+    }
+
+    private static String documentVersion(String snapshotHash) {
+        return snapshotHash + ":" + CONSOLIDATED_RECEIPT_TEMPLATE_VERSION;
+    }
+
+    private static String consolidatedIdempotencyKey(UUID studentId, String snapshotHash) {
+        String digest = snapshotHash.substring(0, Math.min(24, snapshotHash.length()));
+        return "FINCR:" + studentId + ":" + digest + ":v2";
+    }
+
     private static String snapshotHash(UUID studentId, long billed, List<AccountPaymentView> payments) {
         String value = studentId + "|" + billed + "|" + payments.stream()
                 .map(p -> p.id() + ":" + p.status() + ":" + p.netAmountMinor() + ":" + p.paymentDate())
@@ -271,4 +425,10 @@ public class FinanceAccountService {
                                    String className, String sessionLabel) {}
 
     private record BillingTotals(long v2Billed, long legacyBilled) {}
+
+    private record SearchAccountRow(UUID studentId, String studentName, String matricule,
+                                    UUID enrollmentId, UUID academicSessionId, String className,
+                                    LocalDate enrolledOn, LocalDate exitedOn, long v2Billed,
+                                    long legacyBilled, long v2Paid, long legacyPaid,
+                                    long paymentCount) {}
 }

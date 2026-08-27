@@ -103,20 +103,41 @@ body { overflow: hidden; font-family: 'Manrope', ui-sans-serif, system-ui, -appl
 .beat { animation: beat 1.6s ease-in-out infinite; }
 
 /* print */
+@page { size: A4; margin: 0; }
 @media print {
   .no-print { display:none !important; }
-  body { overflow: visible; }
+  html, body { width: 210mm; min-height: 297mm; background: #fff !important; overflow: visible !important; }
   body.printing-receipt * { visibility: hidden !important; }
   body.printing-receipt .receipt-print-paper,
   body.printing-receipt .receipt-print-paper * { visibility: visible !important; }
+  body.printing-receipt .fixed,
+  body.printing-receipt .relative,
+  body.printing-receipt .document-modal,
+  body.printing-receipt .document-dialog,
+  body.printing-receipt .document-scroll,
+  body.printing-receipt .overflow-auto,
+  body.printing-receipt .overflow-hidden {
+    position: static !important;
+    max-width: none !important;
+    max-height: none !important;
+    overflow: visible !important;
+    transform: none !important;
+  }
   body.printing-receipt .receipt-print-paper {
     position: absolute !important;
     inset: 0 auto auto 0 !important;
-    width: 100% !important;
+    box-sizing: border-box !important;
+    width: 210mm !important;
+    min-height: 297mm !important;
     max-width: none !important;
     margin: 0 !important;
+    padding: 14mm 15mm !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: #fff !important;
     box-shadow: none !important;
   }
+  body.printing-receipt .finance-payment-sheet { display: flex !important; flex-direction: column !important; }
 }
 
 /* nav active indicator */

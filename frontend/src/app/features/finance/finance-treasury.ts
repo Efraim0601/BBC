@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { forkJoin } from 'rxjs';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
@@ -14,7 +15,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 @Component({
   selector: 'bbc-finance-treasury',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="treasury-shell">
@@ -24,7 +25,7 @@ const today = () => new Date().toISOString().slice(0, 10);
           <h1>{{ fr() ? 'Comptes, dépôts et retraits' : 'Accounts, deposits and withdrawals' }}</h1>
           <p>{{ fr() ? 'Chaque solde vient du journal comptable. Une opération reste traçable et ne peut pas être supprimée.' : 'Every balance comes from the accounting ledger. Each operation stays traceable and cannot be deleted.' }}</p>
         </div>
-        <div class="hero-links"><a href="/finance">{{ fr() ? 'Vue finance' : 'Finance overview' }}</a><a href="/finance/accounting">{{ fr() ? 'Comptabilité avancée' : 'Advanced accounting' }}</a></div>
+        <div class="hero-links"><a routerLink="/finance">{{ fr() ? 'Vue finance' : 'Finance overview' }}</a><a routerLink="/finance/accounting">{{ fr() ? 'Comptabilité avancée' : 'Advanced accounting' }}</a></div>
       </header>
 
       @if (error()) { <div class="state-error" role="alert">{{ error() }} <button type="button" (click)="reload()">{{ fr() ? 'Réessayer' : 'Retry' }}</button></div> }

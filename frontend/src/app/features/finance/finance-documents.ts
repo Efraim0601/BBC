@@ -1,6 +1,7 @@
 import { CommonModule } from '@angular/common';
 import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { I18nService } from '../../core/i18n.service';
 import { ChargesApi, ChargeContext } from './charges.api';
 import { CollectionsApi, StudentSearchView } from './collections.api';
@@ -14,7 +15,7 @@ type DocumentsTab = 'list' | 'invoice' | 'batch';
 @Component({
   selector: 'bbc-finance-documents',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: './finance-documents.scss',
   template: `
@@ -25,7 +26,7 @@ type DocumentsTab = 'list' | 'invoice' | 'batch';
           <h1>{{ fr() ? 'Factures, reçus & documents vérifiables' : 'Invoices, receipts & verifiable documents' }}</h1>
           <p>{{ fr() ? 'Chaque document est un instantané serveur immuable, numéroté par école et téléchargeable en PDF.' : 'Every document is an immutable server snapshot, school-sequenced and downloadable as a PDF.' }}</p>
         </div>
-        <div class="hero-links"><a href="/finance/collections">{{ fr() ? 'Encaissements' : 'Collections' }}</a><a href="/finance/charges">{{ fr() ? 'Charges' : 'Charges' }}</a><a href="/finance/accounting">{{ fr() ? 'Comptabilité' : 'Accounting' }}</a></div>
+        <div class="hero-links"><a routerLink="/finance/collections">{{ fr() ? 'Encaissements' : 'Collections' }}</a><a routerLink="/finance/charges">{{ fr() ? 'Charges' : 'Charges' }}</a><a routerLink="/finance/accounting">{{ fr() ? 'Comptabilité' : 'Accounting' }}</a></div>
       </header>
 
       @if (error()) { <div class="state state-error" role="alert"><span>{{ error() }} @if (correlationId()) { <small>· {{ correlationId() }}</small> }</span><button type="button" class="icon-button" (click)="clearMessage()">×</button></div> }

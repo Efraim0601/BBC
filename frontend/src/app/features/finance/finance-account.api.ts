@@ -2,7 +2,17 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
-import { StudentSearchView } from './collections.api';
+
+export interface StudentAccountClassOption {
+  id: string; name: string; level: string; subsystem: string; studentCount: number;
+}
+export interface StudentAccountContext { classes: StudentAccountClassOption[]; }
+export interface StudentAccountSearchView {
+  studentId: string; studentName: string; matricule: string | null; enrollmentId: string;
+  academicSessionId: string; className: string | null; enrolledOn: string; exitedOn: string | null;
+  billedMinor: number; paidMinor: number; outstandingMinor: number; creditMinor: number;
+  paymentCount: number;
+}
 
 export interface FinanceAccountPayment {
   id: string; source: string; receiptNo: string | null; paymentDate: string; amountMinor: number;
@@ -28,8 +38,13 @@ export class FinanceAccountApi {
   private readonly http = inject(HttpClient);
   private readonly base = `${environment.apiUrl}/finance/v2/accounts`;
 
-  search(q: string): Observable<StudentSearchView[]> {
-    return this.http.get<StudentSearchView[]>(`${this.base}/students/search`, { params: { q } });
+  context(): Observable<StudentAccountContext> {
+    return this.http.get<StudentAccountContext>(`${this.base}/context`);
+  }
+  search(q: string, classId?: string): Observable<StudentAccountSearchView[]> {
+    const params: Record<string, string> = { q };
+    if (classId) params['classId'] = classId;
+    return this.http.get<StudentAccountSearchView[]>(`${this.base}/students/search`, { params });
   }
   student(studentId: string): Observable<StudentFinanceAccount> {
     return this.http.get<StudentFinanceAccount>(`${this.base}/students/${studentId}`);

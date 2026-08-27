@@ -7,6 +7,19 @@ import java.util.UUID;
 public final class FinanceAccountDtos {
     private FinanceAccountDtos() {}
 
+    public record StudentAccountClassOption(UUID id, String name, String level,
+                                            String subsystem, long studentCount) {}
+
+    public record StudentAccountContextView(List<StudentAccountClassOption> classes) {}
+
+    public record StudentAccountSearchView(UUID studentId, String studentName,
+                                           String matricule, UUID enrollmentId,
+                                           UUID academicSessionId, String className,
+                                           LocalDate enrolledOn, LocalDate exitedOn,
+                                           long billedMinor, long paidMinor,
+                                           long outstandingMinor, long creditMinor,
+                                           long paymentCount) {}
+
     public record AccountPaymentView(UUID id, String source, String receiptNo,
                                      LocalDate paymentDate, long amountMinor,
                                      long refundedMinor, long netAmountMinor,

@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
 import { AccountView, FinanceAccountingApi } from './accounting.api';
@@ -18,7 +19,7 @@ const today = () => new Date().toISOString().slice(0, 10);
   selector: 'bbc-finance-charges',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, RouterLink],
   template: `
     <div class="charges-shell fade-in mx-auto max-w-7xl space-y-5">
       <header class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -28,7 +29,7 @@ const today = () => new Date().toISOString().slice(0, 10);
             <h1 class="text-2xl font-extrabold text-slate-900">{{ fr() ? 'Charges, échéances & vieillissement' : 'Charges, installments & ageing' }}</h1>
             <p class="mt-1 max-w-3xl text-sm text-slate-500">{{ fr() ? 'Générez des charges depuis les plans actifs, conservez les instantanés historiques et traitez les réductions sans enregistrer de paiement.' : 'Generate charges from active plans, preserve historical snapshots and process reductions without recording cash.' }}</p>
           </div>
-          <div class="flex flex-wrap gap-2"><a href="/finance/plans" class="btn-secondary">{{ fr() ? 'Plans de frais' : 'Fee plans' }}</a><a href="/finance/accounting" class="btn-secondary">{{ fr() ? 'Comptabilité' : 'Accounting' }}</a></div>
+          <div class="flex flex-wrap gap-2"><a routerLink="/finance/plans" class="btn-secondary">{{ fr() ? 'Plans de frais' : 'Fee plans' }}</a><a routerLink="/finance/accounting" class="btn-secondary">{{ fr() ? 'Comptabilité' : 'Accounting' }}</a></div>
         </div>
       </header>
       @if (error()) { <div role="alert" class="state-error"><span><strong>{{ error() }}</strong>@if (correlationId()) { <small class="ml-2">Correlation: {{ correlationId() }}</small> }</span><button type="button" class="font-bold underline" (click)="reload()">{{ fr() ? 'Réessayer' : 'Retry' }}</button></div> }
