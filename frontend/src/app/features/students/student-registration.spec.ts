@@ -68,6 +68,31 @@ describe('StudentRegistrationComponent parent access', () => {
     expect(component.validStep()).toBe(true);
   });
 
+  it('inserts both date separators during digit-by-digit mobile entry', () => {
+    const fixture = setup();
+    const component = fixture.componentInstance as any;
+    const values: string[] = [];
+
+    for (const digit of '04152018') {
+      component.onDobTextChange(component.dobText + digit);
+      values.push(component.dobText);
+    }
+
+    expect(values).toEqual(['0', '04/', '04/1', '04/15/', '04/15/2', '04/15/20', '04/15/201', '04/15/2018']);
+    expect(component.student.dob).toBe('2018-04-15');
+  });
+
+  it('allows an automatically inserted separator to be removed with backspace', () => {
+    const fixture = setup();
+    const component = fixture.componentInstance as any;
+
+    component.onDobTextChange('04');
+    expect(component.dobText).toBe('04/');
+
+    component.onDobTextChange('04');
+    expect(component.dobText).toBe('04');
+  });
+
   it('rejects an invalid non-empty date while leaving DOB optional', () => {
     const fixture = setup();
     const component = fixture.componentInstance as any;
