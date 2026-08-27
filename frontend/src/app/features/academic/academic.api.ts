@@ -221,6 +221,12 @@ export interface ReportCardInputsView {
   academicSessionId: string; reportingPeriodId: string; reportingPeriodCode: string;
   reportingPeriodLabel: string; classId: string; className: string; rows: ReportCardInputRow[];
   canEdit: boolean; canReview: boolean;
+  reportingPeriodStartDate: string; reportingPeriodEndDate: string;
+  attendanceStartDate: string; attendanceEndDate: string; reportingPeriodVersion: number;
+}
+export interface AttendanceWindowUpsert {
+  reportingPeriodId: string; classId: string; startDate: string; endDate: string;
+  reportingPeriodVersion?: number;
 }
 export interface ReportCardInputUpsert {
   reportingPeriodId: string; classId: string; studentId: string;
@@ -408,6 +414,9 @@ export class AcademicApi {
   }
   reportCardInputs(reportingPeriodId: string, classId: string): Observable<ReportCardInputsView> {
     return this.http.get<ReportCardInputsView>(`${this.base}/report-card-inputs`, { params: { reportingPeriodId, classId } });
+  }
+  updateAttendanceWindow(body: AttendanceWindowUpsert): Observable<ReportCardInputsView> {
+    return this.http.put<ReportCardInputsView>(`${this.base}/report-card-inputs/attendance-window`, body);
   }
   saveReportCardInputs(body: ReportCardInputUpsert): Observable<ReportCardInputsView> {
     return this.http.put<ReportCardInputsView>(`${this.base}/report-card-inputs`, body);

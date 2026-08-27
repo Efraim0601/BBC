@@ -23,7 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.sql.Date;
-import java.time.Instant;
+import java.time.LocalDate;
 import java.util.*;
 
 /**
@@ -94,7 +94,9 @@ public class ReportCardInputService {
                 accessPolicy.can(AcademicAccessPolicyService.Capability.COUNCIL_INPUT_EDIT,
                         period.getAcademicSessionId(), classId, null, null, period.getStartDate()),
                 accessPolicy.can(AcademicAccessPolicyService.Capability.GRADE_PACKET_REVIEW,
-                        period.getAcademicSessionId(), classId, null, null, period.getStartDate()));
+                        period.getAcademicSessionId(), classId, null, null, period.getStartDate()),
+                period.getStartDate(), period.getEndDate(), period.effectiveAttendanceStartDate(),
+                period.effectiveAttendanceEndDate(), period.getVersion());
         List<Object> rosterArgs = new ArrayList<>(List.of(TenantContext.get(), period.getAcademicSessionId()));
         if (rosterIds == null) rosterArgs.add(classId);
         else rosterArgs.addAll(rosterIds);
@@ -114,7 +116,51 @@ public class ReportCardInputService {
                 accessPolicy.can(AcademicAccessPolicyService.Capability.COUNCIL_INPUT_EDIT,
                         period.getAcademicSessionId(), classId, null, null, period.getStartDate()),
                 accessPolicy.can(AcademicAccessPolicyService.Capability.GRADE_PACKET_REVIEW,
-                        period.getAcademicSessionId(), classId, null, null, period.getStartDate()));
+                        period.getAcademicSessionId(), classId, null, null, period.getStartDate()),
+                period.getStartDate(), period.getEndDate(), period.effectiveAttendanceStartDate(),
+                period.effectiveAttendanceEndDate(), period.getVersion());
+    }
+
+    @Transactional
+    public ReportCardInputsView updateAttendanceWindow(AttendanceWindowUpsert in) {
+        AcademicReportingPeriod period = period(in.reportingPeriodId());
+        schoolClass(in.classId());
+        if (!"SEQUENCE".equalsIgnoreCase(period.getPeriodType())) {
+            throw ApiException.badRequest("La plage d'assiduité ne peut être configurée que pour une séquence");
+        }
+        accessPolicy.require(AcademicAccessPolicyService.Capability.COUNCIL_INPUT_VIEW,
+                period.getAcademicSessionId(), in.classId(), null, null, period.getStartDate());
+        if (in.reportingPeriodVersion() != null && in.reportingPeriodVersion() != period.getVersion()) {
+            throw ApiException.conflict("La séquence a été modifiée par un autre utilisateur");
+        }
+        validateAttendanceWindow(period, in.startDate(), in.endDate());
+        LocalDate beforeStart = period.effectiveAttendanceStartDate();
+        LocalDate beforeEnd = period.effectiveAttendanceEndDate();
+        if (beforeStart.equals(in.startDate()) && beforeEnd.equals(in.endDate())) {
+            return list(in.reportingPeriodId(), in.classId());
+        }
+
+        Integer protectedSnapshots = jdbc.queryForObject("""
+                SELECT count(*) FROM bulletin_version
+                 WHERE school_id=? AND reporting_period_id=? AND state IN ('VALIDATED','PUBLISHED')
+                """, Integer.class, TenantContext.get(), period.getId());
+        if (protectedSnapshots != null && protectedSnapshots > 0) {
+            windows.assertOpen(period.getId(), AcademicWindowPolicyService.Action.CORRECTION);
+        }
+
+        period.setAttendanceStartDate(in.startDate());
+        period.setAttendanceEndDate(in.endDate());
+        periods.saveAndFlush(period);
+        jdbc.update("""
+                UPDATE bulletin_version SET state='SUPERSEDED'
+                 WHERE school_id=? AND reporting_period_id=?
+                   AND state IN ('DRAFT','TEACHER_SUBMITTED','REVIEW','VALIDATED','PUBLISHED','RETURNED')
+                """, TenantContext.get(), period.getId());
+        audit.record("ATTENDANCE_WINDOW_UPDATED", "AcademicReportingPeriod", period.getId().toString(),
+                Map.of("startDate", beforeStart, "endDate", beforeEnd),
+                Map.of("startDate", in.startDate(), "endDate", in.endDate()),
+                "Plage d'assiduité de la séquence mise à jour");
+        return list(in.reportingPeriodId(), in.classId());
     }
 
     @Transactional
@@ -127,7 +173,7 @@ public class ReportCardInputService {
         BigDecimal justified = nonNegative(in.justifiedAbsenceHours(), "Les heures justifiées");
         BigDecimal unjustified = nonNegative(in.unjustifiedAbsenceHours(), "Les heures non justifiées");
         int late = Math.max(0, in.lateMinutes() == null ? 0 : in.lateMinutes());
-        String reason = requiredText(in.reason(), 500, "Le motif de correction est obligatoire");
+        String reason = correctionReason(justified, unjustified, late, in.reason());
         String evidence = optionalText(in.evidenceReference(), 240, "La référence de preuve est trop longue");
         if (justified.signum() > 0 || unjustified.signum() > 0 || late > 0) {
             saveAdjustment(period, in, justified, unjustified, late, reason, evidence);
@@ -289,7 +335,7 @@ public class ReportCardInputService {
                  WHERE s.school_id=? AND s.academic_session_id=? AND m.student_id=?
                    AND s.status='FINALIZED' AND s.session_date BETWEEN ? AND ?
                 """, TenantContext.get(), period.getAcademicSessionId(), studentId,
-                Date.valueOf(period.getStartDate()), Date.valueOf(period.getEndDate()));
+                Date.valueOf(period.effectiveAttendanceStartDate()), Date.valueOf(period.effectiveAttendanceEndDate()));
         Map<String, Object> adjustment = jdbc.queryForMap("""
                 SELECT coalesce(sum(justified_absence_hours),0) AS justified,
                        coalesce(sum(unjustified_absence_hours),0) AS unjustified,
@@ -385,6 +431,20 @@ public class ReportCardInputService {
         BigDecimal v = value == null ? BigDecimal.ZERO : value;
         if (v.signum() < 0) throw ApiException.badRequest(label + " ne peuvent pas être négatives");
         return v;
+    }
+    static String correctionReason(BigDecimal justified, BigDecimal unjustified, int late, String value) {
+        boolean hasCorrection = justified.signum() > 0 || unjustified.signum() > 0 || late > 0;
+        return hasCorrection
+                ? requiredText(value, 500, "Le motif de correction est obligatoire")
+                : optionalText(value, 500, "Le motif de correction est trop long");
+    }
+    static void validateAttendanceWindow(AcademicReportingPeriod period, LocalDate start, LocalDate end) {
+        if (start.isAfter(end)) {
+            throw ApiException.badRequest("La date de début doit précéder ou correspondre à la date de fin");
+        }
+        if (start.isBefore(period.getStartDate()) || end.isAfter(period.getEndDate())) {
+            throw ApiException.badRequest("La plage d'assiduité doit rester dans les dates de la séquence");
+        }
     }
     private static String requiredText(String value, int max, String message) {
         if (value == null || value.isBlank()) throw ApiException.badRequest(message);

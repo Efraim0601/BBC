@@ -58,4 +58,21 @@ describe('AcademicApi access-control surfaces', () => {
     request.flush(new Blob(['pdf'], { type: 'application/pdf' }));
     http.verify();
   });
+
+  it('updates the dedicated attendance window without changing sequence dates', () => {
+    TestBed.configureTestingModule({ providers: [AcademicApi, provideHttpClient(), provideHttpClientTesting()] });
+    const api = TestBed.inject(AcademicApi);
+    const http = TestBed.inject(HttpTestingController);
+    const body = {
+      reportingPeriodId: 'period-1', classId: 'class-1',
+      startDate: '2026-09-08', endDate: '2026-10-20', reportingPeriodVersion: 4,
+    };
+
+    api.updateAttendanceWindow(body).subscribe();
+    const request = http.expectOne(`${environment.apiUrl}/academic/report-card-inputs/attendance-window`);
+    expect(request.request.method).toBe('PUT');
+    expect(request.request.body).toEqual(body);
+    request.flush({});
+    http.verify();
+  });
 });

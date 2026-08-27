@@ -281,6 +281,12 @@ public class AcademicController {
         return reportCardInputService.list(reportingPeriodId, classId);
     }
 
+    @PutMapping("/report-card-inputs/attendance-window")
+    @PreAuthorize("@perm.staffOnly() and @policy.canAction('SESSION_MANAGE') and @perm.schoolWide()")
+    public ReportCardInputsView updateAttendanceWindow(@Valid @RequestBody AttendanceWindowUpsert request) {
+        return reportCardInputService.updateAttendanceWindow(request);
+    }
+
     @PutMapping("/report-card-inputs")
     @PreAuthorize("@perm.staffOnly()")
     public ReportCardInputsView saveReportCardInputs(@Valid @RequestBody ReportCardInputUpsert request) {

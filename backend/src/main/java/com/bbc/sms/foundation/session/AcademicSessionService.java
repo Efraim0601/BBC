@@ -185,6 +185,15 @@ public class AcademicSessionService {
         period.setDisplayOrder(in.displayOrder());
         period.setStartDate(in.startDate());
         period.setEndDate(in.endDate());
+        if (period.getAttendanceStartDate() != null
+                && (period.getAttendanceStartDate().isBefore(in.startDate())
+                || period.getAttendanceEndDate().isAfter(in.endDate()))) {
+            // A dedicated attendance window follows the sequence. If an
+            // administrator shortens the sequence around it, safely return to
+            // the new sequence dates instead of retaining an invalid window.
+            period.setAttendanceStartDate(null);
+            period.setAttendanceEndDate(null);
+        }
         // V85: action-specific dates are retained for history/rollback but are
         // no longer written by the normal reporting-period editor.
         period.setTimezone(in.timezone() == null || in.timezone().isBlank() ? "Africa/Douala" : in.timezone().trim());

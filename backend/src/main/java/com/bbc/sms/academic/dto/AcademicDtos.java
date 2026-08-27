@@ -464,7 +464,18 @@ public class AcademicDtos {
                                        String reportingPeriodCode, String reportingPeriodLabel,
                                        UUID classId, String className,
                                        List<ReportCardInputRow> rows,
-                                       boolean canEdit, boolean canReview) {}
+                                       boolean canEdit, boolean canReview,
+                                       LocalDate reportingPeriodStartDate,
+                                       LocalDate reportingPeriodEndDate,
+                                       LocalDate attendanceStartDate,
+                                       LocalDate attendanceEndDate,
+                                       long reportingPeriodVersion) {}
+
+    public record AttendanceWindowUpsert(@NotNull UUID reportingPeriodId,
+                                         @NotNull UUID classId,
+                                         @NotNull LocalDate startDate,
+                                         @NotNull LocalDate endDate,
+                                         Long reportingPeriodVersion) {}
 
     public record ReportCardInputUpsert(@NotNull UUID reportingPeriodId, @NotNull UUID classId,
                                         @NotNull UUID studentId, BigDecimal justifiedAbsenceHours,

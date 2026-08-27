@@ -23,6 +23,8 @@ public class AcademicReportingPeriod {
     @Column(name = "display_order", nullable = false) private int displayOrder;
     @Column(name = "start_date", nullable = false) private LocalDate startDate;
     @Column(name = "end_date", nullable = false) private LocalDate endDate;
+    @Column(name = "attendance_start_date") private LocalDate attendanceStartDate;
+    @Column(name = "attendance_end_date") private LocalDate attendanceEndDate;
     @Column(name = "grade_entry_opens_at") private Instant gradeEntryOpensAt;
     @Column(name = "grade_entry_closes_at") private Instant gradeEntryClosesAt;
     @Column(name = "review_opens_at") private Instant reviewOpensAt;
@@ -42,4 +44,14 @@ public class AcademicReportingPeriod {
     @Version private long version;
     @Column(name = "created_at", insertable = false, updatable = false) private Instant createdAt;
     @Column(name = "updated_at", insertable = false, updatable = false) private Instant updatedAt;
+
+    @Transient
+    public LocalDate effectiveAttendanceStartDate() {
+        return attendanceStartDate == null ? startDate : attendanceStartDate;
+    }
+
+    @Transient
+    public LocalDate effectiveAttendanceEndDate() {
+        return attendanceEndDate == null ? endDate : attendanceEndDate;
+    }
 }

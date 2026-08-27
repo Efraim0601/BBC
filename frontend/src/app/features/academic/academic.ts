@@ -3,7 +3,7 @@ import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { forkJoin, of } from 'rxjs';
-import { catchError } from 'rxjs/operators';
+import { catchError, switchMap } from 'rxjs/operators';
 import { StudentApi } from '../students/students.api';
 import { SetupApi, ClassView } from '../../core/setup.api';
 import { AcademicApi, BulletinView, BulletinSnapshotView, PvView, GradeEntryView, ReportCardInputsView, ReportCardInputRow, ReportCardInputUpsert, BulletinBatchJobView, BulletinBatchItemView } from './academic.api';
@@ -64,6 +64,12 @@ const cleanDisplay = (value: string | null | undefined): string => {
 
 export const formatAcademicMark = (mark: number | null | undefined): string =>
   mark == null || !Number.isFinite(mark) ? '—' : mark.toFixed(2);
+
+export const hasAttendanceCorrection = (
+  input: Pick<ReportCardInputUpsert, 'justifiedAbsenceHours' | 'unjustifiedAbsenceHours' | 'lateMinutes'>,
+): boolean => Number(input.justifiedAbsenceHours) > 0
+  || Number(input.unjustifiedAbsenceHours) > 0
+  || Number(input.lateMinutes) > 0;
 
 export const academicBulletinTitle = (b: Pick<BulletinView, 'product' | 'reportingPeriodType' | 'reportingPeriodCode' | 'reportingPeriodLabel' | 'sequence'>, fr: boolean): string => {
   const code = b.reportingPeriodCode || '';
@@ -403,74 +409,136 @@ const appreciation = (avg: number, fr: boolean): string => {
         } @else {
           @if (reportInputs(); as inputs) {
             <bbc-card className="mb-4">
-              <div class="flex items-start justify-between gap-3 flex-wrap">
+              <div class="flex items-start justify-between gap-4 flex-wrap">
                 <div>
                   <div class="text-lg font-bold text-ink">{{ fr() ? 'Assiduité et conseil de classe' : 'Attendance and class council' }}</div>
                   <div class="text-sm text-mute mt-1">{{ inputs.className }} · {{ inputs.reportingPeriodCode }} · {{ inputs.reportingPeriodLabel }}</div>
                 </div>
-                <div class="text-xs text-mute max-w-xl">{{ fr() ? 'Les chiffres de présence sont calculés à partir des appels finalisés. Les corrections et décisions sont conservées en brouillon, soumises puis approuvées avant d’entrer dans le bulletin.' : 'Attendance totals come from finalized calls. Corrections and decisions are drafted, submitted, and approved before they enter a report card.' }}</div>
+                <div class="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800">
+                  {{ fr() ? 'Calcul automatique depuis les appels finalisés' : 'Automatically calculated from finalized calls' }}
+                </div>
+              </div>
+              <div class="mt-5 rounded-xl border border-brand-100 bg-brand-50/60 p-4">
+                <div class="flex items-start justify-between gap-4 flex-wrap">
+                  <div>
+                    <div class="text-sm font-bold text-ink">{{ fr() ? 'Plage d’assiduité de la séquence' : 'Sequence attendance range' }}</div>
+                    <div class="mt-1 text-xs text-mute">{{ fr() ? 'Pour toutes les classes, seuls les appels finalisés compris dans cette plage alimentent les totaux et le bulletin.' : 'For every class, only finalized calls in this range are included in totals and the report card.' }}</div>
+                  </div>
+                  <div class="text-xs text-mute">{{ fr() ? 'Limites de la séquence' : 'Sequence limits' }}: {{ inputs.reportingPeriodStartDate }} → {{ inputs.reportingPeriodEndDate }}</div>
+                </div>
+                @if (canManageAttendanceWindow() && !selectedPeriodIsComputed()) {
+                  <div class="mt-3 grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-3 items-end">
+                    <label class="field-label"><span>{{ fr() ? 'Du' : 'From' }}</span><input type="date" class="field" [min]="inputs.reportingPeriodStartDate" [max]="inputs.reportingPeriodEndDate" [ngModel]="attendanceWindowStart()" (ngModelChange)="attendanceWindowStart.set($event)" /></label>
+                    <label class="field-label"><span>{{ fr() ? 'Au' : 'To' }}</span><input type="date" class="field" [min]="inputs.reportingPeriodStartDate" [max]="inputs.reportingPeriodEndDate" [ngModel]="attendanceWindowEnd()" (ngModelChange)="attendanceWindowEnd.set($event)" /></label>
+                    <div class="flex gap-2 flex-wrap">
+                      <button type="button" (click)="useFullSequenceAttendanceWindow(inputs)" [disabled]="attendanceWindowBusy() || (inputs.attendanceStartDate === inputs.reportingPeriodStartDate && inputs.attendanceEndDate === inputs.reportingPeriodEndDate)" class="h-10 px-3 rounded-lg border border-brand-200 bg-white text-brand-800 text-sm font-semibold disabled:opacity-50">{{ fr() ? 'Toute la séquence' : 'Full sequence' }}</button>
+                      <button type="button" (click)="saveAttendanceWindow(inputs)" [disabled]="attendanceWindowBusy() || attendanceWindowInvalid(inputs) || !attendanceWindowChanged(inputs)" class="h-10 px-4 rounded-lg bg-brand-600 text-white text-sm font-semibold disabled:opacity-50">{{ attendanceWindowBusy() ? '…' : (fr() ? 'Appliquer' : 'Apply') }}</button>
+                    </div>
+                  </div>
+                } @else {
+                  <div class="mt-3 inline-flex items-center rounded-lg border border-brand-100 bg-white px-3 py-2 text-sm font-semibold text-ink">{{ inputs.attendanceStartDate }} → {{ inputs.attendanceEndDate }}</div>
+                }
+              </div>
+              <div class="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <div class="rounded-xl border border-slate-200 p-3"><div class="text-xs font-semibold uppercase tracking-wide text-mute">{{ fr() ? 'Élèves' : 'Students' }}</div><div class="mt-1 text-2xl font-bold text-ink">{{ inputs.rows.length }}</div></div>
+                <div class="rounded-xl border border-rose-100 bg-rose-50/60 p-3"><div class="text-xs font-semibold uppercase tracking-wide text-rose-700">{{ fr() ? 'Avec absence' : 'With absence' }}</div><div class="mt-1 text-2xl font-bold text-rose-800">{{ attendanceCouncilSummary().studentsWithAbsence }}</div></div>
+                <div class="rounded-xl border border-amber-100 bg-amber-50/60 p-3"><div class="text-xs font-semibold uppercase tracking-wide text-amber-800">{{ fr() ? 'Non justifiées' : 'Unjustified' }}</div><div class="mt-1 text-2xl font-bold text-amber-900">{{ formatAttendanceAmount(attendanceCouncilSummary().unjustified) }} h</div></div>
+                <div class="rounded-xl border border-sky-100 bg-sky-50/60 p-3"><div class="text-xs font-semibold uppercase tracking-wide text-sky-800">{{ fr() ? 'Justifiées' : 'Justified' }}</div><div class="mt-1 text-2xl font-bold text-sky-900">{{ formatAttendanceAmount(attendanceCouncilSummary().justified) }} h</div></div>
+              </div>
+              <div class="mt-4 flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3">
+                <span class="text-mute" aria-hidden="true">⌕</span>
+                <input class="h-11 min-w-0 flex-1 bg-transparent text-sm outline-none" [ngModel]="inputStudentQuery()" (ngModelChange)="inputStudentQuery.set($event)" [placeholder]="fr() ? 'Rechercher un élève par nom ou matricule…' : 'Search a student by name or ID…'" />
+                @if (inputStudentQuery()) { <button type="button" (click)="inputStudentQuery.set('')" class="text-sm font-semibold text-mute hover:text-ink">{{ fr() ? 'Effacer' : 'Clear' }}</button> }
               </div>
             </bbc-card>
-            <div class="space-y-4">
-              @for (row of inputs.rows; track row.studentId) {
-                <bbc-card>
-                  <div class="flex items-start justify-between gap-3 flex-wrap border-b border-slate-100 pb-3">
-                    <div>
-                      <div class="font-bold text-ink">{{ row.studentName }}</div>
-                      <div class="text-xs text-mute font-mono mt-0.5">{{ row.matricule }}</div>
+            <div class="space-y-3">
+              @for (row of filteredReportInputRows(); track row.studentId) {
+                @let attendance = row.attendance;
+                @let expanded = expandedInputStudentId() === row.studentId;
+                <article class="overflow-hidden rounded-xl border bg-white shadow-soft" [class.border-brand-300]="expanded" [class.border-slate-200]="!expanded">
+                  <button type="button" (click)="toggleReportInput(row.studentId)" class="w-full p-4 text-left hover:bg-slate-50/80 transition" [attr.aria-expanded]="expanded">
+                    <div class="flex items-center justify-between gap-4 flex-wrap">
+                      <div class="min-w-0">
+                        <div class="font-bold text-ink truncate">{{ row.studentName }}</div>
+                        <div class="mt-0.5 text-xs text-mute font-mono">{{ row.matricule }}</div>
+                      </div>
+                      <div class="flex flex-1 justify-end items-center gap-2 text-xs flex-wrap">
+                        @if ((attendance?.absentCount ?? 0) === 0 && (attendance?.excusedCount ?? 0) === 0 && (attendance?.lateCount ?? 0) === 0) {
+                          <span class="rounded-full bg-emerald-50 px-2.5 py-1 font-bold text-emerald-700">{{ fr() ? 'Aucun incident' : 'No attendance issue' }}</span>
+                        } @else {
+                          <span class="rounded-full bg-rose-50 px-2.5 py-1 font-bold text-rose-700">{{ attendance?.absentCount ?? 0 }} {{ fr() ? 'non just.' : 'unjust.' }}</span>
+                          <span class="rounded-full bg-sky-50 px-2.5 py-1 font-bold text-sky-700">{{ attendance?.excusedCount ?? 0 }} {{ fr() ? 'just.' : 'just.' }}</span>
+                          <span class="rounded-full bg-amber-50 px-2.5 py-1 font-bold text-amber-800">{{ attendance?.lateMinutes ?? 0 }} min</span>
+                        }
+                        @if (row.attendanceAdjustment) { <span class="rounded-full px-2.5 py-1 font-bold" [class]="row.attendanceAdjustment.status === 'APPROVED' ? 'bg-emerald-50 text-emerald-700' : row.attendanceAdjustment.status === 'SUBMITTED' ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-800'">{{ fr() ? 'Correction' : 'Correction' }} · {{ row.attendanceAdjustment.status }}</span> }
+                        @if (row.conduct) { <span class="rounded-full bg-slate-100 px-2.5 py-1 font-bold text-slate-700">{{ fr() ? 'Conseil' : 'Council' }} · {{ row.conduct.status }}</span> }
+                        <span class="ml-1 flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-lg text-mute" aria-hidden="true">{{ expanded ? '−' : '+' }}</span>
+                      </div>
                     </div>
-                    <div class="flex items-center gap-2 text-xs flex-wrap">
-                      <span class="rounded-full bg-slate-100 px-2 py-1 font-semibold">{{ row.attendance?.finalizedSessions ?? 0 }} {{ fr() ? 'appels' : 'calls' }}</span>
-                      <span class="rounded-full bg-rose-50 text-rose-700 px-2 py-1 font-semibold">{{ row.attendance?.absentCount ?? 0 }} {{ fr() ? 'abs.' : 'abs.' }}</span>
-                      <span class="rounded-full bg-amber-50 text-amber-800 px-2 py-1 font-semibold">{{ row.attendance?.lateMinutes ?? 0 }} min</span>
-                      @if (row.attendanceAdjustment) { <span class="rounded-full px-2 py-1 font-semibold" [class]="row.attendanceAdjustment.status === 'APPROVED' ? 'bg-emerald-50 text-emerald-700' : row.attendanceAdjustment.status === 'SUBMITTED' ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-800'">{{ row.attendanceAdjustment.status }}</span> }
-                      @if (row.conduct) { <span class="rounded-full px-2 py-1 font-semibold" [class]="row.conduct.status === 'APPROVED' ? 'bg-emerald-50 text-emerald-700' : row.conduct.status === 'SUBMITTED' ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-800'">{{ row.conduct.status }}</span> }
+                  </button>
+                  @if (expanded) {
+                    <div class="border-t border-slate-100 p-4 lg:p-5">
+                      <section>
+                        <div class="flex items-start justify-between gap-3 flex-wrap">
+                          <div><div class="font-bold text-ink">{{ fr() ? 'Assiduité calculée automatiquement' : 'Automatically calculated attendance' }}</div><div class="mt-1 text-xs text-mute">{{ attendance?.finalizedSessions ?? 0 }} {{ fr() ? 'appels finalisés dans la plage choisie.' : 'finalized calls in the selected range.' }}</div></div>
+                          <div class="text-xs font-semibold text-mute">{{ fr() ? 'Absent = non justifié · Excusé = justifié' : 'Absent = unjustified · Excused = justified' }}</div>
+                        </div>
+                        <div class="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <div class="rounded-xl border border-sky-100 bg-sky-50/60 p-3"><div class="text-xs font-semibold text-sky-800">{{ fr() ? 'Absence justifiée' : 'Justified absence' }}</div><div class="mt-1 text-xl font-bold text-sky-900">{{ formatAttendanceAmount(attendance?.justifiedAbsenceHours) }} h</div></div>
+                          <div class="rounded-xl border border-amber-100 bg-amber-50/60 p-3"><div class="text-xs font-semibold text-amber-800">{{ fr() ? 'Absence non justifiée' : 'Unjustified absence' }}</div><div class="mt-1 text-xl font-bold text-amber-900">{{ formatAttendanceAmount(attendance?.unjustifiedAbsenceHours) }} h</div></div>
+                          <div class="rounded-xl border border-violet-100 bg-violet-50/60 p-3"><div class="text-xs font-semibold text-violet-800">{{ fr() ? 'Retard' : 'Lateness' }}</div><div class="mt-1 text-xl font-bold text-violet-900">{{ attendance?.lateMinutes ?? 0 }} min</div></div>
+                        </div>
+                      </section>
+                      <div class="mt-5 grid grid-cols-1 xl:grid-cols-2 gap-4">
+                        <section class="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                          <div class="font-bold text-sm text-ink">{{ fr() ? 'Correction manuelle (facultative)' : 'Manual correction (optional)' }}</div>
+                          <div class="text-xs text-mute mt-1">{{ fr() ? 'À utiliser uniquement si les appels finalisés ne reflètent pas la réalité. Les valeurs sont ajoutées après approbation.' : 'Use only when finalized calls do not reflect reality. Values are added after approval.' }}</div>
+                          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-3">
+                            <label class="field-label"><span>{{ fr() ? '+ Justifiées (h)' : '+ Justified (h)' }}</span><input type="number" min="0" step="0.25" [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).justifiedAbsenceHours" (ngModelChange)="updateInput(row.studentId, { justifiedAbsenceHours: +$event })" class="field" /></label>
+                            <label class="field-label"><span>{{ fr() ? '+ Non justifiées (h)' : '+ Unjustified (h)' }}</span><input type="number" min="0" step="0.25" [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).unjustifiedAbsenceHours" (ngModelChange)="updateInput(row.studentId, { unjustifiedAbsenceHours: +$event })" class="field" /></label>
+                            <label class="field-label"><span>{{ fr() ? '+ Retards (min)' : '+ Late (min)' }}</span><input type="number" min="0" [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).lateMinutes" (ngModelChange)="updateInput(row.studentId, { lateMinutes: +$event })" class="field" /></label>
+                          </div>
+                          @if (hasInputCorrection(row.studentId) || row.attendanceAdjustment) {
+                            <label class="field-label mt-3"><span>{{ fr() ? 'Motif de la correction' : 'Correction reason' }} @if (hasInputCorrection(row.studentId)) { <strong class="text-rose-600">*</strong> }</span><input [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).reason" (ngModelChange)="updateInput(row.studentId, { reason: $event })" maxlength="500" class="field" [class.border-rose-400]="correctionReasonMissing(row.studentId)" [placeholder]="fr() ? 'Ex. Certificat médical reçu après l’appel' : 'E.g. Medical certificate received after roll call'" /></label>
+                            @if (correctionReasonMissing(row.studentId)) { <div class="mt-1 text-xs font-semibold text-rose-600">{{ fr() ? 'Le motif est requis parce qu’une correction a été saisie.' : 'A reason is required because a correction was entered.' }}</div> }
+                            <label class="field-label mt-2"><span>{{ fr() ? 'Référence de preuve (facultative)' : 'Evidence reference (optional)' }}</span><input [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).evidenceReference" (ngModelChange)="updateInput(row.studentId, { evidenceReference: $event })" maxlength="240" class="field" placeholder="Ex. CERT-2026-001" /></label>
+                          } @else {
+                            <div class="mt-3 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800">{{ fr() ? 'Aucune correction : aucun motif n’est nécessaire.' : 'No correction: no reason is needed.' }}</div>
+                          }
+                        </section>
+                        <section class="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                          <div class="font-bold text-sm text-ink">{{ fr() ? 'Travail, conduite et décision du conseil' : 'Work, conduct and council decision' }}</div>
+                          <div class="grid grid-cols-2 md:grid-cols-3 gap-3 mt-3 text-xs">
+                            <label class="flex items-center gap-2"><input type="checkbox" [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).workWarning" (ngModelChange)="updateInput(row.studentId, { workWarning: $event })" /> {{ fr() ? 'Avert. travail' : 'Work warning' }}</label>
+                            <label class="flex items-center gap-2"><input type="checkbox" [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).workBlame" (ngModelChange)="updateInput(row.studentId, { workBlame: $event })" /> {{ fr() ? 'Blâme travail' : 'Work blame' }}</label>
+                            <label class="flex items-center gap-2"><input type="checkbox" [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).conductWarning" (ngModelChange)="updateInput(row.studentId, { conductWarning: $event })" /> {{ fr() ? 'Avert. conduite' : 'Conduct warning' }}</label>
+                            <label class="flex items-center gap-2"><input type="checkbox" [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).conductBlame" (ngModelChange)="updateInput(row.studentId, { conductBlame: $event })" /> {{ fr() ? 'Blâme conduite' : 'Conduct blame' }}</label>
+                            <label class="flex items-center gap-2"><input type="checkbox" [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).honorRoll" (ngModelChange)="updateInput(row.studentId, { honorRoll: $event })" /> {{ fr() ? 'Tableau honneur' : 'Honor roll' }}</label>
+                            <label class="flex items-center gap-2"><input type="checkbox" [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).encouragement" (ngModelChange)="updateInput(row.studentId, { encouragement: $event })" /> {{ fr() ? 'Encouragement' : 'Encouragement' }}</label>
+                            <label class="flex items-center gap-2"><input type="checkbox" [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).congratulations" (ngModelChange)="updateInput(row.studentId, { congratulations: $event })" /> {{ fr() ? 'Félicitations' : 'Congratulations' }}</label>
+                          </div>
+                          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3">
+                            <label class="field-label"><span>{{ fr() ? 'Exclusion (jours)' : 'Exclusion (days)' }}</span><input type="number" min="0" [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).exclusionDays" (ngModelChange)="updateInput(row.studentId, { exclusionDays: +$event })" class="field" /></label>
+                            <label class="field-label"><span>{{ fr() ? 'Code de décision' : 'Decision code' }}</span><input [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).decisionCode" (ngModelChange)="updateInput(row.studentId, { decisionCode: $event })" class="field" placeholder="PROMOTE / REPEAT / REVIEW" /></label>
+                          </div>
+                          <label class="field-label mt-2"><span>{{ fr() ? 'Observation du conseil' : 'Council observation' }}</span><textarea rows="2" [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).councilObservation" (ngModelChange)="updateInput(row.studentId, { councilObservation: $event })" maxlength="4000" class="field resize-y" [placeholder]="fr() ? 'Observation imprimée sur le bulletin…' : 'Observation printed on the report card…'"></textarea></label>
+                        </section>
+                      </div>
+                      <div class="flex flex-wrap justify-end gap-2 mt-4 pt-4 border-t border-slate-100">
+                        <button type="button" (click)="saveReportInput(row)" [disabled]="inputBusy() === row.studentId || !inputs.canEdit || correctionReasonMissing(row.studentId)" class="h-9 px-3 rounded-lg border border-slate-300 text-sm font-semibold hover:bg-slate-50 disabled:opacity-50">{{ inputBusy() === row.studentId ? '…' : (fr() ? 'Enregistrer le brouillon' : 'Save draft') }}</button>
+                        @if (!row.conduct || !['SUBMITTED','APPROVED','LOCKED'].includes(row.conduct.status) || (row.attendanceAdjustment && !['SUBMITTED','APPROVED'].includes(row.attendanceAdjustment.status)) || hasInputCorrection(row.studentId)) {
+                          <button type="button" (click)="submitReportInput(row)" [disabled]="inputBusy() === row.studentId || !inputs.canEdit || correctionReasonMissing(row.studentId)" class="h-9 px-3 rounded-lg bg-brand-600 text-white text-sm font-semibold disabled:opacity-50">{{ fr() ? 'Enregistrer et soumettre' : 'Save and submit' }}</button>
+                        }
+                        @if (inputs.canReview && ((row.conduct?.status === 'SUBMITTED') || (row.attendanceAdjustment?.status === 'SUBMITTED'))) {
+                          <button type="button" (click)="requestInputReview(row, 'RETURN')" [disabled]="inputBusy() === row.studentId" class="h-9 px-3 rounded-lg border border-rose-200 text-rose-700 text-sm font-semibold">{{ fr() ? 'Retourner' : 'Return' }}</button>
+                          <button type="button" (click)="requestInputReview(row, 'APPROVE')" [disabled]="inputBusy() === row.studentId" class="h-9 px-3 rounded-lg bg-emerald-600 text-white text-sm font-semibold">{{ fr() ? 'Approuver' : 'Approve' }}</button>
+                        }
+                      </div>
                     </div>
-                  </div>
-                  <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 mt-4">
-                    <section class="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                      <div class="font-bold text-sm text-ink">{{ fr() ? 'Correction des heures d’absence' : 'Absence-hours correction' }}</div>
-                      <div class="text-xs text-mute mt-1">{{ fr() ? 'Valeurs ajoutées aux appels finalisés après approbation.' : 'Values added to finalized calls after approval.' }}</div>
-                      <div class="grid grid-cols-3 gap-2 mt-3">
-                        <label class="field-label"><span>{{ fr() ? 'Justifiées (h)' : 'Justified (h)' }}</span><input type="number" min="0" step="0.25" [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).justifiedAbsenceHours" (ngModelChange)="updateInput(row.studentId, { justifiedAbsenceHours: +$event })" class="field" /></label>
-                        <label class="field-label"><span>{{ fr() ? 'Non justifiées (h)' : 'Unjustified (h)' }}</span><input type="number" min="0" step="0.25" [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).unjustifiedAbsenceHours" (ngModelChange)="updateInput(row.studentId, { unjustifiedAbsenceHours: +$event })" class="field" /></label>
-                        <label class="field-label"><span>{{ fr() ? 'Retards (min)' : 'Late (min)' }}</span><input type="number" min="0" [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).lateMinutes" (ngModelChange)="updateInput(row.studentId, { lateMinutes: +$event })" class="field" /></label>
-                      </div>
-                      <label class="field-label mt-2"><span>{{ fr() ? 'Motif (obligatoire)' : 'Reason (required)' }}</span><input [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).reason" (ngModelChange)="updateInput(row.studentId, { reason: $event })" maxlength="500" class="field" [class.border-rose-400]="!inputDraft(row.studentId).reason" placeholder="Ex. Certificat médical" /></label>
-                      @if (!inputDraft(row.studentId).reason.trim()) { <div class="mt-1 text-xs font-semibold text-rose-600">{{ fr() ? 'Le motif est obligatoire avant l’enregistrement ou la soumission.' : 'A reason is required before saving or submitting.' }}</div> }
-                      <label class="field-label mt-2"><span>{{ fr() ? 'Référence de preuve' : 'Evidence reference' }}</span><input [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).evidenceReference" (ngModelChange)="updateInput(row.studentId, { evidenceReference: $event })" maxlength="240" class="field" placeholder="Ex. CERT-2026-001" /></label>
-                    </section>
-                    <section class="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                      <div class="font-bold text-sm text-ink">{{ fr() ? 'Travail, conduite et décision du conseil' : 'Work, conduct and council decision' }}</div>
-                      <div class="grid grid-cols-2 md:grid-cols-3 gap-2 mt-3 text-xs">
-                        <label class="flex items-center gap-2"><input type="checkbox" [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).workWarning" (ngModelChange)="updateInput(row.studentId, { workWarning: $event })" /> {{ fr() ? 'Avert. travail' : 'Work warning' }}</label>
-                        <label class="flex items-center gap-2"><input type="checkbox" [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).workBlame" (ngModelChange)="updateInput(row.studentId, { workBlame: $event })" /> {{ fr() ? 'Blâme travail' : 'Work blame' }}</label>
-                        <label class="flex items-center gap-2"><input type="checkbox" [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).conductWarning" (ngModelChange)="updateInput(row.studentId, { conductWarning: $event })" /> {{ fr() ? 'Avert. conduite' : 'Conduct warning' }}</label>
-                        <label class="flex items-center gap-2"><input type="checkbox" [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).conductBlame" (ngModelChange)="updateInput(row.studentId, { conductBlame: $event })" /> {{ fr() ? 'Blâme conduite' : 'Conduct blame' }}</label>
-                        <label class="flex items-center gap-2"><input type="checkbox" [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).honorRoll" (ngModelChange)="updateInput(row.studentId, { honorRoll: $event })" /> {{ fr() ? 'Tableau honneur' : 'Honor roll' }}</label>
-                        <label class="flex items-center gap-2"><input type="checkbox" [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).encouragement" (ngModelChange)="updateInput(row.studentId, { encouragement: $event })" /> {{ fr() ? 'Encouragement' : 'Encouragement' }}</label>
-                        <label class="flex items-center gap-2"><input type="checkbox" [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).congratulations" (ngModelChange)="updateInput(row.studentId, { congratulations: $event })" /> {{ fr() ? 'Félicitations' : 'Congratulations' }}</label>
-                      </div>
-                      <div class="grid grid-cols-2 gap-2 mt-3">
-                        <label class="field-label"><span>{{ fr() ? 'Exclusion (jours)' : 'Exclusion (days)' }}</span><input type="number" min="0" [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).exclusionDays" (ngModelChange)="updateInput(row.studentId, { exclusionDays: +$event })" class="field" /></label>
-                        <label class="field-label"><span>{{ fr() ? 'Code de décision' : 'Decision code' }}</span><input [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).decisionCode" (ngModelChange)="updateInput(row.studentId, { decisionCode: $event })" class="field" placeholder="PROMOTE / REPEAT / REVIEW" /></label>
-                      </div>
-                      <label class="field-label mt-2"><span>{{ fr() ? 'Observation du conseil' : 'Council observation' }}</span><textarea rows="2" [disabled]="!inputs.canEdit" [ngModel]="inputDraft(row.studentId).councilObservation" (ngModelChange)="updateInput(row.studentId, { councilObservation: $event })" maxlength="4000" class="field resize-y" placeholder="{{ fr() ? 'Observation imprimée sur le bulletin…' : 'Observation printed on the report card…' }}"></textarea></label>
-                    </section>
-                  </div>
-                  <div class="flex flex-wrap justify-end gap-2 mt-4 pt-3 border-t border-slate-100">
-                    <button (click)="saveReportInput(row)" [disabled]="inputBusy() === row.studentId || !inputs.canEdit" class="h-9 px-3 rounded-lg border border-slate-300 text-sm font-semibold hover:bg-slate-50 disabled:opacity-50">{{ inputBusy() === row.studentId ? '…' : (fr() ? 'Enregistrer le brouillon' : 'Save draft') }}</button>
-                    @if (!row.conduct || !['SUBMITTED','APPROVED','LOCKED'].includes(row.conduct.status) || !row.attendanceAdjustment || !['SUBMITTED','APPROVED'].includes(row.attendanceAdjustment.status)) {
-                      <button (click)="submitReportInput(row)" [disabled]="inputBusy() === row.studentId || !inputs.canEdit" class="h-9 px-3 rounded-lg bg-brand-600 text-white text-sm font-semibold disabled:opacity-50">{{ fr() ? 'Soumettre à la revue' : 'Submit for review' }}</button>
-                    }
-                    @if (inputs.canReview && ((row.conduct?.status === 'SUBMITTED') || (row.attendanceAdjustment?.status === 'SUBMITTED'))) {
-                      <button (click)="requestInputReview(row, 'RETURN')" [disabled]="inputBusy() === row.studentId" class="h-9 px-3 rounded-lg border border-rose-200 text-rose-700 text-sm font-semibold">{{ fr() ? 'Retourner' : 'Return' }}</button>
-                      <button (click)="requestInputReview(row, 'APPROVE')" [disabled]="inputBusy() === row.studentId" class="h-9 px-3 rounded-lg bg-emerald-600 text-white text-sm font-semibold">{{ fr() ? 'Approuver' : 'Approve' }}</button>
-                    }
-                  </div>
-                </bbc-card>
+                  }
+                </article>
               } @empty {
-                <bbc-card><bbc-empty icon="users" [label]="fr() ? 'Aucun élève actif dans cette classe.' : 'No active students in this class.'" /></bbc-card>
+                <bbc-card><bbc-empty icon="users" [label]="inputStudentQuery() ? (fr() ? 'Aucun élève ne correspond à cette recherche.' : 'No student matches this search.') : (fr() ? 'Aucun élève actif dans cette classe.' : 'No active students in this class.')" /></bbc-card>
               }
             </div>
           }
@@ -1006,6 +1074,7 @@ export class AcademicComponent {
     this.auth.actionState('ACADEMIC_REPORT_CARD_PUBLISH')));
   protected canGenerateReportCards = computed(() => this.canUseClassOverview() && ['ALLOW', 'CONTEXT_REQUIRED'].includes(
     this.auth.actionState('DOCUMENT_GENERATE')));
+  protected canManageAttendanceWindow = computed(() => this.auth.canAction('SESSION_MANAGE') && this.auth.schoolWide());
 
   /**
    * Maternelle et primaire s'évaluent par compétences, le secondaire par matières.
@@ -1042,6 +1111,29 @@ export class AcademicComponent {
   protected reportInputs = signal<ReportCardInputsView | null>(null);
   protected inputDrafts = signal<Record<string, ReportCardInputUpsert>>({});
   protected inputBusy = signal<string | null>(null);
+  protected inputStudentQuery = signal('');
+  protected expandedInputStudentId = signal<string | null>(null);
+  protected attendanceWindowStart = signal('');
+  protected attendanceWindowEnd = signal('');
+  protected attendanceWindowBusy = signal(false);
+  protected filteredReportInputRows = computed(() => {
+    const rows = this.reportInputs()?.rows ?? [];
+    const query = this.inputStudentQuery().trim().toLowerCase();
+    if (!query) return rows;
+    return rows.filter((row) => row.studentName.toLowerCase().includes(query)
+      || row.matricule.toLowerCase().includes(query));
+  });
+  protected attendanceCouncilSummary = computed(() => {
+    const rows = this.reportInputs()?.rows ?? [];
+    return rows.reduce((total, row) => {
+      const attendance = row.attendance;
+      total.justified += Number(attendance?.justifiedAbsenceHours ?? 0);
+      total.unjustified += Number(attendance?.unjustifiedAbsenceHours ?? 0);
+      total.lateMinutes += Number(attendance?.lateMinutes ?? 0);
+      if (Number(attendance?.absentCount ?? 0) + Number(attendance?.excusedCount ?? 0) > 0) total.studentsWithAbsence += 1;
+      return total;
+    }, { justified: 0, unjustified: 0, lateMinutes: 0, studentsWithAbsence: 0 });
+  });
   protected selectedGradeSubjectCode = signal('');
   protected gradeBusy = signal(false);
   protected appreciationDraft = signal('');
@@ -1477,29 +1569,7 @@ export class AcademicComponent {
     const classId = this.selectedClassId(); const periodId = this.selectedReportingPeriodId();
     if (!classId || !periodId) { this.reportInputs.set(null); this.inputDrafts.set({}); return; }
     this.api.reportCardInputs(periodId, classId).subscribe({
-      next: (view) => {
-        const readableView = this.cleanReportInputs(view);
-        this.reportInputs.set(readableView);
-        const drafts: Record<string, ReportCardInputUpsert> = {};
-        for (const row of readableView.rows) {
-          const adjustment = row.attendanceAdjustment;
-          const conduct = row.conduct;
-          drafts[row.studentId] = {
-            reportingPeriodId: readableView.reportingPeriodId, classId: readableView.classId, studentId: row.studentId,
-            justifiedAbsenceHours: adjustment?.justifiedAbsenceHours ?? 0,
-            unjustifiedAbsenceHours: adjustment?.unjustifiedAbsenceHours ?? 0,
-            lateMinutes: adjustment?.lateMinutes ?? 0,
-            reason: adjustment?.reason ?? '', evidenceReference: adjustment?.evidenceReference ?? null,
-            workWarning: conduct?.workWarning ?? false, workBlame: conduct?.workBlame ?? false,
-            conductWarning: conduct?.conductWarning ?? false, conductBlame: conduct?.conductBlame ?? false,
-            honorRoll: conduct?.honorRoll ?? false, encouragement: conduct?.encouragement ?? false,
-            congratulations: conduct?.congratulations ?? false, exclusionDays: conduct?.exclusionDays ?? 0,
-            decisionCode: conduct?.decisionCode ?? null, councilObservation: conduct?.councilObservation ?? null,
-            attendanceVersion: adjustment?.version, conductVersion: conduct?.version,
-          };
-        }
-        this.inputDrafts.set(drafts);
-      },
+      next: (view) => this.applyReportInputs(view, true),
       error: (e) => { this.reportInputs.set(null); this.fail(e); },
     });
   }
@@ -1518,26 +1588,88 @@ export class AcademicComponent {
     this.inputDrafts.update((all) => ({ ...all, [studentId]: { ...this.inputDraft(studentId), ...patch } }));
   }
 
+  protected toggleReportInput(studentId: string): void {
+    this.expandedInputStudentId.update((current) => current === studentId ? null : studentId);
+  }
+
+  protected hasInputCorrection(studentId: string): boolean {
+    return hasAttendanceCorrection(this.inputDraft(studentId));
+  }
+
+  protected correctionReasonMissing(studentId: string): boolean {
+    return this.hasInputCorrection(studentId) && !this.inputDraft(studentId).reason.trim();
+  }
+
+  protected formatAttendanceAmount(value: number | null | undefined): string {
+    const amount = Number(value ?? 0);
+    return Number.isInteger(amount) ? String(amount) : amount.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+  }
+
+  protected attendanceWindowInvalid(inputs: ReportCardInputsView): boolean {
+    const start = this.attendanceWindowStart(); const end = this.attendanceWindowEnd();
+    return !start || !end || start > end
+      || start < inputs.reportingPeriodStartDate || end > inputs.reportingPeriodEndDate;
+  }
+
+  protected attendanceWindowChanged(inputs: ReportCardInputsView): boolean {
+    return this.attendanceWindowStart() !== inputs.attendanceStartDate
+      || this.attendanceWindowEnd() !== inputs.attendanceEndDate;
+  }
+
+  protected saveAttendanceWindow(inputs: ReportCardInputsView): void {
+    if (this.attendanceWindowInvalid(inputs)) {
+      this.notice.set({ ok: false, text: this.fr()
+        ? 'Choisissez une plage valide à l’intérieur des dates de la séquence.'
+        : 'Choose a valid range inside the sequence dates.' });
+      return;
+    }
+    this.attendanceWindowBusy.set(true);
+    this.api.updateAttendanceWindow({
+      reportingPeriodId: inputs.reportingPeriodId,
+      classId: inputs.classId,
+      startDate: this.attendanceWindowStart(),
+      endDate: this.attendanceWindowEnd(),
+      reportingPeriodVersion: inputs.reportingPeriodVersion,
+    }).subscribe({
+      next: (view) => {
+        this.attendanceWindowBusy.set(false);
+        this.applyReportInputs(view, true);
+        this.notice.set({ ok: true, text: this.fr()
+          ? 'Plage d’assiduité enregistrée. Les totaux et les prochains bulletins utilisent maintenant ces dates.'
+          : 'Attendance range saved. Totals and future report cards now use these dates.' });
+      },
+      error: (e) => { this.attendanceWindowBusy.set(false); this.fail(e); },
+    });
+  }
+
+  protected useFullSequenceAttendanceWindow(inputs: ReportCardInputsView): void {
+    this.attendanceWindowStart.set(inputs.reportingPeriodStartDate);
+    this.attendanceWindowEnd.set(inputs.reportingPeriodEndDate);
+    this.saveAttendanceWindow(inputs);
+  }
+
   protected saveReportInput(row: ReportCardInputRow): void {
-    if (!this.inputDraft(row.studentId).reason.trim()) {
-      this.notice.set({ ok: false, text: this.fr() ? 'Renseignez le motif obligatoire avant d’enregistrer.' : 'Enter the required reason before saving.' });
+    if (this.correctionReasonMissing(row.studentId)) {
+      this.notice.set({ ok: false, text: this.fr() ? 'Ajoutez un motif pour la correction d’assiduité.' : 'Add a reason for the attendance correction.' });
       return;
     }
     this.inputBusy.set(row.studentId);
     this.api.saveReportCardInputs(this.inputDraft(row.studentId)).subscribe({
-      next: (view) => { const readableView = this.cleanReportInputs(view); this.inputBusy.set(null); this.reportInputs.set(readableView); this.rebuildInputDrafts(readableView); this.notice.set({ ok: true, text: this.fr() ? 'Assiduité et fiche du conseil enregistrées.' : 'Attendance and council inputs saved.' }); },
+      next: (view) => { this.inputBusy.set(null); this.applyReportInputs(view, false); this.notice.set({ ok: true, text: this.fr() ? 'Assiduité et fiche du conseil enregistrées.' : 'Attendance and council inputs saved.' }); },
       error: (e) => { this.inputBusy.set(null); this.fail(e); },
     });
   }
 
   protected submitReportInput(row: ReportCardInputRow): void {
-    if (!this.inputDraft(row.studentId).reason.trim()) {
-      this.notice.set({ ok: false, text: this.fr() ? 'Renseignez le motif obligatoire avant de soumettre.' : 'Enter the required reason before submitting.' });
+    if (this.correctionReasonMissing(row.studentId)) {
+      this.notice.set({ ok: false, text: this.fr() ? 'Ajoutez un motif pour la correction d’assiduité.' : 'Add a reason for the attendance correction.' });
       return;
     }
     this.inputBusy.set(row.studentId);
-    this.api.submitReportCardInput(row.studentId, this.selectedReportingPeriodId(), this.selectedClassId()).subscribe({
-      next: (view) => { const readableView = this.cleanReportInputs(view); this.inputBusy.set(null); this.reportInputs.set(readableView); this.rebuildInputDrafts(readableView); this.notice.set({ ok: true, text: this.fr() ? 'Fiche soumise à la revue.' : 'Input sheet submitted for review.' }); },
+    this.api.saveReportCardInputs(this.inputDraft(row.studentId)).pipe(
+      switchMap(() => this.api.submitReportCardInput(row.studentId, this.selectedReportingPeriodId(), this.selectedClassId())),
+    ).subscribe({
+      next: (view) => { this.inputBusy.set(null); this.applyReportInputs(view, false); this.notice.set({ ok: true, text: this.fr() ? 'Fiche enregistrée et soumise à la revue.' : 'Input sheet saved and submitted for review.' }); },
       error: (e) => { this.inputBusy.set(null); this.fail(e); },
     });
   }
@@ -1556,13 +1688,24 @@ export class AcademicComponent {
       reason: this.inputReviewReason.trim(), attendanceVersion: target.row.attendanceAdjustment?.version,
       conductVersion: target.row.conduct?.version,
     }).subscribe({
-      next: (view) => { const readableView = this.cleanReportInputs(view); this.inputBusy.set(null); this.cancelInputReview(); this.reportInputs.set(readableView); this.rebuildInputDrafts(readableView); this.notice.set({ ok: true, text: this.fr() ? 'Revue enregistrée et bulletin invalidé si nécessaire.' : 'Review recorded; affected snapshots were invalidated if necessary.' }); },
+      next: (view) => { this.inputBusy.set(null); this.cancelInputReview(); this.applyReportInputs(view, false); this.notice.set({ ok: true, text: this.fr() ? 'Revue enregistrée et bulletin invalidé si nécessaire.' : 'Review recorded; affected snapshots were invalidated if necessary.' }); },
       error: (e) => { this.inputBusy.set(null); this.fail(e); },
     });
   }
 
   private cleanReportInputs(view: ReportCardInputsView): ReportCardInputsView {
     return { ...view, className: cleanDisplay(view.className), reportingPeriodLabel: cleanDisplay(view.reportingPeriodLabel) };
+  }
+
+  private applyReportInputs(view: ReportCardInputsView, syncWindow: boolean): void {
+    const readableView = this.cleanReportInputs(view);
+    this.reportInputs.set(readableView);
+    this.rebuildInputDrafts(readableView);
+    if (syncWindow) {
+      this.attendanceWindowStart.set(readableView.attendanceStartDate);
+      this.attendanceWindowEnd.set(readableView.attendanceEndDate);
+      this.expandedInputStudentId.set(null);
+    }
   }
 
   private rebuildInputDrafts(view: ReportCardInputsView): void {
