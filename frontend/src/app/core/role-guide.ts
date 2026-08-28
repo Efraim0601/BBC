@@ -16,7 +16,9 @@ const ROLE_GUIDE_BY_ROLE: Readonly<Record<string, string>> = {
 };
 
 /** Returns the operational manual that best matches the authenticated role. */
-export function guideHrefForRole(role: string | null | undefined): string {
+export function guideHrefForRole(role: string | null | undefined, baseHref = '/'): string {
   const slug = role ? ROLE_GUIDE_BY_ROLE[role.toLowerCase()] : undefined;
-  return slug ? `/guide/roles/${slug}.html` : '/guide/';
+  const pathname = new URL(baseHref, 'https://bbc.invalid/').pathname;
+  const basePath = pathname.endsWith('/') ? pathname : `${pathname}/`;
+  return slug ? `${basePath}guide/roles/${slug}.html` : `${basePath}guide/index.html`;
 }

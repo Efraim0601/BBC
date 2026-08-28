@@ -207,7 +207,7 @@ def main() -> None:
 <meta charset="utf-8">
 <title>{E(DECK['meta']['title'])} — BBC SMS</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="icon" type="image/png" href="/bbc-logo.png">
+<link rel="icon" type="image/png" href="../bbc-logo.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&display=swap" rel="stylesheet">
@@ -221,7 +221,7 @@ def main() -> None:
   <button id="next" title="Suivant (→)">→</button>
   <button id="menu" title="Sommaire (S)">Sommaire</button>
   <div class="count"><span id="pos">1</span> / {len(DECK['slides'])}</div>
-  <a class="guide-link" href="/guide/" target="_blank" rel="noopener">Guide</a>
+  <a class="guide-link" href="./index.html" target="_blank" rel="noopener">Guide</a>
 </nav>
 <div class="progress"><div id="bar"></div></div>
 

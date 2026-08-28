@@ -1,3 +1,4 @@
+import { DOCUMENT } from '@angular/common';
 import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@angular/core';
 import { RouterOutlet, RouterLink, RouterLinkActive, Router, NavigationEnd } from '@angular/router';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
@@ -134,11 +135,12 @@ export class ShellComponent {
   private scope = inject(ScopeService);
   private sanitizer = inject(DomSanitizer);
   private router = inject(Router);
+  private document = inject(DOCUMENT);
 
   protected user = this.auth.user;
   protected langs: Lang[] = ['fr', 'en'];
   protected fr = () => this.i18n.lang() === 'fr';
-  protected helpHref = computed(() => guideHrefForRole(this.user()?.role));
+  protected helpHref = computed(() => guideHrefForRole(this.user()?.role, this.document.baseURI));
   protected trust = (svg: string): SafeHtml => this.sanitizer.bypassSecurityTrustHtml(svg);
 
   /** Compact label of the active parcours shown in the header (e.g. "Primaire · FR"). */

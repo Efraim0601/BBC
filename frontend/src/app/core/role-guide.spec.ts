@@ -19,7 +19,15 @@ describe('guideHrefForRole', () => {
   });
 
   it('falls back to the complete guide for unknown or missing roles', () => {
-    expect(guideHrefForRole('unknown_role')).toBe('/guide/');
-    expect(guideHrefForRole(undefined)).toBe('/guide/');
+    expect(guideHrefForRole('unknown_role')).toBe('/guide/index.html');
+    expect(guideHrefForRole(undefined)).toBe('/guide/index.html');
+  });
+
+  it('preserves the application base path used in production', () => {
+    expect(guideHrefForRole('secondary_teacher', '/app/'))
+      .toBe('/app/guide/roles/secondary-teacher.html');
+    expect(guideHrefForRole('principal', 'https://bbcomplex.com/app/'))
+      .toBe('/app/guide/roles/principal.html');
+    expect(guideHrefForRole(undefined, '/app/')).toBe('/app/guide/index.html');
   });
 });

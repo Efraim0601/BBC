@@ -27,10 +27,10 @@ def role_nav(lang: str, active: str | None = None) -> str:
     for guide in ROLE_GUIDES:
         cls = ' class="active" aria-current="page"' if guide["slug"] == active else ""
         links.append(
-            f'<a href="/guide/roles/{E(guide["slug"])}.html"{cls}>{E(tr(guide["title"], lang))}</a>'
+            f'<a href="./{E(guide["slug"])}.html"{cls}>{E(tr(guide["title"], lang))}</a>'
         )
     links.append(
-        f'<a href="/guide/">{E("Guide complet" if lang == "fr" else "Complete guide")}</a>'
+        f'<a href="../index.html">{E("Guide complet" if lang == "fr" else "Complete guide")}</a>'
     )
     return "".join(links)
 
@@ -109,18 +109,18 @@ def build_page(guide: dict) -> str:
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="{E(tr(guide["subtitle"], "en"))}">
   <title>{title} · BBC SMS</title>
-  <link rel="icon" type="image/png" href="/bbc-logo.png">
-  <link rel="stylesheet" href="/guide/role-guide.css">
+  <link rel="icon" type="image/png" href="../../bbc-logo.png">
+  <link rel="stylesheet" href="../role-guide.css">
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="/guide/roles/"><img src="/bbc-logo.png" alt="BBC"><span>BBC SMS<br><small>Role guides</small></span></a>
+    <a class="brand" href="./index.html"><img src="../../bbc-logo.png" alt="BBC"><span>BBC SMS<br><small>Role guides</small></span></a>
     <nav class="role-nav" aria-label="Role guides"><div data-nav="fr">{role_nav("fr", guide["slug"])}</div><div data-nav="en">{role_nav("en", guide["slug"])}</div></nav>
     <div class="lang-switch" aria-label="Language"><button data-set-lang="fr">FR</button><button data-set-lang="en">EN</button></div>
   </header>
   <div class="page-shell">{page_panel(guide, "fr")}{page_panel(guide, "en")}</div>
-  <footer>BBC SMS · Bayo Bilingual Complex · <a href="/guide/">Complete user guide</a></footer>
-  <script src="/guide/role-guide.js"></script>
+  <footer>BBC SMS · Bayo Bilingual Complex · <a href="../index.html">Complete user guide</a></footer>
+  <script src="../role-guide.js"></script>
 </body>
 </html>
 """
@@ -128,14 +128,14 @@ def build_page(guide: dict) -> str:
 
 def build_index() -> str:
     cards_en = "".join(
-        f'<a class="role-card" href="/guide/roles/{E(g["slug"])}.html"><h2>{E(tr(g["title"], "en"))}</h2><p>{E(tr(g["subtitle"], "en"))}</p><span>Open guide →</span></a>'
+        f'<a class="role-card" href="./{E(g["slug"])}.html"><h2>{E(tr(g["title"], "en"))}</h2><p>{E(tr(g["subtitle"], "en"))}</p><span>Open guide →</span></a>'
         for g in ROLE_GUIDES
     )
     cards_fr = "".join(
-        f'<a class="role-card" href="/guide/roles/{E(g["slug"])}.html"><h2>{E(tr(g["title"], "fr"))}</h2><p>{E(tr(g["subtitle"], "fr"))}</p><span>Ouvrir le guide →</span></a>'
+        f'<a class="role-card" href="./{E(g["slug"])}.html"><h2>{E(tr(g["title"], "fr"))}</h2><p>{E(tr(g["subtitle"], "fr"))}</p><span>Ouvrir le guide →</span></a>'
         for g in ROLE_GUIDES
     )
-    return f"""<!doctype html><html lang="en" data-lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Role guides · BBC SMS</title><link rel="icon" href="/bbc-logo.png"><link rel="stylesheet" href="/guide/role-guide.css"></head><body><header class="topbar"><a class="brand" href="/guide/roles/"><img src="/bbc-logo.png" alt="BBC"><span>BBC SMS<br><small>Role guides</small></span></a><div class="lang-switch"><button data-set-lang="fr">FR</button><button data-set-lang="en">EN</button></div></header><div class="page-shell"><main class="lang-panel index" data-lang-panel="fr" lang="fr"><section class="hero"><div class="eyebrow">BBC SMS</div><h1>Guides par rôle</h1><p class="lead">Choisissez votre rôle pour afficher uniquement les procédures et limites qui vous concernent.</p></section><div class="role-grid">{cards_fr}</div></main><main class="lang-panel index" data-lang-panel="en" lang="en"><section class="hero"><div class="eyebrow">BBC SMS</div><h1>Guides by role</h1><p class="lead">Choose your role to see only the procedures and boundaries that apply to you.</p></section><div class="role-grid">{cards_en}</div></main></div><footer>BBC SMS · <a href="/guide/">Complete user guide</a></footer><script src="/guide/role-guide.js"></script></body></html>"""
+    return f"""<!doctype html><html lang="en" data-lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Role guides · BBC SMS</title><link rel="icon" href="../../bbc-logo.png"><link rel="stylesheet" href="../role-guide.css"></head><body><header class="topbar"><a class="brand" href="./index.html"><img src="../../bbc-logo.png" alt="BBC"><span>BBC SMS<br><small>Role guides</small></span></a><div class="lang-switch"><button data-set-lang="fr">FR</button><button data-set-lang="en">EN</button></div></header><div class="page-shell"><main class="lang-panel index" data-lang-panel="fr" lang="fr"><section class="hero"><div class="eyebrow">BBC SMS</div><h1>Guides par rôle</h1><p class="lead">Choisissez votre rôle pour afficher uniquement les procédures et limites qui vous concernent.</p></section><div class="role-grid">{cards_fr}</div></main><main class="lang-panel index" data-lang-panel="en" lang="en"><section class="hero"><div class="eyebrow">BBC SMS</div><h1>Guides by role</h1><p class="lead">Choose your role to see only the procedures and boundaries that apply to you.</p></section><div class="role-grid">{cards_en}</div></main></div><footer>BBC SMS · <a href="../index.html">Complete user guide</a></footer><script src="../role-guide.js"></script></body></html>"""
 
 
 def build_markdown(guide: dict) -> str:

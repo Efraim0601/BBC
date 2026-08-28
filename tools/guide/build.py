@@ -246,7 +246,7 @@ def build_html() -> str:
 <title>{E(tr(meta["title"], "fr"))} — BBC SMS</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="{E(tr(meta["lead"], "fr"))}">
-<link rel="icon" type="image/png" href="/bbc-logo.png">
+<link rel="icon" type="image/png" href="../bbc-logo.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&display=swap" rel="stylesheet">
@@ -256,7 +256,7 @@ def build_html() -> str:
 <header class="topbar">
   <button class="menubtn" id="menubtn" aria-label="Menu">☰</button>
   <div class="brand">
-    <img src="/bbc-logo.png" alt="BBC">
+    <img src="../bbc-logo.png" alt="BBC">
     <div>
       <div class="bt">BBC SMS</div>
       <div class="bs l-fr">Guide utilisateur</div>
@@ -268,7 +268,7 @@ def build_html() -> str:
     <button data-lang="fr" aria-pressed="true">FR</button>
     <button data-lang="en" aria-pressed="false">EN</button>
   </div>
-  <a class="applink" href="/"><span class="l-fr">Ouvrir l'application</span><span class="l-en">Open the app</span></a>
+  <a class="applink" href="../"><span class="l-fr">Ouvrir l'application</span><span class="l-en">Open the app</span></a>
 </header>
 
 <div class="wrap">
