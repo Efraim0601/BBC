@@ -19,7 +19,7 @@ In Kindergarten and Primary, access comes from the homeroom assignment, not from
 
 ### Verify the homeroom assignment
 
-Route: `/students`
+**How to get there:** Click Apps, then Students. Use the Class filter when needed, then click a student’s name to open the record.
 
 1. After sign-in, choose the offered school level and language section.
 2. Open Students: the filter should contain only the homeroom class.
@@ -27,7 +27,7 @@ Route: `/students`
 
 ### Enter and submit grades
 
-Route: `/academic`
+**How to get there:** Click Apps, then Academic. Next, open the tab named in the first step below.
 
 1. Open Grade entry and choose class, sequence, and subject.
 2. Enter a mark on the displayed scale, or choose Absent/Exempt when applicable.
@@ -36,7 +36,7 @@ Route: `/academic`
 
 ### Take daily attendance
 
-Route: `/presence`
+**How to get there:** Click Apps, then Attendance. Choose the date and class before opening the required roll call or analysis.
 
 1. Choose the date and the displayed class or bilingual cohort.
 2. Use All present, then correct absences, lateness, or excused statuses.
@@ -45,7 +45,7 @@ Route: `/presence`
 
 ### Understand a linked bilingual class
 
-Route: `/presence`
+**How to get there:** Click Apps, then Attendance. Choose the date and class before opening the required roll call or analysis.
 
 1. The same pupil appears in both linked classes because enrollment belongs to one shared cohort.
 2. Attendance is shared: for example CE1 A (FR) · Class 3 A (EN) shows one roster.
@@ -54,7 +54,7 @@ Route: `/presence`
 
 ### Complete attendance and council input
 
-Route: `/academic`
+**How to get there:** Click Apps, then Academic. Next, open the tab named in the first step below.
 
 1. Open Attendance & council and choose the class and sequence.
 2. Verify the date range; only finalized calls inside it feed the totals.
@@ -63,7 +63,7 @@ Route: `/academic`
 
 ### Validate and generate a report card
 
-Route: `/academic`
+**How to get there:** Click Apps, then Academic. Next, open the tab named in the first step below.
 
 1. In Report card, choose class, period, and student.
 2. Check grades, average, rank, attendance, council decision, and student details.
@@ -72,7 +72,7 @@ Route: `/academic`
 
 ### Maintain the coursebook
 
-Route: `/coursebook`
+**How to get there:** Click Apps, then Coursebook. Choose the class and subject before opening or adding a lesson.
 
 1. Choose the homeroom class, then create the lesson or homework entry.
 2. Enter date, subject, content, and any due date.
@@ -95,4 +95,4 @@ Route: `/coursebook`
 
 ---
 
-Verified against the local application on 28 August 2026 (build `1c89f5b`).
+User guide verified against the local application on 28 August 2026.

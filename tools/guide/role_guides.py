@@ -2,8 +2,8 @@
 
 The content reflects the local production-copy walkthrough performed on
 2026-08-28.  Each entry is bilingual so the in-app guide can follow the same
-FR/EN convention as the application.  The standalone DOCX builder uses the
-English copy and keeps exact UI labels and routes where they help operators.
+FR/EN convention as the application.  Internal routes remain metadata for the
+builders, while readers receive plain click-by-click navigation instructions.
 """
 
 from __future__ import annotations
@@ -11,6 +11,118 @@ from __future__ import annotations
 
 def t(fr: str, en: str) -> dict[str, str]:
     return {"fr": fr, "en": en}
+
+
+# Human navigation shown in the web, Markdown, and Word guides. Route values
+# remain internal so links and tests can still identify the relevant screen,
+# but ordinary readers never need to understand or type a URL.
+NAVIGATION_BY_ROUTE: dict[str, dict[str, str]] = {
+    "/parcours": t(
+        "Après connexion, utilisez le sélecteur de parcours dans la barre du haut et choisissez uniquement l’un des cycles et langues proposés à votre compte.",
+        "After signing in, use the parcours selector in the top bar and choose only one of the school levels and languages offered to your account.",
+    ),
+    "/access-control": t(
+        "Cliquez Applications, ouvrez Paramètres, puis Accès et responsabilités. Choisissez ensuite Utilisateurs ou Règles des rôles selon l’opération à effectuer.",
+        "Click Apps, open Settings, then Access and responsibilities. Choose Users or Role rules according to the task.",
+    ),
+    "/settings": t(
+        "Cliquez Applications, puis Paramètres. Dans la page, ouvrez la rubrique indiquée dans la première étape ci-dessous.",
+        "Click Apps, then Settings. On that page, open the section named in the first step below.",
+    ),
+    "/students": t(
+        "Cliquez Applications, puis Élèves. Utilisez le filtre Classe si nécessaire, puis cliquez sur le nom d’un élève pour ouvrir sa fiche.",
+        "Click Apps, then Students. Use the Class filter when needed, then click a student’s name to open the record.",
+    ),
+    "/students/new": t(
+        "Cliquez Applications, ouvrez Élèves, puis cliquez Nouvel élève. Pour inscrire plusieurs élèves, cliquez plutôt Importer.",
+        "Click Apps, open Students, then click New student. To register several students, click Import instead.",
+    ),
+    "/staff": t(
+        "Cliquez Applications, puis Personnel. Recherchez l’employé et cliquez sur son nom pour ouvrir sa fiche.",
+        "Click Apps, then Staff. Find the employee and click the name to open the record.",
+    ),
+    "/staff/create": t(
+        "Cliquez Applications, ouvrez Personnel, puis cliquez Nouvel employé.",
+        "Click Apps, open Staff, then click New employee.",
+    ),
+    "/timetable": t(
+        "Cliquez Applications, puis Emploi du temps. Choisissez la classe ou l’enseignant avec le sélecteur affiché en haut de la page.",
+        "Click Apps, then Timetable. Choose the class or teacher with the selector at the top of the page.",
+    ),
+    "/academic": t(
+        "Cliquez Applications, puis Académique. Ouvrez ensuite l’onglet indiqué dans la première étape ci-dessous.",
+        "Click Apps, then Academic. Next, open the tab named in the first step below.",
+    ),
+    "/presence": t(
+        "Cliquez Applications, puis Présence. Choisissez la date et la classe avant d’ouvrir l’appel ou l’analyse demandée.",
+        "Click Apps, then Attendance. Choose the date and class before opening the required roll call or analysis.",
+    ),
+    "/discipline": t(
+        "Cliquez Applications, puis Discipline. Utilisez les filtres en haut de la page pour retrouver la classe, l’élève ou l’incident.",
+        "Click Apps, then Discipline. Use the filters at the top to find the class, student, or incident.",
+    ),
+    "/coursebook": t(
+        "Cliquez Applications, puis Cahier de textes. Choisissez la classe et la matière avant d’ouvrir ou d’ajouter une séance.",
+        "Click Apps, then Coursebook. Choose the class and subject before opening or adding a lesson.",
+    ),
+    "/finance": t(
+        "Cliquez Applications, puis Finance. Ouvrez la rubrique Paiements, Dépenses ou celle indiquée dans les étapes ci-dessous.",
+        "Click Apps, then Finance. Open Payments, Expenses, or the area named in the steps below.",
+    ),
+    "/finance/student-accounts": t(
+        "Cliquez Applications, ouvrez Finance, puis cliquez Comptes élèves.",
+        "Click Apps, open Finance, then click Student accounts.",
+    ),
+    "/finance/treasury": t(
+        "Cliquez Applications, ouvrez Finance, puis cliquez Comptes et mouvements.",
+        "Click Apps, open Finance, then click Accounts and movements.",
+    ),
+    "/finance/fee-types": t(
+        "Cliquez Applications, ouvrez Finance, puis Frais et plans de paiement.",
+        "Click Apps, open Finance, then Fees and payment plans.",
+    ),
+    "/finance/payroll": t(
+        "Cliquez Applications, ouvrez Finance, puis Paie du personnel.",
+        "Click Apps, open Finance, then Staff payroll.",
+    ),
+    "/finance/accounting": t(
+        "Cliquez Applications, ouvrez Finance, puis Comptabilité.",
+        "Click Apps, open Finance, then Accounting.",
+    ),
+    "/alerts": t(
+        "Cliquez Applications, puis Alertes. Utilisez les filtres pour afficher les éléments qui demandent un suivi.",
+        "Click Apps, then Alerts. Use the filters to show items that require follow-up.",
+    ),
+    "/journey": t(
+        "Cliquez Applications, puis Parcours scolaire. Choisissez la classe et l’élève à consulter.",
+        "Click Apps, then School journey. Choose the class and student to review.",
+    ),
+    "/reports": t(
+        "Cliquez Applications, puis Rapports. Choisissez le rapport et les filtres correspondant au suivi recherché.",
+        "Click Apps, then Reports. Choose the report and filters for the required follow-up.",
+    ),
+    "/login": t(
+        "Ouvrez BBC SMS. Si un autre compte est déjà connecté, cliquez Déconnexion; saisissez ensuite vos identifiants sur l’écran de connexion.",
+        "Open BBC SMS. If another account is already signed in, click Sign out; then enter your credentials on the sign-in screen.",
+    ),
+    "/parent": t(
+        "Après connexion, l’Espace famille s’ouvre automatiquement. Choisissez d’abord l’enfant, puis la rubrique indiquée dans les étapes ci-dessous.",
+        "After signing in, the Family space opens automatically. Choose the child first, then the section named in the steps below.",
+    ),
+}
+
+
+def workflow_navigation(workflow: dict) -> dict[str, str]:
+    """Return reader-facing navigation for a workflow without exposing URLs."""
+    if workflow.get("navigation"):
+        return workflow["navigation"]
+    return NAVIGATION_BY_ROUTE.get(
+        workflow.get("route", ""),
+        t(
+            "Depuis Applications, ouvrez le module nommé dans la première étape ci-dessous.",
+            "From Apps, open the module named in the first step below.",
+        ),
+    )
 
 
 ROLE_GUIDES: list[dict] = [
@@ -42,6 +154,10 @@ ROLE_GUIDES: list[dict] = [
             {
                 "title": t("Se connecter et choisir le bon périmètre", "Sign in and choose the correct scope"),
                 "route": "/parcours",
+                "navigation": t(
+                    "Après connexion, utilisez le sélecteur de parcours dans la barre du haut. Pour une opération école-entière, choisissez Tous les parcours; pour une classe, choisissez son cycle et sa langue.",
+                    "After signing in, use the parcours selector in the top bar. For a whole-school task, choose All parcours; for a class task, choose its school level and language.",
+                ),
                 "steps": [
                     t("Connectez-vous puis choisissez Tous les parcours pour une opération école-entière.", "Sign in, then choose All parcours for a whole-school operation."),
                     t("Choisissez un cycle et une section linguistique avant une opération liée à une classe.", "Choose a school level and language section before a class-specific operation."),
@@ -83,7 +199,7 @@ ROLE_GUIDES: list[dict] = [
                 "route": "/students/new",
                 "steps": [
                     t("Renseignez l’identité; sur mobile, la date peut être tapée en JJ/MM/AAAA avec insertion automatique des barres.", "Enter identity details; on mobile, the date can be typed as DD/MM/YYYY with automatic slash insertion."),
-                    t("Choisissez la classe d’entrée. Pour une classe liée, le backend rattache l’élève au groupe commun.", "Choose the entry class. For a linked class, the backend attaches the student to the shared cohort."),
+                    t("Choisissez la classe d’entrée. Si elle appartient à un groupe bilingue, l’élève rejoint automatiquement le groupe commun.", "Choose the entry class. If it belongs to a bilingual group, the student automatically joins the shared group."),
                     t("Ajoutez un ou plusieurs parents. L’e-mail reste facultatif tant que l’accès portail n’est pas activé.", "Add one or more guardians. Email remains optional until portal access is enabled."),
                     t("Pour un lot, utilisez Importer, téléchargez le modèle, prévisualisez toutes les lignes, puis confirmez.", "For a batch, use Import, download the template, preview every row, then confirm."),
                 ],
@@ -94,7 +210,7 @@ ROLE_GUIDES: list[dict] = [
                 "steps": [
                     t("Créez l’employé depuis Personnel → Nouvel employé et attribuez son rôle et son cycle.", "Create the employee from Staff → New employee and assign the role and school level."),
                     t("Ajoutez autant de documents que nécessaire, chacun avec sa catégorie: CV, diplôme, identité, certificat ou autre.", "Add as many documents as required, each with its category: CV, diploma, identity, certificate, or other."),
-                    t("Après création, ouvrez l’URL /staff/{id}; chaque document peut être prévisualisé et téléchargé.", "After creation, open /staff/{id}; each document can be previewed and downloaded."),
+                    t("Après création, cliquez sur le nom de l’employé dans la liste; chaque document peut être prévisualisé et téléchargé depuis sa fiche.", "After creation, click the employee’s name in the list; every document can be previewed and downloaded from the employee record."),
                 ],
             },
             {
@@ -138,7 +254,7 @@ ROLE_GUIDES: list[dict] = [
             t("Un principal ne voit que ses parcours et ne peut pas ouvrir Accès et responsabilités.", "A principal sees only assigned parcours and cannot open Access and responsibilities."),
             t("Le comptable couvre tous les parcours financiers sans accès aux permissions.", "The accountant covers all finance parcours without permission administration."),
             t("Le parent ne voit que ses enfants et les rubriques autorisées par la relation familiale.", "A parent sees only linked children and guardian-enabled sections."),
-            t("Les liens, exports PDF/Excel, reçus, bulletins et documents s’ouvrent depuis leur URL correcte.", "Links, PDF/Excel exports, receipts, report cards, and documents open from their correct URL."),
+            t("Les boutons et liens ouvrent le bon écran; les exports PDF/Excel, reçus, bulletins et documents s’ouvrent correctement.", "Buttons and links open the correct screen; PDF/Excel exports, receipts, report cards, and documents open correctly."),
         ],
         "known_gaps": [],
     },
@@ -148,8 +264,8 @@ ROLE_GUIDES: list[dict] = [
         "title": t("Guide du principal", "Principal guide"),
         "subtitle": t("Piloter uniquement les parcours attribués, sans administrer les permissions.", "Lead only the assigned parcours without administering permissions."),
         "summary": t(
-            "Le principal supervise les élèves, la pédagogie et les opérations de son ou de ses parcours. Les contrôles serveur refusent toute classe située hors de ce périmètre.",
-            "The principal supervises students, teaching, and operations inside one or more assigned parcours. Server controls deny every class outside that scope.",
+            "Le principal supervise les élèves, la pédagogie et les opérations de son ou de ses parcours. Les classes des autres parcours restent invisibles et inaccessibles.",
+            "The principal supervises students, teaching, and operations inside one or more assigned parcours. Classes from other parcours remain hidden and inaccessible.",
         ),
         "scope": t("Uniquement les cycles et sections linguistiques attribués par l’administrateur.", "Only the school levels and language sections assigned by the administrator."),
         "permissions": [
@@ -165,6 +281,10 @@ ROLE_GUIDES: list[dict] = [
             {
                 "title": t("Choisir un parcours attribué", "Choose an assigned parcours"),
                 "route": "/parcours",
+                "navigation": t(
+                    "Après connexion, utilisez le sélecteur dans la barre du haut et choisissez uniquement l’un des parcours proposés à votre compte de Principal.",
+                    "After signing in, use the selector in the top bar and choose only one of the parcours offered to your Principal account.",
+                ),
                 "steps": [
                     t("Après connexion, choisissez uniquement un cycle proposé puis Francophone ou English.", "After sign-in, choose one offered school level, then Francophone or English."),
                     t("Vérifiez le badge de l’en-tête avant de consulter une classe.", "Check the header badge before opening a class."),
@@ -215,7 +335,7 @@ ROLE_GUIDES: list[dict] = [
                 "steps": [
                     t("Ouvrez Personnel depuis le parcours actif; la liste contient les agents de ce cycle et les agents communs sans cycle.", "Open Staff from the active parcours; the list contains that level’s employees and shared staff without a level."),
                     t("Créez ou modifiez une fiche uniquement pour le cycle dont vous avez la responsabilité.", "Create or update a record only for the level you manage."),
-                    t("Une URL vers un employé affecté uniquement à un autre cycle doit être refusée par le serveur.", "A URL targeting an employee assigned only to another level must be denied by the server."),
+                    t("Un employé affecté uniquement à un autre cycle ne doit pas apparaître; un lien partagé vers sa fiche ne doit pas l’ouvrir.", "An employee assigned only to another level must not appear; a shared link to that record must not open it."),
                 ],
             },
             {
@@ -239,15 +359,15 @@ ROLE_GUIDES: list[dict] = [
         ],
         "boundaries": [
             t("Aucun accès à Accès et responsabilités; seul l’administrateur modifie rôles et permissions.", "No access to Access and responsibilities; only an administrator changes roles and permissions."),
-            t("Aucune classe hors des parcours attribués, même par URL directe.", "No class outside assigned parcours, including direct URLs."),
+            t("Aucune classe hors des parcours attribués, même en ouvrant un lien partagé par une autre personne.", "No class outside assigned parcours, even when opening a link shared by someone else."),
             t("Pas d’inscription/import élève et pas de modification des notes brutes des enseignants.", "No student registration/import and no editing teachers’ raw grades."),
             t("La finance reste une consultation de direction; les encaissements et mouvements appartiennent au comptable.", "Finance remains an oversight view; collections and movements belong to the accountant."),
         ],
         "verification": [
             t("Le sélecteur d’élèves ne contient que les classes du parcours actif.", "The student selector contains only classes in the active parcours."),
-            t("Une URL vers une classe hors périmètre est refusée par le serveur.", "A URL targeting an out-of-scope class is denied by the server."),
+            t("Un lien partagé vers une classe hors périmètre n’affiche aucune donnée de cette classe.", "A shared link to an out-of-scope class displays none of that class’s data."),
             t("Le bouton Nouvel élève et l’import ne sont pas disponibles.", "New student and import are unavailable."),
-            t("Personnel s’ouvre, exclut les agents affectés uniquement aux autres cycles et refuse leur URL directe.", "Staff opens, excludes employees assigned only to other levels, and denies their direct URLs."),
+            t("Personnel s’ouvre, exclut les agents affectés uniquement aux autres cycles et n’ouvre pas leur fiche depuis un lien partagé.", "Staff opens, excludes employees assigned only to other levels, and does not open their record from a shared link."),
             t("Un principal sans affectation voit un message Contacter l’administrateur et aucun bouton de parcours.", "A Principal without an assignment sees a Contact your administrator message and no parcours button."),
             t("Accès et responsabilités redirige vers l’accueil.", "Access and responsibilities redirects to the home page."),
             t("Finance indique lecture seule et la trésorerie n’autorise pas de mouvement.", "Finance shows read-only and Treasury does not allow a movement."),
@@ -586,7 +706,7 @@ ROLE_GUIDES: list[dict] = [
         "verification": [
             t("L’enseignant de Français en 6ème A voit uniquement Français dans Saisie des notes.", "The 6ème A French teacher sees only Français in Grade entry."),
             t("Pour une date donnée, l’appel affiche uniquement ses occurrences publiées.", "For a given date, attendance shows only the teacher’s published occurrences."),
-            t("Le professeur principal voit toutes les matières mais une décision ACADEMIC_SUBJECT_GRADE_EDIT reste refusée pour celles des collègues.", "The homeroom teacher sees every subject, but ACADEMIC_SUBJECT_GRADE_EDIT remains denied for colleagues’ subjects."),
+            t("Le professeur principal voit toutes les matières, mais il ne peut pas modifier les notes saisies par ses collègues.", "The homeroom teacher sees every subject, but cannot edit grades entered by colleagues."),
             t("Le conseil de classe est en lecture seule et le bulletin officiel peut être généré par le titulaire.", "Council input is read-only and the official report card can be generated by the homeroom teacher."),
             t("Un enseignant non titulaire n’a pas l’onglet Bulletin.", "A non-homeroom teacher does not have the Report card tab."),
         ],
@@ -681,12 +801,12 @@ ROLE_GUIDES: list[dict] = [
             t("Un incident peut être enregistré puis retrouvé dans l’historique avec son auteur.", "An incident can be saved and found in history with its author."),
             t("Les alertes de présence/discipline contiennent des données réelles et peuvent être suivies.", "Attendance/discipline alerts contain real data and can be followed up."),
             t("Académique est en consultation strictement nécessaire; les notes, bulletins et promotions ne sont pas modifiables.", "Academic access is limited to necessary oversight; grades, report cards, and promotions are not editable."),
-            t("Les URL Finance, Personnel, Réglages et Permissions sont refusées.", "Finance, Staff, Settings, and Permissions URLs are denied."),
+            t("Finance, Personnel, Réglages et Permissions restent inaccessibles, y compris depuis un lien partagé.", "Finance, Staff, Settings, and Permissions remain inaccessible, including from a shared link."),
         ],
         "known_gaps": [
-            t("Le profil Prefect local annonce Élèves, Présence, Discipline, Parcours, Santé, Documents et Correspondance, mais Élèves redirige et les autres écrans n’obtiennent aucune classe. Les modules hérités et les actions Permission Policy V2 doivent être alignés avant utilisation.", "The local Prefect profile advertises Students, Attendance, Discipline, Journey, Health, Documents, and Correspondence, but Students redirects and the other screens receive no classes. Legacy modules and Permission Policy V2 actions must be aligned before use."),
+            t("Le profil Surveillant général affiche Élèves, Présence, Discipline, Parcours, Santé, Documents et Correspondance, mais Élèves revient à l’accueil et les autres écrans n’affichent encore aucune classe. Ces rubriques ne doivent pas être utilisées avant leur correction.", "The Prefect profile shows Students, Attendance, Discipline, Journey, Health, Documents, and Correspondence, but Students returns to the home page and the other screens still show no classes. Do not use these sections until they are corrected."),
             t("Emploi du temps affiche une erreur d’autorisation et seulement un planning enseignant vide, alors que le module est annoncé en écriture. Le lien doit être retiré ou remplacé par une vue de supervision explicitement autorisée.", "Timetable shows an authorization error and only an empty teacher schedule even though the module is advertised as write-enabled. Remove the link or replace it with an explicitly authorized oversight view."),
-            t("Promotion expose actuellement toutes les classes et des contrôles de décision modifiables au Prefect. Cet accès à haut risque ne fait pas partie du mandat et doit être refusé côté interface et serveur.", "Promotion currently exposes every class and editable decision controls to the Prefect. This high-risk access is outside the mandate and must be denied in both UI and server."),
+            t("Promotion affiche actuellement toutes les classes et des décisions modifiables au Surveillant général. Cette rubrique ne fait pas partie de son travail et ne doit pas être utilisée avant sa correction.", "Promotion currently shows every class and editable decisions to the Prefect. This section is outside the role’s duties and must not be used until corrected."),
             t("Tableau de bord, Alertes et Rapports s’ouvrent mais restent à zéro ou indiquent que les données sont indisponibles; leurs actions de lecture doivent être alignées avec le périmètre de vie scolaire.", "Dashboard, Alerts, and Reports open but remain at zero or say data is unavailable; their read actions must be aligned with the school-life scope."),
         ],
     },
@@ -784,7 +904,7 @@ ROLE_GUIDES: list[dict] = [
         "verification": [
             t("Le nombre d’enfants correspond aux relations actives du compte.", "The child count matches active guardian relationships."),
             t("Frais et paiements affiche le même solde que la comptabilité.", "Fees & payments shows the same balance as the bursary."),
-            t("Une URL vers un module du personnel redirige vers l’accueil sans données.", "A URL to a staff module redirects to a data-free home page."),
+            t("Un lien partagé vers une rubrique réservée au personnel revient à l’accueil sans afficher de données.", "A shared link to a staff-only section returns to the home page without showing data."),
             t("La boîte à suggestions reste liée à l’enfant sélectionné.", "The suggestion box remains tied to the selected child."),
         ],
         "known_gaps": [

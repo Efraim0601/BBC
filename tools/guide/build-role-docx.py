@@ -18,7 +18,7 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Inches, Pt, RGBColor
 
-from role_guides import ROLE_GUIDES
+from role_guides import ROLE_GUIDES, workflow_navigation
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -399,7 +399,7 @@ def add_cover(doc: Document, guide: dict) -> None:
     meta.paragraph_format.space_before = Pt(18)
     meta.add_run("Version vérifiée / Verified edition\n").bold = True
     meta.add_run("28 août 2026 / 28 August 2026\n")
-    meta.add_run("Application locale testée sur ports 8130 / 8131")
+    meta.add_run("Procédures vérifiées dans l’application / Workflows verified in the application")
     for run in meta.runs:
         run.font.size = Pt(9)
         run.font.color.rgb = RGBColor.from_string(MUTED)
@@ -500,7 +500,7 @@ def add_workflows(doc: Document, guide: dict) -> None:
     add_section_heading(
         doc,
         "Procédures pas à pas / Step-by-step workflows",
-        "Les noms de pages et les routes correspondent à la version locale vérifiée. / Page names and routes match the verified local build.",
+        "Commencez par Comment y accéder, puis suivez les étapes numérotées. / Start with How to get there, then follow the numbered steps.",
     )
     for workflow_number, workflow in enumerate(guide["workflows"], start=1):
         heading = doc.add_paragraph(style="Heading 2")
@@ -511,16 +511,22 @@ def add_workflows(doc: Document, guide: dict) -> None:
         english.font.color.rgb = RGBColor.from_string(DEEP_BLUE)
         keep_paragraph(heading, with_next=True)
 
-        route = doc.add_paragraph()
-        route.paragraph_format.space_after = Pt(5)
-        route.paragraph_format.keep_with_next = True
-        r = route.add_run("PAGE / ROUTE  ")
-        r.bold = True
-        r.font.color.rgb = RGBColor.from_string(GOLD)
-        code = route.add_run(workflow.get("route") or "—")
-        code.font.name = "Consolas"
-        code.font.size = Pt(9)
-        code.font.color.rgb = RGBColor.from_string(NAVY)
+        navigation = workflow_navigation(workflow)
+        path = doc.add_table(rows=1, cols=1)
+        configure_fixed_table(path, [USABLE_WIDTH_DXA])
+        set_table_borders(path, color=LIGHT_BORDER, size=5)
+        set_cell_shading(path.cell(0, 0), PALE_BLUE)
+        prevent_row_split(path.rows[0])
+        set_cell_margins(path.cell(0, 0), top=80, bottom=80, left=140, right=140)
+        path_p = path.cell(0, 0).paragraphs[0]
+        path_p.paragraph_format.keep_with_next = True
+        label = path_p.add_run("COMMENT Y ACCÉDER / HOW TO GET THERE\n")
+        label.bold = True
+        label.font.color.rgb = RGBColor.from_string(NAVY)
+        path_p.add_run(txt(navigation, "fr") + "\n")
+        english_path = path_p.add_run(txt(navigation, "en"))
+        english_path.italic = True
+        english_path.font.color.rgb = RGBColor.from_string(MUTED)
 
         steps = workflow["steps"]
         table = doc.add_table(rows=1, cols=3)
@@ -602,19 +608,19 @@ def add_boundaries_and_checks(doc: Document, guide: dict) -> None:
     if guide["known_gaps"]:
         add_parallel_list(
             doc,
-            "Écarts confirmés dans la version testée / Confirmed gaps in the tested build",
+            "Limitations connues / Known limitations",
             guide["known_gaps"],
             warning=True,
         )
         warning = doc.add_paragraph()
         warning.paragraph_format.space_before = Pt(8)
         run = warning.add_run(
-            "Ces écarts ne constituent pas des autorisations. Respectez le modèle décrit dans ce guide et signalez le comportement à l’administrateur.\n"
+            "Ne contournez pas ces limites. Respectez le modèle décrit dans ce guide et signalez le comportement à l’administrateur.\n"
         )
         run.bold = True
         run.font.color.rgb = RGBColor.from_string(RED)
         en = warning.add_run(
-            "These gaps are not permissions. Follow the operating model in this guide and report the behavior to the administrator."
+            "Do not work around these limitations. Follow the operating model in this guide and report the behavior to the administrator."
         )
         en.italic = True
         en.font.color.rgb = RGBColor.from_string(RED)

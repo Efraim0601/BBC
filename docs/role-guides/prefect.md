@@ -19,7 +19,7 @@ The Prefect monitors attendance, incidents, sanctions, alerts, and school-life c
 
 ### Verify school-wide scope
 
-Route: `/students`
+**How to get there:** Click Apps, then Students. Use the Class filter when needed, then click a student’s name to open the record.
 
 1. After sign-in, verify that the header says All parcours.
 2. Open Students: the filter should offer every class without New student or Import controls.
@@ -28,7 +28,7 @@ Route: `/students`
 
 ### Oversee attendance
 
-Route: `/presence`
+**How to get there:** Click Apps, then Attendance. Choose the date and class before opening the required roll call or analysis.
 
 1. Choose date and class, then open the relevant daily roster or published period.
 2. Review absences, lateness, excused statuses, finalization, and any check-in anomalies.
@@ -37,7 +37,7 @@ Route: `/presence`
 
 ### Record a discipline incident
 
-Route: `/discipline`
+**How to get there:** Click Apps, then Discipline. Use the filters at the top to find the class, student, or incident.
 
 1. Click New incident, then choose the exact class and student.
 2. Enter the date, type, factual description, and any sanction.
@@ -46,7 +46,7 @@ Route: `/discipline`
 
 ### Handle alerts
 
-Route: `/alerts`
+**How to get there:** Click Apps, then Alerts. Use the filters to show items that require follow-up.
 
 1. Filter Attendance or Discipline first; finance and grades remain outside the mandate.
 2. Open the alert, verify the student and source facts, then acknowledge it.
@@ -54,7 +54,7 @@ Route: `/alerts`
 
 ### Review a student's school life
 
-Route: `/journey`
+**How to get there:** Click Apps, then School journey. Choose the class and student to review.
 
 1. Filter by class, choose the student, and confirm identity.
 2. Review only the journey, attendance, discipline, correspondence, and relevant non-confidential information.
@@ -62,7 +62,7 @@ Route: `/journey`
 
 ### Produce operational follow-up
 
-Route: `/reports`
+**How to get there:** Click Apps, then Reports. Choose the report and filters for the required follow-up.
 
 1. Choose the attendance or discipline report and the exact period.
 2. Verify parcours, class, and filters before export.
@@ -82,15 +82,17 @@ Route: `/reports`
 - [ ] An incident can be saved and found in history with its author.
 - [ ] Attendance/discipline alerts contain real data and can be followed up.
 - [ ] Academic access is limited to necessary oversight; grades, report cards, and promotions are not editable.
-- [ ] Finance, Staff, Settings, and Permissions URLs are denied.
+- [ ] Finance, Staff, Settings, and Permissions remain inaccessible, including from a shared link.
 
-## Confirmed gaps in the tested build
+## Known limitations
 
-- The local Prefect profile advertises Students, Attendance, Discipline, Journey, Health, Documents, and Correspondence, but Students redirects and the other screens receive no classes. Legacy modules and Permission Policy V2 actions must be aligned before use.
+These limitations were observed during verification. Do not work around them; contact the administrator.
+
+- The Prefect profile shows Students, Attendance, Discipline, Journey, Health, Documents, and Correspondence, but Students returns to the home page and the other screens still show no classes. Do not use these sections until they are corrected.
 - Timetable shows an authorization error and only an empty teacher schedule even though the module is advertised as write-enabled. Remove the link or replace it with an explicitly authorized oversight view.
-- Promotion currently exposes every class and editable decision controls to the Prefect. This high-risk access is outside the mandate and must be denied in both UI and server.
+- Promotion currently shows every class and editable decisions to the Prefect. This section is outside the role’s duties and must not be used until corrected.
 - Dashboard, Alerts, and Reports open but remain at zero or say data is unavailable; their read actions must be aligned with the school-life scope.
 
 ---
 
-Verified against the local application on 28 August 2026 (build `1c89f5b`).
+User guide verified against the local application on 28 August 2026.

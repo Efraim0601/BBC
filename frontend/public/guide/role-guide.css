@@ -54,8 +54,10 @@ th { width: 29%; color: var(--navy); background: var(--blue-soft); }
 .workflow-head { display: flex; gap: 13px; align-items: flex-start; }
 .workflow-head > span { display: grid; flex: 0 0 38px; place-items: center; height: 38px; border-radius: 11px; color: white; background: var(--navy); font-weight: 900; }
 .workflow h3 { margin: 0 0 5px; color: var(--navy); font-size: 18px; }
-code { padding: 3px 7px; border-radius: 6px; color: #344d65; background: var(--blue-soft); font-size: 12px; }
-.workflow ol { margin: 18px 0 0 22px; padding: 0; }
+.workflow-path { margin-top: 15px; padding: 12px 14px; border-radius: 10px; color: #294660; background: var(--blue-soft); font-size: 14px; }
+.workflow-path b { display: block; margin-bottom: 3px; color: var(--navy); }
+.workflow-path p { margin: 0; }
+.workflow ol { margin: 16px 0 0 22px; padding: 0; }
 .workflow li + li { margin-top: 8px; }
 .note { margin-top: 16px; padding: 12px 14px; border-left: 4px solid var(--gold); border-radius: 8px; background: var(--gold-soft); font-size: 14px; }
 ul { margin: 0; padding-left: 22px; }

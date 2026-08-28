@@ -7,7 +7,7 @@ import html
 import os
 from pathlib import Path
 
-from role_guides import ROLE_GUIDES
+from role_guides import ROLE_GUIDES, workflow_navigation
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -41,17 +41,20 @@ def workflow_html(flow: dict, lang: str, number: int) -> str:
     if flow.get("note"):
         label = "À retenir" if lang == "fr" else "Remember"
         note = f'<div class="note"><b>{label}.</b> {E(tr(flow["note"], lang))}</div>'
-    route = E(flow.get("route", ""))
+    navigation_label = "Comment y accéder" if lang == "fr" else "How to get there"
+    navigation = E(tr(workflow_navigation(flow), lang))
     return (
         '<article class="workflow">'
-        f'<div class="workflow-head"><span>{number:02d}</span><div><h3>{E(tr(flow["title"], lang))}</h3>'
-        f'<code>{route}</code></div></div><ol>{steps}</ol>{note}</article>'
+        f'<div class="workflow-head"><span>{number:02d}</span><div><h3>{E(tr(flow["title"], lang))}</h3></div></div>'
+        f'<div class="workflow-path"><b>{navigation_label}</b><p>{navigation}</p></div>'
+        f'<ol>{steps}</ol>{note}</article>'
     )
 
 
 def page_panel(guide: dict, lang: str) -> str:
     lang_name = "Français" if lang == "fr" else "English"
     verified = "Vérifié sur l’application locale" if lang == "fr" else "Verified in the local application"
+    verified_detail = "28-08-2026 · guide utilisateur vérifié" if lang == "fr" else "28-08-2026 · verified user guide"
     permissions = "".join(
         f'<tr><th>{E(tr(label, lang))}</th><td>{E(tr(detail, lang))}</td></tr>'
         for label, detail in guide["permissions"]
@@ -67,11 +70,11 @@ def page_panel(guide: dict, lang: str) -> str:
     gaps = ""
     if guide["known_gaps"]:
         gap_items = "".join(f"<li>{E(tr(item, lang))}</li>" for item in guide["known_gaps"])
-        gaps_title = "Écarts confirmés dans la version testée" if lang == "fr" else "Confirmed gaps in the tested build"
+        gaps_title = "Limitations connues" if lang == "fr" else "Known limitations"
         gaps_intro = (
-            "Ces éléments décrivent le comportement actuel; ils ne constituent pas des droits supplémentaires."
+            "Ces limites ont été observées pendant les vérifications. Ne contournez pas le problème; contactez l’administrateur."
             if lang == "fr"
-            else "These items describe current behavior; they do not grant additional rights."
+            else "These limitations were observed during verification. Do not work around them; contact the administrator."
         )
         gaps = f'<section class="gaps"><h2>{gaps_title}</h2><p>{gaps_intro}</p><ul>{gap_items}</ul></section>'
     labels = {
@@ -87,7 +90,7 @@ def page_panel(guide: dict, lang: str) -> str:
         <div class="eyebrow">BBC SMS · {lang_name}</div>
         <h1>{E(tr(guide["title"], lang))}</h1>
         <p class="lead">{E(tr(guide["subtitle"], lang))}</p>
-        <div class="verification"><span>✓</span><div><b>{verified}</b><small>28-08-2026 · build 1c89f5b</small></div></div>
+        <div class="verification"><span>✓</span><div><b>{verified}</b><small>{verified_detail}</small></div></div>
       </section>
       <section class="intro-grid">
         <div><h2>{labels["scope"]}</h2><p>{E(tr(guide["scope"], lang))}</p></div>
@@ -156,7 +159,12 @@ def build_markdown(guide: dict) -> str:
         lines.append(f'- **{tr(label, lang)}:** {tr(detail, lang)}')
     lines += ["", "## Daily procedures", ""]
     for flow in guide["workflows"]:
-        lines += [f'### {tr(flow["title"], lang)}', "", f'Route: `{flow.get("route", "")}`', ""]
+        lines += [
+            f'### {tr(flow["title"], lang)}',
+            "",
+            f'**How to get there:** {tr(workflow_navigation(flow), lang)}',
+            "",
+        ]
         lines.extend(f'{i}. {tr(step, lang)}' for i, step in enumerate(flow["steps"], 1))
         if flow.get("note"):
             lines += ["", f'> **Remember:** {tr(flow["note"], lang)}']
@@ -164,8 +172,8 @@ def build_markdown(guide: dict) -> str:
     lines += ["## Boundaries", ""] + [f'- {tr(item, lang)}' for item in guide["boundaries"]]
     lines += ["", "## Quick verification", ""] + [f'- [ ] {tr(item, lang)}' for item in guide["verification"]]
     if guide["known_gaps"]:
-        lines += ["", "## Confirmed gaps in the tested build", ""] + [f'- {tr(item, lang)}' for item in guide["known_gaps"]]
-    lines += ["", "---", "", "Verified against the local application on 28 August 2026 (build `1c89f5b`).", ""]
+        lines += ["", "## Known limitations", "", "These limitations were observed during verification. Do not work around them; contact the administrator.", ""] + [f'- {tr(item, lang)}' for item in guide["known_gaps"]]
+    lines += ["", "---", "", "User guide verified against the local application on 28 August 2026.", ""]
     return "\n".join(lines)
 
 

@@ -19,7 +19,7 @@ The administrator owns configuration and access governance. The global administr
 
 ### Sign in and choose the correct scope
 
-Route: `/parcours`
+**How to get there:** After signing in, use the parcours selector in the top bar. For a whole-school task, choose All parcours; for a class task, choose its school level and language.
 
 1. Sign in, then choose All parcours for a whole-school operation.
 2. Choose a school level and language section before a class-specific operation.
@@ -27,7 +27,7 @@ Route: `/parcours`
 
 ### Assign a role and its parcours
 
-Route: `/access-control`
+**How to get there:** Click Apps, open Settings, then Access and responsibilities. Choose Users or Role rules according to the task.
 
 1. Open Settings → Access and responsibilities, then the Users tab.
 2. Select the user, primary role, and only the parcours that are required.
@@ -38,7 +38,7 @@ Route: `/access-control`
 
 ### Configure an academic year
 
-Route: `/settings`
+**How to get there:** Click Apps, then Settings. On that page, open the section named in the first step below.
 
 1. In Sessions and terms, create or verify the current academic year.
 2. Define sequences, trimester results, the annual result, and their date ranges.
@@ -46,7 +46,7 @@ Route: `/settings`
 
 ### Configure classes, subjects, and bilingual groups
 
-Route: `/settings`
+**How to get there:** Click Apps, then Settings. On that page, open the section named in the first step below.
 
 1. Create classes in the correct school level and language section.
 2. Create subjects, then assign them to classes with coefficients and responsible teachers.
@@ -55,24 +55,24 @@ Route: `/settings`
 
 ### Register a student or import a family
 
-Route: `/students/new`
+**How to get there:** Click Apps, open Students, then click New student. To register several students, click Import instead.
 
 1. Enter identity details; on mobile, the date can be typed as DD/MM/YYYY with automatic slash insertion.
-2. Choose the entry class. For a linked class, the backend attaches the student to the shared cohort.
+2. Choose the entry class. If it belongs to a bilingual group, the student automatically joins the shared group.
 3. Add one or more guardians. Email remains optional until portal access is enabled.
 4. For a batch, use Import, download the template, preview every row, then confirm.
 
 ### Create an employee and attach documents
 
-Route: `/staff/create`
+**How to get there:** Click Apps, open Staff, then click New employee.
 
 1. Create the employee from Staff → New employee and assign the role and school level.
 2. Add as many documents as required, each with its category: CV, diploma, identity, certificate, or other.
-3. After creation, open /staff/{id}; each document can be previewed and downloaded.
+3. After creation, click the employee’s name in the list; every document can be previewed and downloaded from the employee record.
 
 ### Publish a timetable
 
-Route: `/timetable`
+**How to get there:** Click Apps, then Timetable. Choose the class or teacher with the selector at the top of the page.
 
 1. Choose the class and verify its model: daily homeroom or period-based teaching.
 2. Assign subject, teacher, and room to each slot; resolve every reported conflict.
@@ -81,7 +81,7 @@ Route: `/timetable`
 
 ### Supervise grades, councils, and report cards
 
-Route: `/academic`
+**How to get there:** Click Apps, then Academic. Next, open the tab named in the first step below.
 
 1. Review submitted sheets, return incomplete ones, and accept compliant sheets.
 2. Verify finalized attendance, council data, and calculated results.
@@ -89,7 +89,7 @@ Route: `/academic`
 
 ### Run finance operations
 
-Route: `/finance`
+**How to get there:** Click Apps, then Finance. Open Payments, Expenses, or the area named in the steps below.
 
 1. Use Payments to collect money and issue a receipt; always choose the account actually credited.
 2. Use Accounts and movements for deposits, withdrawals, transfers, and reconciliation.
@@ -109,8 +109,8 @@ Route: `/finance`
 - [ ] A principal sees only assigned parcours and cannot open Access and responsibilities.
 - [ ] The accountant covers all finance parcours without permission administration.
 - [ ] A parent sees only linked children and guardian-enabled sections.
-- [ ] Links, PDF/Excel exports, receipts, report cards, and documents open from their correct URL.
+- [ ] Buttons and links open the correct screen; PDF/Excel exports, receipts, report cards, and documents open correctly.
 
 ---
 
-Verified against the local application on 28 August 2026 (build `1c89f5b`).
+User guide verified against the local application on 28 August 2026.

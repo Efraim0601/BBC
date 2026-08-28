@@ -19,7 +19,7 @@ The parent portal brings together academic journey, school life, fees, grades, s
 
 ### Activate portal access
 
-Route: `/login`
+**How to get there:** Open BBC SMS. If another account is already signed in, click Sign out; then enter your credentials on the sign-in screen.
 
 1. The school adds the guardian’s email from the student record and enables Portal access.
 2. The guardian accepts the invitation or receives credentials according to the selected mode.
@@ -28,7 +28,7 @@ Route: `/login`
 
 ### Switch child
 
-Route: `/parent`
+**How to get there:** After signing in, the Family space opens automatically. Choose the child first, then the section named in the steps below.
 
 1. Under My children, click the child to review.
 2. Verify the displayed name, matricule, and class before reading a section.
@@ -36,7 +36,7 @@ Route: `/parent`
 
 ### Read Overview and Official journey
 
-Route: `/parent`
+**How to get there:** After signing in, the Family space opens automatically. Choose the child first, then the section named in the steps below.
 
 1. Overview summarizes visible attendance, fees, and assessments.
 2. Official journey shows only published results and decisions.
@@ -44,7 +44,7 @@ Route: `/parent`
 
 ### Review school life
 
-Route: `/parent`
+**How to get there:** After signing in, the Family space opens automatically. Choose the child first, then the section named in the steps below.
 
 1. Open School life for finalized presence, absence, lateness, and excused counts.
 2. Review discipline, parent-safe health entries, events, and correspondence.
@@ -52,7 +52,7 @@ Route: `/parent`
 
 ### Review fees and pay
 
-Route: `/parent`
+**How to get there:** After signing in, the Family space opens automatically. Choose the child first, then the section named in the steps below.
 
 1. Open Fees & payments to view class fees, paid amount, outstanding balance, and next instalment.
 2. Follow the accepted-method instructions and always keep the transaction reference.
@@ -61,7 +61,7 @@ Route: `/parent`
 
 ### View grades, supplies, and documents
 
-Route: `/parent`
+**How to get there:** After signing in, the Family space opens automatically. Choose the child first, then the section named in the steps below.
 
 1. Grades shows only assessments released by the school.
 2. Supplies & textbooks shows lists published for the class.
@@ -69,7 +69,7 @@ Route: `/parent`
 
 ### Send a message
 
-Route: `/parent`
+**How to get there:** After signing in, the Family space opens automatically. Choose the child first, then the section named in the steps below.
 
 1. Open Suggestion box and choose Suggestion, Question, Complaint, or Thanks.
 2. Write a sufficiently specific message, then click Send message.
@@ -86,14 +86,16 @@ Route: `/parent`
 
 - [ ] The child count matches active guardian relationships.
 - [ ] Fees & payments shows the same balance as the bursary.
-- [ ] A URL to a staff module redirects to a data-free home page.
+- [ ] A shared link to a staff-only section returns to the home page without showing data.
 - [ ] The suggestion box remains tied to the selected child.
 
-## Confirmed gaps in the tested build
+## Known limitations
+
+These limitations were observed during verification. Do not work around them; contact the administrator.
 
 - The header currently says All parcours for a parent; it should say My children.
 - The Apps link opens an empty page for a parent; it should return directly to the parent space.
 
 ---
 
-Verified against the local application on 28 August 2026 (build `1c89f5b`).
+User guide verified against the local application on 28 August 2026.

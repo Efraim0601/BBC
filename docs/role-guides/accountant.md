@@ -20,7 +20,7 @@ The accountant is global: finance covers Kindergarten, Primary, and Secondary in
 
 ### Record a payment
 
-Route: `/finance`
+**How to get there:** Click Apps, then Finance. Open Payments, Expenses, or the area named in the steps below.
 
 1. Click New payment and choose the class first, then the student.
 2. Enter amount and date; choose the method used by the family.
@@ -32,7 +32,7 @@ Route: `/finance`
 
 ### Find a payment
 
-Route: `/finance`
+**How to get there:** Click Apps, then Finance. Open Payments, Expenses, or the area named in the steps below.
 
 1. In Payments, filter by method, date, receipt, student, matricule, class, or reference.
 2. Open Receipt to verify the student, instalment, amount, method, and reference.
@@ -40,7 +40,7 @@ Route: `/finance`
 
 ### Review a student account
 
-Route: `/finance/student-accounts`
+**How to get there:** Click Apps, open Finance, then click Student accounts.
 
 1. Choose a class and click Show students; name or matricule search is optional.
 2. Read the status label: Balance due shows the remaining amount; Paid in full shows the total paid.
@@ -49,7 +49,7 @@ Route: `/finance/student-accounts`
 
 ### Record a deposit or withdrawal
 
-Route: `/finance/treasury`
+**How to get there:** Click Apps, open Finance, then click Accounts and movements.
 
 1. Choose Deposit or Withdrawal, the date, and the affected money account.
 2. Choose the appropriate accounting counter-account.
@@ -60,7 +60,7 @@ Route: `/finance/treasury`
 
 ### Transfer between two accounts
 
-Route: `/finance/treasury`
+**How to get there:** Click Apps, open Finance, then click Accounts and movements.
 
 1. Choose Internal transfer, then the source and destination accounts.
 2. Enter amount, reason, and bank/cash reference.
@@ -68,7 +68,7 @@ Route: `/finance/treasury`
 
 ### Record an expense
 
-Route: `/finance`
+**How to get there:** Click Apps, then Finance. Open Payments, Expenses, or the area named in the steps below.
 
 1. Open the Expenses tab, then New expense.
 2. Choose date, category, label, amount, and the account that actually paid.
@@ -76,7 +76,7 @@ Route: `/finance`
 
 ### Configure fees
 
-Route: `/finance/fee-types`
+**How to get there:** Click Apps, open Finance, then Fees and payment plans.
 
 1. First define reusable fee types and their revisions.
 2. Create a plan by session and scope; configure instalments and due dates.
@@ -85,7 +85,7 @@ Route: `/finance/fee-types`
 
 ### Run payroll
 
-Route: `/finance/payroll`
+**How to get there:** Click Apps, open Finance, then Staff payroll.
 
 1. Create a payroll period linked to an open accounting period.
 2. Configure payroll components and mappings; review must remain blocked when a mapping is missing.
@@ -95,7 +95,7 @@ Route: `/finance/payroll`
 
 ### Reconcile and close
 
-Route: `/finance/accounting`
+**How to get there:** Click Apps, open Finance, then Accounting.
 
 1. Verify chart-of-accounts, mapping, and period readiness.
 2. Review journals, trial balance, and general ledger.
@@ -123,4 +123,4 @@ Route: `/finance/accounting`
 
 ---
 
-Verified against the local application on 28 August 2026 (build `1c89f5b`).
+User guide verified against the local application on 28 August 2026.
