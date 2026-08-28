@@ -9,6 +9,10 @@ import { CardComponent, EmptyComponent, PageHeaderComponent } from '../../core/u
 
 type Tab = 'roll' | 'analytics' | 'devices' | 'settings';
 
+export function attendanceRosterReadOnly(roster: AttendanceRoster | null): boolean {
+  return !!roster && !roster.capabilities.canMark && !roster.capabilities.canFinalize;
+}
+
 @Component({
   selector: 'bbc-attendance',
   standalone: true,
@@ -100,13 +104,20 @@ type Tab = 'roll' | 'analytics' | 'devices' | 'settings';
               [subtitle]="r.session.date + ' · ' + r.session.periodKey + ' · ' + sessionStatus(r.session.status)">
               <div action class="flex gap-2 flex-wrap">
                 @if (r.session.status !== 'FINALIZED') {
-                  <button class="btn" (click)="markAllPresent()">{{ fr() ? 'Tous présents' : 'All present' }}</button>
-                  <button class="btn primary" (click)="save()" [disabled]="busy()">{{ fr() ? 'Enregistrer' : 'Save' }}</button>
-                  <button class="btn" (click)="finalize()" [disabled]="busy()">{{ fr() ? 'Finaliser' : 'Finalize' }}</button>
+                  <button class="btn" (click)="markAllPresent()" [disabled]="busy() || !r.capabilities.canMark">{{ fr() ? 'Tous présents' : 'All present' }}</button>
+                  <button class="btn primary" (click)="save()" [disabled]="busy() || !r.capabilities.canMark">{{ fr() ? 'Enregistrer' : 'Save' }}</button>
+                  <button class="btn" (click)="finalize()" [disabled]="busy() || !r.capabilities.canFinalize">{{ fr() ? 'Finaliser' : 'Finalize' }}</button>
                 } @else {
-                  @if (canReopen()) { <button class="btn" (click)="openReopen()">{{ fr() ? 'Rouvrir avec motif' : 'Reopen with reason' }}</button> }
+                  @if (r.capabilities.canReopen) { <button class="btn" (click)="openReopen()">{{ fr() ? 'Rouvrir avec motif' : 'Reopen with reason' }}</button> }
                 }
               </div>
+
+              @if (readOnlyRoster()) {
+                <div class="mb-4 rounded-lg border border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-800" role="status">
+                  <div class="font-bold">{{ fr() ? 'Lecture seule — supervision de la classe' : 'Read-only — class oversight' }}</div>
+                  <div class="mt-1">{{ fr() ? 'Vous pouvez consulter cette période, mais seul l’enseignant affecté peut modifier, enregistrer ou finaliser l’appel.' : 'You can review this period, but only its assigned teacher can mark, save, or finalize attendance.' }}</div>
+                </div>
+              }
 
               <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
                 <div class="rounded-lg bg-slate-50 border border-slate-200 p-3"><div class="label">{{ fr() ? 'Effectif' : 'Roster' }}</div><b class="text-xl">{{ r.marks.length }}</b></div>
@@ -119,7 +130,7 @@ type Tab = 'roll' | 'analytics' | 'devices' | 'settings';
                 <table class="w-full text-sm min-w-[1050px]">
                   <thead class="bg-slate-50 border-y border-slate-200"><tr class="text-left text-[11px] uppercase tracking-wide text-slate-500">
                     <th class="py-3 pl-5">{{ fr() ? 'Élève' : 'Student' }}</th><th>{{ fr() ? 'Statut' : 'Status' }}</th>
-                    <th>{{ fr() ? 'Motif' : 'Reason' }}</th><th>{{ fr() ? 'Note' : 'Note' }}</th><th class="pr-5">{{ fr() ? 'Source' : 'Source' }}</th>
+                    <th>{{ fr() ? 'Motif (facultatif)' : 'Reason (optional)' }}</th><th>{{ fr() ? 'Note' : 'Note' }}</th><th class="pr-5">{{ fr() ? 'Source' : 'Source' }}</th>
                   </tr></thead>
                   <tbody>
                     @for (m of r.marks; track m.studentId; let i = $index) {
@@ -127,16 +138,15 @@ type Tab = 'roll' | 'analytics' | 'devices' | 'settings';
                         <td class="py-3 pl-5 pr-4"><div class="font-semibold text-slate-900">{{ m.studentName }}</div><div class="text-xs text-slate-500 font-mono">{{ m.matricule }}</div></td>
                         <td class="py-3 pr-4"><div class="flex gap-1.5 flex-wrap">
                           @for (s of statuses; track s) {
-                            <button class="status-btn" [class]="statusClass(m.status, s)" (click)="setStatus(i, s)" [disabled]="r.session.status === 'FINALIZED'">{{ statusLabel(s) }}</button>
+                            <button class="status-btn" [class]="statusClass(m.status, s)" (click)="setStatus(i, s)" [disabled]="r.session.status === 'FINALIZED' || !r.capabilities.canMark">{{ statusLabel(s) }}</button>
                           }
                         </div></td>
                         <td class="py-3 pr-4 min-w-52">
-                          <input class="field" [class.invalid]="invalidReason(m)" [value]="m.reason || ''"
-                            (input)="setText(i, 'reason', $any($event.target).value)" [disabled]="r.session.status === 'FINALIZED'"
-                            [placeholder]="fr() ? 'Motif de l’absence' : 'Absence reason'" />
-                          @if (invalidReason(m)) { <div class="text-xs text-rose-600 mt-1">{{ fr() ? 'Le motif est obligatoire.' : 'A reason is required.' }}</div> }
+                          <input class="field" [value]="m.reason || ''"
+                            (input)="setText(i, 'reason', $any($event.target).value)" [disabled]="r.session.status === 'FINALIZED' || !r.capabilities.canMark"
+                            [placeholder]="fr() ? 'Motif facultatif' : 'Optional reason'" />
                         </td>
-                        <td class="py-3 pr-4 min-w-52"><input class="field" [value]="m.note || ''" (input)="setText(i, 'note', $any($event.target).value)" [disabled]="r.session.status === 'FINALIZED'" [placeholder]="fr() ? 'Observation facultative' : 'Optional note'" /></td>
+                        <td class="py-3 pr-4 min-w-52"><input class="field" [value]="m.note || ''" (input)="setText(i, 'note', $any($event.target).value)" [disabled]="r.session.status === 'FINALIZED' || !r.capabilities.canMark" [placeholder]="fr() ? 'Observation facultative' : 'Optional note'" /></td>
                         <td class="py-4 pr-5 text-xs text-slate-500 uppercase">{{ m.source }}</td>
                       </tr>
                     } @empty { <tr><td colspan="5"><bbc-empty icon="users" [label]="fr() ? 'Aucun élève inscrit dans cette classe pour cette année.' : 'No enrolled student in this class for this session.'" /></td></tr> }
@@ -197,7 +207,7 @@ type Tab = 'roll' | 'analytics' | 'devices' | 'settings';
       @if (tab() === 'settings') {
         <div class="grid lg:grid-cols-2 gap-5">
           <bbc-card [title]="fr() ? 'Politiques par niveau' : 'Policies by level'" [subtitle]="fr() ? 'Le modèle est imposé pour éviter des données incompatibles.' : 'The model is enforced to prevent incompatible data.'">
-            @for(p of policies();track p.level;let i=$index){<div class="border border-slate-200 rounded-xl p-4 mb-3"><div class="flex justify-between mb-3"><b class="capitalize">{{ p.level }}</b><span class="text-xs font-bold bg-slate-100 px-2 py-1 rounded">{{ p.model }}</span></div><div class="grid grid-cols-2 gap-3"><label><span class="label">{{ fr() ? 'Retard après (min)' : 'Late after (min)' }}</span><input class="field" type="number" min="0" [value]="p.lateAfterMinutes" (input)="policyNumber(i,'lateAfterMinutes',$any($event.target).value)" /></label><label><span class="label">{{ fr() ? 'Alerte absence (%)' : 'Absence alert (%)' }}</span><input class="field" type="number" min="0" max="100" [value]="p.chronicAbsencePercent" (input)="policyNumber(i,'chronicAbsencePercent',$any($event.target).value)" /></label></div><label class="flex gap-2 items-center mt-3 text-sm"><input type="checkbox" [checked]="p.requireAbsenceReason" (change)="policyBoolean(i,$any($event.target).checked)" />{{ fr() ? 'Motif obligatoire pour absent/excusé' : 'Require reason for absent/excused' }}</label><button class="btn primary mt-3" (click)="savePolicy(p)">{{ fr() ? 'Enregistrer cette politique' : 'Save this policy' }}</button></div>}
+            @for(p of policies();track p.level;let i=$index){<div class="border border-slate-200 rounded-xl p-4 mb-3"><div class="flex justify-between mb-3"><b class="capitalize">{{ p.level }}</b><span class="text-xs font-bold bg-slate-100 px-2 py-1 rounded">{{ p.model }}</span></div><div class="grid grid-cols-2 gap-3"><label><span class="label">{{ fr() ? 'Retard après (min)' : 'Late after (min)' }}</span><input class="field" type="number" min="0" [value]="p.lateAfterMinutes" (input)="policyNumber(i,'lateAfterMinutes',$any($event.target).value)" /></label><label><span class="label">{{ fr() ? 'Alerte absence (%)' : 'Absence alert (%)' }}</span><input class="field" type="number" min="0" max="100" [value]="p.chronicAbsencePercent" (input)="policyNumber(i,'chronicAbsencePercent',$any($event.target).value)" /></label></div><div class="mt-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">{{ fr() ? 'Le motif d’une absence ou d’une excuse est facultatif et peut être ajouté lorsqu’il est connu.' : 'An absence or excused reason is optional and can be added when known.' }}</div><button class="btn primary mt-3" (click)="savePolicy(p)">{{ fr() ? 'Enregistrer cette politique' : 'Save this policy' }}</button></div>}
           </bbc-card>
           <bbc-card [title]="fr() ? 'Génération des séances' : 'Session generation'" [subtitle]="fr() ? 'La prévisualisation ne modifie rien. Générer synchronise les séances attendues avec le calendrier et l’emploi du temps.' : 'Preview changes nothing. Generate synchronizes expected sessions with the calendar and timetable.'">
             <div class="grid grid-cols-2 gap-3"><label><span class="label">{{ fr() ? 'Du' : 'From' }} <b class="text-rose-600">*</b></span><input class="field" type="date" [value]="generateFrom()" (change)="generateFrom.set($any($event.target).value)" /></label><label><span class="label">{{ fr() ? 'Au' : 'To' }} <b class="text-rose-600">*</b></span><input class="field" type="date" [value]="generateTo()" (change)="generateTo.set($any($event.target).value)" /></label></div><div class="flex gap-2 mt-4"><button class="btn" (click)="generate(true)">{{ fr() ? 'Prévisualiser' : 'Preview' }}</button><button class="btn primary" (click)="openGenerate()">{{ fr() ? 'Générer les séances' : 'Generate sessions' }}</button></div>
@@ -230,10 +240,6 @@ export class AttendanceComponent {
   // module bit remains read-only; the module bit must not hide these controls.
   protected canDevices = computed(() => this.auth.canAction('ATTENDANCE_DEVICE_VIEW'));
   protected canSettings = computed(() => this.auth.canAction('ATTENDANCE_POLICY_MANAGE'));
-  protected canReopen = computed(() => {
-    const state = this.auth.actionState('ATTENDANCE_REOPEN');
-    return state === 'ALLOW' || state === 'CONTEXT_REQUIRED';
-  });
   protected tabs = computed(() => ([
     {key:'roll',fr:'Liste d’appel',en:'Roll call'}, {key:'analytics',fr:'Analyses',en:'Analytics'},
     {key:'devices',fr:'Lecteurs & rapprochement',en:'Devices & reconciliation'}, {key:'settings',fr:'Configuration',en:'Settings'},
@@ -245,7 +251,7 @@ export class AttendanceComponent {
   protected date = signal(this.today); protected classId = signal(''); protected periodKey = signal('');
   protected classes = signal<AttendanceClass[]>([]); protected sessionOptions = signal<AttendanceSessionSummary[]>([]);
   protected roster = signal<AttendanceRoster|null>(null); protected policies = signal<AttendancePolicy[]>([]);
-  protected busy = signal(false); protected attempted = signal(false); protected notice = signal('');
+  protected busy = signal(false); protected notice = signal('');
   protected noticeType = signal<'ok'|'error'>('ok');
   protected from = signal(this.today.slice(0,8)+'01'); protected to = signal(this.today); protected analyticsClassId = signal('');
   protected analytics = signal<AttendanceAnalytics|null>(null);
@@ -256,6 +262,7 @@ export class AttendanceComponent {
   protected activeSession = signal<AcademicSessionView|null>(null);
   protected dateInActiveSession = computed(() => { const s=this.activeSession(); return !!s && this.date() >= s.startDate && this.date() <= s.endDate; });
   protected currentPolicy = computed(() => this.policies().find(p => p.level === this.selectedClass()?.level));
+  protected readOnlyRoster = computed(() => attendanceRosterReadOnly(this.roster()));
 
   constructor() {
     this.api.classes().subscribe({next:v=>this.classes.set(v),error:e=>this.fail(e)});
@@ -277,14 +284,13 @@ export class AttendanceComponent {
   protected selectClass(id:string):void { this.classId.set(id); this.periodKey.set(''); this.roster.set(null); if(id && this.dateInActiveSession()) this.loadSessionOptions(); else this.sessionOptions.set([]); }
   private loadSessionOptions():void { this.busy.set(true); this.api.sessions(this.classId(),this.date()).subscribe({next:s=>{this.sessionOptions.set(s);this.busy.set(false);if(this.selectedClass()?.model==='DAILY')this.loadRoster();},error:e=>{this.busy.set(false);this.fail(e);}}); }
   protected selectPeriod(key:string):void { this.periodKey.set(key); if(key)this.loadRoster(); else this.roster.set(null); }
-  private loadRoster():void { this.busy.set(true);this.api.roster(this.classId(),this.date(),this.periodKey()||undefined).subscribe({next:r=>{this.roster.set(r);this.busy.set(false);this.attempted.set(false);},error:e=>{this.busy.set(false);this.fail(e);}}); }
-  protected setStatus(i:number,status:RollStatus):void { this.updateMark(i,{status,lateMinutes:status==='late'?Math.max(1,this.currentPolicy()?.lateAfterMinutes||1):0}); }
-  protected setText(i:number,key:'reason'|'note',value:string):void { this.updateMark(i,{[key]:value}); }
+  private loadRoster():void { this.busy.set(true);this.api.roster(this.classId(),this.date(),this.periodKey()||undefined).subscribe({next:r=>{this.roster.set(r);this.busy.set(false);},error:e=>{this.busy.set(false);this.fail(e);}}); }
+  protected setStatus(i:number,status:RollStatus):void { if(!this.roster()?.capabilities.canMark)return;this.updateMark(i,{status,lateMinutes:status==='late'?Math.max(1,this.currentPolicy()?.lateAfterMinutes||1):0}); }
+  protected setText(i:number,key:'reason'|'note',value:string):void { if(!this.roster()?.capabilities.canMark)return;this.updateMark(i,{[key]:value}); }
   private updateMark(i:number,change:Partial<AttendanceRosterMark>):void { this.roster.update(r=>r?({...r,marks:r.marks.map((m,x)=>x===i?({...m,...change}):m)}):r); }
-  protected markAllPresent():void { this.roster.update(r=>r?({...r,marks:r.marks.map(m=>({...m,status:'present',lateMinutes:0}))}):r); }
-  protected invalidReason(m:AttendanceRosterMark):boolean { return this.attempted() && !!this.currentPolicy()?.requireAbsenceReason && ['absent','excused'].includes(m.status) && !m.reason?.trim(); }
-  protected save():void { const r=this.roster();if(!r)return;this.attempted.set(true);if(r.marks.some(m=>this.invalidReason(m))){this.error(this.fr()?'Corrigez les motifs obligatoires indiqués en rouge.':'Complete the required reasons highlighted in red.');return;}this.busy.set(true);this.api.save(r).subscribe({next:v=>{this.roster.set(v);this.busy.set(false);this.ok(this.fr()?'Liste enregistrée.':'Roster saved.');},error:e=>{this.busy.set(false);this.fail(e);}}); }
-  protected finalize():void { const r=this.roster();if(!r)return;if(r.marks.some(m=>m.status==='unmarked')){this.error(this.fr()?'Tous les élèves doivent être marqués avant la finalisation.':'Every student must be marked before finalization.');return;}this.busy.set(true);this.api.finalize(r.session.id,r.session.version).subscribe({next:v=>{this.roster.set(v);this.busy.set(false);this.ok(this.fr()?'Appel finalisé et verrouillé.':'Roll call finalized and locked.');},error:e=>{this.busy.set(false);this.fail(e);}}); }
+  protected markAllPresent():void { if(!this.roster()?.capabilities.canMark)return;this.roster.update(r=>r?({...r,marks:r.marks.map(m=>({...m,status:'present',lateMinutes:0}))}):r); }
+  protected save():void { const r=this.roster();if(!r||!r.capabilities.canMark)return;this.busy.set(true);this.api.save(r).subscribe({next:v=>{this.roster.set(v);this.busy.set(false);this.ok(this.fr()?'Liste enregistrée.':'Roster saved.');},error:e=>{this.busy.set(false);this.fail(e);}}); }
+  protected finalize():void { const r=this.roster();if(!r||!r.capabilities.canFinalize)return;if(r.marks.some(m=>m.status==='unmarked')){this.error(this.fr()?'Tous les élèves doivent être marqués avant la finalisation.':'Every student must be marked before finalization.');return;}this.busy.set(true);this.api.finalize(r.session.id,r.session.version).subscribe({next:v=>{this.roster.set(v);this.busy.set(false);this.ok(this.fr()?'Appel finalisé et verrouillé.':'Roll call finalized and locked.');},error:e=>{this.busy.set(false);this.fail(e);}}); }
   protected openReopen():void { this.modalReason.set('');this.modalAttempted.set(false);this.modal.set('reopen'); }
   protected openGenerate():void { this.modalAttempted.set(false);this.modal.set('generate'); }
   protected closeModal():void { this.modal.set(null); }
@@ -298,7 +304,6 @@ export class AttendanceComponent {
   protected loadDevices():void { this.api.devices().subscribe({next:v=>this.devices.set(v),error:e=>this.fail(e)});this.api.reconciliation(this.deviceDate()).subscribe({next:v=>this.reconciliation.set(v),error:e=>this.fail(e)}); }
   protected reconcile(d:DeviceReconciliation):void { const r=this.roster();if(!r)return;this.api.reconcile(d.deviceRecordId,r.session.id).subscribe({next:v=>{this.roster.set(v);this.loadDevices();this.ok(this.fr()?'Pointage associé à la séance ouverte.':'Scan linked to the open session.');},error:e=>this.fail(e)}); }
   protected policyNumber(i:number,key:'lateAfterMinutes'|'chronicAbsencePercent',v:string):void { this.policies.update(p=>p.map((x,n)=>n===i?({...x,[key]:Number(v)}):x)); }
-  protected policyBoolean(i:number,v:boolean):void { this.policies.update(p=>p.map((x,n)=>n===i?({...x,requireAbsenceReason:v}):x)); }
   protected savePolicy(p:AttendancePolicy):void { this.api.updatePolicy(p.level,p).subscribe({next:v=>{this.policies.update(all=>all.map(x=>x.level===v.level?v:x));this.ok(this.fr()?'Politique enregistrée.':'Policy saved.');},error:e=>this.fail(e)}); }
   protected generate(preview:boolean):void { if(!this.generateFrom()||!this.generateTo()){this.error(this.fr()?'Les deux dates sont obligatoires.':'Both dates are required.');return;}this.api.generate(this.generateFrom(),this.generateTo(),preview).subscribe({next:v=>{this.generationResult.set(v);this.ok(preview?(this.fr()?'Prévisualisation terminée : aucune donnée modifiée.':'Preview complete: no data changed.'):(this.fr()?'Séances synchronisées. Aucun élève n’a été marqué automatiquement.':'Sessions synchronized. No student was marked automatically.'));},error:e=>this.fail(e)}); }
   private dateInRange(value:string, session:AcademicSessionView):boolean { return value >= session.startDate && value <= session.endDate; }

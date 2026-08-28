@@ -13,6 +13,7 @@ The principal supervises students, teaching, and operations inside one or more a
 - **Attendance and discipline:** View attendance rosters/analytics and manage discipline in scope; attendance marking remains with the responsible teacher.
 - **Timetable:** View, prepare, publish, reopen, and export timetables inside the allowed parcours.
 - **Finance:** View overview, student accounts, consolidated receipts, treasury accounts, and movements; the main finance screen is read-only.
+- **Staff:** View and manage staff in the active level plus shared staff without a level; employees assigned only to another level remain inaccessible.
 - **Oversight:** View journey, health, documents, promotions, resources, supplies, alerts, dashboards, reports, and visible settings.
 
 ## Daily procedures
@@ -60,6 +61,14 @@ Route: `/discipline`
 2. Use summon, close, and notification actions according to school procedure.
 3. In Coursebook, view or complete the authorized entries for the parcours.
 
+### Manage staff in scope
+
+Route: `/staff`
+
+1. Open Staff from the active parcours; the list contains that level’s employees and shared staff without a level.
+2. Create or update a record only for the level you manage.
+3. A URL targeting an employee assigned only to another level must be denied by the server.
+
 ### Publish the parcours timetable
 
 Route: `/timetable`
@@ -88,13 +97,10 @@ Route: `/finance`
 - [ ] The student selector contains only classes in the active parcours.
 - [ ] A URL targeting an out-of-scope class is denied by the server.
 - [ ] New student and import are unavailable.
+- [ ] Staff opens, excludes employees assigned only to other levels, and denies their direct URLs.
+- [ ] A Principal without an assignment sees a Contact your administrator message and no parcours button.
 - [ ] Access and responsibilities redirects to the home page.
 - [ ] Finance shows read-only and Treasury does not allow a movement.
-
-## Confirmed gaps in the tested build
-
-- Staff is advertised but currently redirects: HR_VIEW is missing from the local principal profile.
-- A principal with no assignment still sees all three levels in the selector, then remains blocked. The screen should show an empty state instructing the user to contact an administrator.
 
 ---
 

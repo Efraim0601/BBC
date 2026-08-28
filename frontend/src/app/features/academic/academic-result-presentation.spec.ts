@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { academicBulletinTitle, canReviewGradePacket, computedPeriodCodes, formatAcademicMark } from './academic';
+import { academicBulletinTitle, canReviewGradePacket, computedPeriodCodes, formatAcademicMark, isReadOnlyGradeOversight } from './academic';
 
 describe('computed bulletin presentation', () => {
   it('keeps missing current marks visible instead of rendering zero', () => {
@@ -25,15 +25,25 @@ describe('computed bulletin presentation', () => {
   it('uses the scoped server decision for grade-packet review instead of a role name', () => {
     expect(canReviewGradePacket({
       packetStatus: 'SUBMITTED',
-      capabilities: { canEditDraft: false, canSubmit: false, canReview: true, restrictedTeacher: true },
+      capabilities: { canEditDraft: false, canSubmit: false, canReview: true, restrictedTeacher: true, oversightOnly: true },
     })).toBe(true);
     expect(canReviewGradePacket({
       packetStatus: 'SUBMITTED',
-      capabilities: { canEditDraft: false, canSubmit: false, canReview: false, restrictedTeacher: true },
+      capabilities: { canEditDraft: false, canSubmit: false, canReview: false, restrictedTeacher: true, oversightOnly: true },
     })).toBe(false);
     expect(canReviewGradePacket({
       packetStatus: 'DRAFT',
-      capabilities: { canEditDraft: true, canSubmit: true, canReview: true, restrictedTeacher: true },
+      capabilities: { canEditDraft: true, canSubmit: true, canReview: true, restrictedTeacher: true, oversightOnly: false },
     })).toBe(false);
+  });
+
+  it('labels only server-declared colleague oversight as read-only', () => {
+    expect(isReadOnlyGradeOversight({
+      capabilities: { canEditDraft: false, canSubmit: false, canReview: false, restrictedTeacher: true, oversightOnly: true },
+    })).toBe(true);
+    expect(isReadOnlyGradeOversight({
+      capabilities: { canEditDraft: false, canSubmit: false, canReview: false, restrictedTeacher: true, oversightOnly: false },
+    })).toBe(false);
+    expect(isReadOnlyGradeOversight(null)).toBe(false);
   });
 });

@@ -158,6 +158,7 @@ ROLE_GUIDES: list[dict] = [
             (t("Présence et discipline", "Attendance and discipline"), t("Consulter listes et analyses de présence et gérer la discipline dans le parcours; la saisie de présence reste à l’enseignant responsable.", "View attendance rosters/analytics and manage discipline in scope; attendance marking remains with the responsible teacher.")),
             (t("Emploi du temps", "Timetable"), t("Consulter, préparer, publier, rouvrir et exporter les emplois du temps du parcours autorisé.", "View, prepare, publish, reopen, and export timetables inside the allowed parcours.")),
             (t("Finance", "Finance"), t("Consulter synthèse, comptes élèves, reçus consolidés, comptes de trésorerie et mouvements; écran principal en lecture seule.", "View overview, student accounts, consolidated receipts, treasury accounts, and movements; the main finance screen is read-only.")),
+            (t("Personnel", "Staff"), t("Consulter et gérer le personnel du cycle actif ainsi que les agents communs sans cycle; aucun employé affecté uniquement à un autre cycle.", "View and manage staff in the active level plus shared staff without a level; employees assigned only to another level remain inaccessible.")),
             (t("Pilotage", "Oversight"), t("Consulter parcours, santé, documents, promotions, ressources, fournitures, alertes, tableaux de bord, rapports et réglages visibles.", "View journey, health, documents, promotions, resources, supplies, alerts, dashboards, reports, and visible settings.")),
         ],
         "workflows": [
@@ -209,6 +210,15 @@ ROLE_GUIDES: list[dict] = [
                 ],
             },
             {
+                "title": t("Gérer le personnel du parcours", "Manage staff in scope"),
+                "route": "/staff",
+                "steps": [
+                    t("Ouvrez Personnel depuis le parcours actif; la liste contient les agents de ce cycle et les agents communs sans cycle.", "Open Staff from the active parcours; the list contains that level’s employees and shared staff without a level."),
+                    t("Créez ou modifiez une fiche uniquement pour le cycle dont vous avez la responsabilité.", "Create or update a record only for the level you manage."),
+                    t("Une URL vers un employé affecté uniquement à un autre cycle doit être refusée par le serveur.", "A URL targeting an employee assigned only to another level must be denied by the server."),
+                ],
+            },
+            {
                 "title": t("Publier l’emploi du temps du parcours", "Publish the parcours timetable"),
                 "route": "/timetable",
                 "steps": [
@@ -237,13 +247,12 @@ ROLE_GUIDES: list[dict] = [
             t("Le sélecteur d’élèves ne contient que les classes du parcours actif.", "The student selector contains only classes in the active parcours."),
             t("Une URL vers une classe hors périmètre est refusée par le serveur.", "A URL targeting an out-of-scope class is denied by the server."),
             t("Le bouton Nouvel élève et l’import ne sont pas disponibles.", "New student and import are unavailable."),
+            t("Personnel s’ouvre, exclut les agents affectés uniquement aux autres cycles et refuse leur URL directe.", "Staff opens, excludes employees assigned only to other levels, and denies their direct URLs."),
+            t("Un principal sans affectation voit un message Contacter l’administrateur et aucun bouton de parcours.", "A Principal without an assignment sees a Contact your administrator message and no parcours button."),
             t("Accès et responsabilités redirige vers l’accueil.", "Access and responsibilities redirects to the home page."),
             t("Finance indique lecture seule et la trésorerie n’autorise pas de mouvement.", "Finance shows read-only and Treasury does not allow a movement."),
         ],
-        "known_gaps": [
-            t("Le module Personnel est affiché mais la route redirige actuellement: l’action HR_VIEW manque au profil local du principal.", "Staff is advertised but currently redirects: HR_VIEW is missing from the local principal profile."),
-            t("Un principal sans parcours voit encore les trois cycles dans le sélecteur, puis reste bloqué. L’écran devrait afficher directement un état vide avec consigne de contacter l’administrateur.", "A principal with no assignment still sees all three levels in the selector, then remains blocked. The screen should show an empty state instructing the user to contact an administrator."),
-        ],
+        "known_gaps": [],
     },
     {
         "slug": "accountant",
@@ -261,6 +270,7 @@ ROLE_GUIDES: list[dict] = [
             (t("Trésorerie", "Treasury"), t("Créer/archiver les comptes, enregistrer dépôts, retraits et transferts, puis rapprocher les soldes.", "Create/archive accounts, record deposits, withdrawals, and transfers, then reconcile balances.")),
             (t("Dépenses et frais", "Expenses and fees"), t("Enregistrer les dépenses payées depuis un compte, configurer grilles, types et plans de frais selon les habilitations actives.", "Record expenses paid from an account and configure fee grids, types, and plans when the related actions are enabled.")),
             (t("Paie", "Payroll"), t("Configurer périodes et composants, calculer, revoir, approuver, payer et produire les bulletins de paie.", "Configure periods and components, calculate, review, approve, pay, and issue payslips.")),
+            (t("Personnel — consultation", "Staff — read only"), t("Consulter les fiches et salaires nécessaires à la paie; aucune création, modification ou import de personnel.", "View staff and salary records needed for payroll; no staff creation, editing, or import.")),
             (t("Comptabilité et rapports", "Accounting and reporting"), t("Consulter plan comptable, journaux, balance, grand livre, rapprochement et rapports financiers contextualisés.", "Use the chart of accounts, journals, trial balance, general ledger, reconciliation, and contextual finance reports.")),
         ],
         "workflows": [
@@ -358,7 +368,8 @@ ROLE_GUIDES: list[dict] = [
         ],
         "boundaries": [
             t("Aucun accès à Accès et responsabilités.", "No access to Access and responsibilities."),
-            t("Ne modifiez pas la structure scolaire, les élèves ou l’emploi du temps sauf délégation formelle de l’administrateur.", "Do not change school structure, students, or timetables without formal administrator delegation."),
+            t("Le profil comptable standard ne peut ni inscrire/importer un élève, ni modifier la structure scolaire, les matières ou l’emploi du temps.", "The standard Accountant profile cannot register/import students or change school structure, subjects, or timetables."),
+            t("Personnel est strictement en lecture seule; la création et la modification appartiennent à l’administration ou à la direction autorisée.", "Staff is strictly read-only; creation and editing belong to administration or authorized management."),
             t("Ne supprimez jamais une transaction financière publiée; utilisez annulation, remboursement ou contre-écriture.", "Never delete a posted finance transaction; use void, refund, or reversal."),
             t("Une même personne ne doit pas calculer, revoir et approuver une paie si la séparation des tâches est requise.", "One person must not calculate, review, and approve payroll when segregation of duties is required."),
         ],
@@ -367,13 +378,12 @@ ROLE_GUIDES: list[dict] = [
             t("Un paiement augmente immédiatement le compte crédité et produit un reçu avec l’élève réel.", "A payment immediately increases the credited account and produces a receipt naming the actual student."),
             t("Un dépôt et un retrait équilibrés ramènent la trésorerie au solde initial tout en laissant deux traces immuables.", "A balanced deposit and withdrawal restore the original treasury balance while leaving two immutable records."),
             t("Le reçu consolidé reprend toutes les transactions et le solde exact.", "The consolidated receipt includes every transaction and the exact balance."),
+            t("Charges et Documents financiers chargent leurs données sans erreur d’autorisation.", "Charges and Financial documents load their data without an authorization error."),
+            t("Le raccourci Personnel de la paie ouvre une liste en lecture seule; créer/modifier/importer reste absent.", "The payroll Staff shortcut opens a read-only list; create/edit/import remains unavailable."),
+            t("Nouvel élève, import, Réglages et Emploi du temps ne sont pas proposés au profil comptable standard.", "New student, import, Settings, and Timetable are not offered to the standard Accountant profile."),
             t("Accès et responsabilités est bloqué.", "Access and responsibilities is blocked."),
         ],
-        "known_gaps": [
-            t("Charges et Documents financiers s’ouvrent actuellement mais leurs premiers appels sont refusés pour le profil comptable local; les actions de rôle doivent être alignées avant utilisation.", "Charges and Finance Documents currently open but their first API calls are denied for the local accountant profile; role actions need alignment before use."),
-            t("Le raccourci Personnel de la paie redirige vers l’accueil car HR_VIEW manque; il faut soit accorder la lecture du personnel, soit masquer ce lien.", "The payroll Staff shortcut redirects because HR_VIEW is missing; either grant staff read access or hide the link."),
-            t("Le profil local possède aussi des droits élevés de création/import élève et de configuration/timetable. Ils ne font pas partie du mandat comptable normal et doivent être revus selon le principe du moindre privilège.", "The local profile also has high-risk student creation/import and setup/timetable rights. They are not part of the normal accountant mandate and should be reviewed under least privilege."),
-        ],
+        "known_gaps": [],
     },
     {
         "slug": "primary-teacher",
@@ -419,7 +429,7 @@ ROLE_GUIDES: list[dict] = [
                 "steps": [
                     t("Choisissez la date et la classe ou le groupe bilingue affiché.", "Choose the date and the displayed class or bilingual cohort."),
                     t("Utilisez Tous présents, puis corrigez les absents, retards ou excusés.", "Use All present, then correct absences, lateness, or excused statuses."),
-                    t("Un motif est nécessaire uniquement lorsqu’un statut le demande; une présence normale n’exige aucun motif.", "A reason is required only when the selected status needs one; normal presence requires no reason."),
+                    t("Le motif est facultatif, même pour une absence ou un statut excusé; ajoutez-le seulement si l’information est connue et utile.", "The reason is optional, including for an absence or excused status; add it only when the information is known and useful."),
                     t("Enregistrez pour conserver un brouillon, puis Finalisez quand l’appel est vérifié.", "Save to keep a draft, then Finalize once the roster is verified."),
                 ],
             },
@@ -524,7 +534,7 @@ ROLE_GUIDES: list[dict] = [
                 "steps": [
                     t("Choisissez la date et la classe; seules vos périodes publiées doivent être proposées.", "Choose the date and class; only your published periods should be offered."),
                     t("Choisissez la période/matière exacte, utilisez Tous présents, puis corrigez les exceptions.", "Choose the exact period/subject, use All present, then correct exceptions."),
-                    t("Ajoutez un motif quand le statut l’exige, enregistrez, relisez puis finalisez.", "Add a reason when the status requires it, save, review, then finalize."),
+                    t("Le motif est facultatif, même pour une absence ou un statut excusé; enregistrez, relisez puis finalisez.", "The reason is optional, including for an absence or excused status; save, review, then finalize."),
                     t("Une matière attribuée sans occurrence publiée ne donne pas de période d’appel ce jour-là.", "An assigned subject without a published occurrence does not create an attendance period for that day."),
                 ],
             },
@@ -580,10 +590,7 @@ ROLE_GUIDES: list[dict] = [
             t("Le conseil de classe est en lecture seule et le bulletin officiel peut être généré par le titulaire.", "Council input is read-only and the official report card can be generated by the homeroom teacher."),
             t("Un enseignant non titulaire n’a pas l’onglet Bulletin.", "A non-homeroom teacher does not have the Report card tab."),
         ],
-        "known_gaps": [
-            t("Dans l’appel titulaire, les boutons de statut, Enregistrer et Finaliser sont actuellement actifs pour les périodes des collègues, mais le serveur refuse l’enregistrement. L’interface doit les désactiver et afficher Lecture seule.", "In homeroom attendance, status, Save, and Finalize controls are currently enabled for colleagues’ periods, but the server rejects the save. The UI should disable them and show Read-only."),
-            t("La vue des feuilles collègues utilise encore le texte « votre feuille de travail »; elle devrait annoncer clairement la supervision en lecture seule.", "Colleagues’ grade sheets still use “your work sheet” wording; the UI should clearly label the view as read-only oversight."),
-        ],
+        "known_gaps": [],
     },
     {
         "slug": "prefect",

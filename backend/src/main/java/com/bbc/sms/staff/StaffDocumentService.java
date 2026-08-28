@@ -2,6 +2,7 @@ package com.bbc.sms.staff;
 
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AppUserPrincipal;
+import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.storage.ObjectStorage;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.staff.dto.StaffDtos.StaffDocumentView;
@@ -42,13 +43,16 @@ public class StaffDocumentService {
     private final StaffDocumentRepository repo;
     private final EmployeeRepository employees;
     private final ObjectStorage storage;
+    private final TeacherScopeService teacherScope;
 
     public StaffDocumentService(StaffDocumentRepository repo,
                                  EmployeeRepository employees,
-                                 ObjectStorage storage) {
+                                 ObjectStorage storage,
+                                 TeacherScopeService teacherScope) {
         this.repo = repo;
         this.employees = employees;
         this.storage = storage;
+        this.teacherScope = teacherScope;
     }
 
     @Transactional(readOnly = true)
@@ -118,8 +122,10 @@ public class StaffDocumentService {
     public record Download(InputStream stream, String fileName, String contentType, long byteSize) {}
 
     private Employee requireEmployee(UUID id) {
-        return employees.findByIdAndSchoolId(id, TenantContext.get())
+        Employee employee = employees.findByIdAndSchoolId(id, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("L'employé"));
+        teacherScope.assertEmployee(employee.getId());
+        return employee;
     }
 
     private StaffDocument requireDocument(UUID employeeId, UUID documentId) {

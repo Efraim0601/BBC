@@ -196,7 +196,7 @@ export interface GradeEntryView {
   submissionBlockers?: Array<{ code: string; subjectCode: string; studentName?: string | null; messageFr: string; messageEn: string; repairTarget: string; severity: string }>;
   warnings?: Array<{ code: string; subjectCode: string; studentName?: string | null; messageFr: string; messageEn: string; repairTarget: string; severity: string }>;
   assignmentReadiness?: GradeEntrySubject['assignmentReadiness'];
-  capabilities?: { canEditDraft: boolean; canSubmit: boolean; canReview: boolean; restrictedTeacher: boolean; explanation?: string | null };
+  capabilities?: { canEditDraft: boolean; canSubmit: boolean; canReview: boolean; restrictedTeacher: boolean; oversightOnly: boolean; explanation?: string | null };
 }
 export interface GradeEntryCellUpsert { assessmentId: string; mark: number | null; valueStatus: string; version?: number; }
 export interface GradeEntryStudentUpsert { studentId: string; values: GradeEntryCellUpsert[]; comment: string | null; }

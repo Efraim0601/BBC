@@ -87,6 +87,14 @@ export const canReviewGradePacket = (
   entry: Pick<GradeEntryView, 'packetStatus' | 'capabilities'>,
 ): boolean => entry.packetStatus === 'SUBMITTED' && entry.capabilities?.canReview === true;
 
+/**
+ * A Secondary homeroom teacher may inspect a colleague's subject sheet for
+ * class oversight. The server remains the source of truth for that distinction.
+ */
+export const isReadOnlyGradeOversight = (
+  entry: Pick<GradeEntryView, 'capabilities'> | null | undefined,
+): boolean => entry?.capabilities?.oversightOnly === true;
+
 export const computedPeriodCodes = (lines: BulletinView['lines']): string[] => {
   const seen = new Set<string>();
   for (const line of lines) for (const mark of line.periodMarks ?? []) if (mark.periodCode) seen.add(mark.periodCode);
@@ -148,8 +156,13 @@ const appreciation = (avg: number, fr: boolean): string => {
 
       @if (mode() === 'grade-entry') {
         <div class="mb-4 rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-950 leading-relaxed print:hidden">
-          <div class="font-bold">{{ fr() ? 'Saisie des notes : votre feuille de travail' : 'Grade entry: your work sheet' }}</div>
-          <div class="mt-1 text-brand-900">{{ fr() ? '1. Choisissez la classe · 2. Choisissez la période · 3. Choisissez la matière · 4. Saisissez une note pour chaque élève · 5. Enregistrez ou envoyez à la direction.' : '1. Choose the class · 2. Choose the period · 3. Choose the subject · 4. Enter one mark for each student · 5. Save or send it to management.' }}</div>
+          @if (gradeOversight()) {
+            <div class="font-bold">{{ fr() ? 'Supervision des notes — lecture seule' : 'Grade-sheet oversight — read-only' }}</div>
+            <div class="mt-1 text-brand-900">{{ fr() ? 'Cette feuille appartient à l’enseignant affecté. Consultez les notes et demandez toute correction à cet enseignant ou à la direction ; vous ne pouvez pas modifier sa feuille.' : 'This sheet belongs to the assigned teacher. Review the marks and request corrections from that teacher or management; you cannot edit the sheet.' }}</div>
+          } @else {
+            <div class="font-bold">{{ fr() ? 'Saisie des notes : votre feuille de travail' : 'Grade entry: your work sheet' }}</div>
+            <div class="mt-1 text-brand-900">{{ fr() ? '1. Choisissez la classe · 2. Choisissez la période · 3. Choisissez la matière · 4. Saisissez une note pour chaque élève · 5. Enregistrez ou envoyez à la direction.' : '1. Choose the class · 2. Choose the period · 3. Choose the subject · 4. Enter one mark for each student · 5. Save or send it to management.' }}</div>
+          }
         </div>
       }
 
@@ -286,7 +299,13 @@ const appreciation = (avg: number, fr: boolean): string => {
                   {{ gradePacketStatusLabel(entry.packetStatus) }}
                 </span>
               </div>
-              <div class="mt-4 rounded-lg border border-brand-200 bg-brand-50 px-3 py-3 text-sm text-brand-950"><strong>{{ fr() ? 'Votre tâche :' : 'Your task:' }}</strong> {{ fr() ? 'saisissez la note prévue pour chaque élève. Enregistrez pour garder un brouillon ; envoyez ensuite la feuille à la direction.' : 'enter the required mark for each student. Save to keep a draft; then send the sheet to management.' }}</div>
+              <div class="mt-4 rounded-lg border border-brand-200 bg-brand-50 px-3 py-3 text-sm text-brand-950">
+                @if (gradeOversight()) {
+                  <strong>{{ fr() ? 'Votre rôle :' : 'Your role:' }}</strong> {{ fr() ? 'vérifiez les notes de votre collègue en lecture seule. Demandez-lui une correction ou contactez la direction si nécessaire.' : 'review your colleague’s marks in read-only mode. Ask that teacher for a correction or contact management when needed.' }}
+                } @else {
+                  <strong>{{ fr() ? 'Votre tâche :' : 'Your task:' }}</strong> {{ fr() ? 'saisissez la note prévue pour chaque élève. Enregistrez pour garder un brouillon ; envoyez ensuite la feuille à la direction.' : 'enter the required mark for each student. Save to keep a draft; then send the sheet to management.' }}
+                }
+              </div>
               <div class="mt-4 grid grid-cols-2 md:grid-cols-3 gap-3">
                 <div class="rounded-lg border border-slate-200 bg-slate-50 p-3"><div class="text-[11px] uppercase text-mute font-semibold">{{ fr() ? 'Élèves à noter' : 'Students to grade' }}</div><div class="text-xl font-bold text-ink mt-1">{{ entry.totalStudents }}</div></div>
                 <div class="rounded-lg border border-slate-200 bg-slate-50 p-3"><div class="text-[11px] uppercase text-mute font-semibold">{{ fr() ? 'Saisie complète' : 'Completed' }}</div><div class="text-xl font-bold text-emerald-700 mt-1">{{ entry.completedStudents }}/{{ entry.totalStudents }}</div></div>
@@ -311,7 +330,11 @@ const appreciation = (avg: number, fr: boolean): string => {
                   <ul class="mt-1 list-disc pl-5">@for (blocker of entry.blockers; track blocker) { <li>{{ gradeBlockerLabel(blocker) }}</li> }</ul>
                 </div>
               } @else if (entry.totalStudents > 0 && entry.assessments.length > 0) {
-                <div class="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">{{ fr() ? 'Toutes les notes obligatoires sont renseignées. Vous pouvez enregistrer ou envoyer la feuille.' : 'All required marks are entered. You can save or send the sheet.' }}</div>
+                @if (gradeOversight()) {
+                  <div class="mt-4 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-800">{{ fr() ? 'La feuille de votre collègue est complète. Elle reste disponible uniquement pour vérification en lecture seule.' : 'Your colleague’s sheet is complete. It remains available for read-only review only.' }}</div>
+                } @else {
+                  <div class="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">{{ fr() ? 'Toutes les notes obligatoires sont renseignées. Vous pouvez enregistrer ou envoyer la feuille.' : 'All required marks are entered. You can save or send the sheet.' }}</div>
+                }
               }
               <div class="mt-4 text-sm text-mute">{{ fr() ? 'Saisissez la note sur le barème affiché (par exemple /20). Pour un élève absent ou dispensé, choisissez le statut correspondant au lieu de saisir une note.' : 'Enter the mark using the scale shown (for example /20). For an absent or exempt student, choose the matching status instead of entering a mark.' }}</div>
             </bbc-card>
@@ -320,8 +343,8 @@ const appreciation = (avg: number, fr: boolean): string => {
               <div class="flex items-start gap-3">
                 <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-100 text-brand-700 font-bold">✓</div>
                 <div>
-                  <div class="font-bold text-ink">{{ fr() ? 'Note à saisir' : 'Mark to enter' }}</div>
-                  <div class="mt-1 text-sm text-mute">{{ fr() ? 'Saisissez une note pour chaque élève sur le barème affiché. Les détails techniques sont gérés automatiquement par le système.' : 'Enter one mark for each student using the scale shown. Technical details are handled automatically by the system.' }}</div>
+                  <div class="font-bold text-ink">{{ gradeOversight() ? (fr() ? 'Notes à vérifier' : 'Marks to review') : (fr() ? 'Note à saisir' : 'Mark to enter') }}</div>
+                  <div class="mt-1 text-sm text-mute">{{ gradeOversight() ? (fr() ? 'Consultez les notes et leurs statuts. Cette feuille reste non modifiable.' : 'Review the marks and their statuses. This sheet remains non-editable.') : (fr() ? 'Saisissez une note pour chaque élève sur le barème affiché. Les détails techniques sont gérés automatiquement par le système.' : 'Enter one mark for each student using the scale shown. Technical details are handled automatically by the system.') }}</div>
                 </div>
               </div>
               @if (entry.assessments.length === 1) {
@@ -338,7 +361,7 @@ const appreciation = (avg: number, fr: boolean): string => {
             }
             <bbc-card className="overflow-hidden">
               <div class="flex items-start justify-between gap-3 flex-wrap px-5 pt-5">
-                <div><h2 class="text-lg font-bold text-ink">{{ fr() ? '4. Saisir les notes' : '4. Enter marks' }}</h2><p class="mt-1 text-sm text-mute">{{ fr() ? 'Une ligne = un élève. Remplissez chaque colonne obligatoire.' : 'One row = one student. Complete every required column.' }}</p></div>
+                <div><h2 class="text-lg font-bold text-ink">{{ gradeOversight() ? (fr() ? '4. Vérifier les notes' : '4. Review marks') : (fr() ? '4. Saisir les notes' : '4. Enter marks') }}</h2><p class="mt-1 text-sm text-mute">{{ gradeOversight() ? (fr() ? 'Une ligne = un élève. Les valeurs de cette feuille collègue sont affichées en lecture seule.' : 'One row = one student. Values from this colleague’s sheet are shown read-only.') : (fr() ? 'Une ligne = un élève. Remplissez chaque colonne obligatoire.' : 'One row = one student. Complete every required column.') }}</p></div>
                 @if (entry.assessments.length) { <div class="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-sm font-semibold text-ink">{{ entry.completedStudents }} / {{ entry.totalStudents }} {{ fr() ? 'élève(s) complet(s)' : 'student(s) complete' }}</div> }
               </div>
               @if (entry.assessments.length) {
@@ -385,7 +408,7 @@ const appreciation = (avg: number, fr: boolean): string => {
                 <div class="mx-5 mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-950">{{ fr() ? 'La saisie ne peut pas commencer tant qu’une évaluation n’est pas configurée pour cette matière.' : 'Mark entry cannot start until an assessment is configured for this subject.' }}</div>
               }
               <div class="flex flex-wrap gap-2 items-center mt-5 pt-4 border-t border-slate-100 print:hidden">
-                <div class="flex-1 min-w-[260px] text-xs text-mute">{{ entry.packetStatus === 'SUBMITTED' ? (fr() ? 'Cette feuille est en attente de vérification par la direction.' : 'This sheet is waiting for management review.') : entry.packetStatus === 'ACCEPTED' ? (fr() ? 'Cette feuille a été acceptée et est verrouillée.' : 'This sheet was accepted and is locked.') : (fr() ? 'Enregistrer = garder votre travail. Envoyer à la direction = demander la vérification.' : 'Save = keep your work. Send to management = request review.') }}</div>
+                <div class="flex-1 min-w-[260px] text-xs text-mute">{{ gradeOversight() ? (fr() ? 'Lecture seule : demandez toute correction à l’enseignant affecté ou à la direction.' : 'Read-only: request any correction from the assigned teacher or management.') : entry.packetStatus === 'SUBMITTED' ? (fr() ? 'Cette feuille est en attente de vérification par la direction.' : 'This sheet is waiting for management review.') : entry.packetStatus === 'ACCEPTED' ? (fr() ? 'Cette feuille a été acceptée et est verrouillée.' : 'This sheet was accepted and is locked.') : (fr() ? 'Enregistrer = garder votre travail. Envoyer à la direction = demander la vérification.' : 'Save = keep your work. Send to management = request review.') }}</div>
                 @if (canWrite && (entry.packetStatus === 'DRAFT' || entry.packetStatus === 'RETURNED')) {
                   <button type="button" (click)="saveGradeEntry()" [disabled]="gradeBusy() || entry.capabilities?.canEditDraft === false" class="h-10 px-4 rounded-lg border border-slate-300 text-sm font-semibold text-ink hover:bg-slate-50 disabled:opacity-50">{{ gradeBusy() ? '…' : (fr() ? 'Enregistrer sans envoyer' : 'Save without sending') }}</button>
                   <button type="button" (click)="submitGradeEntry()" [disabled]="gradeBusy() || entry.blockers.length > 0 || !entry.assessments.length || !canSubmitGrade(entry)" [title]="entry.submissionBlockers?.length ? (fr() ? 'Réparez l’affectation et complétez les champs indiqués avant l’envoi.' : 'Repair the assignment and complete the highlighted fields before sending.') : ''" class="h-10 px-4 rounded-lg bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700 disabled:opacity-50">{{ fr() ? 'Envoyer à la direction' : 'Send to management' }}</button>
@@ -1107,6 +1130,7 @@ export class AcademicComponent {
   protected bulletin = signal<BulletinView | null>(null);
   protected pv = signal<PvView | null>(null);
   protected gradeEntry = signal<GradeEntryView | null>(null);
+  protected gradeOversight = computed(() => isReadOnlyGradeOversight(this.gradeEntry()));
   protected gradeEntryError = signal<string | null>(null);
   protected reportInputs = signal<ReportCardInputsView | null>(null);
   protected inputDrafts = signal<Record<string, ReportCardInputUpsert>>({});

@@ -248,13 +248,13 @@ class ProductionBootstrapIntegrationTest {
         assertThat(attendancePolicies).containsExactly(
                 Map.of("level", "maternelle", "model", "DAILY", "late_after_minutes", 15,
                         "chronic_absence_percent", new java.math.BigDecimal("15.00"),
-                        "require_absence_reason", true),
+                        "require_absence_reason", false),
                 Map.of("level", "primary", "model", "DAILY", "late_after_minutes", 15,
                         "chronic_absence_percent", new java.math.BigDecimal("15.00"),
-                        "require_absence_reason", true),
+                        "require_absence_reason", false),
                 Map.of("level", "secondary", "model", "PERIOD", "late_after_minutes", 10,
                         "chronic_absence_percent", new java.math.BigDecimal("20.00"),
-                        "require_absence_reason", true));
+                        "require_absence_reason", false));
     }
 
     @Test

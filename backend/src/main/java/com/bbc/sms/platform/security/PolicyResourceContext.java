@@ -39,4 +39,10 @@ public record PolicyResourceContext(
                 classId, subjectCode, studentId, timetableOccurrenceId, documentId,
                 id, periodKey, level);
     }
+
+    public PolicyResourceContext withParcours(ParcoursContext.Scope value) {
+        return new PolicyResourceContext(schoolId, academicSessionId, effectiveDate, value,
+                classId, subjectCode, studentId, timetableOccurrenceId, documentId,
+                ownerEmployeeId, periodKey, level);
+    }
 }

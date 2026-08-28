@@ -107,7 +107,7 @@ public class AttendanceWorkflowService {
                 require_absence_reason=excluded.require_absence_reason, updated_at=now()
             RETURNING id
             """, UUID.class, TenantContext.get(), normalizedLevel, model,
-            Math.max(0, request.lateAfterMinutes()), threshold, request.requireAbsenceReason());
+            Math.max(0, request.lateAfterMinutes()), threshold, false);
         audit(null, "POLICY_UPDATED", normalizedLevel, null);
         return policyRows().stream().filter(p -> p.id().equals(id)).findFirst().orElseThrow();
     }
@@ -203,7 +203,14 @@ public class AttendanceWorkflowService {
             """, (rs, n) -> new SessionEventView(rs.getString("action"), rs.getString("actor"),
                 rs.getString("reason"), rs.getObject("occurred_at", OffsetDateTime.class)),
             TenantContext.get(), sessionId);
-        return new RosterView(summary, marks, events);
+        return new RosterView(summary, marks, events, capabilitiesFor(context));
+    }
+
+    RosterCapabilities capabilitiesFor(PolicyResourceContext context) {
+        return new RosterCapabilities(
+                policy.decide("ATTENDANCE_MARK", context).allowed(),
+                policy.decide("ATTENDANCE_FINALIZE", context).allowed(),
+                policy.decide("ATTENDANCE_REOPEN", context).allowed());
     }
 
     @Transactional
@@ -219,13 +226,9 @@ public class AttendanceWorkflowService {
              WHERE id=? AND school_id=? AND version=? AND status<>'FINALIZED'
             """, request.sessionId(), TenantContext.get(), request.version());
         if (bumped == 0) throw ApiException.conflict("L'appel a été modifié par un autre utilisateur. Rechargez la liste avant de réessayer.");
-        boolean reasonRequired = reasonRequired(current.classId());
         for (MarkInput mark : request.marks()) {
             String status = mark.status() == null ? "" : mark.status().toUpperCase(Locale.ROOT);
             if (!STATUSES.contains(status)) throw ApiException.badRequest("Statut de présence invalide");
-            if (reasonRequired && Set.of("ABSENT", "EXCUSED").contains(status)
-                && (mark.reason() == null || mark.reason().isBlank()))
-                throw ApiException.badRequest("Un motif est obligatoire pour chaque absence");
             int changed = jdbc.update("""
                 UPDATE attendance_mark SET status=?, reason=?, note=?, late_minutes=?, source='ROSTER',
                        marked_at=now(), marked_by=?, version=version+1
@@ -661,12 +664,6 @@ public class AttendanceWorkflowService {
         String normalized = normalizeLevel(level);
         return jdbc.query("SELECT model FROM attendance_policy WHERE school_id=? AND level=?",
             rs -> rs.next() ? rs.getString(1) : defaultModel(normalized), TenantContext.get(), normalized);
-    }
-    private boolean reasonRequired(UUID classId) {
-        SchoolClass c = requireClass(classId);
-        Boolean result = jdbc.query("SELECT require_absence_reason FROM attendance_policy WHERE school_id=? AND level=?",
-            rs -> rs.next() && rs.getBoolean(1), TenantContext.get(), normalizeLevel(c.getLevel()));
-        return Boolean.TRUE.equals(result);
     }
     private String normalizeLevel(String level) {
         String value = level == null ? "" : level.trim().toLowerCase(Locale.ROOT);

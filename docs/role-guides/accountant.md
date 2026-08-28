@@ -13,6 +13,7 @@ The accountant is global: finance covers Kindergarten, Primary, and Secondary in
 - **Treasury:** Create/archive accounts, record deposits, withdrawals, and transfers, then reconcile balances.
 - **Expenses and fees:** Record expenses paid from an account and configure fee grids, types, and plans when the related actions are enabled.
 - **Payroll:** Configure periods and components, calculate, review, approve, pay, and issue payslips.
+- **Staff — read only:** View staff and salary records needed for payroll; no staff creation, editing, or import.
 - **Accounting and reporting:** Use the chart of accounts, journals, trial balance, general ledger, reconciliation, and contextual finance reports.
 
 ## Daily procedures
@@ -104,7 +105,8 @@ Route: `/finance/accounting`
 ## Boundaries
 
 - No access to Access and responsibilities.
-- Do not change school structure, students, or timetables without formal administrator delegation.
+- The standard Accountant profile cannot register/import students or change school structure, subjects, or timetables.
+- Staff is strictly read-only; creation and editing belong to administration or authorized management.
 - Never delete a posted finance transaction; use void, refund, or reversal.
 - One person must not calculate, review, and approve payroll when segregation of duties is required.
 
@@ -114,13 +116,10 @@ Route: `/finance/accounting`
 - [ ] A payment immediately increases the credited account and produces a receipt naming the actual student.
 - [ ] A balanced deposit and withdrawal restore the original treasury balance while leaving two immutable records.
 - [ ] The consolidated receipt includes every transaction and the exact balance.
+- [ ] Charges and Financial documents load their data without an authorization error.
+- [ ] The payroll Staff shortcut opens a read-only list; create/edit/import remains unavailable.
+- [ ] New student, import, Settings, and Timetable are not offered to the standard Accountant profile.
 - [ ] Access and responsibilities is blocked.
-
-## Confirmed gaps in the tested build
-
-- Charges and Finance Documents currently open but their first API calls are denied for the local accountant profile; role actions need alignment before use.
-- The payroll Staff shortcut redirects because HR_VIEW is missing; either grant staff read access or hide the link.
-- The local profile also has high-risk student creation/import and setup/timetable rights. They are not part of the normal accountant mandate and should be reviewed under least privilege.
 
 ---
 

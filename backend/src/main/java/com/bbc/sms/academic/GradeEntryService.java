@@ -175,6 +175,7 @@ public class GradeEntryService {
                 definition, rows, rows.size(), completed, blockers, available, completionBlockers,
                 submissionBlockers, List.of(), readiness,
                 new GradeEntryCapabilitiesView(canEdit, canSubmit, canReview, restricted,
+                        restricted && !editScope,
                         restricted && !subjectReady(subject) && !delegatedAccess(period, classId, subjectCode,
                                 AcademicAccessPolicyService.Capability.SUBJECT_GRADE_EDIT)
                                 ? "Repair the responsible teacher assignment or create a dated delegation before editing or submitting." : null));

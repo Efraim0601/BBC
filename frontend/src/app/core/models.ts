@@ -20,7 +20,8 @@ export interface UserView {
   modules: string[];
   /** Server-authoritative parcours scope mode. GLOBAL means the user may browse all parcours. */
   parcoursScopeMode?: 'GLOBAL' | 'EXPLICIT' | 'ASSIGNMENT_DERIVED' | 'CHILD_DERIVED' | 'NONE' | string;
-  allowedParcours: Parcours[]; // empty = all parcours (admin)
+  /** Empty means all only for GLOBAL or legacy pre-scope accounts; otherwise it means unassigned. */
+  allowedParcours: Parcours[];
   /** Cycle administré, null pour un compte non cloisonné. */
   section: 'maternelle' | 'primary' | 'secondary' | null;
   /** Faux pour un admin de section : les réglages école-entière lui sont fermés. */
@@ -125,6 +126,7 @@ export interface AttendanceRoster {
   session: AttendanceSessionSummary;
   marks: AttendanceRosterMark[];
   events: { action: string; actor: string; reason: string | null; occurredAt: string }[];
+  capabilities: { canMark: boolean; canFinalize: boolean; canReopen: boolean };
 }
 export interface StudentAttendanceAnalytics {
   studentId: string; matricule: string; studentName: string; className: string;

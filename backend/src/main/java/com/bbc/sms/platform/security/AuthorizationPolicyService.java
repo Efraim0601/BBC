@@ -112,6 +112,12 @@ public class AuthorizationPolicyService {
                     "This parcours is outside the levels assigned to this account.", version,
                     "Choisissez un parcours autorisé ou demandez à l’administrateur de modifier l’affectation.");
         }
+        // School-scoped actions can still be restricted by a PARCOURS_ALLOWED
+        // role rule (for example Principal HR_VIEW). The selected parcours is
+        // supplied by the trusted request filter, so retain it in the policy
+        // context instead of validating it and then evaluating the rule with a
+        // null context.
+        context = bindRequestedParcours(context, requestedParcours);
         boolean parent = isParent(principal, activeRoles, tenant);
         boolean parentOnly = isParentOnly(principal, activeRoles, tenant);
         if ("SELF".equalsIgnoreCase(action.scopeType())) {
@@ -166,6 +172,13 @@ public class AuthorizationPolicyService {
                 "Aucune règle active n'autorise cette action dans ce périmètre.",
                 "No active rule allows this action in this scope.", version,
                 "Demandez un profil ou une délégation limitée avec une justification.");
+    }
+
+    static PolicyResourceContext bindRequestedParcours(PolicyResourceContext context,
+                                                        ParcoursContext.Scope requestedParcours) {
+        return context.parcours() == null && requestedParcours != null
+                ? context.withParcours(requestedParcours)
+                : context;
     }
 
     public PolicyDecision require(String actionCode, PolicyResourceContext context) {

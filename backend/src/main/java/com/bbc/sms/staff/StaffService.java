@@ -144,14 +144,14 @@ public class StaffService {
         Map<UUID, String> deptNames = new HashMap<>();
         for (Department d : departments.findBySchoolIdOrderByName(schoolId)) deptNames.put(d.getId(), d.getName());
         Map<UUID, AppUser> loginAccounts = loginAccounts(schoolId);
-        String section = teacherScope.adminSection();
+        String section = teacherScope.staffLevelScope();
         return repo.findBySchoolIdAndActiveTrueOrderByNameAsc(schoolId).stream()
                 .filter(e -> inSection(e, section))
                 .map(e -> toView(e, deptNames.get(e.getDepartmentId()), loginAccounts.get(e.getId()))).toList();
     }
 
     /**
-     * L'employé relève-t-il de la section de l'administrateur courant ?
+     * L'employé relève-t-il du cycle de personnel actif ?
      *
      * <p>Le personnel sans section — économat, intendance, direction — reste
      * visible de tous : il ne dépend d'aucun cycle, et le masquer le rendrait
@@ -318,10 +318,10 @@ public class StaffService {
                 e.setEmail(email);
                 e.setPhone(phone);
                 e.setFormClass(blankToNull(row.formClass()));
-                // Un admin de cycle importe dans son cycle : la colonne « section »
-                // du fichier ne peut pas l'en faire sortir.
+                // Un compte de direction cloisonné importe dans son cycle : la
+                // colonne « section » du fichier ne peut pas l'en faire sortir.
                 String rowSection = normSection(blankToNull(row.section()));
-                String adminSection = teacherScope.adminSection();
+                String adminSection = teacherScope.staffLevelScope();
                 if (adminSection != null) {
                     if (rowSection != null && !adminSection.equals(rowSection)) {
                         throw new IllegalArgumentException(
@@ -484,11 +484,12 @@ public class StaffService {
         if (section != null && !SECTIONS.contains(section)) {
             throw ApiException.badRequest("Section inconnue (attendu maternelle, primary ou secondary)");
         }
-        String adminSection = teacherScope.adminSection();
+        String adminSection = teacherScope.staffLevelScope();
         if (adminSection != null) {
-            // Un admin de cycle recrute dans son cycle : à défaut de section
-            // saisie il impose la sienne, et ne peut muter personne ailleurs —
-            // ce serait faire sortir un agent de son propre périmètre.
+            // Un compte de direction cloisonné recrute dans son cycle : à
+            // défaut de section saisie il impose la sienne, et ne peut muter
+            // personne ailleurs — ce serait faire sortir un agent de son
+            // propre périmètre.
             if (section == null) section = adminSection;
             else teacherScope.assertSection(section);
         }

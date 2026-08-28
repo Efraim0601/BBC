@@ -171,10 +171,11 @@ class SharedFoundationIntegrationTest {
         assertThat(roster.marks()).hasSize(1);
         assertThat(roster.marks().getFirst().status()).isEqualTo("unmarked");
         var saved = attendance.save(new BulkMarkRequest(roster.session().id(), roster.session().version(),
-                java.util.List.of(new MarkInput(studentId, "present", null, "On time", 0))));
-        assertThat(saved.marks().getFirst().status()).isEqualTo("present");
+                java.util.List.of(new MarkInput(studentId, "absent", null, null, 0))));
+        assertThat(saved.marks().getFirst().status()).isEqualTo("absent");
+        assertThat(saved.marks().getFirst().reason()).isNull();
         assertThatThrownBy(() -> attendance.save(new BulkMarkRequest(roster.session().id(), roster.session().version(),
-                java.util.List.of(new MarkInput(studentId, "absent", "Sick", null, 0)))))
+                java.util.List.of(new MarkInput(studentId, "present", null, "Late stale edit", 0)))))
                 .isInstanceOf(ApiException.class).hasMessageContaining("modifié");
 
         var finalized = attendance.finalizeSession(saved.session().id(), new ActionRequest(saved.session().version(), null));
@@ -187,7 +188,8 @@ class SharedFoundationIntegrationTest {
 
         var analytics = attendance.analytics(date, date, classId);
         assertThat(analytics.expected()).isEqualTo(1);
-        assertThat(analytics.attendancePercent()).isEqualByComparingTo("100.00");
+        assertThat(analytics.absent()).isEqualTo(1);
+        assertThat(analytics.attendancePercent()).isEqualByComparingTo("0.00");
     }
 
     @Test

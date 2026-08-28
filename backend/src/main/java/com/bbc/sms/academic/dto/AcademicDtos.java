@@ -342,6 +342,7 @@ public class AcademicDtos {
 
     public record GradeEntryCapabilitiesView(boolean canEditDraft, boolean canSubmit,
                                              boolean canReview, boolean restrictedTeacher,
+                                             boolean oversightOnly,
                                              String explanation) {}
 
     public record GradeEntrySubjectView(String code, String label, int coefficient,
@@ -414,7 +415,7 @@ public class AcademicDtos {
                     availableSubjects.stream().filter(x -> subjectCode.equalsIgnoreCase(x.code()))
                             .findFirst().map(GradeEntrySubjectView::assignmentReadiness).orElse(null),
                     new GradeEntryCapabilitiesView(true, teacherId != null && blockers.isEmpty(), false,
-                            false, null));
+                            false, false, null));
         }
     }
 

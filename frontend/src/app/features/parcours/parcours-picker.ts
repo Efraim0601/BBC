@@ -4,9 +4,28 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { AuthService } from '../../core/auth.service';
 import { ScopeService } from '../../core/scope.service';
 import { I18nService, Lang } from '../../core/i18n.service';
-import { Parcours } from '../../core/models';
+import { Parcours, UserView } from '../../core/models';
 
 type Lvl = Parcours['level'];
+
+type ParcoursUser = {
+  parcoursScopeMode?: UserView['parcoursScopeMode'];
+  allowedParcours?: readonly Parcours[];
+} | null | undefined;
+
+export function hasNoAssignedParcours(user: ParcoursUser): boolean {
+  if (!user || user.parcoursScopeMode == null || user.parcoursScopeMode === 'GLOBAL') return false;
+  return (user.allowedParcours ?? []).length === 0;
+}
+
+export function canPickParcoursLevel(user: ParcoursUser, level: Lvl): boolean {
+  if (!user) return false;
+  const allowed = user.allowedParcours ?? [];
+  if (user.parcoursScopeMode === 'GLOBAL') return true;
+  if (allowed.length > 0) return allowed.some((p) => p.level === level);
+  // Preserve the all-parcours fallback only for pre-scope legacy payloads.
+  return user.parcoursScopeMode == null;
+}
 
 /**
  * Post-login parcours picker: choose a parcours (Maternelle / Primaire / Secondaire)
@@ -52,17 +71,39 @@ type Lvl = Parcours['level'];
       <div class="w-full max-w-3xl">
         <div class="mb-8">
           <h1 class="font-display text-2xl font-bold text-ink leading-tight">
-            {{ step() === 'level'
+            {{ noAssignedParcours()
+              ? (fr() ? 'Aucun parcours attribué' : 'No parcours assigned')
+              : step() === 'level'
               ? (fr() ? 'Choisissez un parcours' : 'Choose a parcours')
               : (fr() ? 'Choisissez la section' : 'Choose the section') }}
           </h1>
           <p class="text-mute text-sm mt-0.5">
-            {{ fr() ? 'Chaque parcours dispose de ses propres données et bulletins.'
-                    : 'Each parcours has its own data and report cards.' }}
+            {{ noAssignedParcours()
+              ? (fr() ? 'Votre compte ne dispose encore d’aucun cycle ou sous-système.'
+                      : 'Your account does not have a school level or subsystem yet.')
+              : (fr() ? 'Chaque parcours dispose de ses propres données et bulletins.'
+                      : 'Each parcours has its own data and report cards.') }}
           </p>
         </div>
 
-        @if (step() === 'level') {
+        @if (noAssignedParcours()) {
+          <section class="rounded-2xl border border-amber-200 bg-amber-50 p-6 sm:p-8" role="alert">
+            <div class="w-12 h-12 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center mb-4"
+              [innerHTML]="unassignedIcon"></div>
+            <h2 class="font-display text-lg font-bold text-ink">
+              {{ fr() ? 'Contactez votre administrateur' : 'Contact your administrator' }}
+            </h2>
+            <p class="text-sm text-mute mt-2 max-w-xl">
+              {{ fr()
+                ? 'Un administrateur doit attribuer au moins un parcours à votre compte avant que vous puissiez ouvrir l’application.'
+                : 'An administrator must assign at least one parcours to your account before you can open the application.' }}
+            </p>
+            <button type="button" (click)="signOut()"
+              class="mt-5 h-10 px-4 rounded-lg bg-white border border-amber-300 text-sm font-semibold text-ink hover:bg-amber-100 transition">
+              {{ fr() ? 'Revenir à la connexion' : 'Return to sign in' }}
+            </button>
+          </section>
+        } @else if (step() === 'level') {
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
             @for (lv of levels(); track lv.value) {
               <button (click)="pickLevel(lv.value)"
@@ -107,6 +148,7 @@ export class ParcoursPickerComponent {
   private sanitizer = inject(DomSanitizer);
 
   protected readonly langs: Lang[] = ['fr', 'en'];
+  protected readonly unassignedIcon = this.svg('M12 9v4 M12 17h.01 M10.3 3.7 2 7a2 2 0 0 0 1.7 3h16.6a2 2 0 0 0 1.7-3l-8-14a2 2 0 0 0-3.4 0z');
   protected fr = () => this.i18n.lang() === 'fr';
   protected schoolName = computed(() => this.auth.user()?.schoolName || 'Bayo Bilingual Complex');
   protected signOut(): void { this.auth.logout(); }
@@ -116,6 +158,7 @@ export class ParcoursPickerComponent {
 
   /** The parcours the user is allowed to see; empty allow-list = all parcours. */
   private allowed = computed(() => this.auth.user()?.allowedParcours ?? []);
+  protected noAssignedParcours = computed(() => hasNoAssignedParcours(this.auth.user()));
 
   protected levels = computed(() => {
     const all = [
@@ -136,8 +179,7 @@ export class ParcoursPickerComponent {
   });
 
   private levelAllowed(level: Lvl): boolean {
-    const a = this.allowed();
-    return a.length === 0 || a.some((p) => p.level === level);
+    return canPickParcoursLevel(this.auth.user(), level);
   }
   private sectionAllowed(level: Lvl | null, subsystem: 'FR' | 'EN'): boolean {
     const a = this.allowed();

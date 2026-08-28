@@ -85,7 +85,9 @@ public class AttendanceDtos {
                                  long version, int total, int marked) {}
     public record RosterMark(UUID studentId, String matricule, String studentName, String status,
                              String reason, String note, int lateMinutes, String source) {}
-    public record RosterView(SessionSummary session, List<RosterMark> marks, List<SessionEventView> events) {}
+    public record RosterCapabilities(boolean canMark, boolean canFinalize, boolean canReopen) {}
+    public record RosterView(SessionSummary session, List<RosterMark> marks, List<SessionEventView> events,
+                             RosterCapabilities capabilities) {}
     public record SessionEventView(String action, String actor, String reason,
                                    OffsetDateTime occurredAt) {}
     public record MarkInput(@NotNull UUID studentId, @NotBlank String status,

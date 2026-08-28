@@ -5,6 +5,7 @@ import com.bbc.sms.foundation.session.AcademicSession;
 import com.bbc.sms.foundation.session.AcademicSessionRepository;
 import com.bbc.sms.platform.security.AuthorizationPolicyService;
 import com.bbc.sms.platform.security.PolicyDecision;
+import com.bbc.sms.platform.security.PolicyResourceContext;
 import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.timetable.SchoolClass;
@@ -92,6 +93,29 @@ class AttendanceWorkflowServiceTest {
                 .isEqualByComparingTo(new BigDecimal("100.00"));
         assertThat(AttendanceWorkflowService.attendancePercent(2, 0, 1, 5))
                 .isEqualByComparingTo(new BigDecimal("50.00"));
+    }
+
+    @Test
+    void rosterCapabilitiesKeepColleaguePeriodsReadOnlyWithoutHidingThem() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        AuthorizationPolicyService policy = mock(AuthorizationPolicyService.class);
+        PolicyResourceContext context = new PolicyResourceContext(
+                schoolId, sessionId, today, null, classId, "ANGLAIS",
+                null, UUID.randomUUID(), null, null, "P4", "secondary");
+        when(policy.decide("ATTENDANCE_MARK", context)).thenReturn(
+                PolicyDecision.deny("ATTENDANCE_MARK", "POLICY_SCOPE_DENIED", "Denied", "Denied", 1, null));
+        when(policy.decide("ATTENDANCE_FINALIZE", context)).thenReturn(
+                PolicyDecision.deny("ATTENDANCE_FINALIZE", "POLICY_SCOPE_DENIED", "Denied", "Denied", 1, null));
+        when(policy.decide("ATTENDANCE_REOPEN", context)).thenReturn(
+                PolicyDecision.allow("ATTENDANCE_REOPEN", "ROLE:form_teacher", "TITULAIRE_CLASSES", 1));
+
+        AttendanceWorkflowService service = service(jdbc, classes(), sessions(),
+                mock(TeacherScopeService.class), policy);
+
+        AttendanceDtos.RosterCapabilities capabilities = service.capabilitiesFor(context);
+        assertThat(capabilities.canMark()).isFalse();
+        assertThat(capabilities.canFinalize()).isFalse();
+        assertThat(capabilities.canReopen()).isTrue();
     }
 
     private JdbcTemplate jdbcForDailyModel() {

@@ -40,7 +40,7 @@ Route: `/presence`
 
 1. Choose the date and the displayed class or bilingual cohort.
 2. Use All present, then correct absences, lateness, or excused statuses.
-3. A reason is required only when the selected status needs one; normal presence requires no reason.
+3. The reason is optional, including for an absence or excused status; add it only when the information is known and useful.
 4. Save to keep a draft, then Finalize once the roster is verified.
 
 ### Understand a linked bilingual class

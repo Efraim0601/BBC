@@ -308,9 +308,9 @@ public class ProductionBootstrap implements ApplicationRunner {
                 (school_id, level, model, late_after_minutes,
                  chronic_absence_percent, require_absence_reason)
             VALUES
-                (?, 'maternelle', 'DAILY', 15, 15.00, true),
-                (?, 'primary',    'DAILY', 15, 15.00, true),
-                (?, 'secondary',  'PERIOD', 10, 20.00, true)
+                (?, 'maternelle', 'DAILY', 15, 15.00, false),
+                (?, 'primary',    'DAILY', 15, 15.00, false),
+                (?, 'secondary',  'PERIOD', 10, 20.00, false)
             ON CONFLICT (school_id, level) DO NOTHING
             """, schoolId, schoolId, schoolId);
 

@@ -2,6 +2,7 @@ package com.bbc.sms.platform.security;
 
 import com.bbc.sms.academic.security.AcademicAccessPolicyService;
 import com.bbc.sms.platform.common.ApiException;
+import com.bbc.sms.platform.tenant.ParcoursContext;
 import com.bbc.sms.platform.tenant.TenantContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -282,7 +283,7 @@ public class TeacherScopeService {
      * (économat, intendance) et l'exclure le rendrait invisible de tous.
      */
     public void assertEmployee(UUID employeeId) {
-        String section = adminSection();
+        String section = staffLevelScope();
         if (section == null) return;
         String level = jdbc.query("SELECT level FROM employee WHERE id = ? AND school_id = ?",
                 rs -> rs.next() ? rs.getString(1) : null, employeeId, TenantContext.get());
@@ -292,9 +293,19 @@ public class TeacherScopeService {
         }
     }
 
-    /** Refuse une opération portant sur une section autre que la sienne. */
-    public void assertSection(String level) {
+    /**
+     * Staff follows the active parcours for explicitly scoped management
+     * accounts. Global users in All-parcours mode keep a null scope and may
+     * review the whole staff directory.
+     */
+    public String staffLevelScope() {
         String section = adminSection();
+        return section != null ? section : ParcoursContext.effectiveLevel();
+    }
+
+    /** Refuse une opération portant sur un cycle autre que le parcours actif. */
+    public void assertSection(String level) {
+        String section = staffLevelScope();
         if (section == null) return;
         if (level == null || !level.equals(section)) {
             throw new ApiException(org.springframework.http.HttpStatus.FORBIDDEN,

@@ -2,6 +2,7 @@ package com.bbc.sms.platform.security;
 
 import com.bbc.sms.academic.security.AcademicScopeResolver;
 import com.bbc.sms.guardian.GuardianAccessService;
+import com.bbc.sms.platform.tenant.ParcoursContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -119,6 +120,18 @@ class AuthorizationPolicyServiceTest {
         assertThat(decision).isNotNull();
         assertThat(decision.allowed()).isTrue();
         assertThat(decision.matchedScope()).isEqualTo("TIMETABLE_OCCURRENCES_ASSIGNED");
+    }
+
+    @Test
+    void selectedParcoursIsRetainedForSchoolScopedRoleRules() {
+        PolicyResourceContext context = PolicyResourceContext.empty().forSchool(schoolId);
+        ParcoursContext.Scope requested = new ParcoursContext.Scope("secondary", "FR");
+
+        PolicyResourceContext bound = AuthorizationPolicyService.bindRequestedParcours(context, requested);
+
+        assertThat(bound.parcours()).isEqualTo(requested);
+        assertThat(AuthorizationPolicyService.bindRequestedParcours(bound,
+                new ParcoursContext.Scope("primary", "EN")).parcours()).isEqualTo(requested);
     }
 
     @Test
