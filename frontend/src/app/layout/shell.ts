@@ -5,6 +5,7 @@ import { AuthService } from '../core/auth.service';
 import { ScopeService } from '../core/scope.service';
 import { I18nService, Lang } from '../core/i18n.service';
 import { NAV_GROUPS, RECENT_MODS_KEY } from '../core/nav-items';
+import { guideHrefForRole } from '../core/role-guide';
 
 const NAV_COLLAPSE_KEY = 'bbc.nav.collapsed';
 
@@ -58,7 +59,7 @@ const NAV_COLLAPSE_KEY = 'bbc.nav.collapsed';
           }
         </div>
 
-        <a href="/guide/" target="_blank" rel="noopener"
+        <a [href]="helpHref()" target="_blank" rel="noopener"
           title="{{ fr() ? 'Guide utilisateur' : 'User guide' }}"
           class="hidden sm:inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-white/10 hover:bg-white/20 transition text-[11px] font-bold">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
@@ -137,6 +138,7 @@ export class ShellComponent {
   protected user = this.auth.user;
   protected langs: Lang[] = ['fr', 'en'];
   protected fr = () => this.i18n.lang() === 'fr';
+  protected helpHref = computed(() => guideHrefForRole(this.user()?.role));
   protected trust = (svg: string): SafeHtml => this.sanitizer.bypassSecurityTrustHtml(svg);
 
   /** Compact label of the active parcours shown in the header (e.g. "Primaire · FR"). */

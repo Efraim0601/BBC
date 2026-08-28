@@ -11,6 +11,9 @@ Sorties produites :
 | `frontend/public/guide/atelier.html` | support d'atelier projetable (URL `/guide/atelier.html`) |
 | `frontend/public/guide/img/*.webp` | 154 captures — `fr-*` et `en-*` |
 | `GUIDE_UTILISATEUR.md` | même contenu, version française, lisible dans le dépôt |
+| `frontend/public/guide/roles/*.html` | sept modes d'emploi bilingues ciblés par rôle |
+| `docs/role-guides/*.md` | sources Markdown anglaises des modes d'emploi par rôle |
+| `output/role-guides/*.docx` | sept manuels bilingues imprimables et autonomes |
 
 ## Fichiers
 
@@ -34,6 +37,21 @@ Sorties produites :
 | `preview-atelier.js` | rendu de diapositives choisies, pour relecture |
 | `check-anchors.js` | vérifie que les 44 liens du sommaire (FR + EN) tombent juste |
 | `check-mobile.js` | détecte tout débordement horizontal en 420 / 768 / 1024 px |
+| `role_guides.py` | source bilingue unique des droits, procédures, limites et écarts par rôle |
+| `build-role-guides.py` | génère les pages d'aide par rôle et leurs versions Markdown |
+| `build-role-docx.py` | génère les sept manuels DOCX à partir de la même source |
+
+## Régénérer les guides par rôle
+
+```bash
+python3 tools/guide/build-role-guides.py
+python3 tools/guide/build-role-docx.py
+```
+
+Le bouton **Help** de l'application ouvre le guide correspondant au rôle connecté.
+Les rôles non reconnus conservent `/guide/` comme solution de repli. Les écarts
+confirmés pendant les tests locaux sont affichés comme anomalies connues et ne
+doivent jamais être interprétés comme des autorisations supplémentaires.
 
 ## Modifier le texte
 
