@@ -9,6 +9,7 @@ import { PhotoApi } from '../../core/photo.api';
 import { AvatarComponent, CardComponent, IconComponent, PageHeaderComponent } from '../../core/ui';
 import { StudentEnrollmentPanelComponent } from './student-enrollment-panel';
 import { GuardianAccessMode, GuardianInput, GuardianRelationshipView, GuardianSearchView, StudentApi, StudentUpsert } from './students.api';
+import { formatStudentDate, maskStudentDateInput, parseStudentDate } from './student-date';
 
 @Component({
   selector: 'bbc-student-detail',
@@ -33,7 +34,7 @@ import { GuardianAccessMode, GuardianInput, GuardianRelationshipView, GuardianSe
           </div>
           <div class="grid sm:grid-cols-2 md:grid-cols-4 gap-3 mt-6 text-sm">
             <div class="detail-field"><span class="meta">NIU</span><div class="font-semibold mt-1">{{s.niu||'—'}}</div></div>
-            <div class="detail-field"><span class="meta">{{fr()?'Naissance':'Birth date'}}</span><div class="font-semibold mt-1">{{s.dob||'—'}}</div></div>
+            <div class="detail-field"><span class="meta">{{fr()?'Naissance':'Birth date'}}</span><div class="font-semibold mt-1">{{formatStudentDate(s.dob)||'—'}}</div></div>
             <div class="detail-field"><span class="meta">{{fr()?'Lieu de naissance':'Birthplace'}}</span><div class="font-semibold mt-1">{{s.birthplace||'—'}}</div></div>
             <div class="detail-field"><span class="meta">{{fr()?'Sexe':'Sex'}}</span><div class="font-semibold mt-1">{{s.sex||'—'}}</div></div>
           </div>
@@ -111,10 +112,10 @@ import { GuardianAccessMode, GuardianInput, GuardianRelationshipView, GuardianSe
             @if(editAttempted()&&!editValid()){<div role="alert" class="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700">{{fr()?'Corrigez les champs en rouge avant d’enregistrer.':'Correct the fields in red before saving.'}}</div>}
             <div class="grid sm:grid-cols-2 gap-4">
               <label><span class="label">{{fr()?'Nom':'Last name'}}<span class="required-mark">*</span><span class="required-hint">{{fr()?'Obligatoire':'Required'}}</span></span><input class="input w-full" [(ngModel)]="editDraft.lastName" name="last" [class.input-error]="editAttempted()&&!editDraft.lastName.trim()" [attr.aria-invalid]="editAttempted()&&!editDraft.lastName.trim()"/>@if(editAttempted()&&!editDraft.lastName.trim()){<span class="field-error">{{fr()?'Le nom est obligatoire.':'Last name is required.'}}</span>}</label>
-              <label><span class="label">{{fr()?'Prénom':'First name'}}<span class="required-mark">*</span><span class="required-hint">{{fr()?'Obligatoire':'Required'}}</span></span><input class="input w-full" [(ngModel)]="editDraft.firstName" name="first" [class.input-error]="editAttempted()&&!editDraft.firstName.trim()" [attr.aria-invalid]="editAttempted()&&!editDraft.firstName.trim()"/>@if(editAttempted()&&!editDraft.firstName.trim()){<span class="field-error">{{fr()?'Le prénom est obligatoire.':'First name is required.'}}</span>}</label>
+              <label><span class="label">{{fr()?'Prénom':'First name'}} <span class="text-mute">({{fr()?'facultatif':'optional'}})</span></span><input class="input w-full" [(ngModel)]="editDraft.firstName" name="first"/></label>
               <label><span class="label">NIU</span><input class="input w-full" [(ngModel)]="editDraft.niu" name="niu"/></label>
               <label><span class="label">{{fr()?'Classe':'Class'}}</span><select class="input w-full" [(ngModel)]="editDraft.classId" name="class"><option [ngValue]="null">{{fr()?'Aucune classe':'No class'}}</option>@for(c of classes();track c.id){<option [value]="c.id">{{c.name}}</option>}</select></label>
-              <label><span class="label">{{fr()?'Date de naissance':'Birth date'}}</span><input type="date" class="input w-full" [(ngModel)]="editDraft.dob" name="dob"/></label>
+              <label><span class="label">{{fr()?'Date de naissance':'Birth date'}}</span><div class="flex items-center gap-2"><input type="text" class="input w-full" [ngModel]="editDobText" (ngModelChange)="onEditDobTextChange($event)" name="dobText" inputmode="numeric" placeholder="DD/MM/YYYY" [class.input-error]="editAttempted()&&editDobInvalid()"/><button type="button" class="btn-secondary shrink-0 px-3" [attr.aria-label]="fr()?'Ouvrir le calendrier':'Open calendar'" (click)="openEditDobCalendar(editDobPicker)"><bbc-icon name="calendar" [s]="16"/></button><input #editDobPicker type="date" class="sr-only" tabindex="-1" aria-hidden="true" [value]="editDraft.dob||''" (change)="onEditDobCalendarChange($any($event.target).value)"/></div>@if(editAttempted()&&editDobInvalid()){<span class="field-error">{{fr()?'Utilisez le format JJ/MM/AAAA.':'Use DD/MM/YYYY format.'}}</span>}</label>
               <label><span class="label">{{fr()?'Lieu de naissance':'Birthplace'}}</span><input class="input w-full" [(ngModel)]="editDraft.birthplace" name="birthplace"/></label>
             </div>
             <div class="flex justify-end gap-2"><button type="button" class="btn-secondary" (click)="editing.set(false)">{{fr()?'Annuler':'Cancel'}}</button><button class="btn-primary" [disabled]="saving()">{{saving()?(fr()?'Enregistrement…':'Saving…'):(fr()?'Enregistrer':'Save')}}</button></div>
@@ -136,7 +137,8 @@ export class StudentDetailComponent {
   private api=inject(StudentApi); private route=inject(ActivatedRoute); private photoApi=inject(PhotoApi); private auth=inject(AuthService); protected i18n=inject(I18nService);
   protected fr=()=>this.i18n.lang()==='fr'; protected student=signal<Student|null>(null); protected guardians=signal<GuardianRelationshipView[]>([]); protected classes=signal<ClassView[]>([]); protected photo=signal<string|null>(null); protected error=signal<string|null>(null); protected notice=signal<string|null>(null);
   protected adding=signal(false); protected editing=signal(false); protected saving=signal(false); protected addAttempted=signal(false); protected editAttempted=signal(false); protected endAttempted=signal(false); protected portalAttempted=signal(false); protected formError=signal<string|null>(null); protected results=signal<GuardianSearchView[]>([]); protected searchQ='';
-  protected draft:GuardianInput=this.blank(); protected editDraft:StudentUpsert={firstName:'',lastName:'',sex:'M',repeats:false,classId:null}; protected endTarget=signal<GuardianRelationshipView|null>(null); protected portalTarget=signal<GuardianRelationshipView|null>(null); protected portalEmail=''; protected portalMode:GuardianAccessMode='SEND_INVITE'; protected portalPassword=''; protected endReason=''; private id=this.route.snapshot.paramMap.get('id')!;
+  protected draft:GuardianInput=this.blank(); protected editDraft:StudentUpsert={firstName:'',lastName:'',sex:'M',repeats:false,classId:null}; protected editDobText=''; protected endTarget=signal<GuardianRelationshipView|null>(null); protected portalTarget=signal<GuardianRelationshipView|null>(null); protected portalEmail=''; protected portalMode:GuardianAccessMode='SEND_INVITE'; protected portalPassword=''; protected endReason=''; private id=this.route.snapshot.paramMap.get('id')!;
+  protected formatStudentDate=formatStudentDate;
 
   private actionAvailable(code:string){return ['ALLOW','CONTEXT_REQUIRED'].includes(this.auth.actionState(code));}
   protected canEditProfile=()=>this.actionAvailable('STUDENT_PROFILE_EDIT');
@@ -165,8 +167,12 @@ export class StudentDetailComponent {
   protected cancelEnd(){this.endTarget.set(null);this.endReason='';this.endAttempted.set(false);}
   protected confirmEnd(){this.endAttempted.set(true);const g=this.endTarget();if(!g||!this.endReason.trim())return;this.saving.set(true);this.api.endRelationship(g.relationshipId,this.endReason.trim()).subscribe({next:()=>{this.saving.set(false);this.cancelEnd();this.notice.set(this.fr()?'La relation familiale a été terminée.':'Family relationship ended.');this.reload()},error:e=>{this.saving.set(false);this.error.set(e.error?.message)}});}
   protected resend(g:GuardianRelationshipView){this.api.resendInvite(g.guardianId).subscribe({next:()=>{this.notice.set(this.fr()?'Une nouvelle invitation a été envoyée.':'A new invitation was sent.');this.reload();},error:e=>this.error.set(e.error?.message)});}
-  protected openEdit(s:Student){this.editDraft={firstName:s.firstName,lastName:s.lastName,niu:s.niu,sex:s.sex||'M',dob:s.dob,birthplace:s.birthplace,repeats:s.repeats,classId:s.classId,parentName:s.parentName,parentPhone:s.parentPhone,fatherName:s.fatherName,fatherPhone:s.fatherPhone,fatherEmail:s.fatherEmail,motherName:s.motherName,motherPhone:s.motherPhone,motherEmail:s.motherEmail,guardianName:s.guardianName,guardianPhone:s.guardianPhone,guardianEmail:s.guardianEmail,guardianRelation:s.guardianRelation};this.editAttempted.set(false);this.editing.set(true);}
-  protected editValid(){return !!this.editDraft.lastName.trim()&&!!this.editDraft.firstName.trim();}
+  protected openEdit(s:Student){this.editDraft={firstName:s.firstName,lastName:s.lastName,niu:s.niu,sex:s.sex||'M',dob:s.dob,birthplace:s.birthplace,repeats:s.repeats,classId:s.classId,parentName:s.parentName,parentPhone:s.parentPhone,fatherName:s.fatherName,fatherPhone:s.fatherPhone,fatherEmail:s.fatherEmail,motherName:s.motherName,motherPhone:s.motherPhone,motherEmail:s.motherEmail,guardianName:s.guardianName,guardianPhone:s.guardianPhone,guardianEmail:s.guardianEmail,guardianRelation:s.guardianRelation};this.editDobText=formatStudentDate(s.dob);this.editAttempted.set(false);this.editing.set(true);}
+  protected onEditDobTextChange(value:string){this.editDobText=maskStudentDateInput(value,value.length<this.editDobText.length);this.editDraft.dob=parseStudentDate(this.editDobText);}
+  protected onEditDobCalendarChange(value:string){this.editDraft.dob=value||null;this.editDobText=formatStudentDate(value);}
+  protected openEditDobCalendar(input:HTMLInputElement){if('showPicker' in input&&typeof input.showPicker==='function'){input.showPicker();return;}input.click();}
+  protected editDobInvalid(){return !!this.editDobText.trim()&&!this.editDraft.dob;}
+  protected editValid(){return !!this.editDraft.lastName.trim()&&!this.editDobInvalid();}
   protected saveStudent(){this.editAttempted.set(true);if(!this.editValid())return;this.saving.set(true);this.api.update(this.id,this.editDraft).subscribe({next:()=>{this.saving.set(false);this.editing.set(false);this.notice.set(this.fr()?'La fiche élève a été mise à jour.':'Student profile updated.');this.reload()},error:e=>{this.saving.set(false);this.error.set(e.error?.message)}});}
   private blank():GuardianInput{return{displayName:'',email:'',phone:'',relationshipType:'GUARDIAN',accessMode:'NO_PORTAL',legalGuardian:true,pickupAuthorized:true,receivesAcademic:true,receivesAttendance:true,portalAccess:false};}
 }

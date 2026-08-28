@@ -6,6 +6,7 @@ import com.bbc.sms.platform.security.AppUserPrincipal;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.student.StudentRegistrationService;
 import com.bbc.sms.student.StudentRegistrationService.RegistrationRequest;
+import com.bbc.sms.student.StudentService;
 import com.bbc.sms.student.dto.StudentDtos.StudentUpsert;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,7 +29,7 @@ import static org.assertj.core.api.Assertions.*;
 class FamilyManagementIntegrationTest {
  @Container static final PostgreSQLContainer<?> DB=new PostgreSQLContainer<>("postgres:16-alpine").withDatabaseName("family").withUsername("bbc").withPassword("bbc");
  @DynamicPropertySource static void props(DynamicPropertyRegistry r){r.add("spring.datasource.url",DB::getJdbcUrl);r.add("spring.datasource.username",DB::getUsername);r.add("spring.datasource.password",DB::getPassword);}
- @Autowired JdbcTemplate jdbc;@Autowired AcademicSessionService sessions;@Autowired StudentRegistrationService registrations;@Autowired GuardianService guardians;@Autowired FamilyImportService imports;
+ @Autowired JdbcTemplate jdbc;@Autowired AcademicSessionService sessions;@Autowired StudentRegistrationService registrations;@Autowired StudentService students;@Autowired GuardianService guardians;@Autowired FamilyImportService imports;
  UUID school,classId,actorUserId;
  @BeforeEach void setup(){
   school=UUID.randomUUID();classId=UUID.randomUUID();actorUserId=UUID.randomUUID();
@@ -36,7 +37,7 @@ class FamilyManagementIntegrationTest {
   jdbc.update("INSERT INTO role(code,label_fr,label_en,builtin) VALUES ('parent','Parent','Parent',true),('principal','Principal','Principal',true) ON CONFLICT DO NOTHING");
   jdbc.update("INSERT INTO app_user(id,school_id,username,password_hash,display_name,initials,role_code,active) VALUES (?,?,'family-test','test','Family test','FT','principal',true)",actorUserId,school);
   jdbc.update("INSERT INTO app_user_role(school_id,user_id,role_code,is_primary,reason) VALUES (?,?,'principal',true,'Family integration fixture') ON CONFLICT DO NOTHING",school,actorUserId);
-  for(String action:new String[]{"STUDENT_PROFILE_CREATE","STUDENT_IMPORT","GUARDIAN_DIRECTORY_SEARCH","GUARDIAN_DIRECTORY_MANAGE","GUARDIAN_LINK_MANAGE","GUARDIAN_ACCOUNT_MANAGE"})
+  for(String action:new String[]{"STUDENT_PROFILE_CREATE","STUDENT_PROFILE_EDIT","STUDENT_IMPORT","GUARDIAN_DIRECTORY_SEARCH","GUARDIAN_DIRECTORY_MANAGE","GUARDIAN_LINK_MANAGE","GUARDIAN_ACCOUNT_MANAGE"})
    jdbc.update("INSERT INTO permission_role_action(school_id,role_code,action_code,effect,scope_mode,is_permanent,reason) VALUES (?,? ,?,'ALLOW','SCHOOL_ALL',true,'Family integration fixture') ON CONFLICT DO NOTHING",school,"principal",action);
   String section="s"+school.toString().substring(0,8);jdbc.update("INSERT INTO section(id,school_id,label,subsystem,level) VALUES (?,?,?,?,?)",section,school,"Primaire","FR","primary");jdbc.update("INSERT INTO school_class(id,school_id,section_id,name,subsystem,level) VALUES (?,?,?,?,?,?)",classId,school,section,"CM1-"+school.toString().substring(0,4),"FR","primary");TenantContext.set(school);
   AppUserPrincipal principal=new AppUserPrincipal(actorUserId,school,"family-test","principal","Family test","FT");
@@ -75,6 +76,18 @@ class FamilyManagementIntegrationTest {
   assertThat(updated.accountStatus()).isEqualTo("INVITED");
   assertThat(updated.invitationStatus()).isEqualTo("PENDING");
   assertThat(jdbc.queryForObject("SELECT count(*) FROM app_user WHERE school_id=? AND normalized_email=?",Integer.class,school,"later@example.test")).isEqualTo(1);
+ }
+
+ @Test void registrationAllowsMissingFirstNameAndItCanBeAddedLater(){
+  GuardianInput noPortal=new GuardianInput(null,"Single-name parent",null,null,"GUARDIAN","NO_PORTAL",null,true,true,1,true,true,true,true,true,true,false,false,null);
+  var registration=registrations.register(new RegistrationRequest(student("","SingleName"),List.of(noPortal)));
+  assertThat(registration.student().firstName()).isEmpty();
+  assertThat(registration.student().name()).isEqualTo("SINGLENAME");
+  assertThat(jdbc.queryForObject("SELECT first_name FROM student WHERE id=?",String.class,registration.student().id())).isEmpty();
+
+  var updated=students.update(registration.student().id(),student("AddedLater","SingleName"));
+  assertThat(updated.firstName()).isEqualTo("AddedLater");
+  assertThat(updated.name()).isEqualTo("SINGLENAME AddedLater");
  }
 
  @Test void familyImportDryRunDoesNotMutateAndCommitIsRetrySafe(){

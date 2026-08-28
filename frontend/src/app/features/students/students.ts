@@ -17,6 +17,7 @@ import {
 } from '../../core/ui';
 import { PhotoApi } from '../../core/photo.api';
 import { StudentEnrollmentPanelComponent } from './student-enrollment-panel';
+import { formatStudentDate, maskStudentDateInput, parseStudentDate } from './student-date';
 
 /** Column index per field of an import file; -1 when the column is absent. */
 interface HeaderMap {
@@ -377,8 +378,8 @@ interface HeaderMap {
                       class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
                   </label>
                   <label class="block">
-                    <span class="text-xs font-semibold text-ink">{{ fr() ? 'Prénom' : 'First name' }} *</span>
-                    <input [(ngModel)]="draft.firstName" name="firstName" required (ngModelChange)="onIdentityChange()"
+                    <span class="text-xs font-semibold text-ink">{{ fr() ? 'Prénom (facultatif)' : 'First name (optional)' }}</span>
+                    <input [(ngModel)]="draft.firstName" name="firstName" (ngModelChange)="onIdentityChange()"
                       class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
                   </label>
                   <label class="block">
@@ -391,8 +392,8 @@ interface HeaderMap {
                   </label>
                   <label class="block">
                     <span class="text-xs font-semibold text-ink">{{ fr() ? 'Date de naissance' : 'Date of birth' }}</span>
-                    <input type="date" [(ngModel)]="draft.dob" name="dob"
-                      class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
+                    <div class="flex items-center gap-2 mt-1"><input type="text" [ngModel]="draftDobText" (ngModelChange)="onDraftDobTextChange($event)" name="dobText" inputmode="numeric" placeholder="DD/MM/YYYY" [class.border-rose-400]="draftDobInvalid()" class="w-full h-10 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400"/><button type="button" class="h-10 px-3 rounded-lg border border-slate-200 bg-white" [attr.aria-label]="fr()?'Ouvrir le calendrier':'Open calendar'" (click)="openDraftDobCalendar(draftDobPicker)"><bbc-icon name="calendar" [s]="16"/></button><input #draftDobPicker type="date" class="sr-only" tabindex="-1" aria-hidden="true" [value]="draft.dob||''" (change)="onDraftDobCalendarChange($any($event.target).value)"/></div>
+                    @if(draftDobInvalid()){<span class="text-xs text-rose-600">{{fr()?'Utilisez le format JJ/MM/AAAA.':'Use DD/MM/YYYY format.'}}</span>}
                   </label>
                   <label class="block">
                     <span class="text-xs font-semibold text-ink">{{ fr() ? 'Lieu de naissance' : 'Birthplace' }}</span>
@@ -567,7 +568,7 @@ interface HeaderMap {
             <div class="flex items-center justify-end gap-2 mt-8 pt-5 border-t border-slate-100">
               <button type="button" (click)="closeEditor()"
                 class="h-10 px-5 rounded-lg bg-slate-100 text-sm font-semibold text-ink hover:bg-slate-200">{{ i18n.t('cancel') }}</button>
-              <button type="submit" [disabled]="!draft.firstName || !draft.lastName || saving()"
+              <button type="submit" [disabled]="!draft.lastName || draftDobInvalid() || saving()"
                 class="h-10 px-6 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-semibold">
                 {{ saving() ? (fr() ? 'Enregistrement…' : 'Saving…') : (fr() ? 'Enregistrer' : 'Save') }}
               </button>
@@ -813,7 +814,7 @@ interface HeaderMap {
                             <td class="px-3 py-1.5 font-mono text-xs text-mute">{{ r.niu || '—' }}</td>
                             <td class="px-3 py-1.5 font-medium text-ink">{{ rowName(r) || '—' }}</td>
                             <td class="px-3 py-1.5">{{ r.sex || '—' }}</td>
-                            <td class="px-3 py-1.5 font-mono text-xs">{{ r.dob || '—' }}</td>
+                            <td class="px-3 py-1.5 font-mono text-xs">{{ dobLabel(r.dob || null) }}</td>
                             <td class="px-3 py-1.5">{{ r.birthplace || '—' }}</td>
                             <td class="px-3 py-1.5">{{ r.repeats ? (fr() ? 'Oui' : 'Yes') : '—' }}</td>
                             <td class="px-3 py-1.5 text-xs text-mute">{{ rowContacts(r) || '—' }}</td>
@@ -986,6 +987,7 @@ export class StudentsComponent {
   protected confirmDel = signal<Student | null>(null);
   protected saving = signal(false);
   protected saveError = signal<string | null>(null);
+  protected draftDobText = '';
 
   // Doublons : fiches déjà au registre qui ressemblent à celle en cours de saisie.
   protected dupMatches = signal<DuplicateMatch[]>([]);
@@ -1231,10 +1233,7 @@ export class StudentsComponent {
   }
 
   protected dobLabel(dob: string | null): string {
-    if (!dob) return '—';
-    const d = new Date(dob);
-    if (isNaN(d.getTime())) return dob;
-    return d.toLocaleDateString(this.fr() ? 'fr-FR' : 'en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
+    return formatStudentDate(dob) || '—';
   }
 
   openCreate(): void {
@@ -1273,6 +1272,7 @@ export class StudentsComponent {
       guardianEmail: s.guardianEmail ?? '',
       guardianRelation: s.guardianRelation ?? '',
     };
+    this.draftDobText = formatStudentDate(s.dob);
     this.syncParentDisplay();
     this.mode.set('edit');
   }
@@ -1281,6 +1281,7 @@ export class StudentsComponent {
     this.mode.set('list');
     this.editId.set(null);
     this.draft = this.blank();
+    this.draftDobText = '';
     this.photoDraft.set(null);
     this.photoWasSet = false;
     this.clearDuplicates();
@@ -1289,7 +1290,7 @@ export class StudentsComponent {
   }
 
   save(): void {
-    if (!this.draft.firstName || !this.draft.lastName || this.saving()) return;
+    if (!this.draft.lastName || this.draftDobInvalid() || this.saving()) return;
     this.syncParentDisplay();
     // Un homonyme connu passe d'abord par une confirmation. Le NIU déjà attribué,
     // lui, n'a pas de confirmation à offrir : on laisse le serveur le refuser, son
@@ -1346,6 +1347,30 @@ export class StudentsComponent {
       return (fr ? 'Enregistrement impossible' : 'Could not save') + ` (HTTP ${e.status}).`;
     }
     return fr ? 'Enregistrement impossible.' : 'Could not save.';
+  }
+
+  protected onDraftDobTextChange(value: string): void {
+    this.draftDobText = maskStudentDateInput(value, value.length < this.draftDobText.length);
+    this.draft.dob = parseStudentDate(this.draftDobText);
+    this.onIdentityChange();
+  }
+
+  protected onDraftDobCalendarChange(value: string): void {
+    this.draft.dob = value || null;
+    this.draftDobText = formatStudentDate(value);
+    this.onIdentityChange();
+  }
+
+  protected openDraftDobCalendar(input: HTMLInputElement): void {
+    if ('showPicker' in input && typeof input.showPicker === 'function') {
+      input.showPicker();
+      return;
+    }
+    input.click();
+  }
+
+  protected draftDobInvalid(): boolean {
+    return !!this.draftDobText.trim() && !this.draft.dob;
   }
 
   // ---- Détection des doublons ---------------------------------------------
@@ -1562,7 +1587,7 @@ export class StudentsComponent {
     // Same column names as the import template (plus matricule / class) so an
     // exported list can be corrected in a spreadsheet and imported straight back.
     const rows = this.filtered().map((s) => [
-      s.matricule, s.lastName, s.firstName, s.sex, s.dob ?? '', s.birthplace ?? '', s.niu ?? '', s.repeats ? 'oui' : 'non',
+      s.matricule, s.lastName, s.firstName, s.sex, formatStudentDate(s.dob), s.birthplace ?? '', s.niu ?? '', s.repeats ? 'oui' : 'non',
       s.className, s.subsystem, s.level,
       s.fatherName ?? '', s.fatherPhone ?? '', s.fatherEmail ?? '',
       s.motherName ?? '', s.motherPhone ?? '', s.motherEmail ?? '',

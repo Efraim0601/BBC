@@ -614,7 +614,9 @@ public class StudentService {
 
     private void apply(Student s, StudentUpsert in) {
         UUID schoolId = TenantContext.get();
-        s.setFirstName(in.firstName());
+        // The family name is the only mandatory identity field. Keep the database
+        // column non-null so existing projections and report code can safely use it.
+        s.setFirstName(in.firstName() == null ? "" : in.firstName().trim());
         s.setLastName(in.lastName());
         s.setNiu(blankToNull(in.niu()));
         s.setSex(blankToNull(in.sex()));   // "" would violate CHECK (sex IN ('M','F'))
@@ -699,7 +701,8 @@ public class StudentService {
 
     /** L'élève tel qu'on le nomme partout : NOM de famille en capitales, puis prénom. */
     private static String displayName(String lastName, String firstName) {
-        return (lastName == null ? "" : lastName.toUpperCase()) + " " + (firstName == null ? "" : firstName);
+        return ((lastName == null ? "" : lastName.toUpperCase()) + " "
+                + (firstName == null ? "" : firstName)).trim();
     }
 
     private StudentView toView(Student s) {

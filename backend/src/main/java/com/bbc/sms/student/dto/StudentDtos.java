@@ -62,7 +62,7 @@ public class StudentDtos {
             int photoHue) implements DirectoryView {}
 
     public record StudentUpsert(
-            @NotBlank String firstName,
+            String firstName,
             @NotBlank String lastName,
             String niu,
             String sex,

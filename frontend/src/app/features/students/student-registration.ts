@@ -5,6 +5,7 @@ import { ClassView } from '../../core/setup.api';
 import { I18nService } from '../../core/i18n.service';
 import { CardComponent, IconComponent, PageHeaderComponent } from '../../core/ui';
 import { GuardianInput, GuardianSearchView, StudentApi, StudentUpsert } from './students.api';
+import { formatStudentDate, maskStudentDateInput, parseStudentDate } from './student-date';
 
 @Component({
   selector: 'bbc-student-registration',
@@ -36,17 +37,17 @@ import { GuardianInput, GuardianSearchView, StudentApi, StudentUpsert } from './
             <div><h2 class="text-lg font-bold">{{fr()?'Identité de l’élève':'Student identity'}}</h2><p class="text-sm text-mute mt-1">{{fr()?'Les champs marqués comme obligatoires doivent être renseignés.':'Fields marked as required must be completed.'}}</p></div>
             <div class="grid md:grid-cols-2 gap-4">
               <label><span class="label">{{fr()?'Nom':'Last name'}}<span class="required-mark">*</span><span class="required-hint">{{fr()?'Obligatoire':'Required'}}</span></span><input class="input w-full" [(ngModel)]="student.lastName" [class.input-error]="attemptedCurrent()&&!student.lastName.trim()" [attr.aria-invalid]="attemptedCurrent()&&!student.lastName.trim()"/>@if(attemptedCurrent()&&!student.lastName.trim()){<span class="field-error">{{fr()?'Le nom de l’élève est obligatoire.':'Student last name is required.'}}</span>}</label>
-              <label><span class="label">{{fr()?'Prénom':'First name'}}<span class="required-mark">*</span><span class="required-hint">{{fr()?'Obligatoire':'Required'}}</span></span><input class="input w-full" [(ngModel)]="student.firstName" [class.input-error]="attemptedCurrent()&&!student.firstName.trim()" [attr.aria-invalid]="attemptedCurrent()&&!student.firstName.trim()"/>@if(attemptedCurrent()&&!student.firstName.trim()){<span class="field-error">{{fr()?'Le prénom de l’élève est obligatoire.':'Student first name is required.'}}</span>}</label>
+              <label><span class="label">{{fr()?'Prénom':'First name'}} <span class="text-mute">({{fr()?'facultatif':'optional'}})</span></span><input class="input w-full" [(ngModel)]="student.firstName"/><span class="field-help">{{fr()?'Vous pourrez l’ajouter plus tard depuis la fiche élève.':'You can add it later from the student profile.'}}</span></label>
               <label><span class="label">{{fr()?'Sexe':'Sex'}}</span><select class="input w-full" [(ngModel)]="student.sex"><option value="M">{{fr()?'Masculin':'Male'}}</option><option value="F">{{fr()?'Féminin':'Female'}}</option></select></label>
               <div>
                 <label class="label" for="student-dob-input">{{fr()?'Date de naissance':'Date of birth'}}</label>
                 <div class="flex items-center gap-2">
-                  <input id="student-dob-input" type="text" class="input w-full" [ngModel]="dobText" (ngModelChange)="onDobTextChange($event)" (blur)="onDobBlur()" inputmode="numeric" autocomplete="bday" placeholder="MM/DD/YYYY" [class.input-error]="dobFieldInvalid()" [attr.aria-invalid]="dobFieldInvalid()?'true':null" aria-describedby="dob-help"/>
+                  <input id="student-dob-input" type="text" class="input w-full" [ngModel]="dobText" (ngModelChange)="onDobTextChange($event)" (blur)="onDobBlur()" inputmode="numeric" autocomplete="bday" placeholder="DD/MM/YYYY" [class.input-error]="dobFieldInvalid()" [attr.aria-invalid]="dobFieldInvalid()?'true':null" aria-describedby="dob-help"/>
                   <button type="button" class="btn-secondary shrink-0 px-3" [attr.aria-label]="fr()?'Ouvrir le calendrier':'Open calendar'" [title]="fr()?'Ouvrir le calendrier':'Open calendar'" (click)="openDobCalendar(dobPicker)"><bbc-icon name="calendar" [s]="16"/></button>
                   <input #dobPicker type="date" class="sr-only" tabindex="-1" aria-hidden="true" [value]="student.dob||''" (change)="onDobCalendarChange($any($event.target).value)"/>
                 </div>
-                <span id="dob-help" class="field-help">{{fr()?'Saisissez MM/DD/YYYY ou utilisez le bouton calendrier.':'Type MM/DD/YYYY or use the calendar button.'}}</span>
-                @if(dobFieldInvalid()){<span class="field-error">{{fr()?'Utilisez une date valide au format MM/JJ/AAAA.':'Enter a valid date in MM/DD/YYYY format.'}}</span>}
+                <span id="dob-help" class="field-help">{{fr()?'Saisissez JJ/MM/AAAA ou utilisez le bouton calendrier.':'Type DD/MM/YYYY or use the calendar button.'}}</span>
+                @if(dobFieldInvalid()){<span class="field-error">{{fr()?'Utilisez une date valide au format JJ/MM/AAAA.':'Enter a valid date in DD/MM/YYYY format.'}}</span>}
               </div>
               <label><span class="label">NIU</span><input class="input w-full" [(ngModel)]="student.niu"/></label>
               <label><span class="label">{{fr()?'Lieu de naissance':'Birthplace'}}</span><input class="input w-full" [(ngModel)]="student.birthplace"/></label>
@@ -129,18 +130,15 @@ export class StudentRegistrationComponent {
   protected useExisting(i:number,r:GuardianSearchView){this.guardians[i].guardianId=r.id;this.guardians[i].displayName=r.displayName;this.guardians[i].accessMode='NO_PORTAL';this.searchResults[i]=[];this.cdr.markForCheck();}
   protected emailInvalid(g:GuardianInput){const email=g.email?.trim()||'';return !email||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);}
   protected passwordValid(password?:string|null){return !!password&&password.length>=8&&/[A-Za-z]/.test(password)&&/\d/.test(password);}
-  protected onDobTextChange(value:string){const next=this.formatDobInput(value,value.length<this.dobText.length);this.dobText=next;this.student.dob=this.parseUsDate(next);}
-  protected onDobBlur(){this.dobTouched.set(true);if(this.student.dob)this.dobText=this.formatUsDate(this.student.dob);}
-  protected onDobCalendarChange(value:string){this.student.dob=value||null;this.dobText=this.formatUsDate(value);this.dobTouched.set(true);}
+  protected onDobTextChange(value:string){const next=maskStudentDateInput(value,value.length<this.dobText.length);this.dobText=next;this.student.dob=parseStudentDate(next);}
+  protected onDobBlur(){this.dobTouched.set(true);if(this.student.dob)this.dobText=formatStudentDate(this.student.dob);}
+  protected onDobCalendarChange(value:string){this.student.dob=value||null;this.dobText=formatStudentDate(value);this.dobTouched.set(true);}
   protected openDobCalendar(input:HTMLInputElement){if('showPicker' in input&&typeof input.showPicker==='function'){input.showPicker();return;}input.click();}
   protected dobInvalid(){return !!this.dobText.trim()&&!this.student.dob;}
   protected dobFieldInvalid(){return this.dobInvalid()&&(this.dobTouched()||this.attemptedCurrent());}
-  protected validStep(){switch(this.step()){case 0:return !!this.student.firstName.trim()&&!!this.student.lastName.trim()&&!this.dobInvalid();case 1:return !!this.student.classId;case 2:return this.guardians.every(g=>!!g.displayName.trim()&&!!g.relationshipType.trim());case 3:return this.guardians.every(g=>g.accessMode==='NO_PORTAL'||!this.emailInvalid(g))&&this.guardians.every(g=>g.accessMode!=='CREATE_ACCOUNT'||this.passwordValid(g.initialPassword));default:return true;}}
+  protected validStep(){switch(this.step()){case 0:return !!this.student.lastName.trim()&&!this.dobInvalid();case 1:return !!this.student.classId;case 2:return this.guardians.every(g=>!!g.displayName.trim()&&!!g.relationshipType.trim());case 3:return this.guardians.every(g=>g.accessMode==='NO_PORTAL'||!this.emailInvalid(g))&&this.guardians.every(g=>g.accessMode!=='CREATE_ACCOUNT'||this.passwordValid(g.initialPassword));default:return true;}}
   protected className(){return this.classes().find(c=>c.id===this.student.classId)?.name||'—';}
   protected submit(){this.saving.set(true);this.error.set(null);this.api.register({student:this.student,guardians:this.guardians}).subscribe({next:r=>{this.saving.set(false);this.result.set(r);this.step.set(5)},error:e=>{this.saving.set(false);this.error.set(e.error?.message||'Inscription impossible')}});}
-  private formatDobInput(value:string,deleting=false){const digits=(value||'').replace(/\D/g,'').slice(0,8);if(digits.length<2)return digits;if(digits.length===2)return deleting?digits:`${digits}/`;if(digits.length<4)return `${digits.slice(0,2)}/${digits.slice(2)}`;if(digits.length===4)return deleting?`${digits.slice(0,2)}/${digits.slice(2)}`:`${digits.slice(0,2)}/${digits.slice(2)}/`;return `${digits.slice(0,2)}/${digits.slice(2,4)}/${digits.slice(4)}`;}
-  private parseUsDate(value:string):string|null{const match=(value||'').trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);if(!match)return null;const month=Number(match[1]);const day=Number(match[2]);const year=Number(match[3]);if(year<1||month<1||month>12||day<1||day>31)return null;const date=new Date(0);date.setUTCFullYear(year,month-1,day);date.setUTCHours(0,0,0,0);if(date.getUTCFullYear()!==year||date.getUTCMonth()!==month-1||date.getUTCDate()!==day)return null;return `${year.toString().padStart(4,'0')}-${month.toString().padStart(2,'0')}-${day.toString().padStart(2,'0')}`;}
-  private formatUsDate(value:string|null|undefined){const match=(value||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);return match?`${match[2]}/${match[3]}/${match[1]}`:'';}
   private normalizePortalModes(){this.guardians.forEach(g=>{if(!g.email?.trim()&&g.accessMode!=='NO_PORTAL')g.accessMode='NO_PORTAL';});}
   private blankGuardian():GuardianInput{return{displayName:'',email:'',phone:'',relationshipType:'GUARDIAN',accessMode:'NO_PORTAL',legalGuardian:true,pickupAuthorized:true,receivesAcademic:true,receivesAttendance:true,portalAccess:false};}
 }

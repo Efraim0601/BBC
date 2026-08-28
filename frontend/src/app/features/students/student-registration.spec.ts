@@ -55,15 +55,26 @@ describe('StudentRegistrationComponent parent access', () => {
     expect(component.validStep()).toBe(true);
   });
 
+  it('allows the identity step without a first name', () => {
+    const fixture = setup();
+    const component = fixture.componentInstance as any;
+    component.student.lastName = 'SingleName';
+
+    expect(component.validStep()).toBe(true);
+
+    component.student.lastName = '';
+    expect(component.validStep()).toBe(false);
+  });
+
   it('accepts a manually entered date and keeps the API value in ISO format', () => {
     const fixture = setup();
     const component = fixture.componentInstance as any;
     component.student.firstName = 'Test';
     component.student.lastName = 'Student';
 
-    component.onDobTextChange('04152018');
+    component.onDobTextChange('15042018');
 
-    expect(component.dobText).toBe('04/15/2018');
+    expect(component.dobText).toBe('15/04/2018');
     expect(component.student.dob).toBe('2018-04-15');
     expect(component.validStep()).toBe(true);
   });
@@ -73,12 +84,12 @@ describe('StudentRegistrationComponent parent access', () => {
     const component = fixture.componentInstance as any;
     const values: string[] = [];
 
-    for (const digit of '04152018') {
+    for (const digit of '15042018') {
       component.onDobTextChange(component.dobText + digit);
       values.push(component.dobText);
     }
 
-    expect(values).toEqual(['0', '04/', '04/1', '04/15/', '04/15/2', '04/15/20', '04/15/201', '04/15/2018']);
+    expect(values).toEqual(['1', '15/', '15/0', '15/04/', '15/04/2', '15/04/20', '15/04/201', '15/04/2018']);
     expect(component.student.dob).toBe('2018-04-15');
   });
 
@@ -86,11 +97,11 @@ describe('StudentRegistrationComponent parent access', () => {
     const fixture = setup();
     const component = fixture.componentInstance as any;
 
-    component.onDobTextChange('04');
-    expect(component.dobText).toBe('04/');
+    component.onDobTextChange('15');
+    expect(component.dobText).toBe('15/');
 
-    component.onDobTextChange('04');
-    expect(component.dobText).toBe('04');
+    component.onDobTextChange('15');
+    expect(component.dobText).toBe('15');
   });
 
   it('rejects an invalid non-empty date while leaving DOB optional', () => {
@@ -99,7 +110,7 @@ describe('StudentRegistrationComponent parent access', () => {
     component.student.firstName = 'Test';
     component.student.lastName = 'Student';
 
-    component.onDobTextChange('02/30/2018');
+    component.onDobTextChange('31/02/2018');
     expect(component.student.dob).toBeNull();
     expect(component.validStep()).toBe(false);
 
@@ -114,7 +125,7 @@ describe('StudentRegistrationComponent parent access', () => {
 
     component.onDobCalendarChange('2018-04-15');
 
-    expect(component.dobText).toBe('04/15/2018');
+    expect(component.dobText).toBe('15/04/2018');
     expect(component.student.dob).toBe('2018-04-15');
   });
 });
