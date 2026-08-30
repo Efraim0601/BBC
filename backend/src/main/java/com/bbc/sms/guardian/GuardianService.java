@@ -72,6 +72,22 @@ public class GuardianService {
     @Transactional
     public GuardianRelationshipView add(UUID studentId, GuardianInput in) {
         requireStudentAction(studentId, "GUARDIAN_LINK_MANAGE");
+        return addAuthorized(studentId, in);
+    }
+
+    /**
+     * Create the initial family link as part of the atomic student-registration
+     * transaction.  This deliberately uses the student-create authority rather
+     * than granting the caller ongoing family-management rights on every record.
+     */
+    @Transactional
+    public GuardianRelationshipView addForRegistration(UUID studentId, GuardianInput in) {
+        policy.require("STUDENT_PROFILE_CREATE",
+                PolicyResourceContext.empty().forSchool(TenantContext.get()));
+        return addAuthorized(studentId, in);
+    }
+
+    private GuardianRelationshipView addAuthorized(UUID studentId, GuardianInput in) {
         Student student=requireStudent(studentId); UUID school=TenantContext.get(); UUID guardianId=in.guardianId();
         if(guardianId==null){
             String ne=normalEmail(in.email());

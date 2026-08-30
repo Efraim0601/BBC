@@ -21,7 +21,7 @@ public class StudentRegistrationService {
     @Transactional
     public RegistrationView register(RegistrationRequest req){
         StudentView student=students.create(req.student()); List<GuardianRelationshipView> links=new ArrayList<>();
-        for(GuardianInput g:req.guardians())links.add(guardians.add(student.id(),g));
+        for(GuardianInput g:req.guardians())links.add(guardians.addForRegistration(student.id(),g));
         RegistrationView out=new RegistrationView(student,links,"Inscription complète créée");
         audit.record("STUDENT_REGISTERED_WITH_FAMILY","Student",student.id().toString(),null,Map.of("student",student,"guardianCount",links.size()),"Inscription élève et famille");
         return out;

@@ -8,6 +8,7 @@ The accountant is global: finance covers Kindergarten, Primary, and Secondary in
 
 ## What this role can do
 
+- **Student register:** View every parcours, filter by class, open a profile, export, and register a new student; no bulk import or editing an existing profile.
 - **Collections:** Create payments, choose the credited account, issue receipts, export, and review payment history.
 - **Student accounts:** Filter by class, view billed/paid/balance/credit, and generate a consolidated receipt across all instalments.
 - **Treasury:** Create/archive accounts, record deposits, withdrawals, and transfers, then reconcile balances.
@@ -17,6 +18,17 @@ The accountant is global: finance covers Kindergarten, Primary, and Secondary in
 - **Accounting and reporting:** Use the chart of accounts, journals, trial balance, general ledger, reconciliation, and contextual finance reports.
 
 ## Daily procedures
+
+### View or register a student
+
+**How to get there:** Click Apps, then Students. Use the Class filter when needed, then click a student’s name to open the record.
+
+1. From Apps, open Students; choose a class or search by name/matricule.
+2. Click Export list to download Excel/CSV or PDF.
+3. For an individual registration, click New student, enter the identity, and choose the class from any parcours.
+4. Add at least one guardian; choose No portal access when no email is available, then review and confirm.
+
+> **Remember:** After creation, the profile remains viewable, but editing, deletion, and later family-link management are not part of the Accountant role.
 
 ### Record a payment
 
@@ -105,7 +117,8 @@ The accountant is global: finance covers Kindergarten, Primary, and Secondary in
 ## Boundaries
 
 - No access to Access and responsibilities.
-- The standard Accountant profile cannot register/import students or change school structure, subjects, or timetables.
+- The Accountant may register an individual student, but cannot bulk import, edit/delete an existing profile, or later manage its family links.
+- No changes to school structure, subjects, or timetables.
 - Staff is strictly read-only; creation and editing belong to administration or authorized management.
 - Never delete a posted finance transaction; use void, refund, or reversal.
 - One person must not calculate, review, and approve payroll when segregation of duties is required.
@@ -118,7 +131,7 @@ The accountant is global: finance covers Kindergarten, Primary, and Secondary in
 - [ ] The consolidated receipt includes every transaction and the exact balance.
 - [ ] Charges and Financial documents load their data without an authorization error.
 - [ ] The payroll Staff shortcut opens a read-only list; create/edit/import remains unavailable.
-- [ ] New student, import, Settings, and Timetable are not offered to the standard Accountant profile.
+- [ ] Students shows every class, Export list, and New student; Import and Edit/Delete actions remain absent.
 - [ ] Access and responsibilities is blocked.
 
 ---

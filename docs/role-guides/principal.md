@@ -8,7 +8,7 @@ The principal supervises students, teaching, and operations inside one or more a
 
 ## What this role can do
 
-- **Students:** View, search, and export students in scope; no registration or bulk import.
+- **Students:** View, search, export, and register a new student only inside assigned parcours; no bulk import.
 - **Academic:** View grades and results, review packets, view council input, and validate/publish report cards; do not edit teachers’ raw grades.
 - **Attendance and discipline:** View attendance rosters/analytics and manage discipline in scope; attendance marking remains with the responsible teacher.
 - **Timetable:** View, prepare, publish, reopen, and export timetables inside the allowed parcours.
@@ -35,6 +35,7 @@ The principal supervises students, teaching, and operations inside one or more a
 1. Use the class filter; only authorized classes should appear.
 2. Search by name or matricule, open the record, and view family, documents, health, and journey according to permissions.
 3. Export the list to Excel or PDF when needed.
+4. For a new registration, click New student, enter the identity, choose a class in the active parcours, add the family, then confirm.
 
 ### Review grades and report cards
 
@@ -89,14 +90,14 @@ The principal supervises students, teaching, and operations inside one or more a
 
 - No access to Access and responsibilities; only an administrator changes roles and permissions.
 - No class outside assigned parcours, even when opening a link shared by someone else.
-- No student registration/import and no editing teachers’ raw grades.
+- Student registration must remain inside an assigned parcours; bulk import remains an administrator task. Do not edit teachers’ raw grades.
 - Finance remains an oversight view; collections and movements belong to the accountant.
 
 ## Quick verification
 
 - [ ] The student selector contains only classes in the active parcours.
 - [ ] A shared link to an out-of-scope class displays none of that class’s data.
-- [ ] New student and import are unavailable.
+- [ ] New student opens the wizard with only active-parcours classes; Import remains unavailable.
 - [ ] Staff opens, excludes employees assigned only to other levels, and does not open their record from a shared link.
 - [ ] A Principal without an assignment sees a Contact your administrator message and no parcours button.
 - [ ] Access and responsibilities redirects to the home page.

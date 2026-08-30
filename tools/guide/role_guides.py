@@ -269,7 +269,7 @@ ROLE_GUIDES: list[dict] = [
         ),
         "scope": t("Uniquement les cycles et sections linguistiques attribués par l’administrateur.", "Only the school levels and language sections assigned by the administrator."),
         "permissions": [
-            (t("Élèves", "Students"), t("Consulter, rechercher et exporter les élèves du parcours; pas d’inscription ni d’import en masse.", "View, search, and export students in scope; no registration or bulk import.")),
+            (t("Élèves", "Students"), t("Consulter, rechercher, exporter et inscrire un nouvel élève uniquement dans les parcours attribués; pas d’import en masse.", "View, search, export, and register a new student only inside assigned parcours; no bulk import.")),
             (t("Académique", "Academic"), t("Voir notes et résultats, examiner les paquets, consulter le conseil, valider/publier les bulletins; ne pas modifier les notes brutes des enseignants.", "View grades and results, review packets, view council input, and validate/publish report cards; do not edit teachers’ raw grades.")),
             (t("Présence et discipline", "Attendance and discipline"), t("Consulter listes et analyses de présence et gérer la discipline dans le parcours; la saisie de présence reste à l’enseignant responsable.", "View attendance rosters/analytics and manage discipline in scope; attendance marking remains with the responsible teacher.")),
             (t("Emploi du temps", "Timetable"), t("Consulter, préparer, publier, rouvrir et exporter les emplois du temps du parcours autorisé.", "View, prepare, publish, reopen, and export timetables inside the allowed parcours.")),
@@ -299,6 +299,7 @@ ROLE_GUIDES: list[dict] = [
                     t("Utilisez le filtre de classe; seules les classes autorisées doivent apparaître.", "Use the class filter; only authorized classes should appear."),
                     t("Recherchez par nom ou matricule, ouvrez la fiche et consultez famille, documents, santé et parcours selon les permissions.", "Search by name or matricule, open the record, and view family, documents, health, and journey according to permissions."),
                     t("Exportez la liste en Excel ou PDF si nécessaire.", "Export the list to Excel or PDF when needed."),
+                    t("Pour une nouvelle inscription, cliquez Nouvel élève, renseignez l’identité, choisissez une classe du parcours actif, ajoutez la famille puis confirmez.", "For a new registration, click New student, enter the identity, choose a class in the active parcours, add the family, then confirm."),
                 ],
             },
             {
@@ -360,13 +361,13 @@ ROLE_GUIDES: list[dict] = [
         "boundaries": [
             t("Aucun accès à Accès et responsabilités; seul l’administrateur modifie rôles et permissions.", "No access to Access and responsibilities; only an administrator changes roles and permissions."),
             t("Aucune classe hors des parcours attribués, même en ouvrant un lien partagé par une autre personne.", "No class outside assigned parcours, even when opening a link shared by someone else."),
-            t("Pas d’inscription/import élève et pas de modification des notes brutes des enseignants.", "No student registration/import and no editing teachers’ raw grades."),
+            t("Une inscription élève doit rester dans un parcours attribué; l’import en masse reste réservé à l’administration. Ne modifiez pas les notes brutes des enseignants.", "Student registration must remain inside an assigned parcours; bulk import remains an administrator task. Do not edit teachers’ raw grades."),
             t("La finance reste une consultation de direction; les encaissements et mouvements appartiennent au comptable.", "Finance remains an oversight view; collections and movements belong to the accountant."),
         ],
         "verification": [
             t("Le sélecteur d’élèves ne contient que les classes du parcours actif.", "The student selector contains only classes in the active parcours."),
             t("Un lien partagé vers une classe hors périmètre n’affiche aucune donnée de cette classe.", "A shared link to an out-of-scope class displays none of that class’s data."),
-            t("Le bouton Nouvel élève et l’import ne sont pas disponibles.", "New student and import are unavailable."),
+            t("Nouvel élève ouvre l’assistant avec uniquement les classes du parcours actif; Importer reste indisponible.", "New student opens the wizard with only active-parcours classes; Import remains unavailable."),
             t("Personnel s’ouvre, exclut les agents affectés uniquement aux autres cycles et n’ouvre pas leur fiche depuis un lien partagé.", "Staff opens, excludes employees assigned only to other levels, and does not open their record from a shared link."),
             t("Un principal sans affectation voit un message Contacter l’administrateur et aucun bouton de parcours.", "A Principal without an assignment sees a Contact your administrator message and no parcours button."),
             t("Accès et responsabilités redirige vers l’accueil.", "Access and responsibilities redirects to the home page."),
@@ -385,6 +386,7 @@ ROLE_GUIDES: list[dict] = [
         ),
         "scope": t("Tous les parcours; aucun accès à l’administration des permissions.", "All parcours; no permission administration."),
         "permissions": [
+            (t("Registre des élèves", "Student register"), t("Consulter tous les parcours, filtrer par classe, ouvrir une fiche, exporter et inscrire un nouvel élève; pas d’import en masse ni de modification d’une fiche existante.", "View every parcours, filter by class, open a profile, export, and register a new student; no bulk import or editing an existing profile.")),
             (t("Encaissements", "Collections"), t("Créer des paiements, choisir le compte crédité, produire reçus, exporter et consulter l’historique.", "Create payments, choose the credited account, issue receipts, export, and review payment history.")),
             (t("Comptes élèves", "Student accounts"), t("Filtrer par classe, voir facturé/payé/solde/crédit et générer un reçu consolidé couvrant toutes les tranches.", "Filter by class, view billed/paid/balance/credit, and generate a consolidated receipt across all instalments.")),
             (t("Trésorerie", "Treasury"), t("Créer/archiver les comptes, enregistrer dépôts, retraits et transferts, puis rapprocher les soldes.", "Create/archive accounts, record deposits, withdrawals, and transfers, then reconcile balances.")),
@@ -394,6 +396,17 @@ ROLE_GUIDES: list[dict] = [
             (t("Comptabilité et rapports", "Accounting and reporting"), t("Consulter plan comptable, journaux, balance, grand livre, rapprochement et rapports financiers contextualisés.", "Use the chart of accounts, journals, trial balance, general ledger, reconciliation, and contextual finance reports.")),
         ],
         "workflows": [
+            {
+                "title": t("Consulter ou inscrire un élève", "View or register a student"),
+                "route": "/students",
+                "steps": [
+                    t("Depuis Applications, ouvrez Élèves; choisissez une classe ou recherchez par nom/matricule.", "From Apps, open Students; choose a class or search by name/matricule."),
+                    t("Cliquez Exporter liste pour obtenir Excel/CSV ou PDF.", "Click Export list to download Excel/CSV or PDF."),
+                    t("Pour une inscription individuelle, cliquez Nouvel élève, renseignez l’identité et choisissez la classe dans n’importe quel parcours.", "For an individual registration, click New student, enter the identity, and choose the class from any parcours."),
+                    t("Ajoutez au moins un parent ou tuteur; choisissez Aucun accès portail si aucune adresse e-mail n’est disponible, puis vérifiez et confirmez.", "Add at least one guardian; choose No portal access when no email is available, then review and confirm."),
+                ],
+                "note": t("Après création, la fiche reste consultable mais sa modification, sa suppression et la gestion ultérieure des liens familiaux ne font pas partie du rôle Comptable.", "After creation, the profile remains viewable, but editing, deletion, and later family-link management are not part of the Accountant role."),
+            },
             {
                 "title": t("Enregistrer un paiement", "Record a payment"),
                 "route": "/finance",
@@ -488,7 +501,8 @@ ROLE_GUIDES: list[dict] = [
         ],
         "boundaries": [
             t("Aucun accès à Accès et responsabilités.", "No access to Access and responsibilities."),
-            t("Le profil comptable standard ne peut ni inscrire/importer un élève, ni modifier la structure scolaire, les matières ou l’emploi du temps.", "The standard Accountant profile cannot register/import students or change school structure, subjects, or timetables."),
+            t("Le comptable peut inscrire un élève individuellement, mais ne peut pas importer en masse, modifier/supprimer une fiche existante, ni gérer ensuite ses liens familiaux.", "The Accountant may register an individual student, but cannot bulk import, edit/delete an existing profile, or later manage its family links."),
+            t("Aucune modification de la structure scolaire, des matières ou des emplois du temps.", "No changes to school structure, subjects, or timetables."),
             t("Personnel est strictement en lecture seule; la création et la modification appartiennent à l’administration ou à la direction autorisée.", "Staff is strictly read-only; creation and editing belong to administration or authorized management."),
             t("Ne supprimez jamais une transaction financière publiée; utilisez annulation, remboursement ou contre-écriture.", "Never delete a posted finance transaction; use void, refund, or reversal."),
             t("Une même personne ne doit pas calculer, revoir et approuver une paie si la séparation des tâches est requise.", "One person must not calculate, review, and approve payroll when segregation of duties is required."),
@@ -500,7 +514,7 @@ ROLE_GUIDES: list[dict] = [
             t("Le reçu consolidé reprend toutes les transactions et le solde exact.", "The consolidated receipt includes every transaction and the exact balance."),
             t("Charges et Documents financiers chargent leurs données sans erreur d’autorisation.", "Charges and Financial documents load their data without an authorization error."),
             t("Le raccourci Personnel de la paie ouvre une liste en lecture seule; créer/modifier/importer reste absent.", "The payroll Staff shortcut opens a read-only list; create/edit/import remains unavailable."),
-            t("Nouvel élève, import, Réglages et Emploi du temps ne sont pas proposés au profil comptable standard.", "New student, import, Settings, and Timetable are not offered to the standard Accountant profile."),
+            t("Élèves affiche toutes les classes, Exporter liste et Nouvel élève; Importer et les actions Modifier/Supprimer restent absentes.", "Students shows every class, Export list, and New student; Import and Edit/Delete actions remain absent."),
             t("Accès et responsabilités est bloqué.", "Access and responsibilities is blocked."),
         ],
         "known_gaps": [],
