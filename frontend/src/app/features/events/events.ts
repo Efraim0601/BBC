@@ -56,7 +56,7 @@ const EVENT_TYPES: Record<string, TypeMeta> = {
       </bbc-page-header>
 
       <!-- KPIs -->
-      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
+      <div class="responsive-kpi-grid grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
         <bbc-kpi tone="neutral" icon="calendar" [label]="fr() ? 'À venir' : 'Upcoming'"
           [value]="upcoming().length" [sub]="fr() ? 'événements' : 'events'" />
         <bbc-kpi tone="ok" icon="bell" [label]="fr() ? 'Notifiés' : 'Notified'"

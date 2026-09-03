@@ -120,6 +120,7 @@ td small, th small { display: block; margin-top: .15rem; color: #64748b; font-si
 @media (max-width: 620px) {
   .collections-shell { padding: 1rem; }
   .collections-hero { display: grid; }
+  .hero-links a { display: inline-flex; min-height: 44px; align-items: center; }
   .search-row, .filter-row, .account-context, .actions { align-items: stretch; flex-direction: column; }
   .session-filter { width: auto; }
   .form-grid, .quote-summary, .review-grid { grid-template-columns: 1fr; }

@@ -25,7 +25,11 @@ const today = () => new Date().toISOString().slice(0, 10);
           <h1>{{ fr() ? 'Comptes, dépôts et retraits' : 'Accounts, deposits and withdrawals' }}</h1>
           <p>{{ fr() ? 'Chaque solde vient du journal comptable. Une opération reste traçable et ne peut pas être supprimée.' : 'Every balance comes from the accounting ledger. Each operation stays traceable and cannot be deleted.' }}</p>
         </div>
-        <div class="hero-links"><a routerLink="/finance">{{ fr() ? 'Vue finance' : 'Finance overview' }}</a><a routerLink="/finance/accounting">{{ fr() ? 'Comptabilité avancée' : 'Advanced accounting' }}</a></div>
+        <div class="hero-links">
+          <a routerLink="/finance">{{ fr() ? 'Vue finance' : 'Finance overview' }}</a>
+          @if (auth.canAction('ACCOUNT_MANAGE')) { <a routerLink="/finance/accounting">{{ fr() ? 'Comptabilité avancée' : 'Advanced accounting' }}</a> }
+          @if (!canManage() && !canMove()) { <span>{{ fr() ? 'Consultation uniquement' : 'View only' }}</span> }
+        </div>
       </header>
 
       @if (error()) { <div class="state-error" role="alert">{{ error() }} <button type="button" (click)="reload()">{{ fr() ? 'Réessayer' : 'Retry' }}</button></div> }
@@ -39,8 +43,8 @@ const today = () => new Date().toISOString().slice(0, 10);
 
       <div class="treasury-grid">
         <section class="panel">
-          <div class="section-heading"><div><h2>{{ fr() ? 'Comptes opérationnels' : 'Operational accounts' }}</h2><p>{{ fr() ? 'Cash, BGFI, Afriland, CCA et Regional. Archiver retire un compte des opérations sans effacer son historique.' : 'Cash, BGFI, Afriland, CCA and Regional. Archiving removes an account from operations without deleting its history.' }}</p></div><button type="button" class="btn-primary" [disabled]="!canManage()" (click)="accountFormOpen.set(!accountFormOpen())">+ {{ fr() ? 'Ajouter un compte' : 'Add account' }}</button></div>
-          @if (accountFormOpen()) {
+          <div class="section-heading"><div><h2>{{ fr() ? 'Comptes opérationnels' : 'Operational accounts' }}</h2><p>{{ fr() ? 'Cash, BGFI, Afriland, CCA et Regional. Archiver retire un compte des opérations sans effacer son historique.' : 'Cash, BGFI, Afriland, CCA and Regional. Archiving removes an account from operations without deleting its history.' }}</p></div>@if (canManage()) { <button type="button" class="btn-primary" (click)="accountFormOpen.set(!accountFormOpen())">+ {{ fr() ? 'Ajouter un compte' : 'Add account' }}</button> }</div>
+          @if (accountFormOpen() && canManage()) {
             <div class="form-box">
               <div class="form-grid">
                 <label class="field-label">{{ fr() ? 'Type' : 'Type' }} *<select class="field" [(ngModel)]="accountDraft.kind"><option value="CASH">{{ fr() ? 'Espèces' : 'Cash' }}</option><option value="BANK">{{ fr() ? 'Banque' : 'Bank' }}</option><option value="MOBILE_WALLET">{{ fr() ? 'Portefeuille mobile' : 'Mobile wallet' }}</option><option value="OTHER">{{ fr() ? 'Autre' : 'Other' }}</option></select></label>
@@ -53,7 +57,7 @@ const today = () => new Date().toISOString().slice(0, 10);
               <div class="actions"><button type="button" class="btn-secondary" (click)="accountFormOpen.set(false)">{{ fr() ? 'Annuler' : 'Cancel' }}</button><button type="button" class="btn-primary" [disabled]="saving()" (click)="saveAccount()">{{ saving() ? '…' : (fr() ? 'Créer le compte' : 'Create account') }}</button></div>
             </div>
           }
-          @if (archiveTarget(); as target) {
+          @if (canManage() && archiveTarget(); as target) {
             <div class="form-box archive-box">
               <strong>{{ fr() ? 'Archiver ' + target.displayName + ' ?' : 'Archive ' + target.displayName + '?' }}</strong>
               <p>{{ fr() ? 'Le compte disparaîtra des opérations mais son solde et son historique resteront consultables.' : 'The account will leave daily operations, but its balance and history will remain available.' }}</p>
@@ -68,7 +72,7 @@ const today = () => new Date().toISOString().slice(0, 10);
           </div>
         </section>
 
-        <section class="panel">
+        @if (canMove()) { <section class="panel">
           <div class="section-heading"><div><h2>{{ fr() ? 'Enregistrer un mouvement' : 'Record a movement' }}</h2><p>{{ fr() ? 'Dépôt et retrait exigent une contrepartie. Un transfert entre comptes ne crée ni recette ni dépense.' : 'A deposit or withdrawal requires a counter-account. A transfer between accounts creates neither revenue nor expense.' }}</p></div></div>
           <div class="form-grid single">
             <label class="field-label">{{ fr() ? 'Opération' : 'Operation' }} *<select class="field" [(ngModel)]="movementDraft.movementType"><option value="DEPOSIT">{{ fr() ? 'Dépôt' : 'Deposit' }}</option><option value="WITHDRAWAL">{{ fr() ? 'Retrait' : 'Withdrawal' }}</option><option value="TRANSFER">{{ fr() ? 'Transfert interne' : 'Internal transfer' }}</option></select></label>
@@ -81,7 +85,11 @@ const today = () => new Date().toISOString().slice(0, 10);
             <label class="field-label">{{ fr() ? 'Référence' : 'Reference' }}<input class="field" [(ngModel)]="movementDraft.reference" placeholder="N° bordereau, relevé…"></label>
           </div>
           <div class="actions"><button type="button" class="btn-primary full" [disabled]="!canMove() || saving()" (click)="saveMovement()">{{ saving() ? (fr() ? 'Publication…' : 'Posting…') : (fr() ? 'Enregistrer et poster' : 'Record and post') }}</button></div>
-        </section>
+        </section> } @else {
+          <section class="panel">
+            <div class="section-heading"><div><h2>{{ fr() ? 'Consultation des mouvements' : 'Movement overview' }}</h2><p>{{ fr() ? 'Vous pouvez consulter les soldes et l’historique. Les dépôts, retraits et transferts sont réservés au service financier.' : 'You can view balances and history. Deposits, withdrawals and transfers are reserved for finance staff.' }}</p></div></div>
+          </section>
+        }
       </div>
 
       <section class="panel movement-panel"><div class="section-heading"><div><h2>{{ fr() ? 'Historique des mouvements' : 'Movement history' }}</h2><p>{{ movements().length }} {{ fr() ? 'opérations immuables' : 'immutable operations' }}</p></div><button type="button" class="btn-secondary" (click)="reload()">{{ fr() ? 'Actualiser' : 'Refresh' }}</button></div>@if (!movements().length) { <div class="empty-state">{{ fr() ? 'Aucun mouvement enregistré.' : 'No movements recorded.' }}</div> } @else {<div class="table-wrap"><table><thead><tr><th>{{ fr() ? 'N° / date' : 'No. / date' }}</th><th>{{ fr() ? 'Opération' : 'Operation' }}</th><th>{{ fr() ? 'Comptes' : 'Accounts' }}</th><th>{{ fr() ? 'Motif' : 'Reason' }}</th><th class="right">{{ fr() ? 'Montant' : 'Amount' }}</th><th>{{ fr() ? 'Journal' : 'Journal' }}</th></tr></thead><tbody>@for (movement of movements(); track movement.id) {<tr><td><strong>{{ movement.movementNo }}</strong><small>{{ movement.entryDate }}</small></td><td><span class="movement-pill" [class]="'movement-' + movement.movementType.toLowerCase()">{{ movementLabel(movement.movementType) }}</span></td><td><small>{{ movement.fromAccountName || '—' }} → {{ movement.toAccountName || '—' }}</small></td><td><div>{{ movement.reason }}</div><small>{{ movement.reference || '—' }}</small></td><td class="right"><strong>{{ money(movement.amountMinor) }}</strong></td><td><small class="mono">{{ movement.journalNumber || '—' }}</small></td></tr>}</tbody></table></div>}</section>

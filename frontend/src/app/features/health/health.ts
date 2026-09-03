@@ -50,7 +50,7 @@ interface CatMeta { fr: string; en: string; badge: string; }
                   <div class="text-xs text-mute">{{ health()!.matricule }} · {{ health()!.className }}</div>
                 </div>
               </div>
-              <div class="grid grid-cols-3 gap-3">
+              <div class="responsive-kpi-grid grid grid-cols-3 gap-3">
                 <bbc-kpi [label]="fr() ? 'Groupe sanguin' : 'Blood group'" [value]="health()!.record?.bloodGroup || '—'" icon="spark" />
                 <bbc-kpi [label]="fr() ? 'Passages infirmerie' : 'Infirmary visits'" [value]="health()!.visits.length.toString()" icon="shield" />
                 <bbc-kpi [label]="fr() ? 'Activités' : 'Activities'" [value]="health()!.activities.length.toString()" icon="star" />

@@ -42,7 +42,7 @@ const PALETTE = ['#1B3A5C', '#D4A843', '#2D5586', '#E2C05A', '#7E9CBA', '#94701D
       </bbc-page-header>
 
       <!-- Financial KPIs -->
-      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
+      <div class="responsive-kpi-grid grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
         <bbc-kpi tone="ok" icon="cash" [label]="fr() ? 'Recettes' : 'Revenue'"
           [value]="money(finance()?.totalRevenue ?? 0)" />
         <bbc-kpi tone="bad" icon="wallet" [label]="fr() ? 'Dépenses' : 'Expenses'"

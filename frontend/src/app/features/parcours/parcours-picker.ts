@@ -202,6 +202,10 @@ export class ParcoursPickerComponent {
 
   private commit(level: Lvl, subsystem: 'FR' | 'EN'): void {
     this.scope.set({ level, subsystem });
+    // The login-time capability request intentionally has no parcours yet.
+    // Refresh it after the trusted scope is stored so contextual Principal
+    // actions (for example Add student) are evaluated for this selection.
+    this.auth.retryCapabilities();
     this.router.navigate(['/apps']);
   }
 
@@ -242,6 +246,7 @@ export class ParcoursPickerComponent {
 
   protected commitAll(): void {
     this.scope.setAll();
+    this.auth.retryCapabilities();
     this.router.navigate(['/apps']);
   }
 

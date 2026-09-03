@@ -49,7 +49,7 @@ interface DayGroup { date: string; entries: EntryView[]; }
             </select>
           </div>
           @if (selectedClass()) {
-            <div class="grid grid-cols-2 gap-3 md:w-80">
+            <div class="responsive-kpi-grid grid grid-cols-2 gap-3 md:w-80">
               <bbc-kpi [label]="fr() ? 'Entrées' : 'Entries'" [value]="entries().length.toString()" icon="book" />
               <bbc-kpi [label]="fr() ? 'Devoirs' : 'Homework'" [value]="homeworkCount().toString()" icon="doc" />
             </div>

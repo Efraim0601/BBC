@@ -4,6 +4,8 @@ import com.bbc.sms.finance.dto.FeeDtos.*;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AuthorizationPolicyService;
 import com.bbc.sms.platform.security.PolicyResourceContext;
+import com.bbc.sms.platform.security.TeacherScopeService;
+import com.bbc.sms.platform.tenant.ParcoursContext;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.student.Student;
 import com.bbc.sms.student.StudentRepository;
@@ -47,6 +49,7 @@ public class FeeService {
     private final SchoolClassRepository classes;
     private final AuthorizationPolicyService policy;
     private final JdbcTemplate jdbc;
+    private final TeacherScopeService teacherScope;
 
     private record FinanceStudent(UUID id, String matricule, String firstName,
                                   String lastName, String className) {}
@@ -54,7 +57,8 @@ public class FeeService {
     public FeeService(FeeConfigRepository feeConfigs, StudentFeeRepository studentFees,
                       StudentRepository students, PaymentRepository payments,
                       PaymentChannelRepository channels, SchoolClassRepository classes,
-                      AuthorizationPolicyService policy, JdbcTemplate jdbc) {
+                      AuthorizationPolicyService policy, JdbcTemplate jdbc,
+                      TeacherScopeService teacherScope) {
         this.feeConfigs = feeConfigs;
         this.studentFees = studentFees;
         this.students = students;
@@ -63,6 +67,7 @@ public class FeeService {
         this.classes = classes;
         this.policy = policy;
         this.jdbc = jdbc;
+        this.teacherScope = teacherScope;
     }
 
     // ------------------------------------------------------------------- grilles
@@ -73,6 +78,7 @@ public class FeeService {
         UUID schoolId = TenantContext.get();
         Map<UUID, String> classNames = classNames(schoolId);
         return feeConfigs.findBySchoolId(schoolId).stream()
+                .filter(this::inActiveParcours)
                 .sorted(Comparator.comparing(FeeConfig::getLevel)
                         .thenComparing(c -> c.getClassId() == null ? "" : classNames.getOrDefault(c.getClassId(), "")))
                 .map(c -> toView(c, classNames))
@@ -82,6 +88,7 @@ public class FeeService {
     @Transactional
     public FeeConfigView upsertConfig(FeeConfigUpdate in) {
         requireSchool("FEE_CONFIGURE");
+        assertConfigScope(in.level(), in.subsystem(), in.classId());
         UUID schoolId = TenantContext.get();
         List<TrancheView> tranches = in.tranches() == null ? List.of() : in.tranches();
 
@@ -121,6 +128,7 @@ public class FeeService {
         FeeConfig cfg = feeConfigs.findById(id)
                 .filter(c -> c.getSchoolId().equals(schoolId))
                 .orElseThrow(() -> ApiException.notFound("Grille de frais"));
+        assertConfigScope(cfg.getLevel(), cfg.getSubsystem(), cfg.getClassId());
         feeConfigs.delete(cfg);
         refreshExpectedTotals(schoolId);
     }
@@ -181,12 +189,14 @@ public class FeeService {
     private List<SituationView> buildSituation(boolean onlyDebtors) {
         UUID schoolId = TenantContext.get();
         Set<UUID> coveredStudents = refreshExpectedTotals(schoolId);
+        Set<UUID> allowedStudents = teacherScope.allowedStudentIds();
         List<StudentFee> feeRows = studentFees.findBySchoolId(schoolId);
         Map<UUID, FinanceStudent> studentsById = financeStudents(schoolId,
                 feeRows.stream().map(StudentFee::getStudentId).collect(Collectors.toSet()));
 
         return feeRows.stream()
                 .filter(sf -> coveredStudents.contains(sf.getStudentId()))
+                .filter(sf -> allowedStudents == null || allowedStudents.contains(sf.getStudentId()))
                 .filter(sf -> !onlyDebtors || sf.getBalance() > 0)
                 .map(sf -> toSituation(sf, studentsById.get(sf.getStudentId())))
                 .sorted(Comparator.comparingLong(SituationView::balance).reversed())
@@ -202,6 +212,7 @@ public class FeeService {
     public StudentFeeStatementView statement(UUID schoolId, UUID studentId) {
         policy.require("PAYMENT_VIEW", new PolicyResourceContext(schoolId, null, LocalDate.now(),
                 null, null, null, studentId, null, null, null, null, null));
+        teacherScope.assertSectionStudent(studentId);
         return statementInternal(schoolId, studentId);
     }
 
@@ -518,6 +529,35 @@ public class FeeService {
         Map<UUID, String> out = new HashMap<>();
         for (SchoolClass c : classes.findBySchoolIdOrderByName(schoolId)) out.put(c.getId(), c.getName());
         return out;
+    }
+
+    private boolean inActiveParcours(FeeConfig config) {
+        String level = ParcoursContext.effectiveLevel();
+        if (level != null && (config.getLevel() == null || !level.equalsIgnoreCase(config.getLevel()))) {
+            return false;
+        }
+        ParcoursContext.Scope scope = ParcoursContext.get();
+        return scope == null || config.getSubsystem() == null
+                || scope.subsystem().equalsIgnoreCase(config.getSubsystem());
+    }
+
+    private void assertConfigScope(String level, String subsystem, UUID classId) {
+        if (classId != null) {
+            teacherScope.assertSectionClass(classId);
+            return;
+        }
+        String effectiveLevel = ParcoursContext.effectiveLevel();
+        if (effectiveLevel != null && (level == null || !effectiveLevel.equalsIgnoreCase(level))) {
+            throw ApiException.coded(org.springframework.http.HttpStatus.FORBIDDEN,
+                    "PARCOURS_RESOURCE_MISMATCH",
+                    "Cette grille ne relève pas du parcours actuellement sélectionné.");
+        }
+        ParcoursContext.Scope scope = ParcoursContext.get();
+        if (scope != null && subsystem != null && !scope.subsystem().equalsIgnoreCase(subsystem)) {
+            throw ApiException.coded(org.springframework.http.HttpStatus.FORBIDDEN,
+                    "PARCOURS_RESOURCE_MISMATCH",
+                    "Cette grille ne relève pas du parcours actuellement sélectionné.");
+        }
     }
 
     private SituationView toSituation(StudentFee sf, FinanceStudent student) {

@@ -28,7 +28,7 @@ import { IconComponent } from './icon';
             <span>{{ fr() ? 'Lignes par page' : 'Rows per page' }}</span>
             <select
               (change)="changeSize($any($event.target).value)"
-              class="h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs font-semibold text-ink focus:border-brand-400 focus:outline-none"
+              class="h-10 sm:h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs font-semibold text-ink focus:border-brand-400 focus:outline-none"
               [attr.aria-label]="fr() ? 'Lignes par page' : 'Rows per page'">
               @for (size of pageSizeOptions(); track size) {
                 <option [value]="size" [selected]="size === pageSize()">{{ size }}</option>
@@ -38,19 +38,19 @@ import { IconComponent } from './icon';
         </div>
 
         @if (pageCount() > 1) {
-          <nav class="flex items-center gap-1" [attr.aria-label]="fr() ? 'Pagination' : 'Pagination'">
+          <nav class="flex w-full sm:w-auto items-center justify-center gap-1" [attr.aria-label]="fr() ? 'Pagination' : 'Pagination'">
             <button type="button" (click)="go(page() - 1)" [disabled]="page() <= 1"
-              class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-mute hover:border-brand-300 hover:text-brand-700 disabled:cursor-not-allowed disabled:opacity-35"
+              class="inline-flex h-10 w-10 sm:h-8 sm:w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-mute hover:border-brand-300 hover:text-brand-700 disabled:cursor-not-allowed disabled:opacity-35"
               [attr.aria-label]="fr() ? 'Page précédente' : 'Previous page'">
               <bbc-icon name="chevronLeft" [s]="14" />
             </button>
 
             @for (item of pageItems(); track $index) {
               @if (item === null) {
-                <span class="inline-flex h-8 min-w-6 items-center justify-center px-1 text-xs text-mute">…</span>
+                <span class="inline-flex h-10 sm:h-8 min-w-6 items-center justify-center px-1 text-xs text-mute">…</span>
               } @else {
                 <button type="button" (click)="go(item)"
-                  class="inline-flex h-8 min-w-8 items-center justify-center rounded-lg border px-2 text-xs font-bold transition"
+                  class="inline-flex h-10 min-w-10 sm:h-8 sm:min-w-8 items-center justify-center rounded-lg border px-2 text-xs font-bold transition"
                   [class]="item === page()
                     ? 'border-brand-600 bg-brand-600 text-white'
                     : 'border-slate-200 bg-white text-mute hover:border-brand-300 hover:text-brand-700'"
@@ -62,7 +62,7 @@ import { IconComponent } from './icon';
             }
 
             <button type="button" (click)="go(page() + 1)" [disabled]="page() >= pageCount()"
-              class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-mute hover:border-brand-300 hover:text-brand-700 disabled:cursor-not-allowed disabled:opacity-35"
+              class="inline-flex h-10 w-10 sm:h-8 sm:w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-mute hover:border-brand-300 hover:text-brand-700 disabled:cursor-not-allowed disabled:opacity-35"
               [attr.aria-label]="fr() ? 'Page suivante' : 'Next page'">
               <bbc-icon name="chevronRight" [s]="14" />
             </button>

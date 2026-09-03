@@ -102,9 +102,13 @@ public class TeacherScopeService {
 
     /** Current-session compatibility method. */
     public Set<UUID> allowedClassIds() {
+        Set<UUID> activeParcours = activeParcoursClassIds();
         String adminSection = adminSection();
-        if (adminSection != null) return sectionClasses("c.id", (rs, n) -> rs.getObject(1, UUID.class), adminSection);
-        if (!restricted()) return null;
+        if (adminSection != null) {
+            return intersect(sectionClasses("c.id", (rs, n) -> rs.getObject(1, UUID.class), adminSection),
+                    activeParcours);
+        }
+        if (!restricted()) return activeParcours;
         UUID sessionId = jdbc.query("SELECT id FROM academic_session WHERE school_id=? AND is_current=true",
                 rs -> rs.next() ? rs.getObject(1, UUID.class) : null, TenantContext.get());
         LocalDate date = sessionId == null ? LocalDate.now() : jdbc.query(
@@ -115,22 +119,25 @@ public class TeacherScopeService {
 
     /** Session/effective-date aware class scope. */
     public Set<UUID> allowedClassIds(UUID academicSessionId, LocalDate effectiveDate) {
+        Set<UUID> activeParcours = activeParcoursClassIds();
         String adminSection = adminSection();
-        if (adminSection != null) return sectionClasses("c.id", (rs, n) -> rs.getObject(1, UUID.class), adminSection);
-        if (!restricted()) return null;
+        if (adminSection != null) {
+            return intersect(sectionClasses("c.id", (rs, n) -> rs.getObject(1, UUID.class), adminSection),
+                    activeParcours);
+        }
+        if (!restricted()) return activeParcours;
         List<UUID> ids = jdbc.query("""
                 SELECT DISTINCT c.id
                   FROM school_class c
                  WHERE c.school_id=?
                 """, (rs, n) -> rs.getObject(1, UUID.class), TenantContext.get());
-        return ids.stream().filter(id -> accessPolicy.can(
+        Set<UUID> assigned = ids.stream().filter(id -> accessPolicy.can(
                 AcademicAccessPolicyService.Capability.ACADEMIC_ROSTER_VIEW,
                 academicSessionId, id, null, null, effectiveDate)).collect(java.util.stream.Collectors.toUnmodifiableSet());
+        return intersect(assigned, activeParcours);
     }
 
     public Set<String> allowedClassNames() {
-        String adminSection = adminSection();
-        if (adminSection != null) return sectionClasses("c.name", (rs, n) -> rs.getString(1), adminSection);
         Set<UUID> ids = allowedClassIds();
         if (ids == null) return null;
         if (ids.isEmpty()) return Set.of();
@@ -138,11 +145,65 @@ public class TeacherScopeService {
                 (rs, n) -> rs.getString(1), TenantContext.get(), ids.toArray(UUID[]::new)));
     }
 
+    /**
+     * Students reachable through the effective class scope.  This is the
+     * list-safe counterpart of {@link #assertStudent(UUID)}: callers can
+     * filter aggregate screens without issuing one authorization query per
+     * row.  A linked bilingual cohort is deliberately reachable through
+     * either of its programme classes.
+     *
+     * @return {@code null} only for a genuine whole-school request
+     */
+    public Set<UUID> allowedStudentIds() {
+        Set<UUID> classIds = allowedClassIds();
+        if (classIds == null) return null;
+        if (classIds.isEmpty()) return Set.of();
+        LocalDate effectiveDate = currentEffectiveDate();
+        UUID[] ids = classIds.toArray(UUID[]::new);
+        return Set.copyOf(jdbc.query("""
+                SELECT DISTINCT s.id
+                  FROM student s
+                  LEFT JOIN LATERAL (
+                       SELECT e.id,e.academic_session_id,e.school_class_id,e.cohort_id
+                         FROM student_enrollment e
+                         JOIN academic_session session
+                           ON session.id=e.academic_session_id
+                          AND session.school_id=e.school_id
+                        WHERE e.school_id=s.school_id AND e.student_id=s.id
+                          AND e.status='ACTIVE' AND session.is_current=true
+                          AND e.enrolled_on<=?
+                          AND (e.exited_on IS NULL OR e.exited_on>=?)
+                        ORDER BY e.enrolled_on DESC,e.created_at DESC LIMIT 1
+                  ) enrollment ON true
+                 WHERE s.school_id=? AND s.active=true
+                   AND (
+                        COALESCE(enrollment.school_class_id,s.class_id)=ANY(?)
+                        OR EXISTS (
+                            SELECT 1
+                              FROM academic_cohort_programme programme
+                             WHERE programme.school_id=s.school_id
+                               AND programme.academic_session_id=enrollment.academic_session_id
+                               AND programme.cohort_id=enrollment.cohort_id
+                               AND programme.active=true
+                               AND programme.school_class_id=ANY(?)
+                        )
+                        OR (enrollment.id IS NULL AND EXISTS (
+                            SELECT 1 FROM school_class legacy_class
+                             WHERE legacy_class.school_id=s.school_id
+                               AND legacy_class.name=s.class_name
+                               AND legacy_class.id=ANY(?)
+                        ))
+                   )
+                """, (rs, n) -> rs.getObject(1, UUID.class),
+                effectiveDate, effectiveDate, TenantContext.get(), ids, ids, ids));
+    }
+
     private <T> Set<T> sectionClasses(String column, org.springframework.jdbc.core.RowMapper<T> mapper, String section) {
         return Set.copyOf(jdbc.query(SECTION_SQL.formatted(column), mapper, TenantContext.get(), section));
     }
 
     public void assertClass(UUID classId) {
+        assertActiveParcoursClass(classId);
         if (adminSection() != null) { assertClassInSection(classId); return; }
         if (!restricted()) return;
         UUID sessionId = jdbc.query("SELECT id FROM academic_session WHERE school_id=? AND is_current=true",
@@ -156,6 +217,7 @@ public class TeacherScopeService {
     }
 
     public void assertClass(UUID academicSessionId, UUID classId, LocalDate effectiveDate) {
+        assertActiveParcoursClass(classId);
         if (adminSection() != null) { assertClassInSection(classId); return; }
         if (!restricted()) return;
         accessPolicy.require(AcademicAccessPolicyService.Capability.ACADEMIC_ROSTER_VIEW,
@@ -176,6 +238,7 @@ public class TeacherScopeService {
 
     /** Compatibility student assertion resolves active enrollment in current session. */
     public void assertStudent(UUID studentId) {
+        assertActiveParcoursStudent(studentId);
         if (adminSection() != null) { assertStudentInSection(studentId); return; }
         if (!restricted()) return;
         UUID sessionId = jdbc.query("SELECT id FROM academic_session WHERE school_id=? AND is_current=true",
@@ -189,6 +252,8 @@ public class TeacherScopeService {
 
     /** Session-aware enrollment scope. classId may be null when only class membership is needed. */
     public void assertStudent(UUID studentId, UUID academicSessionId, LocalDate effectiveDate, UUID classId) {
+        assertActiveParcoursStudent(studentId);
+        if (classId != null) assertActiveParcoursClass(classId);
         if (adminSection() != null) { assertStudentInSection(studentId); return; }
         if (!restricted()) return;
         UUID enrolledClass = jdbc.query("""
@@ -243,12 +308,14 @@ public class TeacherScopeService {
      * l'appelant en exige déjà une autre, propre à son module.
      */
     public void assertSectionStudent(UUID studentId) {
+        assertActiveParcoursStudent(studentId);
         if (adminSection() == null) return;
         assertStudentInSection(studentId);
     }
 
     /** Même garde, à partir du nom de la classe. Sans effet hors admin de section. */
     public void assertSectionClassName(String className) {
+        assertActiveParcoursClassName(className);
         if (adminSection() == null) return;
         Set<String> allowed = allowedClassNames();
         if (className == null || allowed == null || !allowed.contains(className)) {
@@ -258,8 +325,138 @@ public class TeacherScopeService {
 
     /** Même garde, pour une classe. Sans effet hors admin de section. */
     public void assertSectionClass(UUID classId) {
+        assertActiveParcoursClass(classId);
         if (adminSection() == null) return;
         assertClassInSection(classId);
+    }
+
+    private Set<UUID> activeParcoursClassIds() {
+        ParcoursContext.Scope scope = ParcoursContext.get();
+        if (scope == null) return null;
+        return Set.copyOf(jdbc.query("""
+                SELECT c.id
+                  FROM school_class c
+                 WHERE c.school_id=? AND lower(c.level)=lower(?)
+                   AND upper(c.subsystem)=upper(?)
+                """, (rs, n) -> rs.getObject(1, UUID.class),
+                TenantContext.get(), scope.level(), scope.subsystem()));
+    }
+
+    private static <T> Set<T> intersect(Set<T> left, Set<T> right) {
+        if (right == null) return left;
+        if (left == null) return right;
+        return left.stream().filter(right::contains)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+
+    private void assertActiveParcoursClass(UUID classId) {
+        ParcoursContext.Scope scope = ParcoursContext.get();
+        if (scope == null) return;
+        Boolean allowed = jdbc.query("""
+                SELECT EXISTS(
+                    SELECT 1 FROM school_class c
+                     WHERE c.school_id=? AND c.id=?
+                       AND lower(c.level)=lower(?) AND upper(c.subsystem)=upper(?)
+                )
+                """, rs -> rs.next() && rs.getBoolean(1),
+                TenantContext.get(), classId, scope.level(), scope.subsystem());
+        if (!Boolean.TRUE.equals(allowed)) throw denied("PARCOURS_RESOURCE_MISMATCH");
+    }
+
+    private void assertActiveParcoursClassName(String className) {
+        ParcoursContext.Scope scope = ParcoursContext.get();
+        if (scope == null) return;
+        Boolean allowed = jdbc.query("""
+                SELECT EXISTS(
+                    SELECT 1 FROM school_class c
+                     WHERE c.school_id=? AND c.name=?
+                       AND lower(c.level)=lower(?) AND upper(c.subsystem)=upper(?)
+                )
+                """, rs -> rs.next() && rs.getBoolean(1),
+                TenantContext.get(), className, scope.level(), scope.subsystem());
+        if (!Boolean.TRUE.equals(allowed)) throw denied("PARCOURS_RESOURCE_MISMATCH");
+    }
+
+    /**
+     * Enforces the selected parcours for a student while preserving bilingual
+     * cohorts: an enrollment in the canonical FR class is also in scope from
+     * its active linked EN programme class (and vice versa).
+     */
+    private void assertActiveParcoursStudent(UUID studentId) {
+        ParcoursContext.Scope scope = ParcoursContext.get();
+        if (scope == null) return;
+        LocalDate effectiveDate = currentEffectiveDate();
+        Boolean allowed = jdbc.query("""
+                SELECT EXISTS(
+                    SELECT 1
+                      FROM student s
+                      LEFT JOIN LATERAL (
+                           SELECT e.academic_session_id,e.school_class_id,e.cohort_id
+                             FROM student_enrollment e
+                             JOIN academic_session session
+                               ON session.id=e.academic_session_id
+                              AND session.school_id=e.school_id
+                            WHERE e.school_id=s.school_id AND e.student_id=s.id
+                              AND e.status='ACTIVE' AND session.is_current=true
+                              AND e.enrolled_on<=?
+                              AND (e.exited_on IS NULL OR e.exited_on>=?)
+                            ORDER BY e.enrolled_on DESC,e.created_at DESC LIMIT 1
+                      ) current_enrollment ON true
+                      LEFT JOIN school_class direct_class
+                        ON direct_class.school_id=s.school_id
+                       AND direct_class.id=COALESCE(current_enrollment.school_class_id,s.class_id)
+                     WHERE s.school_id=? AND s.id=? AND s.active=true
+                       AND (
+                            (lower(direct_class.level)=lower(?)
+                             AND upper(direct_class.subsystem)=upper(?))
+                            OR EXISTS (
+                                SELECT 1
+                                  FROM academic_cohort_programme programme
+                                  JOIN school_class programme_class
+                                    ON programme_class.school_id=programme.school_id
+                                   AND programme_class.id=programme.school_class_id
+                                 WHERE programme.school_id=s.school_id
+                                   AND programme.academic_session_id=current_enrollment.academic_session_id
+                                   AND programme.cohort_id=current_enrollment.cohort_id
+                                   AND programme.active=true
+                                   AND lower(programme_class.level)=lower(?)
+                                   AND upper(programme_class.subsystem)=upper(?)
+                            )
+                            OR (direct_class.id IS NULL
+                                AND lower(s.level)=lower(?)
+                                AND upper(s.subsystem)=upper(?))
+                       )
+                )
+                """, rs -> rs.next() && rs.getBoolean(1), effectiveDate, effectiveDate,
+                TenantContext.get(), studentId,
+                scope.level(), scope.subsystem(), scope.level(), scope.subsystem(),
+                scope.level(), scope.subsystem());
+        if (!Boolean.TRUE.equals(allowed)) throw denied("PARCOURS_RESOURCE_MISMATCH");
+    }
+
+    /**
+     * Date at which the current session must be evaluated.  During year setup
+     * the session can start tomorrow (or later); using wall-clock CURRENT_DATE
+     * would make a valid future enrollment disappear from direct profile and
+     * aggregate checks even though the rest of the academic UI already opens
+     * the new session.  The same bounded date is used after the session closes.
+     */
+    private LocalDate currentEffectiveDate() {
+        List<LocalDate[]> rows = jdbc.query("""
+                SELECT start_date,end_date
+                  FROM academic_session
+                 WHERE school_id=? AND is_current=true
+                 ORDER BY start_date DESC LIMIT 1
+                """, (rs, n) -> new LocalDate[]{
+                        rs.getObject("start_date", LocalDate.class),
+                        rs.getObject("end_date", LocalDate.class)}, TenantContext.get());
+        if (rows.isEmpty()) return LocalDate.now();
+        LocalDate today = LocalDate.now();
+        LocalDate start = rows.getFirst()[0];
+        LocalDate end = rows.getFirst()[1];
+        if (start != null && today.isBefore(start)) return start;
+        if (end != null && today.isAfter(end)) return end;
+        return today;
     }
 
     /**

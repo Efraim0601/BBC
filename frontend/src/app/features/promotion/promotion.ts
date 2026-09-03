@@ -85,7 +85,7 @@ const APPLICABLE = ['promoted', 'repeated', 'graduated', 'transferred_out', 'exc
                 [label]="fr() ? 'Choisissez une classe pour simuler son passage.' : 'Pick a class to simulate its promotion.'" />
             </bbc-card>
           } @else {
-            <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div class="responsive-kpi-grid grid grid-cols-2 lg:grid-cols-4 gap-3">
               <bbc-kpi [label]="fr() ? 'Effectif' : 'Headcount'" [value]="preview()!.total.toString()"
                 [sub]="preview()!.graded + (fr() ? ' noté(s)' : ' graded')" icon="users" />
               <bbc-kpi [label]="fr() ? 'Seuil d’admission' : 'Pass mark'" [value]="preview()!.passMark + '/20'"
@@ -134,7 +134,19 @@ const APPLICABLE = ['promoted', 'repeated', 'graduated', 'transferred_out', 'exc
               @if (preview()!.candidates.length === 0) {
                 <bbc-empty icon="users" [label]="fr() ? 'Aucun élève actif dans cette classe.' : 'No active student in this class.'" />
               } @else {
-                <div class="overflow-x-auto -mx-5">
+                <div class="grid gap-3 md:hidden">
+                  @for (c of preview()!.candidates; track c.studentId) {
+                    <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm" [class.bg-amber-50]="isOverridden(c)">
+                      <div class="flex min-w-0 items-start gap-3"><bbc-avatar [name]="c.studentName" [hue]="c.photoHue" [size]="36" /><div class="min-w-0 flex-1"><b class="block break-words text-ink">{{ c.studentName }}</b><span class="mt-0.5 block text-[11px] font-mono text-mute">{{ c.matricule }}</span></div></div>
+                      <div class="mt-3 grid grid-cols-3 gap-2 text-xs"><div class="rounded-lg bg-slate-50 p-2"><span class="block text-[9px] font-semibold uppercase text-mute">{{ fr() ? 'Moyenne' : 'Average' }}</span><b [class]="c.annualAverage == null ? 'text-slate-400' : (c.annualAverage >= preview()!.passMark ? 'text-emerald-700' : 'text-rose-700')">{{ c.annualAverage != null ? c.annualAverage + '/20' : '—' }}</b></div><div class="rounded-lg bg-slate-50 p-2"><span class="block text-[9px] font-semibold uppercase text-mute">{{ fr() ? 'Rang' : 'Rank' }}</span><b>{{ c.rank != null ? c.rank + '/' + c.classSize : '—' }}</b></div><div class="rounded-lg bg-slate-50 p-2"><span class="block text-[9px] font-semibold uppercase text-mute">{{ fr() ? 'Redoubl.' : 'Repeats' }}</span><b>{{ c.priorRepeats || '—' }}</b></div></div>
+                      <div class="mt-3 rounded-lg bg-brand-50 p-3 text-xs"><span class="font-semibold text-brand-700">{{ fr() ? 'Proposition' : 'Proposal' }} · {{ label(c.proposedResult) }}</span><p class="mt-1 text-mute">{{ c.proposalReason }}</p></div>
+                      <label class="mt-3 block"><span class="text-[10px] font-semibold uppercase text-mute">{{ fr() ? 'Décision retenue' : 'Final decision' }}</span><select [ngModel]="row(c).result" (ngModelChange)="setResult(c, $event)" [disabled]="!canRun" class="mt-1 h-11 w-full rounded-lg border bg-white px-3 text-sm focus:border-brand-400 focus:outline-none" [class]="isOverridden(c) ? 'border-amber-300 font-semibold' : 'border-slate-200'"><option value="">{{ fr() ? '— À trancher —' : '— Undecided —' }}</option>@for (r of applicable; track r) {<option [value]="r">{{ label(r) }}</option>}</select></label>
+                      @if (row(c).result === 'promoted') {<label class="mt-3 block"><span class="text-[10px] font-semibold uppercase text-mute">{{ fr() ? 'Classe d’accueil' : 'Receiving class' }}</span><select [ngModel]="row(c).toClassId" (ngModelChange)="setTarget(c, $event)" [disabled]="!canRun" class="mt-1 h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-brand-400 focus:outline-none"><option value="">{{ fr() ? '— Choisir —' : '— Pick —' }}</option>@for (p of progression(); track p.classId) {@if (p.classId !== preview()!.classId) {<option [value]="p.classId">{{ p.className }}</option>}}</select></label>}
+                      @if (isOverridden(c)) {<label class="mt-3 block"><span class="text-[10px] font-semibold uppercase text-mute">{{ fr() ? 'Motif de l’arbitrage' : 'Override reason' }}</span><input [ngModel]="row(c).reason" (ngModelChange)="setReason(c, $event)" [disabled]="!canRun" [placeholder]="fr() ? 'Motif obligatoire…' : 'Reason required…'" class="mt-1 h-11 w-full rounded-lg border px-3 text-sm focus:border-brand-400 focus:outline-none" [class]="row(c).reason.trim() ? 'border-slate-200' : 'border-rose-300 bg-rose-50'" /></label>}
+                    </article>
+                  }
+                </div>
+                <div class="hidden overflow-x-auto -mx-5 md:block">
                   <table class="w-full text-sm min-w-[64rem]">
                     <thead>
                       <tr class="text-[11px] uppercase tracking-wide text-mute border-b border-slate-100">
@@ -268,7 +280,17 @@ const APPLICABLE = ['promoted', 'repeated', 'graduated', 'transferred_out', 'exc
             @if (progression().length === 0) {
               <bbc-empty icon="building" [label]="fr() ? 'Aucune classe dans ce parcours.' : 'No class in this parcours.'" />
             } @else {
-              <div class="overflow-x-auto -mx-5">
+              <div class="grid gap-3 md:hidden">
+                @for (p of progression(); track p.classId) {
+                  <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <div class="flex min-w-0 items-start justify-between gap-3"><div class="min-w-0"><span class="block text-[10px] font-semibold uppercase text-mute">{{ p.sectionLabel }}</span><b class="mt-1 block break-words text-ink">{{ p.className }}</b></div><span class="shrink-0 rounded-lg bg-slate-100 px-2 py-1 text-xs font-semibold text-mute">{{ p.studentCount }} {{ fr() ? 'élèves' : 'students' }}</span></div>
+                    <label class="mt-3 block"><span class="text-[10px] font-semibold uppercase text-mute">{{ fr() ? 'Ordre' : 'Order' }}</span><input type="number" min="0" [ngModel]="prog(p).gradeOrder" (ngModelChange)="setOrder(p, $event)" [disabled]="!canConfig" class="mt-1 h-11 w-full rounded-lg border border-slate-200 px-3 text-sm focus:border-brand-400 focus:outline-none" /></label>
+                    <label class="mt-3 block"><span class="text-[10px] font-semibold uppercase text-mute">{{ fr() ? 'Classe suivante' : 'Next class' }}</span><select [ngModel]="prog(p).nextClassId ?? ''" (ngModelChange)="setNext(p, $event)" [disabled]="!canConfig || prog(p).terminal" class="mt-1 h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-brand-400 focus:outline-none disabled:bg-slate-50"><option value="">{{ fr() ? '— Aucune —' : '— None —' }}</option>@for (t of progression(); track t.classId) {@if (t.classId !== p.classId) {<option [value]="t.classId">{{ t.className }}</option>}}</select></label>
+                    <label class="mt-3 flex min-h-11 items-center gap-3 rounded-lg border border-slate-200 px-3 text-sm font-semibold"><input type="checkbox" [ngModel]="prog(p).terminal" (ngModelChange)="setTerminal(p, $event)" [disabled]="!canConfig" class="h-5 w-5 accent-brand-600" /><span>{{ fr() ? 'Classe de sortie' : 'Exit class' }}</span></label>
+                  </article>
+                }
+              </div>
+              <div class="hidden overflow-x-auto -mx-5 md:block">
                 <table class="w-full text-sm min-w-[46rem]">
                   <thead>
                     <tr class="text-[11px] uppercase tracking-wide text-mute border-b border-slate-100">
@@ -325,7 +347,15 @@ const APPLICABLE = ['promoted', 'repeated', 'graduated', 'transferred_out', 'exc
             [subtitle]="fr()
               ? 'La règle la plus précise l’emporte : classe > parcours > école'
               : 'Most specific rule wins: class > parcours > school'">
-            <div class="overflow-x-auto -mx-5">
+            <div class="grid gap-3 md:hidden">
+              @for (r of rules(); track r.id) {
+                <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <div class="flex items-start justify-between gap-3"><b class="break-words text-ink">{{ r.scopeLabel }}</b>@if (canConfig) {<div class="flex shrink-0 gap-1"><button (click)="editRule(r)" class="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-slate-200 text-brand-700" [attr.aria-label]="fr() ? 'Modifier la règle' : 'Edit rule'"><bbc-icon name="edit" [s]="15" /></button>@if (r.specificity > 0) {<button (click)="removeRule(r)" class="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-rose-200 text-rose-700" [attr.aria-label]="fr() ? 'Supprimer la règle' : 'Delete rule'"><bbc-icon name="trash" [s]="15" /></button>}</div>}</div>
+                  <div class="mt-3 grid grid-cols-3 gap-2 text-xs"><div class="rounded-lg bg-brand-50 p-2"><span class="block text-[9px] font-semibold uppercase text-brand-700">{{ fr() ? 'Seuil' : 'Pass mark' }}</span><b>{{ r.passMark }}/20</b></div><div class="rounded-lg bg-slate-50 p-2"><span class="block text-[9px] font-semibold uppercase text-mute">{{ fr() ? 'Zone conseil' : 'Council zone' }}</span><b>{{ r.councilMargin > 0 ? '−' + r.councilMargin : '—' }}</b></div><div class="rounded-lg bg-slate-50 p-2"><span class="block text-[9px] font-semibold uppercase text-mute">{{ fr() ? 'Redoubl. max' : 'Max repeats' }}</span><b>{{ r.maxRepeats ?? '—' }}</b></div></div>
+                </article>
+              }
+            </div>
+            <div class="hidden overflow-x-auto -mx-5 md:block">
               <table class="w-full text-sm min-w-[42rem]">
                 <thead>
                   <tr class="text-[11px] uppercase tracking-wide text-mute border-b border-slate-100">
@@ -438,7 +468,7 @@ const APPLICABLE = ['promoted', 'repeated', 'graduated', 'transferred_out', 'exc
                 </div>
               }
 
-              <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+              <div class="responsive-kpi-grid grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
                 <bbc-kpi [label]="fr() ? 'Élèves actifs' : 'Active students'" [value]="k.activeStudents.toString()"
                   [sub]="k.studentsDecided + (fr() ? ' avec décision' : ' with a decision')" icon="users"
                   [tone]="k.studentsPending > 0 ? 'warn' : 'ok'" />

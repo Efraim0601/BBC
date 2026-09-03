@@ -3,6 +3,7 @@ package com.bbc.sms.finance;
 import com.bbc.sms.finance.dto.FeeDtos.FeeConfigUpdate;
 import com.bbc.sms.finance.dto.FeeDtos.TrancheView;
 import com.bbc.sms.platform.security.AuthorizationPolicyService;
+import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.student.Student;
 import com.bbc.sms.student.StudentRepository;
@@ -39,13 +40,15 @@ class FeeServiceObligationSyncTest {
     @Mock SchoolClassRepository classes;
     @Mock AuthorizationPolicyService policy;
     @Mock JdbcTemplate jdbc;
+    @Mock TeacherScopeService teacherScope;
 
     private FeeService service;
 
     @BeforeEach
     void setUp() {
         TenantContext.set(SCHOOL);
-        service = new FeeService(feeConfigs, studentFees, students, payments, channels, classes, policy, jdbc);
+        service = new FeeService(feeConfigs, studentFees, students, payments, channels, classes,
+                policy, jdbc, teacherScope);
     }
 
     @AfterEach

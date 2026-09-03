@@ -32,7 +32,8 @@ import java.util.UUID;
 @Service("policy")
 public class AuthorizationPolicyService {
     private static final Set<String> ADMINISTRATOR_ONLY_ACTIONS = Set.of(
-            "PERMISSION_VIEW", "PERMISSION_MANAGE", "ROLE_MANAGE");
+            "PERMISSION_VIEW", "PERMISSION_MANAGE", "ROLE_VIEW", "ROLE_MANAGE",
+            "MAIL_CONFIG_VIEW", "MAIL_CONFIG_MANAGE");
 
     record Action(String code, String module, String scopeType, String requiredLevel) {}
 
@@ -98,7 +99,7 @@ public class AuthorizationPolicyService {
                     "Ce compte est désactivé.", "This account is disabled.", version, null);
         }
         List<String> activeRoles = activeRoles(principal, tenant, effectiveDate(context));
-        if (ADMINISTRATOR_ONLY_ACTIONS.contains(action.code()) && !isAdministrator(activeRoles)) {
+        if (administratorOnlyAction(action.code()) && !isAdministrator(activeRoles)) {
             return deny(actionCode, "ADMINISTRATOR_ROLE_REQUIRED",
                     "Le contrôle des accès est réservé à l’administrateur.",
                     "Access Control is reserved for the administrator.", version,
@@ -106,6 +107,14 @@ public class AuthorizationPolicyService {
         }
         ParcoursContext.Scope requestedParcours = context.parcours() != null
                 ? context.parcours() : ParcoursContext.get();
+        ParcoursContext.Scope activeParcours = ParcoursContext.get();
+        if (activeParcours != null && context.parcours() != null
+                && !sameParcours(activeParcours, context.parcours())) {
+            return deny(actionCode, "PARCOURS_RESOURCE_MISMATCH",
+                    "Cette ressource n'appartient pas au parcours actuellement sélectionné.",
+                    "This resource is outside the currently selected parcours.", version,
+                    "Revenez au sélecteur de parcours et ouvrez le niveau et la section de cette ressource.");
+        }
         if (requestedParcours != null && !parcours.isAllowed(principal.userId(), requestedParcours)) {
             return deny(actionCode, "PARCOURS_SCOPE_MISMATCH",
                     "Ce parcours ne fait pas partie des niveaux attribués à ce compte.",
@@ -179,6 +188,15 @@ public class AuthorizationPolicyService {
         return context.parcours() == null && requestedParcours != null
                 ? context.withParcours(requestedParcours)
                 : context;
+    }
+
+    private static boolean sameParcours(ParcoursContext.Scope left, ParcoursContext.Scope right) {
+        return left.level().equalsIgnoreCase(right.level())
+                && left.subsystem().equalsIgnoreCase(right.subsystem());
+    }
+
+    static boolean administratorOnlyAction(String actionCode) {
+        return ADMINISTRATOR_ONLY_ACTIONS.contains(normalize(actionCode));
     }
 
     public PolicyDecision require(String actionCode, PolicyResourceContext context) {

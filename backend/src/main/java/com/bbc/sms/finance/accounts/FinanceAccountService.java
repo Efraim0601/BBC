@@ -9,6 +9,7 @@ import com.bbc.sms.finance.accounting.DocumentSequenceService;
 import com.bbc.sms.finance.documents.FinancePdfRenderer;
 import com.bbc.sms.foundation.audit.AuditService;
 import com.bbc.sms.platform.common.ApiException;
+import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.tenant.TenantContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -21,6 +22,7 @@ import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 
 import static com.bbc.sms.finance.accounts.FinanceAccountDtos.*;
@@ -38,6 +40,7 @@ public class FinanceAccountService {
     private final GeneratedDocumentRepository generatedDocuments;
     private final FinancePdfRenderer pdf;
     private final AuditService audit;
+    private final TeacherScopeService teacherScope;
 
     public FinanceAccountService(JdbcTemplate jdbc,
                                  FinancePolicyService financePolicy,
@@ -45,7 +48,8 @@ public class FinanceAccountService {
                                  OfficialDocumentService officialDocuments,
                                  GeneratedDocumentRepository generatedDocuments,
                                  FinancePdfRenderer pdf,
-                                 AuditService audit) {
+                                 AuditService audit,
+                                 TeacherScopeService teacherScope) {
         this.jdbc = jdbc;
         this.financePolicy = financePolicy;
         this.sequences = sequences;
@@ -53,11 +57,13 @@ public class FinanceAccountService {
         this.generatedDocuments = generatedDocuments;
         this.pdf = pdf;
         this.audit = audit;
+        this.teacherScope = teacherScope;
     }
 
     @Transactional(readOnly = true)
     public StudentAccountView student(UUID studentId) {
         financePolicy.requireSchool("FINANCE_STUDENT_ACCOUNT_VIEW");
+        teacherScope.assertSectionStudent(studentId);
         return account(studentId);
     }
 
@@ -65,6 +71,7 @@ public class FinanceAccountService {
     public StudentAccountContextView context() {
         financePolicy.requireSchool("FINANCE_STUDENT_ACCOUNT_VIEW");
         UUID schoolId = TenantContext.get();
+        Set<UUID> allowedClasses = teacherScope.allowedClassIds();
         List<StudentAccountClassOption> classes = jdbc.query("""
                 SELECT c.id,c.name,c.level,c.subsystem,COUNT(DISTINCT student.id)
                   FROM school_class c
@@ -90,7 +97,9 @@ public class FinanceAccountService {
                             WHEN 'primary' THEN 2 WHEN 'secondary' THEN 3 ELSE 4 END,
                           c.grade_order,c.name
                 """, (rs, n) -> new StudentAccountClassOption(rs.getObject(1, UUID.class), rs.getString(2),
-                rs.getString(3), rs.getString(4), rs.getLong(5)), schoolId);
+                rs.getString(3), rs.getString(4), rs.getLong(5)), schoolId).stream()
+                .filter(option -> allowedClasses == null || allowedClasses.contains(option.id()))
+                .toList();
         return new StudentAccountContextView(classes);
     }
 
@@ -98,11 +107,13 @@ public class FinanceAccountService {
     public List<StudentAccountSearchView> search(String query, UUID classId) {
         financePolicy.requireSchool("FINANCE_STUDENT_ACCOUNT_VIEW");
         UUID schoolId = TenantContext.get();
+        Set<UUID> allowedStudents = teacherScope.allowedStudentIds();
         String needle = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
         List<Object> args = new ArrayList<>();
         args.add(schoolId);
         String classFilter = "";
         if (classId != null) {
+            teacherScope.assertSectionClass(classId);
             Integer exists = jdbc.query("SELECT 1 FROM school_class WHERE school_id=? AND id=?",
                     rs -> rs.next() ? 1 : null, schoolId, classId);
             if (exists == null) throw ApiException.notFound("Classe");
@@ -206,6 +217,7 @@ public class FinanceAccountService {
                         rs.getLong("v2_billed"), rs.getLong("legacy_billed"), rs.getLong("v2_paid"),
                         rs.getLong("legacy_paid"), rs.getLong("payment_count")), args.toArray()).stream()
                 .map(this::searchView)
+                .filter(v -> allowedStudents == null || allowedStudents.contains(v.studentId()))
                 .filter(v -> needle.isBlank()
                         || contains(v.studentName(), needle)
                         || contains(v.matricule(), needle)
@@ -217,6 +229,7 @@ public class FinanceAccountService {
     @Transactional
     public ConsolidatedReceiptView createConsolidatedReceipt(UUID studentId) {
         financePolicy.requireSchool("FINANCE_CONSOLIDATED_RECEIPT_CREATE");
+        teacherScope.assertSectionStudent(studentId);
         StudentAccountView account = account(studentId);
         UUID schoolId = TenantContext.get();
         String documentVersion = documentVersion(account.snapshotHash());

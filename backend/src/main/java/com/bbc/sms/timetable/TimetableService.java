@@ -56,6 +56,7 @@ public class TimetableService {
         Set<UUID> allowed=teacherScope.allowedClassIds();
         return classRepo.findBySchoolIdOrderByName(schoolId).stream()
             .filter(c->allowed==null||allowed.contains(c.getId()))
+            .filter(this::inActiveParcours)
             .filter(c -> policy.decide("TIMETABLE_CLASS_SCHEDULE_VIEW", classContext(sessionId, c.getId())).allowed())
             .map(c->toRef(c,sessionId)).toList();
     }
@@ -68,7 +69,7 @@ public class TimetableService {
     @Transactional(readOnly=true)
     public List<SubjectTeacherView> subjectTeachers(UUID classId) {
         UUID schoolId=TenantContext.get(); UUID sessionId=currentSession().getId();
-        SchoolClass cls=requireClass(schoolId,classId); teacherScope.assertClass(classId);
+        SchoolClass cls=requireClass(schoolId,classId); assertActiveParcours(cls); teacherScope.assertClass(classId);
         policy.require("TIMETABLE_CLASS_SCHEDULE_VIEW", classContext(sessionId, classId));
         AcademicSession academic=currentSession();
         return timetableClasses(cls,sessionId).stream()
@@ -105,6 +106,11 @@ public class TimetableService {
 
     @Transactional
     public PeriodView updatePeriod(int slotIdx, PeriodRequest in) {
+        if (ParcoursContext.get() != null || ParcoursContext.sectionLock() != null) {
+            throw ApiException.coded(org.springframework.http.HttpStatus.FORBIDDEN,
+                    "WHOLE_SCHOOL_TIMETABLE_REQUIRED",
+                    "Les périodes horaires communes exigent la vue Tous les parcours.");
+        }
         policy.require("TIMETABLE_DRAFT", schoolContext());
         if(slotIdx<0||slotIdx>15) throw ApiException.badRequest("Numéro de période invalide");
         LocalTime start,end;
@@ -133,7 +139,7 @@ public class TimetableService {
     @Transactional(readOnly=true)
     public List<SlotView> grid(String className, UUID requestedVersionId) {
         UUID schoolId=TenantContext.get(); AcademicSession academic=currentSession();
-        SchoolClass cls=findClass(schoolId,className); teacherScope.assertClass(cls.getId());
+        SchoolClass cls=findClass(schoolId,className); assertActiveParcours(cls); teacherScope.assertClass(cls.getId());
         policy.require("TIMETABLE_CLASS_SCHEDULE_VIEW", classContext(academic.getId(), cls.getId()));
         if (requestedVersionId != null) {
             Integer owned = jdbc.queryForObject("SELECT count(*) FROM timetable_version WHERE id=? AND school_id=? AND academic_session_id=?",
@@ -167,8 +173,10 @@ public class TimetableService {
         policy.require("TIMETABLE_MASTER_VIEW", schoolContext());
         UUID schoolId=TenantContext.get(); AcademicSession academic=currentSession(); UUID sessionId=academic.getId();
         Map<UUID,SchoolClass> classes=classRepo.findBySchoolIdOrderByName(schoolId).stream()
+            .filter(this::inActiveParcours)
             .collect(Collectors.toMap(SchoolClass::getId,c->c));
         List<TimetableSlot> effective=slotRepo.findBySchoolIdAndAcademicSessionId(schoolId,sessionId).stream()
+            .filter(s -> classes.containsKey(s.getClassId()))
             .filter(s -> { UUID v = versions.versionForClass(sessionId, s.getClassId()); return v == null || Objects.equals(v, s.getTimetableVersionId()); })
             .map(s->effectiveSlot(s,classes.get(s.getClassId()),academic))
             .filter(s->s.getTeacherId()!=null).toList();
@@ -177,6 +185,8 @@ public class TimetableService {
 
     @Transactional
     public ClassRef configure(UUID classId, ClassConfigRequest in) {
+        SchoolClass cls = requireClass(TenantContext.get(), classId);
+        assertActiveParcours(cls);
         policy.require("TIMETABLE_DRAFT", classContext(currentSession().getId(), classId));
         throw ApiException.coded(org.springframework.http.HttpStatus.GONE, "ASSIGNMENTS_MANAGED_IN_ACADEMIC_SETUP",
                 "Les affectations d'enseignants se gèrent dans Configuration académique. Le planning est un consommateur en lecture seule.");
@@ -212,6 +222,8 @@ public class TimetableService {
 
     @Transactional
     public void assignTeacher(UUID classId, UUID teacherId, TeacherAssignmentRequest in) {
+        SchoolClass cls = requireClass(TenantContext.get(), classId);
+        assertActiveParcours(cls);
         policy.require("TIMETABLE_DRAFT", classContext(currentSession().getId(), classId));
         throw ApiException.coded(org.springframework.http.HttpStatus.GONE, "ASSIGNMENTS_MANAGED_IN_ACADEMIC_SETUP",
                 "Les enseignants sont gérés dans Paramètres → Scolarité → Matières par classe. Le planning est en lecture seule pour cette information.");
@@ -220,7 +232,7 @@ public class TimetableService {
     @Transactional
     public SlotSaveResult upsertSlot(SlotUpsert in) {
         UUID schoolId=TenantContext.get(); AcademicSession academic=currentSession();
-        SchoolClass cls=findClass(schoolId,in.className()); teacherScope.assertClass(cls.getId());
+        SchoolClass cls=findClass(schoolId,in.className()); assertActiveParcours(cls); teacherScope.assertClass(cls.getId());
         policy.require("TIMETABLE_DRAFT", classContext(academic.getId(), cls.getId()));
         ensureConfig(cls,academic.getId());
         List<SchoolClass> scheduleClasses=timetableClasses(cls,academic.getId());
@@ -275,7 +287,7 @@ public class TimetableService {
     @Transactional
     public void deleteSlot(String className,int dayIdx,int slotIdx) {
         UUID schoolId=TenantContext.get(); AcademicSession academic=currentSession();
-        SchoolClass cls=findClass(schoolId,className); teacherScope.assertClass(cls.getId());
+        SchoolClass cls=findClass(schoolId,className); assertActiveParcours(cls); teacherScope.assertClass(cls.getId());
         policy.require("TIMETABLE_DRAFT", classContext(academic.getId(), cls.getId()));
         timetableClasses(cls,academic.getId()).forEach(c -> ensureDraft(c.getId(),academic.getId()));
         UUID timetableVersionId = versions.versionForClass(academic.getId(), cls.getId());
@@ -286,8 +298,9 @@ public class TimetableService {
     @Transactional
     public ClassRef publish(UUID classId, PlanActionRequest in) {
         AcademicSession academic = currentSession();
-        policy.require("TIMETABLE_PUBLISH", classContext(academic.getId(), classId));
         SchoolClass cls = requireClass(TenantContext.get(), classId);
+        assertActiveParcours(cls);
+        policy.require("TIMETABLE_PUBLISH", classContext(academic.getId(), classId));
         teacherScope.assertClass(classId);
         for (SchoolClass programme : timetableClasses(cls, academic.getId())) {
             long version = programme.getId().equals(classId) ? in.version()
@@ -300,8 +313,9 @@ public class TimetableService {
     @Transactional
     public ClassRef reopen(UUID classId, PlanActionRequest in) {
         AcademicSession academic = currentSession();
-        policy.require("TIMETABLE_REOPEN", classContext(academic.getId(), classId));
         SchoolClass cls = requireClass(TenantContext.get(), classId);
+        assertActiveParcours(cls);
+        policy.require("TIMETABLE_REOPEN", classContext(academic.getId(), classId));
         teacherScope.assertClass(classId);
         for (SchoolClass programme : timetableClasses(cls, academic.getId())) {
             long version = programme.getId().equals(classId) ? in.version()
@@ -323,6 +337,7 @@ public class TimetableService {
     @Transactional(readOnly=true)
     public TeacherSchedule teacherSchedule(UUID teacherId) {
         policy.require("TIMETABLE_TEACHER_SCHEDULE_VIEW_ALL", schoolContext());
+        teacherScope.assertEmployee(teacherId);
         return teacherScheduleInternal(teacherId);
     }
 
@@ -331,6 +346,7 @@ public class TimetableService {
         Employee teacher=employees.findByIdAndSchoolId(teacherId,schoolId).orElseThrow(()->ApiException.notFound("Enseignant"));
         Map<UUID,String> names=classNames(schoolId);
         Map<UUID,SchoolClass> classes=classRepo.findBySchoolIdOrderByName(schoolId).stream()
+            .filter(this::inActiveParcours)
             .collect(Collectors.toMap(SchoolClass::getId,c->c));
         Map<String,String> subjectNames=jdbc.query("SELECT code,COALESCE(label->>'fr',label->>'en',code) FROM subject WHERE school_id=?",
             rs->{ Map<String,String> result=new HashMap<>(); while(rs.next()) result.put(rs.getString(1),rs.getString(2)); return result; }, schoolId);
@@ -340,6 +356,7 @@ public class TimetableService {
             UUID publishedVersion = versions.versionForClass(academic.getId(), slot.getClassId());
             if (publishedVersion != null && !Objects.equals(publishedVersion, slot.getTimetableVersionId())) continue;
             SchoolClass cls=classes.get(slot.getClassId());
+            if (cls == null) continue;
             UUID effectiveTeacher=slot.getPublishedTeacherId()==null ? slot.getTeacherId() : slot.getPublishedTeacherId();
             if (teacherId.equals(effectiveTeacher)) {
                 slots.add(new SlotView(slot.getId(),slot.getDayIdx(),slot.getSlotIdx(),slot.getSubjectCode(),
@@ -526,6 +543,18 @@ public class TimetableService {
     private boolean isPublished(UUID classId,UUID sessionId){Boolean b=jdbc.queryForObject("SELECT status='PUBLISHED' FROM timetable_class_config WHERE school_id=? AND academic_session_id=? AND class_id=?",Boolean.class,TenantContext.get(),sessionId,classId);return Boolean.TRUE.equals(b);}
     private long classConfigVersion(UUID sessionId,UUID classId){Long v=jdbc.queryForObject("SELECT version FROM timetable_class_config WHERE school_id=? AND academic_session_id=? AND class_id=?",Long.class,TenantContext.get(),sessionId,classId);return v==null?0:v;}
     private List<SchoolClass> timetableClasses(SchoolClass cls,UUID sessionId){return cohorts.timetableClassIds(sessionId,cls.getId(),cls.getName()).stream().map(id->requireClass(TenantContext.get(),id)).toList();}
+
+    private boolean inActiveParcours(SchoolClass schoolClass) {
+        return ParcoursContext.includes(schoolClass.getLevel(), schoolClass.getSubsystem());
+    }
+
+    private void assertActiveParcours(SchoolClass schoolClass) {
+        if (!inActiveParcours(schoolClass)) {
+            throw ApiException.coded(org.springframework.http.HttpStatus.FORBIDDEN,
+                    "PARCOURS_RESOURCE_MISMATCH",
+                    "Cette classe ne fait pas partie du parcours actif.");
+        }
+    }
     private AcademicSession currentSession(){return sessions.findBySchoolIdOrderByStartDateDesc(TenantContext.get()).stream().filter(AcademicSession::isCurrent).findFirst().orElseThrow(()->ApiException.badRequest("Aucune année scolaire active"));}
     private SchoolClass findClass(UUID schoolId,String name){return classRepo.findBySchoolIdAndName(schoolId,name).orElseThrow(()->ApiException.notFound("Classe"));}
     private SchoolClass requireClass(UUID schoolId,UUID id){return classRepo.findByIdAndSchoolId(id,schoolId).orElseThrow(()->ApiException.notFound("Classe"));}

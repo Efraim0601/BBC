@@ -56,6 +56,7 @@ button.metric-card { cursor: pointer; font: inherit; }
 .metric-card span, .metric-card small { color: #6d7990; font-size: .74rem; font-weight: 700; }
 .metric-card b { font-size: 1.15rem; letter-spacing: -.02em; }
 .split-grid { display: grid; grid-template-columns: 1.1fr .9fr; gap: 1rem; margin: 1rem 0; }
+.split-grid > * { min-width: 0; }
 .ageing-list, .mini-list { display: grid; gap: .5rem; }
 .ageing-row, .mini-list > div { position: relative; display: flex; justify-content: space-between; gap: 1rem; width: 100%; box-sizing: border-box; border: 1px solid #e0e6ef; border-radius: .6rem; background: #fbfcfe; color: #26344c; padding: .65rem .75rem; text-align: left; }
 .ageing-row { overflow: hidden; cursor: pointer; font: inherit; }
@@ -73,6 +74,7 @@ th, td { border-bottom: 1px solid #e8edf4; padding: .7rem .75rem; vertical-align
 tbody tr:last-child td { border-bottom: 0; }
 td strong, td small { display: block; }
 .compact-table table { min-width: 480px; }
+.compact-table { width: 100%; max-width: 100%; }
 .empty-inline { color: #77839a; padding: 1rem; text-align: center; }
 .chip-list { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 1rem; }
 .status-chip { display: grid; gap: .15rem; border-radius: .55rem; font-size: .72rem; }

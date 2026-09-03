@@ -49,7 +49,7 @@ const fmtMoney = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} FCFA`;
       <div class="max-w-5xl">
         <!-- At-a-glance KPIs -->
         @if (showKpis()) {
-          <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          <div class="responsive-kpi-grid grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
             @if (auth.canModuleOrAction('students', 'STUDENT_DIRECTORY_VIEW')) {
               <bbc-kpi tone="neutral" icon="users" [label]="i18n.t('students')" [value]="studentCount()" [sub]="subsystemSub()" />
             }
@@ -100,10 +100,10 @@ const fmtMoney = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} FCFA`;
               <span class="text-[11px] text-slate-400 font-semibold">{{ g.mods.length }}</span>
             </div>
 
-            <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
+            <div class="module-catalog-grid grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
               @for (m of g.mods; track m.id) {
                 <button (click)="open(m.route)"
-                  class="group relative bg-white rounded-2xl border border-slate-100 shadow-card hover:shadow-pop transition-all hover:-translate-y-0.5 p-5 text-left overflow-hidden">
+                  class="group relative min-h-11 bg-white rounded-2xl border border-slate-100 shadow-card hover:shadow-pop transition-all hover:-translate-y-0.5 p-4 sm:p-5 text-left overflow-hidden">
                   <div class="absolute -top-12 -right-12 w-32 h-32 rounded-full bg-gradient-to-br opacity-0 group-hover:opacity-10 blur-2xl transition" [class]="m.color"></div>
                   <div class="flex items-start gap-3 relative">
                     <div class="w-12 h-12 rounded-xl flex items-center justify-center shrink-0 group-hover:scale-110 transition" [class]="m.iconBg" [innerHTML]="trust(m.svg)"></div>

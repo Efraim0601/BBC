@@ -69,7 +69,7 @@ interface ResultMeta { fr: string; en: string; badge: string; }
                   </button>
                 }
               </div>
-              <div class="grid grid-cols-3 gap-3">
+              <div class="responsive-kpi-grid grid grid-cols-3 gap-3">
                 <bbc-kpi [label]="fr() ? 'Années suivies' : 'Years tracked'" [value]="journey()!.yearsCount.toString()" icon="calendar" />
                 <bbc-kpi [label]="fr() ? 'Meilleure moyenne' : 'Best average'" [value]="journey()!.bestAverage != null ? journey()!.bestAverage + '/20' : '—'" icon="chart" />
                 <bbc-kpi [label]="fr() ? 'Redoublements' : 'Repeats'" [value]="repeats().toString()" icon="shield" />

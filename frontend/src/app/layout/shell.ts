@@ -17,17 +17,17 @@ const NAV_COLLAPSE_KEY = 'bbc.nav.collapsed';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterOutlet, RouterLink, RouterLinkActive],
   template: `
-    <div class="h-screen w-screen flex flex-col bg-surface text-ink">
+    <div class="h-[100dvh] min-h-[100svh] w-screen flex flex-col bg-surface text-ink">
       <header class="h-16 bg-brand-700 text-white px-3 sm:px-4 flex items-center gap-2 sm:gap-3 shrink-0 shadow-sm z-30">
-        <button (click)="toggle()" title="{{ fr() ? 'Replier le menu' : 'Toggle menu' }}"
-          class="w-9 h-9 rounded-lg hover:bg-white/10 transition flex items-center justify-center shrink-0">
+        <button (click)="toggle()" [title]="menuLabel()" [attr.aria-label]="menuLabel()"
+          class="w-11 h-11 sm:w-9 sm:h-9 rounded-lg hover:bg-white/10 transition flex items-center justify-center shrink-0">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
         </button>
         <a routerLink="/apps" class="flex items-center gap-2.5 px-1 sm:px-2 py-1.5 rounded-lg hover:bg-white/10 transition shrink-0">
           <div class="w-8 h-8 bg-white rounded-md p-0.5 shrink-0">
             <img src="bbc-logo.png" alt="BBC" class="w-full h-full object-contain" />
           </div>
-          <div class="text-left hidden md:block">
+          <div class="text-left hidden lg:block">
             <div class="font-display font-bold text-[14px] leading-tight">BBC SMS</div>
             <div class="text-[10px] text-gold-200">{{ user()?.schoolName || 'Bayo Bilingual Complex' }}</div>
           </div>
@@ -37,23 +37,23 @@ const NAV_COLLAPSE_KEY = 'bbc.nav.collapsed';
 
         @if (scopeLabel(); as sl) {
           <a routerLink="/parcours" title="{{ fr() ? 'Changer de parcours' : 'Switch parcours' }}"
-            class="hidden sm:flex items-center gap-2 h-8 px-3 rounded-lg bg-white/10 hover:bg-white/20 transition text-[11px] font-bold">
+            class="hidden md:flex items-center gap-2 h-10 lg:h-8 px-3 rounded-lg bg-white/10 hover:bg-white/20 transition text-[11px] font-bold">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h18M3 12h18M3 17h18"/></svg>
             <span>{{ sl }}</span>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m6 9 6 6 6-6"/></svg>
           </a>
         } @else {
           <a routerLink="/parcours" title="{{ fr() ? 'Choisir un parcours' : 'Choose a parcours' }}"
-            class="hidden sm:flex items-center gap-2 h-8 px-3 rounded-lg bg-white/10 hover:bg-white/20 transition text-[11px] font-bold">
+            class="hidden md:flex items-center gap-2 h-10 lg:h-8 px-3 rounded-lg bg-white/10 hover:bg-white/20 transition text-[11px] font-bold">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h18M3 12h18M3 17h18"/></svg>
             <span>{{ fr() ? 'Tous les parcours' : 'All parcours' }}</span>
           </a>
         }
 
-        <div class="flex items-center bg-white/10 rounded-lg p-0.5">
+        <div class="flex items-center bg-white/10 rounded-lg p-0.5 shrink-0">
           @for (l of langs; track l) {
             <button (click)="i18n.setLang(l)"
-              class="px-2.5 h-7 text-[11px] font-bold rounded-md transition"
+              class="min-w-10 px-2.5 h-10 lg:min-w-0 lg:h-7 text-[11px] font-bold rounded-md transition"
               [class]="i18n.lang() === l ? 'bg-white text-brand-700' : 'text-brand-100 hover:text-white'">
               {{ l.toUpperCase() }}
             </button>
@@ -62,21 +62,24 @@ const NAV_COLLAPSE_KEY = 'bbc.nav.collapsed';
 
         <a [href]="helpHref()" target="_blank" rel="noopener"
           title="{{ fr() ? 'Guide utilisateur' : 'User guide' }}"
-          class="hidden sm:inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-white/10 hover:bg-white/20 transition text-[11px] font-bold">
+          class="hidden lg:inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-white/10 hover:bg-white/20 transition text-[11px] font-bold">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
           {{ fr() ? 'Aide' : 'Help' }}
         </a>
 
-        <div class="flex items-center gap-2.5 pl-2">
-          <div class="w-9 h-9 rounded-full bg-gradient-to-br from-gold-400 to-gold-600 text-white flex items-center justify-center font-bold text-xs">
+        <div class="flex items-center gap-2.5 lg:pl-2 shrink-0">
+          <div class="hidden lg:flex w-9 h-9 rounded-full bg-gradient-to-br from-gold-400 to-gold-600 text-white items-center justify-center font-bold text-xs">
             {{ user()?.initials }}
           </div>
-          <div class="text-left hidden md:block">
+          <div class="text-left hidden xl:block">
             <div class="text-xs font-bold leading-tight">{{ user()?.displayName }}</div>
             <div class="text-[10px] text-brand-200">{{ roleLabel(user()?.role) }}</div>
           </div>
-          <button (click)="auth.logout()" class="ml-1 text-[11px] text-brand-100 hover:text-white underline">
-            {{ i18n.t('signOut') }}
+          <button (click)="auth.logout()"
+            class="inline-flex h-11 w-11 lg:h-auto lg:w-auto lg:ml-1 items-center justify-center text-[11px] text-brand-100 hover:text-white lg:underline"
+            [attr.aria-label]="i18n.t('signOut')" [title]="i18n.t('signOut')">
+            <svg class="lg:hidden" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M10 17l5-5-5-5"/><path d="M15 12H3"/><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/></svg>
+            <span class="hidden lg:inline">{{ i18n.t('signOut') }}</span>
           </button>
         </div>
       </header>
@@ -120,7 +123,7 @@ const NAV_COLLAPSE_KEY = 'bbc.nav.collapsed';
           </nav>
         </aside>
 
-        <main class="flex-1 scroll-y min-w-0">
+        <main data-shell-main class="flex-1 scroll-y overflow-x-hidden min-w-0 overscroll-contain">
           <div class="px-4 sm:px-6 py-4 sm:py-6 min-h-full">
             <router-outlet />
           </div>
@@ -159,6 +162,16 @@ export class ShellComponent {
   protected mobileOpen = signal(false);
   /** Reactive viewport flag — true below the `lg` breakpoint (1024px). */
   protected isMobile = signal(typeof window !== 'undefined' && window.innerWidth < 1024);
+  protected menuLabel = computed(() => {
+    if (this.isMobile()) {
+      return this.mobileOpen()
+        ? (this.fr() ? 'Fermer le menu' : 'Close menu')
+        : (this.fr() ? 'Ouvrir le menu' : 'Open menu');
+    }
+    return this.collapsed()
+      ? (this.fr() ? 'Déployer le menu' : 'Expand menu')
+      : (this.fr() ? 'Replier le menu' : 'Collapse menu');
+  });
 
   /** Icon-only nav: only on desktop when collapsed; the mobile drawer always shows labels. */
   protected iconOnly = computed(() => !this.isMobile() && this.collapsed());
@@ -183,6 +196,14 @@ export class ShellComponent {
       if (e instanceof NavigationEnd) {
         this.mobileOpen.set(false);
         this.recordRecent(e.urlAfterRedirects);
+        if (typeof window !== 'undefined') {
+          // The shell owns the scroll container. A routed page must always start
+          // at its own top rather than inheriting the previous screen's position.
+          window.requestAnimationFrame(() => {
+            this.document.querySelector<HTMLElement>('[data-shell-main]')
+              ?.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+          });
+        }
       }
     });
   }

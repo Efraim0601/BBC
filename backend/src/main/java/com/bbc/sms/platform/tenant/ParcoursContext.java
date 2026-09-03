@@ -64,6 +64,27 @@ public final class ParcoursContext {
         return scope == null ? null : scope.level();
     }
 
+    /**
+     * Whether a class/resource belongs to the effective request envelope.
+     *
+     * <p>The section lock is an immutable upper bound, while the selected
+     * parcours is the narrower browser context.  Both must match when they are
+     * present.  A missing context means that a genuinely global account is in
+     * its all-parcours view.</p>
+     */
+    public static boolean includes(String level, String subsystem) {
+        String locked = SECTION_LOCK.get();
+        if (locked != null && !same(locked, level)) return false;
+        Scope scope = CURRENT.get();
+        if (scope == null) return true;
+        return same(scope.level(), level) && same(scope.subsystem(), subsystem);
+    }
+
+    private static boolean same(String expected, String actual) {
+        return expected != null && actual != null
+                && expected.trim().equalsIgnoreCase(actual.trim());
+    }
+
     public static void clear() {
         CURRENT.remove();
         SECTION_LOCK.remove();

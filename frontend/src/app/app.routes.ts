@@ -111,52 +111,52 @@ export const routes: Routes = [
       },
       {
         path: 'finance/treasury',
-        canActivate: [permissionGuard('finance')],
+        canActivate: [actionGuard('TREASURY_ACCOUNT_VIEW')],
         loadComponent: () => import('./features/finance/finance-treasury').then((m) => m.FinanceTreasuryComponent),
       },
       {
         path: 'finance/fee-types',
-        canActivate: [permissionGuard('finance')],
+        canActivate: [actionGuard('FEE_TYPE_MANAGE')],
         loadComponent: () => import('./features/finance/finance-fee-types').then((m) => m.FinanceFeeTypesComponent),
       },
       {
         path: 'finance/plans',
-        canActivate: [permissionGuard('finance')],
+        canActivate: [actionGuard('FEE_PLAN_DRAFT')],
         loadComponent: () => import('./features/finance/finance-plans').then((m) => m.FinancePlansComponent),
       },
       {
         path: 'finance/charges',
-        canActivate: [permissionGuard('finance')],
+        canActivate: [actionGuard('CHARGE_PREVIEW')],
         loadComponent: () => import('./features/finance/finance-charges').then((m) => m.FinanceChargesComponent),
       },
       {
         path: 'finance/collections',
-        canActivate: [permissionGuard('finance')],
+        canActivate: [actionGuard('FEE_CONFIGURE')],
         loadComponent: () => import('./features/finance/finance-collections').then((m) => m.FinanceCollectionsComponent),
       },
       {
         path: 'finance/student-accounts',
-        canActivate: [permissionGuard('finance')],
+        canActivate: [actionGuard('FINANCE_STUDENT_ACCOUNT_VIEW')],
         loadComponent: () => import('./features/finance/finance-account').then((m) => m.FinanceAccountComponent),
       },
       {
         path: 'finance/documents',
-        canActivate: [permissionGuard('finance')],
+        canActivate: [actionGuard('FEE_CONFIGURE')],
         loadComponent: () => import('./features/finance/finance-documents').then((m) => m.FinanceDocumentsComponent),
       },
       {
         path: 'finance/payroll',
-        canActivate: [permissionGuard('finance')],
+        canActivate: [actionGuard('PAYROLL_VIEW')],
         loadComponent: () => import('./features/finance/finance-payroll').then((m) => m.FinancePayrollComponent),
       },
       {
         path: 'finance/accounting',
-        canActivate: [permissionGuard('finance')],
+        canActivate: [actionGuard('ACCOUNT_MANAGE')],
         loadComponent: () => import('./features/finance/finance-accounting').then((m) => m.FinanceAccountingComponent),
       },
       {
         path: 'finance/reports',
-        canActivate: [permissionGuard('finance')],
+        canActivate: [actionGuard('FINANCE_REPORT_VIEW')],
         loadComponent: () => import('./features/finance/finance-reports').then((m) => m.FinanceReportsComponent),
       },
       {

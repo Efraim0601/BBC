@@ -82,4 +82,37 @@ td { padding: 12px 8px; border-bottom: 1px solid #e2e8f0; vertical-align: top; f
 .amount-cell { text-align: right; font-weight: 800; white-space: nowrap; }
 .receipt-empty { padding: 28px; border: 1px dashed #cbd5e1; text-align: center; color: #64748b; }
 .receipt-footer { display: flex; justify-content: space-between; margin-top: auto; padding-top: 10px; border-top: 1px solid #cbd5e1; color: #64748b; font-size: .65rem; }
-@media (max-width: 760px) { .account-shell { padding: 20px 14px 40px; } .account-hero, .section-heading, .document-toolbar { flex-direction: column; align-items: stretch; } .search-grid { grid-template-columns: 1fr; } .result-row { align-items: flex-start; gap: 12px; } .account-state { min-width: 118px; } .totals-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .primary-button, .secondary-button { width: 100%; } .toolbar-actions { flex-direction: column; } .document-modal { padding: 0; } .document-dialog { max-height: 100vh; border-radius: 0; } .document-scroll { padding: 12px; } }
+@media (max-width: 760px) {
+  .account-shell { padding: 20px 14px 40px; }
+  .account-hero, .section-heading, .document-toolbar { flex-direction: column; align-items: stretch; }
+  .search-grid { grid-template-columns: 1fr; }
+  .workspace-card, .account-card { padding: 18px; }
+  .result-row { align-items: stretch; flex-direction: column; gap: 10px; min-width: 0; }
+  .result-row > span:first-child, .result-row strong, .result-row small { min-width: 0; overflow-wrap: anywhere; }
+  .account-state { width: 100%; min-width: 0; padding-top: 9px; border-top: 1px solid #e2e8f0; text-align: left; }
+  .totals-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .totals-grid > div { min-width: 0; padding: 11px; }
+  .totals-grid b { overflow-wrap: anywhere; font-size: 1rem; }
+  .primary-button, .secondary-button { width: 100%; min-height: 44px; }
+  .toolbar-actions { flex-direction: column; }
+  .document-modal { padding: 0; }
+  .document-dialog { max-height: 100dvh; border-radius: 0; }
+  .document-scroll { padding: 12px; }
+  .consolidated-sheet { width: 100%; min-height: auto; padding: 24px 18px; box-shadow: none; }
+  .receipt-header { flex-direction: column; gap: 14px; }
+  .receipt-number { text-align: left; }
+  .student-identity { grid-template-columns: 1fr; }
+  .receipt-totals { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .receipt-totals > div { min-width: 0; padding: 10px; }
+  .receipt-totals strong { overflow-wrap: anywhere; }
+  .receipt-section-title, .receipt-footer { flex-direction: column; gap: 5px; }
+  .account-card .table-wrap, .receipt-history { overflow: visible; }
+  .account-card .table-wrap table, .receipt-history table { min-width: 0; }
+  .account-card .table-wrap thead, .receipt-history thead { display: none; }
+  .account-card .table-wrap tbody, .receipt-history tbody { display: grid; gap: 10px; }
+  .account-card .table-wrap tr, .receipt-history tr { display: grid; width: 100%; padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; }
+  .account-card .table-wrap td, .receipt-history td { display: grid; grid-template-columns: minmax(78px, .45fr) minmax(0, 1fr); gap: 10px; width: 100%; padding: 7px 0; border-bottom: 1px solid #eef2f7; overflow-wrap: anywhere; }
+  .account-card .table-wrap td::before, .receipt-history td::before { content: attr(data-label); color: #64748b; font-size: .65rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+  .account-card .table-wrap td:last-child, .receipt-history td:last-child { border-bottom: 0; }
+  .amount-cell { text-align: left; }
+}

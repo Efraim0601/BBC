@@ -84,6 +84,7 @@ import { downloadCsv } from '../../core/csv';
           }
 
           @if (sections().length) {
+            <div class="overflow-x-auto">
             <table class="min-w-full text-sm">
               <thead><tr class="border-b border-slate-100 text-[11px] uppercase text-mute text-left">
                 <th class="py-2 pr-3 font-semibold">{{ fr() ? 'Libellé' : 'Label' }}</th>
@@ -109,6 +110,7 @@ import { downloadCsv } from '../../core/csv';
                 }
               </tbody>
             </table>
+            </div>
           } @else {
             <bbc-empty icon="building" [label]="fr() ? 'Aucune section — créez-en une pour commencer.' : 'No sections — create one to begin.'" />
           }
@@ -205,6 +207,7 @@ import { downloadCsv } from '../../core/csv';
             <div class="mb-2 text-xs text-mute">
               <strong class="text-ink">{{ filteredClasses().length }}</strong> {{ fr() ? 'classe(s) trouvée(s)' : 'class(es) found' }}
             </div>
+            <div class="overflow-x-auto">
             <table class="min-w-full text-sm">
               <thead><tr class="border-b border-slate-100 text-[11px] uppercase text-mute text-left">
                 <th class="py-2 pr-3 font-semibold">{{ fr() ? 'Classe' : 'Class' }}</th>
@@ -236,6 +239,7 @@ import { downloadCsv } from '../../core/csv';
                 }
               </tbody>
             </table>
+            </div>
             <bbc-list-pagination [total]="filteredClasses().length" [page]="classPage()" [pageSize]="classPageSize()"
               [language]="fr() ? 'fr' : 'en'" (pageChange)="classPage.set($event)" (pageSizeChange)="setClassPageSize($event)" />
           } @else {
@@ -293,8 +297,8 @@ import { downloadCsv } from '../../core/csv';
           <bbc-card [title]="fr() ? 'Accès académique et exceptions' : 'Academic access and exceptions'"
             [subtitle]="fr() ? 'Les affectations de programme restent séparées des délégations temporaires. Toute exception est bornée, prévisualisée et auditée.' : 'Curriculum assignments stay separate from temporary delegations. Every exception is scoped, previewed, time-bounded, and audited.'">
             <div class="flex flex-wrap items-center gap-2 mb-4">
-              <label class="inline-flex items-center gap-2 text-xs font-semibold text-ink">{{ fr() ? 'Session' : 'Session' }}
-                <select [ngModel]="accessSessionId()" (ngModelChange)="selectAccessSession($event)" class="h-9 px-2 rounded-lg border border-slate-300 bg-white text-sm">
+              <label class="grid w-full min-w-0 gap-1.5 text-xs font-semibold text-ink sm:inline-flex sm:w-auto sm:items-center sm:gap-2">{{ fr() ? 'Session' : 'Session' }}
+                <select [ngModel]="accessSessionId()" (ngModelChange)="selectAccessSession($event)" class="h-9 w-full min-w-0 px-2 rounded-lg border border-slate-300 bg-white text-sm sm:w-auto">
                   @for (session of academicSessions(); track session.id) { <option [value]="session.id">{{ session.label }}{{ session.current ? ' · current' : '' }}</option> }
                 </select>
               </label>
@@ -383,10 +387,10 @@ import { downloadCsv } from '../../core/csv';
       @case ('class-subjects') {
         <bbc-card [title]="fr() ? 'Matières par classe' : 'Class subjects'"
           [subtitle]="fr() ? 'Affectez les matières enseignées et définissez le coefficient utilisé sur les bulletins de chaque classe.' : 'Assign the subjects taught and define the coefficient used on each class bulletin.'">
-          <div action class="flex items-center gap-2">
-            <label class="inline-flex items-center gap-2 text-xs font-semibold text-ink">
+          <div action class="flex w-full min-w-0 items-center gap-2 sm:w-auto">
+            <label class="grid w-full min-w-0 gap-1.5 text-xs font-semibold text-ink sm:inline-flex sm:w-auto sm:items-center sm:gap-2">
               {{ fr() ? 'Session' : 'Session' }}
-              <select [ngModel]="curriculumSessionId()" (ngModelChange)="selectCurriculumSession($event)" class="h-9 px-2 rounded-lg border border-slate-300 bg-white text-sm">
+              <select [ngModel]="curriculumSessionId()" (ngModelChange)="selectCurriculumSession($event)" class="h-9 w-full min-w-0 px-2 rounded-lg border border-slate-300 bg-white text-sm sm:w-auto">
                 <option value="">{{ fr() ? 'Choisir' : 'Choose' }}</option>
                 @for (session of academicSessions(); track session.id) { <option [value]="session.id">{{ session.label }}{{ session.current ? ' · current' : '' }}</option> }
               </select>
@@ -677,6 +681,7 @@ import { downloadCsv } from '../../core/csv';
             <div class="mb-2 text-xs text-mute">
               <strong class="text-ink">{{ filteredSubjects().length }}</strong> {{ fr() ? 'matière(s) trouvée(s)' : 'subject(s) found' }}
             </div>
+            <div class="overflow-x-auto">
             <table class="min-w-full text-sm">
               <thead><tr class="border-b border-slate-100 text-[11px] uppercase text-mute text-left">
                 <th class="py-2 pr-3 font-semibold">{{ fr() ? 'Code' : 'Code' }}</th>
@@ -707,6 +712,7 @@ import { downloadCsv } from '../../core/csv';
                 }
               </tbody>
             </table>
+            </div>
             <bbc-list-pagination [total]="filteredSubjects().length" [page]="subjectPage()" [pageSize]="subjectPageSize()"
               [language]="fr() ? 'fr' : 'en'" (pageChange)="subjectPage.set($event)" (pageSizeChange)="setSubjectPageSize($event)" />
           } @else {

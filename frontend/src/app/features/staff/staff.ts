@@ -45,34 +45,34 @@ interface StaffDocumentDraft {
       <bbc-page-header
         [title]="isDetailPage() ? (fr() ? 'Fiche employé' : 'Employee profile') : i18n.t('hr')"
         [subtitle]="isDetailPage() ? (selected()?.name ?? '') : (fr() ? 'Annuaire du personnel, rôles et masse salariale' : 'Staff directory, roles and payroll')">
-        <div right class="flex items-center gap-2">
+        <div right class="grid w-full grid-cols-1 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center sm:justify-end">
           @if (mode() === 'list' && !isDetailPage()) {
             <button (click)="exportList()"
-              class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
+              class="inline-flex items-center justify-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
               <bbc-icon name="download" [s]="16" /> {{ fr() ? 'Exporter' : 'Export' }}
             </button>
             @if (canWrite) {
               <a routerLink="/finance/payroll"
-                class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-violet-50 border border-violet-200 text-violet-700 hover:bg-violet-100">
+                class="inline-flex items-center justify-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-violet-50 border border-violet-200 text-violet-700 hover:bg-violet-100">
                 {{ fr() ? 'Traiter la paie dans Finance' : 'Process payroll in Finance' }}
               </a>
               <button (click)="downloadStaffTemplate()"
-                class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
+                class="inline-flex items-center justify-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
                 {{ fr() ? 'Modèle CSV' : 'CSV template' }}
               </button>
               <button (click)="openImport()"
-                class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
+                class="inline-flex items-center justify-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
                 <bbc-icon name="plus" [s]="16" /> {{ fr() ? 'Importer' : 'Import' }}
               </button>
               <button (click)="openCreate()"
-                class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-brand-600 hover:bg-brand-700 text-white">
+                class="inline-flex items-center justify-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-brand-600 hover:bg-brand-700 text-white">
                 <bbc-icon name="plus" [s]="16" /> {{ fr() ? 'Nouvel employé' : 'New employee' }}
               </button>
             }
           }
           @if (isDetailPage()) {
             <a routerLink="/staff"
-              class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
+              class="inline-flex items-center justify-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
               <bbc-icon name="chevronLeft" [s]="15" /> {{ fr() ? 'Retour à l’annuaire' : 'Back to directory' }}
             </a>
           }
@@ -83,7 +83,7 @@ interface StaffDocumentDraft {
         <bbc-tabs [class.hidden]="isDetailPage()" [tabs]="tabs()" [value]="tab()" (change)="setTab($event)" />
 
         <!-- KPIs -->
-        <div [class.hidden]="isDetailPage()" class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
+        <div [class.hidden]="isDetailPage()" class="responsive-kpi-grid grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
           <bbc-kpi tone="neutral" icon="users" [label]="fr() ? 'Effectif personnel' : 'Total staff'"
             [value]="rows().length" [sub]="teacherCount() + (fr() ? ' enseignants' : ' teachers')" />
           <bbc-kpi tone="ok" icon="check" [label]="fr() ? 'Permanents' : 'Permanent'"
@@ -104,7 +104,7 @@ interface StaffDocumentDraft {
                   <span class="absolute left-3 top-1/2 -translate-y-1/2 text-mute"><bbc-icon name="search" [s]="16" /></span>
                   <input [ngModel]="search()" (ngModelChange)="search.set($event)"
                     [placeholder]="fr() ? 'Nom, code, e-mail, téléphone ou département…' : 'Name, code, email, phone or department…'"
-                    class="h-9 w-72 pl-9 pr-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400" />
+                    class="h-9 w-full sm:w-72 pl-9 pr-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400" />
                 </div>
                 <bbc-chip-filter [allLabel]="fr() ? 'Tous' : 'All'" [value]="roleFilter()"
                   [options]="roleOptions()" (change)="roleFilter.set($event)" />
@@ -176,7 +176,7 @@ interface StaffDocumentDraft {
                     <div class="flex items-center gap-3">
                       <bbc-avatar [name]="e.name" [hue]="hue(e.id)" [size]="34" />
                       <div class="min-w-0">
-                        <div class="font-semibold text-ink truncate flex items-center gap-1.5">
+                        <div class="font-semibold text-ink break-words sm:truncate flex items-center gap-1.5">
                           {{ e.name }}
                           @if (e.roles.includes('principal')) { <span class="text-[9px] font-bold uppercase bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded">P</span> }
                           @if (e.roles.includes('form_teacher')) { <span class="text-[9px] font-bold uppercase bg-violet-100 text-violet-700 px-1.5 py-0.5 rounded">PP</span> }
@@ -359,21 +359,21 @@ interface StaffDocumentDraft {
                     @if (profileDocumentsBusy()) {
                       <div class="text-xs text-mute py-2">{{ fr() ? 'Chargement des documents…' : 'Loading documents…' }}</div>
                     } @else if (profileDocuments().length) {
-                      <div class="grid gap-2 sm:grid-cols-2">
+                      <div class="grid min-w-0 gap-2 sm:grid-cols-2">
                         @for (doc of profileDocuments(); track doc.id) {
-                          <div class="flex items-stretch gap-2 rounded-lg border border-slate-200 bg-slate-50/60 p-2 hover:border-brand-200 hover:bg-brand-50/30">
+                          <div class="flex min-w-0 w-full max-w-full flex-col items-stretch gap-2 rounded-lg border border-slate-200 bg-slate-50/60 p-2 hover:border-brand-200 hover:bg-brand-50/30 sm:flex-row">
                             <button type="button" (click)="openDocumentPreview(doc)"
-                              class="flex min-w-0 flex-1 items-center gap-2.5 text-left">
+                              class="flex min-w-0 w-full flex-1 items-center gap-2.5 text-left">
                               <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-white text-brand-700 border border-slate-200">
                                 <bbc-icon [name]="documentPreviewKind(doc) === 'image' ? 'image' : documentPreviewKind(doc) === 'pdf' ? 'fileText' : 'file'" [s]="16" />
                               </span>
-                              <span class="min-w-0">
-                                <span class="block truncate text-sm font-semibold text-ink">{{ doc.label }}</span>
-                                <span class="block truncate text-[11px] text-mute">{{ documentTypeLabel(doc.documentType) }} · {{ formatBytes(doc.byteSize) }} · {{ doc.fileName }}</span>
+                              <span class="block min-w-0 flex-1">
+                                <span class="block break-words text-sm font-semibold text-ink sm:truncate">{{ doc.label }}</span>
+                                <span class="block break-words text-[11px] text-mute sm:truncate">{{ documentTypeLabel(doc.documentType) }} · {{ formatBytes(doc.byteSize) }} · {{ doc.fileName }}</span>
                               </span>
                             </button>
                             <button type="button" (click)="downloadDocument(doc)"
-                              class="shrink-0 self-center rounded-md px-2 py-1 text-[11px] font-semibold text-brand-700 hover:bg-white hover:text-brand-900"
+                              class="w-full shrink-0 self-center rounded-md px-2 py-1 text-[11px] font-semibold text-brand-700 hover:bg-white hover:text-brand-900 sm:w-auto"
                               [attr.aria-label]="fr() ? 'Télécharger ' + doc.label : 'Download ' + doc.label">
                               {{ fr() ? 'Télécharger' : 'Download' }}
                             </button>
@@ -508,6 +508,17 @@ interface StaffDocumentDraft {
               @if (filteredPayrollRows().length === 0) {
                 <bbc-empty icon="wallet" [label]="fr() ? 'Aucun employé' : 'No employee'" />
               } @else {
+                <div class="grid gap-3 md:hidden">
+                  @for (r of pagedPayrollRows(); track r.e.id) {
+                    <article class="min-w-0 w-full rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                      <div class="flex min-w-0 items-start gap-3"><bbc-avatar [name]="r.e.name" [hue]="hue(r.e.id)" [size]="36" /><div class="min-w-0 flex-1"><div class="break-words font-semibold text-ink">{{ r.e.name }}</div><div class="mt-0.5 text-xs text-mute">{{ roleLabel(r.e.roles[0]) }}</div></div><span class="shrink-0 rounded px-2 py-1 text-[10px] font-bold uppercase tracking-wide" [class]="r.e.type === 'Permanent' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'">{{ r.e.type }}</span></div>
+                      <div class="mt-3 grid grid-cols-2 gap-2 text-xs"><div class="rounded-lg bg-slate-50 p-2"><span class="block text-[9px] font-semibold uppercase text-mute">{{ fr() ? 'Salaire mensuel' : 'Monthly salary' }}</span><b class="mt-1 block break-words">{{ r.base ? money(r.base) : '—' }}</b></div><div class="rounded-lg bg-slate-50 p-2"><span class="block text-[9px] font-semibold uppercase text-mute">{{ fr() ? 'Taux horaire' : 'Hourly rate' }}</span><b class="mt-1 block break-words">{{ r.e.hourlyRate ? money(r.e.hourlyRate) + '/h' : '—' }}</b></div></div>
+                      <div class="mt-3 flex items-center justify-between rounded-lg bg-brand-50 px-3 py-2"><span class="text-xs font-semibold text-brand-700">{{ fr() ? 'Total' : 'Total' }}</span><b class="text-brand-800">{{ money(r.total) }}</b></div>
+                    </article>
+                  }
+                  <div class="flex items-center justify-between rounded-xl border border-brand-200 bg-brand-50 p-4"><span class="text-sm font-bold text-brand-700">{{ fr() ? 'Total masse salariale' : 'Total payroll' }}</span><b class="text-brand-800">{{ money(monthlyPayroll()) }}</b></div>
+                </div>
+                <div class="hidden overflow-x-auto md:block">
                 <table class="w-full text-sm">
                   <thead class="border-b border-slate-100">
                     <tr class="text-[11px] uppercase text-mute">
@@ -547,6 +558,7 @@ interface StaffDocumentDraft {
                     </tr>
                   </tfoot>
                 </table>
+                </div>
                 <bbc-list-pagination [total]="filteredPayrollRows().length" [page]="payrollPage()" [pageSize]="payrollPageSize()"
                   [language]="fr() ? 'fr' : 'en'" (pageChange)="payrollPage.set($event)" (pageSizeChange)="setPayrollPageSize($event)" />
               }
@@ -856,10 +868,10 @@ interface StaffDocumentDraft {
 
             @if (finalizeApp(); as fa) {
               <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 fade-in" (click)="finalizeApp.set(null)">
-                <div class="bg-white rounded-xl shadow-pop w-full max-w-lg p-5 space-y-4" (click)="$event.stopPropagation()">
+                <div class="max-h-[calc(100dvh-2rem)] w-full max-w-lg space-y-4 overflow-y-auto rounded-xl bg-white p-5 shadow-pop" (click)="$event.stopPropagation()">
                   <div class="text-lg font-bold font-display text-ink">{{ fr() ? 'Finaliser' : 'Finalize' }} — {{ fa.name }}</div>
                   <p class="text-xs text-mute">{{ fr() ? 'Configurez le salaire et les rôles, puis activez la fiche.' : 'Set salary and roles, then activate the record.' }}</p>
-                  <div class="grid grid-cols-2 gap-3">
+                  <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <label class="block">
                       <span class="text-xs font-semibold">Type</span>
                       <select [(ngModel)]="finalizeDraft.type" class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 bg-white">
@@ -875,17 +887,17 @@ interface StaffDocumentDraft {
                       </select>
                     </label>
                     @if (finalizeDraft.type === 'Permanent') {
-                      <label class="block col-span-2">
+                      <label class="block sm:col-span-2">
                         <span class="text-xs font-semibold">{{ fr() ? 'Salaire mensuel' : 'Monthly salary' }}</span>
                         <input type="number" [(ngModel)]="finalizeDraft.monthlySalary" class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 font-mono" />
                       </label>
                     } @else {
-                      <label class="block col-span-2">
+                      <label class="block sm:col-span-2">
                         <span class="text-xs font-semibold">{{ fr() ? 'Taux horaire' : 'Hourly rate' }}</span>
                         <input type="number" [(ngModel)]="finalizeDraft.hourlyRate" class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 font-mono" />
                       </label>
                     }
-                    <label class="block col-span-2">
+                    <label class="block sm:col-span-2">
                       <span class="text-xs font-semibold">{{ fr() ? 'Classe (PP)' : 'Form class' }}</span>
                       <select [(ngModel)]="finalizeDraft.formClass"
                         class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 bg-white">
@@ -935,10 +947,10 @@ interface StaffDocumentDraft {
                       [disabled]="!fa.email" class="mt-0.5 w-4 h-4 rounded border-slate-300 text-brand-600" />
                     <span class="text-sm">{{ fr() ? 'Créer le compte de connexion (e-mail requis)' : 'Create login account (e-mail required)' }}</span>
                   </label>
-                  <div class="flex justify-end gap-2 pt-2">
-                    <button type="button" (click)="finalizeApp.set(null)" class="h-9 px-4 rounded-lg bg-slate-100 text-sm font-semibold">{{ i18n.t('cancel') }}</button>
+                  <div class="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
+                    <button type="button" (click)="finalizeApp.set(null)" class="h-11 px-4 rounded-lg bg-slate-100 text-sm font-semibold sm:h-9">{{ i18n.t('cancel') }}</button>
                     <button type="button" (click)="doFinalize()" [disabled]="finalizing()"
-                      class="h-9 px-5 rounded-lg bg-brand-600 text-white text-sm font-semibold disabled:opacity-50">
+                      class="h-11 px-5 rounded-lg bg-brand-600 text-white text-sm font-semibold disabled:opacity-50 sm:h-9">
                       {{ finalizing() ? '…' : (fr() ? 'Valider définitivement' : 'Final validation') }}
                     </button>
                   </div>

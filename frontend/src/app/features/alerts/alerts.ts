@@ -33,7 +33,7 @@ interface TypeMeta { fr: string; en: string; icon: string; }
       </bbc-page-header>
 
       <!-- KPI row -->
-      <div class="grid grid-cols-3 gap-3 mb-4">
+      <div class="responsive-kpi-grid grid grid-cols-3 gap-3 mb-4">
         <bbc-kpi [label]="fr() ? 'Critiques' : 'Critical'" [value]="countBy('critical')" icon="shield" tone="bad" />
         <bbc-kpi [label]="fr() ? 'À surveiller' : 'Warnings'" [value]="countBy('warn')" icon="bell" tone="warn" />
         <bbc-kpi [label]="fr() ? 'Informations' : 'Info'" [value]="countBy('info')" icon="spark" tone="neutral" />

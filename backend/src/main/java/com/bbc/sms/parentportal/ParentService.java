@@ -144,7 +144,8 @@ public class ParentService {
     public List<ProgrammeClassView> programmeClasses(AppUserPrincipal p, UUID studentId) {
         requireParentAction(p, "PARENT_ACADEMIC_VIEW", studentId);
         List<ProgrammeClassView> rows = jdbc.query("""
-                SELECT DISTINCT c.id,c.name,c.subsystem,c.level
+                SELECT DISTINCT c.id,c.name,c.subsystem,c.level,
+                       CASE WHEN upper(c.subsystem) IN ('FR','FRANCAIS','FRANCOPHONE') THEN 0 ELSE 1 END AS programme_order
                   FROM student_enrollment e
                   JOIN academic_session s
                     ON s.school_id=e.school_id AND s.id=e.academic_session_id AND s.is_current
@@ -155,8 +156,7 @@ public class ParentService {
                  WHERE e.school_id=? AND e.student_id=? AND e.status='ACTIVE'
                    AND e.enrolled_on<=s.end_date
                    AND (e.exited_on IS NULL OR e.exited_on>=s.start_date)
-                 ORDER BY CASE WHEN upper(c.subsystem) IN ('FR','FRANCAIS','FRANCOPHONE') THEN 0 ELSE 1 END,
-                          c.name
+                 ORDER BY programme_order,c.name
                 """, (rs,n) -> new ProgrammeClassView(rs.getObject(1, UUID.class), rs.getString(2),
                         rs.getString(3), rs.getString(4)), p.schoolId(), studentId);
         return rows == null ? List.of() : rows;

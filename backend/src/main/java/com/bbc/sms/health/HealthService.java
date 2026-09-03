@@ -9,6 +9,7 @@ import com.bbc.sms.student.Student;
 import com.bbc.sms.student.StudentService;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -42,15 +43,26 @@ public class HealthService {
     @Transactional(readOnly = true)
     public StudentHealth forStudent(UUID studentId) {
         teacherScope.assertSectionStudent(studentId);
-        Student student = studentAccess.requireAction(studentId, "HEALTH_CONFIDENTIAL_VIEW");
+        Student student;
+        boolean confidential;
+        try {
+            student = studentAccess.requireAction(studentId, "HEALTH_CONFIDENTIAL_VIEW");
+            confidential = true;
+        } catch (ApiException denied) {
+            if (denied.getStatus() != HttpStatus.FORBIDDEN) throw denied;
+            student = studentAccess.requireAction(studentId, "HEALTH_VIEW");
+            confidential = false;
+        }
         UUID schoolId = TenantContext.get();
 
-        HealthRecordView record = records.findBySchoolIdAndStudentId(schoolId, studentId)
-                .map(this::toView).orElse(null);
+        HealthRecordView record = confidential
+                ? records.findBySchoolIdAndStudentId(schoolId, studentId).map(this::toView).orElse(null)
+                : null;
 
-        List<VisitView> visitViews = visits
-                .findBySchoolIdAndStudentIdOrderByVisitDateDesc(schoolId, studentId)
-                .stream().map(this::toView).toList();
+        List<VisitView> visitViews = confidential
+                ? visits.findBySchoolIdAndStudentIdOrderByVisitDateDesc(schoolId, studentId)
+                    .stream().map(this::toView).toList()
+                : List.of();
 
         List<ActivityView> activityViews = activities
                 .findBySchoolIdAndStudentIdOrderByNameAsc(schoolId, studentId)

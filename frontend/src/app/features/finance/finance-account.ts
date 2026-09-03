@@ -75,7 +75,7 @@ import {
       </section>
 
       @if (account(); as current) {
-        <section class="workspace-card account-card">
+        <section id="student-finance-account" class="workspace-card account-card">
           <div class="section-heading">
             <div><div class="eyebrow">{{ current.matricule || '—' }} · {{ current.className || '—' }}</div><h2>{{ current.studentName }}</h2><p>{{ current.sessionLabel || (fr() ? 'Session courante' : 'Current session') }}</p></div>
             <button type="button" class="primary-button" [disabled]="busy()" (click)="prepareConsolidated(current)">{{ fr() ? 'Préparer le reçu consolidé' : 'Prepare consolidated receipt' }}</button>
@@ -90,7 +90,7 @@ import {
           @if (current.payments.length) {
             <div class="table-wrap"><table><thead><tr><th>{{ fr() ? 'Date' : 'Date' }}</th><th>{{ fr() ? 'Reçu' : 'Receipt' }}</th><th>{{ fr() ? 'Canal' : 'Method' }}</th><th>{{ fr() ? 'Compte' : 'Account' }}</th><th>{{ fr() ? 'Montant' : 'Amount' }}</th><th>{{ fr() ? 'Statut' : 'Status' }}</th></tr></thead><tbody>
               @for (payment of current.payments; track payment.source + payment.id) {
-                <tr><td>{{ payment.paymentDate }}</td><td><strong>{{ payment.receiptNo || '—' }}</strong><small>{{ payment.reference || '—' }}</small></td><td>{{ payment.channelLabel }}<small>{{ payment.channelCode }}</small></td><td>{{ payment.treasuryAccountName || '—' }}</td><td><strong>{{ money(payment.netAmountMinor) }}</strong>@if (payment.refundedMinor) {<small>{{ fr() ? 'Remboursé' : 'Refunded' }} {{ money(payment.refundedMinor) }}</small>}</td><td><span class="status-badge" [class.good]="payment.status === 'POSTED' || payment.status === 'PARTIALLY_REFUNDED'">{{ payment.status }}</span></td></tr>
+                <tr><td [attr.data-label]="fr() ? 'Date' : 'Date'">{{ payment.paymentDate }}</td><td [attr.data-label]="fr() ? 'Reçu' : 'Receipt'"><strong>{{ payment.receiptNo || '—' }}</strong><small>{{ payment.reference || '—' }}</small></td><td [attr.data-label]="fr() ? 'Canal' : 'Method'">{{ payment.channelLabel }}<small>{{ payment.channelCode }}</small></td><td [attr.data-label]="fr() ? 'Compte' : 'Account'">{{ payment.treasuryAccountName || '—' }}</td><td [attr.data-label]="fr() ? 'Montant' : 'Amount'"><strong>{{ money(payment.netAmountMinor) }}</strong>@if (payment.refundedMinor) {<small>{{ fr() ? 'Remboursé' : 'Refunded' }} {{ money(payment.refundedMinor) }}</small>}</td><td [attr.data-label]="fr() ? 'Statut' : 'Status'"><span class="status-badge" [class.good]="payment.status === 'POSTED' || payment.status === 'PARTIALLY_REFUNDED'">{{ payment.status }}</span></td></tr>
               }
             </tbody></table></div>
           } @else { <div class="empty-state">{{ fr() ? 'Aucun versement enregistré.' : 'No payments recorded.' }}</div> }
@@ -130,7 +130,7 @@ import {
                   @if (receipt.payments.length) {
                     <table><thead><tr><th>{{ fr() ? 'Date' : 'Date' }}</th><th>{{ fr() ? 'Reçu / Référence' : 'Receipt / Reference' }}</th><th>{{ fr() ? 'Mode / Compte' : 'Method / Account' }}</th><th>{{ fr() ? 'Montant' : 'Amount' }}</th></tr></thead><tbody>
                       @for (payment of receipt.payments; track payment.source + payment.id) {
-                        <tr><td>{{ payment.paymentDate }}</td><td><strong>{{ payment.receiptNo || '—' }}</strong><small>{{ payment.reference || '—' }}</small></td><td>{{ payment.channelLabel }}<small>{{ payment.treasuryAccountName || '—' }}</small></td><td class="amount-cell">{{ money(payment.netAmountMinor) }}</td></tr>
+                        <tr><td [attr.data-label]="fr() ? 'Date' : 'Date'">{{ payment.paymentDate }}</td><td [attr.data-label]="fr() ? 'Reçu / référence' : 'Receipt / reference'"><strong>{{ payment.receiptNo || '—' }}</strong><small>{{ payment.reference || '—' }}</small></td><td [attr.data-label]="fr() ? 'Mode / compte' : 'Method / account'">{{ payment.channelLabel }}<small>{{ payment.treasuryAccountName || '—' }}</small></td><td [attr.data-label]="fr() ? 'Montant' : 'Amount'" class="amount-cell">{{ money(payment.netAmountMinor) }}</td></tr>
                       }
                     </tbody></table>
                   } @else { <div class="receipt-empty">{{ fr() ? 'Aucun versement enregistré.' : 'No payment recorded.' }}</div> }
@@ -187,7 +187,11 @@ export class FinanceAccountComponent {
   protected choose(value: StudentAccountSearchView): void {
     this.selected.set(value); this.busy.set(true); this.error.set(null); this.success.set(null);
     this.api.student(value.studentId).subscribe({
-      next: account => { this.account.set(account); this.busy.set(false); },
+      next: account => {
+        this.account.set(account);
+        this.busy.set(false);
+        window.setTimeout(() => document.getElementById('student-finance-account')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+      },
       error: error => { this.busy.set(false); this.applyError(error); },
     });
   }

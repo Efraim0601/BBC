@@ -187,34 +187,34 @@ public class SettingsController {
     // section qui pourrait en créer un autre contournerait son propre verrou.
 
     @GetMapping("/admins")
-    @PreAuthorize(SCHOOL_WIDE_READ)
+    @PreAuthorize("@policy.canAction('ROLE_VIEW')")
     public List<AdminView> listAdmins() {
         return admins.list();
     }
 
     @PostMapping("/admins")
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize(SCHOOL_WIDE)
+    @PreAuthorize("@policy.canAction('ROLE_MANAGE')")
     public AccountResult createAdmin(@Valid @RequestBody AdminCreate in) {
         return admins.create(in);
     }
 
     @PutMapping("/admins/{userId}/section")
-    @PreAuthorize(SCHOOL_WIDE)
+    @PreAuthorize("@policy.canAction('ROLE_MANAGE')")
     public AdminView changeAdminSection(@PathVariable UUID userId,
                                         @Valid @RequestBody AdminSectionChange in) {
         return admins.changeSection(userId, in.section());
     }
 
     @PutMapping("/admins/{userId}/active")
-    @PreAuthorize(SCHOOL_WIDE)
+    @PreAuthorize("@policy.canAction('ROLE_MANAGE')")
     public AdminView setAdminActive(@PathVariable UUID userId,
                                     @Valid @RequestBody AdminActiveChange in) {
         return admins.setActive(userId, in.active());
     }
 
     @PostMapping("/admins/{userId}/credentials")
-    @PreAuthorize(SCHOOL_WIDE)
+    @PreAuthorize("@policy.canAction('ROLE_MANAGE')")
     public AccountResult resetAdminCredentials(@PathVariable UUID userId) {
         return admins.resetCredentials(userId);
     }

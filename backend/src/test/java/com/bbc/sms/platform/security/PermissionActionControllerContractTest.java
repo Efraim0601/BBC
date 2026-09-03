@@ -108,6 +108,25 @@ class PermissionActionControllerContractTest {
     }
 
     @Test
+    void localPostgreSqlQueriesKeepUuidAggregationAndDistinctOrderingPortable() throws Exception {
+        String delegations = Files.readString(
+                Path.of("src/main/java/com/bbc/sms/academic/security/AcademicAccessDelegationService.java"),
+                StandardCharsets.UTF_8);
+        String parentPortal = Files.readString(
+                Path.of("src/main/java/com/bbc/sms/parentportal/ParentService.java"),
+                StandardCharsets.UTF_8);
+
+        assertThat(delegations)
+                .as("PostgreSQL has no min(uuid); aggregate the textual representation and cast it back")
+                .contains("min(e.id::text)::uuid")
+                .doesNotContain("SELECT min(e.id),min(e.name)");
+        assertThat(parentPortal)
+                .as("a DISTINCT query must select the expression used by ORDER BY")
+                .contains("AS programme_order")
+                .contains("ORDER BY programme_order,c.name");
+    }
+
+    @Test
     void officialReportCardDocumentsUseTheV2PolicyGate() throws Exception {
         String source = Files.readString(
                 Path.of("src/main/java/com/bbc/sms/academic/AcademicController.java"),
@@ -173,6 +192,18 @@ class PermissionActionControllerContractTest {
                 .contains("@policy.canAction('ALERTS_MANAGE')");
         assertThat(Files.readString(Path.of("src/main/java/com/bbc/sms/reports/ReportController.java"), StandardCharsets.UTF_8))
                 .contains("@policy.canAction('REPORTS_VIEW')");
+    }
+
+    @Test
+    void disciplineKeepsItsModuleEnvelopeBeforeResolvingStudentScope() throws Exception {
+        String source = Files.readString(
+                Path.of("src/main/java/com/bbc/sms/discipline/DisciplineController.java"),
+                StandardCharsets.UTF_8);
+
+        assertThat(source)
+                .contains("@perm.can('discipline','read') and @perm.staffOnly()")
+                .contains("@perm.can('discipline','write') and @perm.staffOnly()")
+                .doesNotContain("@PreAuthorize(\"@perm.staffOnly()\")");
     }
 
     private void assertContextualServiceBoundary(Path file, String... actions) throws Exception {

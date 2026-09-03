@@ -33,9 +33,81 @@ export class CellTemplateDirective {
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [NgTemplateOutlet, IconComponent, ListPaginationComponent],
+  styles: [`
+    @media (max-width: 899.98px) {
+      .responsive-data-table-sort { display: flex; }
+      .responsive-data-table-scroll {
+        max-height: none !important;
+        overflow: visible;
+      }
+      .responsive-data-table,
+      .responsive-data-table tbody { display: block; width: 100%; }
+      .responsive-data-table thead { display: none; }
+      .responsive-data-table tbody { display: grid; gap: .75rem; padding: .25rem 0; }
+      .responsive-data-table tbody > tr {
+        display: block;
+        overflow: hidden;
+        border: 1px solid #e2e8f0;
+        border-radius: .875rem;
+        background: white;
+        box-shadow: 0 1px 2px rgba(15, 34, 56, .04);
+      }
+      .responsive-data-table td {
+        position: static !important;
+        display: grid !important;
+        grid-template-columns: minmax(5.5rem, 34%) minmax(0, 1fr);
+        align-items: start;
+        gap: .75rem;
+        min-width: 0 !important;
+        width: auto !important;
+        padding: .7rem .8rem !important;
+        border-bottom: 1px solid #f1f5f9;
+        text-align: left !important;
+        overflow-wrap: anywhere;
+      }
+      .responsive-data-table td:last-child { border-bottom: 0; }
+      .responsive-data-table td::before {
+        content: attr(data-label);
+        color: #64748b;
+        font-size: .65rem;
+        font-weight: 700;
+        line-height: 1.3;
+        letter-spacing: .04em;
+        text-transform: uppercase;
+      }
+      .responsive-data-table td > * { min-width: 0; max-width: 100%; }
+      .responsive-data-table td[data-select] {
+        display: flex !important;
+        min-height: 2.75rem;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .responsive-data-table td[data-select]::before { content: attr(data-label); }
+      .responsive-data-table td[data-select] input[type="checkbox"] { width: 1.25rem; height: 1.25rem; }
+      .responsive-data-table td[data-empty] { display: block !important; border: 0; }
+      .responsive-data-table td[data-empty]::before { content: none; }
+    }
+  `],
   template: `
-    <div class="overflow-x-auto scroll-y" [style.max-height]="maxHeight()">
-      <table class="w-full text-sm border-collapse">
+    @if (sortableColumns().length) {
+      <div class="responsive-data-table-sort hidden mb-3 items-end gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+        <label class="min-w-0 flex-1 text-[11px] font-bold uppercase tracking-wide text-mute">
+          {{ language() === 'fr' ? 'Trier par' : 'Sort by' }}
+          <select class="mt-1 block min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-base font-semibold normal-case tracking-normal text-ink"
+            [value]="sortKey() ?? ''" (change)="selectSort($any($event.target).value)">
+            <option value="">{{ language() === 'fr' ? 'Ordre initial' : 'Default order' }}</option>
+            @for (col of sortableColumns(); track col.key) { <option [value]="col.key">{{ col.label }}</option> }
+          </select>
+        </label>
+        <button type="button" (click)="reverseSort()" [disabled]="!sortKey()"
+          class="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-slate-300 bg-white text-brand-700 disabled:opacity-40"
+          [attr.aria-label]="language() === 'fr' ? 'Inverser le tri' : 'Reverse sort'">
+          <bbc-icon [name]="sortDir() === 'asc' ? 'chevronDown' : 'chevronRight'" [s]="16" />
+        </button>
+      </div>
+    }
+    <div class="responsive-data-table-scroll overflow-x-auto scroll-y" [style.max-height]="maxHeight()">
+      <table class="responsive-data-table w-full text-sm border-collapse">
         <thead class="sticky top-0 z-10 bg-slate-50">
           <tr class="border-b border-slate-200">
             @if (selectable()) {
@@ -67,13 +139,13 @@ export class CellTemplateDirective {
               [class]="(rowClick ? 'cursor-pointer ' : '') + (isActive(row) ? 'bg-brand-50' : isSelected(row) ? 'bg-brand-50/60' : 'hover:bg-slate-50')">
               @if (selectable()) {
                 <!-- La case ne doit pas ouvrir la fiche : cocher et consulter sont deux gestes distincts. -->
-                <td class="pl-4 pr-1 py-2.5 align-middle" (click)="$event.stopPropagation()">
+                <td data-select [attr.data-label]="language() === 'fr' ? 'Sélectionner' : 'Select'" class="pl-4 pr-1 py-2.5 align-middle" (click)="$event.stopPropagation()">
                   <input type="checkbox" class="w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-400 align-middle"
                     [checked]="isSelected(row)" (change)="toggleRow(row)" />
                 </td>
               }
               @for (col of columns(); track col.key) {
-                <td class="px-4 py-2.5 align-middle" [class]="alignCls(col)">
+                <td [attr.data-label]="col.label" class="px-4 py-2.5 align-middle" [class]="alignCls(col)">
                   @if (tplFor(col.key); as t) {
                     <ng-container [ngTemplateOutlet]="t" [ngTemplateOutletContext]="{ $implicit: row, index: i }" />
                   } @else {
@@ -84,7 +156,7 @@ export class CellTemplateDirective {
             </tr>
           } @empty {
             <tr>
-              <td [attr.colspan]="columns().length + (selectable() ? 1 : 0)" class="py-12">
+              <td data-empty [attr.colspan]="columns().length + (selectable() ? 1 : 0)" class="py-12">
                 <div class="flex flex-col items-center justify-center text-center">
                   <div class="w-12 h-12 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mb-2">
                     <bbc-icon name="search" />
@@ -136,6 +208,7 @@ export class DataTableComponent<T = any> {
   protected sortDir = signal<'asc' | 'desc'>('asc');
   protected currentPage = signal(1);
   protected rowsPerPage = signal(25);
+  protected sortableColumns = computed(() => this.columns().filter((col) => col.sortable !== false));
 
   protected sorted = computed<T[]>(() => {
     const key = this.sortKey();
@@ -173,6 +246,15 @@ export class DataTableComponent<T = any> {
       this.sortKey.set(key);
       this.sortDir.set('asc');
     }
+  }
+
+  protected selectSort(key: string): void {
+    this.sortKey.set(key || null);
+    this.sortDir.set('asc');
+  }
+
+  protected reverseSort(): void {
+    if (this.sortKey()) this.sortDir.set(this.sortDir() === 'asc' ? 'desc' : 'asc');
   }
 
   protected changePageSize(size: number): void {

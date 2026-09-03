@@ -171,7 +171,7 @@ import { JourneyApi, ProgressionGraphView, ProgressionPathView, PromotionBatchLi
 
          @if (batch(); as b) {
           @if (b.status === 'COMMITTED' && register(); as r) { <div class="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900"><strong>{{ fr() ? 'Registre de promotion' : 'Promotion register' }}</strong><div class="mt-1 break-all font-mono">SHA-256 {{ r.sha256 }}</div><button class="secondary-btn mt-2" (click)="downloadRegister(r)">{{ fr() ? 'Télécharger le manifeste' : 'Download manifest' }}</button></div> }
-          <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <div class="responsive-kpi-grid grid grid-cols-2 md:grid-cols-5 gap-3">
             <bbc-kpi [label]="fr() ? 'Élèves' : 'Students'" [value]="b.candidateCount.toString()" icon="users" />
             <bbc-kpi [label]="fr() ? 'Promouvoir' : 'Promote'" [value]="b.promoteCount.toString()" icon="check" />
             <bbc-kpi [label]="fr() ? 'Redoubler' : 'Repeat'" [value]="b.repeatCount.toString()" icon="refresh" />

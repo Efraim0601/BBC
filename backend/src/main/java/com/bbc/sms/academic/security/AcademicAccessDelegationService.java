@@ -418,7 +418,7 @@ public class AcademicAccessDelegationService {
 
     private List<ReadinessIssue> duplicateNames() {
         return jdbc.query("""
-                SELECT min(e.id),min(e.name),min(e.code),count(*)
+                SELECT min(e.id::text)::uuid,min(e.name),min(e.code),count(*)
                   FROM employee e
                  WHERE e.school_id=? AND e.active=true
                  GROUP BY lower(regexp_replace(e.name,'[^[:alnum:]]','','g'))

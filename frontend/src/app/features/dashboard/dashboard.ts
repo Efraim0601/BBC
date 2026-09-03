@@ -32,7 +32,7 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
       </bbc-page-header>
 
       <!-- KPIs -->
-      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
+      <div class="responsive-kpi-grid grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
         @if (auth.can('students', 'read')) {
           <bbc-kpi tone="neutral" icon="users" [label]="i18n.t('students')" [value]="students().length"
             [sub]="subsystemSub()" />
@@ -119,7 +119,18 @@ const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e
             @if (recentPayments().length === 0) {
               <bbc-empty icon="receipt" [label]="fr() ? 'Aucun paiement' : 'No payments'" />
             } @else {
-              <table class="w-full text-sm">
+              <div class="space-y-2 md:hidden">
+                @for (p of recentPayments(); track p.id) {
+                  <article class="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+                    <div class="flex items-start justify-between gap-3">
+                      <div class="min-w-0"><div class="break-words text-sm font-semibold text-ink">{{ studentName(p.studentId) }}</div><div class="mt-1 text-xs font-mono text-brand-600">{{ p.receiptNo }}</div></div>
+                      <strong class="shrink-0 text-sm text-emerald-700">{{ money(p.amount) }}</strong>
+                    </div>
+                    <div class="mt-2 text-xs text-mute">{{ fr() ? 'Méthode' : 'Method' }}: {{ p.method }}</div>
+                  </article>
+                }
+              </div>
+              <table class="hidden w-full text-sm md:table">
                 <thead>
                   <tr class="text-[11px] uppercase tracking-wide text-mute border-b border-slate-100">
                     <th class="text-left font-semibold py-2">{{ fr() ? 'Reçu' : 'Receipt' }}</th>

@@ -61,7 +61,12 @@ public class StudentService {
     @Transactional(readOnly = true)
     public List<? extends DirectoryView> list(String className) {
         UUID schoolId = TenantContext.get();
-        if (teacherScope.restricted()) return teacherList(className, schoolId);
+        if (teacherScope.restricted()) return enrollmentScopedList(className, schoolId, true);
+        // A selected parcours is also a programme projection.  In a bilingual
+        // cohort the canonical enrollment can be CE1 A while the same pupil is
+        // being viewed as Class 3 A.  Resolve the active programme class here
+        // instead of filtering the legacy student.class_id snapshot.
+        if (ParcoursContext.get() != null) return enrollmentScopedList(className, schoolId, false);
         // A class filter is a roster request, not a legacy Student.className
         // lookup.  That distinction matters for a paired bilingual cohort:
         // either programme class must resolve to the same active students.
@@ -168,14 +173,17 @@ public class StudentService {
             teacherScope.assertStudent(id);
             return toView(student);
         }
-        if (teacherScope.restricted()) {
+        if (teacherScope.restricted() || ParcoursContext.get() != null) {
             EnrollmentProjection enrollment = activeEnrollment(student.getId(), currentSessionId(TenantContext.get()),
                     effectiveDate(currentSessionId(TenantContext.get())));
             if (enrollment == null) {
                 throw ApiException.coded(org.springframework.http.HttpStatus.FORBIDDEN,
                         "ENROLLMENT_SCOPE_MISMATCH", "Aucune inscription active ne correspond à votre périmètre.");
             }
-            return toTeacherView(student, enrollment.classId(), enrollment.className(),
+            return teacherScope.restricted()
+                    ? toTeacherView(student, enrollment.classId(), enrollment.className(),
+                    enrollment.subsystem(), enrollment.level())
+                    : toView(student, enrollment.classId(), enrollment.className(),
                     enrollment.subsystem(), enrollment.level());
         }
         return toView(student);
@@ -729,13 +737,14 @@ public class StudentService {
                 className, subsystem, level, s.getPhotoHue());
     }
 
-    /** Query-backed teacher directory: enrollment and class metadata are authoritative. */
-    private List<StudentTeacherView> teacherList(String className, UUID schoolId) {
+    /** Query-backed scoped directory: enrollment and programme metadata are authoritative. */
+    private List<? extends DirectoryView> enrollmentScopedList(String className, UUID schoolId,
+                                                                boolean teacherProjection) {
         UUID sessionId = currentSessionId(schoolId);
         if (sessionId == null) return List.of();
         LocalDate date = effectiveDate(sessionId);
         Set<UUID> allowedClasses = teacherScope.allowedClassIds(sessionId, date);
-        if (allowedClasses.isEmpty()) return List.of();
+        if (allowedClasses == null || allowedClasses.isEmpty()) return List.of();
         ParcoursContext.Scope scope = ParcoursContext.get();
         StringBuilder sql = new StringBuilder("""
                 SELECT q.student_id,q.school_class_id,q.name,q.subsystem,q.level
@@ -778,13 +787,30 @@ public class StudentService {
         Map<UUID, Student> students = new HashMap<>();
         for (Student student : repo.findBySchoolIdAndIdInAndActiveTrue(schoolId,
                 projections.stream().map(EnrollmentProjection::studentId).toList())) students.put(student.getId(), student);
-        return projections.stream()
+        List<DirectoryView> result = projections.stream()
                 .filter(p -> students.containsKey(p.studentId()))
                 .filter(p -> policy.decide("STUDENT_DIRECTORY_VIEW",
                         policyContext(students.get(p.studentId()), sessionId, date, p.classId())).allowed())
-                .map(p -> toTeacherView(students.get(p.studentId()), p.classId(), p.className(),
-                        p.subsystem(), p.level()))
-                .toList();
+                .map(p -> (DirectoryView) (teacherProjection
+                        ? toTeacherView(students.get(p.studentId()), p.classId(), p.className(),
+                        p.subsystem(), p.level())
+                        : toView(students.get(p.studentId()), p.classId(), p.className(),
+                        p.subsystem(), p.level())))
+                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+
+        // A newly registered pupil can intentionally be left without a class.
+        // Keep that row visible to a scoped management account when its stamped
+        // level/subsystem match; teachers never receive unassigned records.
+        if (!teacherProjection && (className == null || className.isBlank())) {
+            repo.findBySchoolIdAndActiveTrueOrderByLastNameAsc(schoolId).stream()
+                    .filter(student -> student.getClassId() == null)
+                    .filter(student -> inScope(scope, student.getLevel(), student.getSubsystem()))
+                    .filter(student -> policy.decide("STUDENT_DIRECTORY_VIEW",
+                            policyContext(student, sessionId, date, null)).allowed())
+                    .map(this::toView)
+                    .forEach(result::add);
+        }
+        return result;
     }
 
     private EnrollmentProjection activeEnrollment(UUID studentId, UUID sessionId, LocalDate date) {
@@ -842,6 +868,7 @@ public class StudentService {
 
     /** Exact action + server-resolved student/class/session scope for controllers. */
     public Student requireAction(UUID id, String actionCode) {
+        teacherScope.assertSectionStudent(id);
         Student student = find(id);
         policy.require(actionCode, policyContext(student, null, null));
         return student;

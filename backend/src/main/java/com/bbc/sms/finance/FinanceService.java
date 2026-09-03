@@ -29,6 +29,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -89,9 +90,9 @@ public class FinanceService {
         // Resolve student identities in one pass — a per-row lookup would be N+1.
         Map<UUID, FinanceStudent> byId = financeStudents(schoolId,
                 rows.stream().map(Payment::getStudentId).collect(Collectors.toSet()));
-        String section = teacherScope.adminSection();
+        Set<UUID> allowedStudents = teacherScope.allowedStudentIds();
         return rows.stream()
-                .filter(p -> inSection(byId.get(p.getStudentId()), section))
+                .filter(p -> allowedStudents == null || allowedStudents.contains(p.getStudentId()))
                 .map(p -> toView(p, byId.get(p.getStudentId()))).toList();
     }
 
@@ -123,7 +124,7 @@ public class FinanceService {
     public List<ExpenseView> listExpenses() {
         requireSchool("FINANCE_EXPENSE_VIEW");
         UUID schoolId = TenantContext.get();
-        if (teacherScope.adminSection() != null) return List.of();
+        if (ParcoursContext.get() != null || teacherScope.adminSection() != null) return List.of();
         return expenses.findBySchoolIdOrderBySpentOnDesc(schoolId).stream().map(this::toView).toList();
     }
 
@@ -311,13 +312,11 @@ public class FinanceService {
         LocalDate to = LocalDate.now();
         LocalDate from = to.minusDays(29);   // 30-day window inclusive of today
 
-        String section = teacherScope.adminSection();
+        Set<UUID> allowedStudents = teacherScope.allowedStudentIds();
         List<Payment> recentPayments = payments.findBySchoolIdAndPaidOnBetween(schoolId, from, to);
-        if (section != null) {
-            Map<UUID, Student> byId = students.findBySchoolIdAndActiveTrueOrderByLastNameAsc(schoolId).stream()
-                    .collect(Collectors.toMap(Student::getId, s -> s, (a, b) -> a));
+        if (allowedStudents != null) {
             recentPayments = recentPayments.stream()
-                    .filter(p -> inSection(byId.get(p.getStudentId()), section)).toList();
+                    .filter(p -> allowedStudents.contains(p.getStudentId())).toList();
         }
 
         Map<LocalDate, Long> byDay = new HashMap<>();
@@ -335,7 +334,7 @@ public class FinanceService {
 
         // Dépenses hors périmètre d'un admin de cycle : à zéro, et le champ
         // `section` dit à l'écran pourquoi le solde n'est pas celui de l'école.
-        long totalExpense30d = section != null ? 0L
+        long totalExpense30d = allowedStudents != null ? 0L
                 : expenses.findBySchoolIdOrderBySpentOnDesc(schoolId).stream()
                         .filter(e -> !e.getSpentOn().isBefore(from) && !e.getSpentOn().isAfter(to))
                         .filter(e -> "POSTED".equals(e.getStatus()))
@@ -346,7 +345,7 @@ public class FinanceService {
         int paymentsCount = recentPayments.size();
 
         return new FinanceSummary(totalRevenue30d, totalExpense30d, balance30d, paymentsCount,
-                revenueSeries, section);
+                revenueSeries, ParcoursContext.effectiveLevel());
     }
 
     private PaymentView toView(Payment p) {

@@ -11,12 +11,12 @@ import { IconComponent } from './icon';
   template: `
     <div class="bg-white rounded-xl2 shadow-card border border-slate-100 h-full">
       @if (title() || subtitle()) {
-        <div class="flex items-start justify-between px-5 pt-5 pb-3">
-          <div>
+        <div class="flex flex-col sm:flex-row sm:items-start justify-between gap-3 px-5 pt-5 pb-3">
+          <div class="min-w-0">
             @if (title()) { <div class="text-[15px] font-semibold text-ink">{{ title() }}</div> }
             @if (subtitle()) { <div class="text-xs text-mute mt-0.5">{{ subtitle() }}</div> }
           </div>
-          <div><ng-content select="[action]"></ng-content></div>
+          <div class="bbc-card-actions w-full sm:w-auto"><ng-content select="[action]"></ng-content></div>
         </div>
       }
       <div [class]="title() || subtitle() ? 'px-5 pb-5' : 'p-5'">
@@ -37,16 +37,17 @@ export class CardComponent {
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [IconComponent],
+  host: { class: 'block min-w-0' },
   template: `
-    <div class="bg-white rounded-xl2 shadow-card border border-slate-100 p-5 flex items-start gap-4">
-      <div class="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" [class]="tones[tone()]">
-        <bbc-icon [name]="icon()" [s]="22" />
+    <div class="bg-white rounded-xl2 shadow-card border border-slate-100 p-3 sm:p-5 flex items-start gap-2.5 sm:gap-4 min-w-0">
+      <div class="w-9 h-9 sm:w-11 sm:h-11 rounded-xl flex items-center justify-center shrink-0" [class]="tones[tone()]">
+        <bbc-icon [name]="icon()" [s]="20" />
       </div>
       <div class="min-w-0 flex-1">
-        <div class="text-[12px] text-mute uppercase tracking-wide font-medium">{{ label() }}</div>
-        <div class="text-[26px] font-bold text-ink leading-tight mt-1 truncate">{{ value() }}</div>
+        <div class="text-[10px] sm:text-[12px] text-mute uppercase tracking-wide font-medium leading-snug break-words">{{ label() }}</div>
+        <div class="text-xl sm:text-[26px] font-bold text-ink leading-tight mt-1 break-words">{{ value() }}</div>
         @if (sub() || delta() !== undefined) {
-          <div class="flex items-center gap-2 mt-1 text-xs">
+          <div class="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1 text-[11px] sm:text-xs min-w-0">
             @if (delta() !== undefined) {
               <span class="inline-flex items-center gap-0.5 font-semibold" [class]="delta()! >= 0 ? 'text-emerald-600' : 'text-rose-600'">
                 <bbc-icon name="trendUp" [s]="12" [sw]="2.4" />{{ delta()! >= 0 ? '+' : '' }}{{ delta() }}%
@@ -108,12 +109,12 @@ export class StatusPillComponent {
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="flex items-end justify-between mb-5 gap-4 flex-wrap">
-      <div>
+    <div class="flex items-end justify-between mb-5 gap-4 flex-wrap min-w-0">
+      <div class="min-w-0">
         <h1 class="text-[22px] font-bold text-ink leading-tight font-display">{{ title() }}</h1>
         @if (subtitle()) { <div class="text-sm text-mute mt-1">{{ subtitle() }}</div> }
       </div>
-      <div class="flex items-center gap-2"><ng-content select="[right]"></ng-content></div>
+      <div class="bbc-page-header-actions flex max-w-full items-center gap-2 flex-wrap"><ng-content select="[right]"></ng-content></div>
     </div>
   `,
 })
@@ -126,11 +127,16 @@ export class PageHeaderComponent {
   selector: 'bbc-tabs',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
+  styles: [`
+    .bbc-tabs-strip { scrollbar-width: none; scroll-snap-type: x proximity; overscroll-behavior-inline: contain; }
+    .bbc-tabs-strip::-webkit-scrollbar { display: none; }
+    .bbc-tabs-strip > button { scroll-snap-align: start; }
+  `],
   template: `
-    <div class="flex items-center gap-1 border-b border-slate-200 mb-5 overflow-x-auto">
+    <div class="bbc-tabs-strip flex items-center gap-1 border-b border-slate-200 mb-5 overflow-x-auto overflow-y-hidden">
       @for (tb of tabs(); track tb.id) {
         <button (click)="change.emit(tb.id)"
-          class="relative px-4 py-2.5 text-sm font-semibold transition whitespace-nowrap"
+          class="relative px-4 min-h-11 py-2.5 text-sm font-semibold transition whitespace-nowrap"
           [class]="value() === tb.id ? 'text-brand-600' : 'text-mute hover:text-ink'">
           {{ tb.label }}
           @if (value() === tb.id) { <span class="absolute left-2 right-2 -bottom-px h-0.5 bg-gold-400 rounded-full"></span> }
@@ -152,13 +158,13 @@ export class TabsComponent {
   template: `
     <div class="flex items-center gap-1.5 flex-wrap">
       <button (click)="change.emit(null)"
-        class="px-3 py-1.5 rounded-full text-xs font-semibold transition"
+        class="min-h-10 sm:min-h-0 px-3 py-1.5 rounded-full text-xs font-semibold transition"
         [class]="value() === null ? 'bg-brand-600 text-white' : 'bg-white text-mute border border-slate-200 hover:border-brand-300'">
         {{ allLabel() }}
       </button>
       @for (o of options(); track o.value) {
         <button (click)="change.emit(o.value)"
-          class="px-3 py-1.5 rounded-full text-xs font-semibold transition"
+          class="min-h-10 sm:min-h-0 px-3 py-1.5 rounded-full text-xs font-semibold transition"
           [class]="value() === o.value ? 'bg-brand-600 text-white' : 'bg-white text-mute border border-slate-200 hover:border-brand-300'">
           {{ o.label }}
         </button>

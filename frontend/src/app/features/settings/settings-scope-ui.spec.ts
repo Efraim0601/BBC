@@ -49,18 +49,27 @@ describe('settings academic-setup scope boundary', () => {
     expect((fixture.componentInstance as any).canViewAcademicSetup()).toBe(false);
   });
 
-  it('hides administrator-only permissions and roles tabs from a principal', () => {
+  it('hides administrator-only accounts, permissions, roles and mail from a principal', () => {
     const fixture = create(() => 'DENY');
     const ids = (fixture.componentInstance as any).tabs().map((tab: { id: string }) => tab.id);
+    expect(ids).not.toContain('admins');
     expect(ids).not.toContain('perms');
     expect(ids).not.toContain('roles');
+    expect(ids).not.toContain('mail');
   });
 
   it('exposes permissions and roles tabs to an administrator', () => {
     const fixture = create((action) => action === 'PERMISSION_VIEW' ? 'ALLOW' : 'DENY');
     const ids = (fixture.componentInstance as any).tabs().map((tab: { id: string }) => tab.id);
+    expect(ids).toContain('admins');
     expect(ids).toContain('perms');
     expect(ids).toContain('roles');
+  });
+
+  it('shows mail only when the mail-view action is granted', () => {
+    const fixture = create((action) => action === 'MAIL_CONFIG_VIEW' ? 'ALLOW' : 'DENY');
+    const ids = (fixture.componentInstance as any).tabs().map((tab: { id: string }) => tab.id);
+    expect(ids).toContain('mail');
   });
 
   it('keeps setup available for an allowed setup action', () => {

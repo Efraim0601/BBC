@@ -7,6 +7,7 @@ import com.bbc.sms.platform.security.AuthorizationPolicyService;
 import com.bbc.sms.platform.security.PolicyDecision;
 import com.bbc.sms.platform.security.PolicyResourceContext;
 import com.bbc.sms.platform.security.TeacherScopeService;
+import com.bbc.sms.platform.tenant.ParcoursContext;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.timetable.SchoolClass;
 import com.bbc.sms.timetable.SchoolClassRepository;
@@ -40,6 +41,7 @@ class AttendanceWorkflowServiceTest {
     @AfterEach
     void clearTenant() {
         TenantContext.clear();
+        ParcoursContext.clear();
     }
 
     @Test
@@ -62,6 +64,30 @@ class AttendanceWorkflowServiceTest {
         assertThat(service.attendanceClasses()).extracting(AttendanceDtos.AttendanceClass::id).containsExactly(classId);
         verify(teacherScope).allowedClassIds(sessionId, today);
         verify(teacherScope, never()).allowedClassIds();
+    }
+
+    @Test
+    void principalClassListIsNarrowedToTheSelectedParcours() {
+        TenantContext.set(schoolId);
+        ParcoursContext.set(new ParcoursContext.Scope("secondary", "FR"));
+        JdbcTemplate jdbc = jdbcForDailyModel();
+        TeacherScopeService teacherScope = mock(TeacherScopeService.class);
+        AuthorizationPolicyService policy = mock(AuthorizationPolicyService.class);
+        AcademicSession session = session(true);
+        UUID secondaryId = UUID.randomUUID();
+        SchoolClass secondaryFr = schoolClass(secondaryId, "6e A", "secondary", "FR");
+        SchoolClass primaryFr = schoolClass(UUID.randomUUID(), "CE1 A", "primary", "FR");
+
+        when(sessions().findBySchoolIdOrderByStartDateDesc(schoolId)).thenReturn(List.of(session));
+        when(classes().findBySchoolIdOrderByName(schoolId)).thenReturn(List.of(primaryFr, secondaryFr));
+        when(teacherScope.allowedClassIds(sessionId, today)).thenReturn(null);
+        when(policy.decide(eq("ATTENDANCE_ROSTER_VIEW"), any())).thenReturn(
+                PolicyDecision.allow("ATTENDANCE_ROSTER_VIEW", "ROLE:principal", "PARCOURS_ALLOWED", 1));
+
+        AttendanceWorkflowService service = service(jdbc, classes(), sessions(), teacherScope, policy);
+
+        assertThat(service.attendanceClasses()).extracting(AttendanceDtos.AttendanceClass::id)
+                .containsExactly(secondaryId);
     }
 
     @Test
@@ -157,6 +183,16 @@ class AttendanceWorkflowServiceTest {
         schoolClass.setName("6ème A");
         schoolClass.setLevel("primary");
         schoolClass.setSubsystem("francophone");
+        return schoolClass;
+    }
+
+    private SchoolClass schoolClass(UUID id, String name, String level, String subsystem) {
+        SchoolClass schoolClass = new SchoolClass();
+        schoolClass.setId(id);
+        schoolClass.setSchoolId(schoolId);
+        schoolClass.setName(name);
+        schoolClass.setLevel(level);
+        schoolClass.setSubsystem(subsystem);
         return schoolClass;
     }
 

@@ -91,7 +91,7 @@ interface HeaderMap {
               <span class="absolute left-3 top-1/2 -translate-y-1/2 text-mute"><bbc-icon name="search" [s]="14" /></span>
               <input [ngModel]="search()" (ngModelChange)="search.set($event)"
                 [placeholder]="fr() ? 'Rechercher un élève, matricule, parent…' : 'Search student, ID, parent…'"
-                class="h-9 w-72 pl-9 pr-3 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-brand-400" />
+                class="h-9 w-full sm:w-72 pl-9 pr-3 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-brand-400" />
             </div>
             @if (!activeScope()) {
               <bbc-chip-filter [options]="subOptions()" [value]="subFilter()" (change)="onSubFilter($event)"
@@ -162,7 +162,7 @@ interface HeaderMap {
                 <div class="flex items-center gap-3">
                   <bbc-avatar [name]="s.name" [hue]="s.photoHue" [size]="34" />
                   <div class="min-w-0">
-                    <div class="font-semibold text-ink truncate">{{ s.name }}</div>
+                    <div class="font-semibold text-ink break-words sm:truncate">{{ s.name }}</div>
                     <div class="text-[11px] text-mute font-mono">{{ s.matricule }}</div>
                   </div>
                 </div>
@@ -188,7 +188,7 @@ interface HeaderMap {
               <ng-template bbcCell="parent" let-s>
                 @if (s.parentName) {
                   <div class="min-w-0">
-                    <div class="text-ink truncate">{{ s.parentName }}</div>
+                    <div class="text-ink break-words sm:truncate">{{ s.parentName }}</div>
                     @if (s.parentPhone) { <div class="text-[11px] text-mute">{{ s.parentPhone }}</div> }
                   </div>
                 } @else {

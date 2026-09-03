@@ -163,3 +163,86 @@ body { overflow: hidden; font-family: 'Manrope', ui-sans-serif, system-ui, -appl
 
 /* fp icon ring */
 .fp-ring { background: radial-gradient(circle at 30% 30%, #fff, #FBF6E8 60%, #F5E9C1); }
+
+/* Responsive interaction primitives shared by feature screens. */
+.mobile-scroll-strip {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  scroll-snap-type: x proximity;
+  overscroll-behavior-inline: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.mobile-scroll-strip::-webkit-scrollbar { display: none; }
+.mobile-scroll-strip > * { scroll-snap-align: start; }
+
+.fee-tabs,
+.collection-tabs,
+.document-tabs,
+.payroll-tabs,
+.report-tabs,
+.step-rail,
+.timetable-nav,
+nav[aria-label="Accounting sections"],
+nav[aria-label="Student charges sections"],
+nav[aria-label="Fee plan workspace"] {
+  overflow-x: auto;
+  overflow-y: hidden !important;
+  scrollbar-width: none;
+  overscroll-behavior-inline: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.fee-tabs::-webkit-scrollbar,
+.collection-tabs::-webkit-scrollbar,
+.document-tabs::-webkit-scrollbar,
+.payroll-tabs::-webkit-scrollbar,
+.report-tabs::-webkit-scrollbar,
+.step-rail::-webkit-scrollbar,
+.timetable-nav::-webkit-scrollbar,
+nav[aria-label="Accounting sections"]::-webkit-scrollbar,
+nav[aria-label="Student charges sections"]::-webkit-scrollbar,
+nav[aria-label="Fee plan workspace"]::-webkit-scrollbar { display: none; }
+
+@media (max-width: 639.98px) {
+  .responsive-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: .75rem !important; }
+  .bbc-page-header-actions > * {
+    flex: 1 1 9rem;
+    min-height: 44px !important;
+    height: auto !important;
+    max-width: 100%;
+    white-space: normal;
+    text-align: center;
+  }
+  .bbc-page-header-actions:empty { display: none; }
+  .bbc-page-header-actions [right] > button,
+  .bbc-page-header-actions [right] > a {
+    min-height: 44px !important;
+    height: auto !important;
+  }
+  .bbc-card-actions > [action] {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  .bbc-card-actions > [action] > button,
+  .bbc-card-actions > [action] > a {
+    min-height: 44px !important;
+    height: auto !important;
+  }
+  main input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+  main select,
+  main textarea,
+  .field, .input, input.field, select.field, textarea.field {
+    min-height: 44px;
+    font-size: 16px;
+  }
+  main button { min-height: 44px; }
+}
+
+@media (max-width: 359.98px) {
+  .responsive-kpi-grid,
+  .module-catalog-grid { grid-template-columns: minmax(0, 1fr) !important; }
+}
+
+@media (pointer: coarse) {
+  button, a { touch-action: manipulation; }
+}

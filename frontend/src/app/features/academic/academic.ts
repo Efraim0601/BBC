@@ -125,20 +125,20 @@ const appreciation = (avg: number, fr: boolean): string => {
         <div right class="flex items-center gap-2 print:hidden">
           @if (mode() === 'bulletin' && canUseClassOverview() && selectedClass() && classStudents().length) {
             <button (click)="printAllBulletins()" [disabled]="bulkBusy()"
-              class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-brand-600 hover:bg-brand-700 text-white disabled:opacity-50">
+              class="inline-flex items-center justify-center gap-2 min-h-11 sm:min-h-9 px-3.5 py-2 text-sm font-semibold rounded-lg bg-brand-600 hover:bg-brand-700 text-white disabled:opacity-50">
               <bbc-icon name="download" [s]="16" />
               {{ fr() ? 'Tous les bulletins de la classe' : 'All class report cards' }}
             </button>
           }
           @if (mode() === 'bulletin' && bulletin()) {
             <button (click)="print()"
-              class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
+              class="inline-flex items-center justify-center gap-2 min-h-11 sm:min-h-9 px-3.5 py-2 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
               <bbc-icon name="printer" [s]="16" /> {{ fr() ? 'Imprimer' : 'Print' }}
             </button>
           }
           @if ((mode() === 'pv' || mode() === 'overview') && pv()) {
             <button (click)="print()"
-              class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
+              class="inline-flex items-center justify-center gap-2 min-h-11 sm:min-h-9 px-3.5 py-2 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
               <bbc-icon name="printer" [s]="16" /> {{ fr() ? 'Imprimer' : 'Print' }}
             </button>
           }
@@ -169,7 +169,7 @@ const appreciation = (avg: number, fr: boolean): string => {
       <!-- Toolbar: class + sequence -->
       <bbc-card className="mb-5 print:hidden">
         <div class="flex items-start gap-4 flex-wrap">
-          <div class="flex-1 min-w-[240px]">
+          <div class="flex-1 min-w-0 sm:min-w-[240px]">
             <div class="text-xs font-semibold text-mute uppercase mb-2">{{ mode() === 'grade-entry' ? (fr() ? '1. Classe' : '1. Class') : (fr() ? 'Classe' : 'Class') }}</div>
             <select [ngModel]="selectedClass()" (ngModelChange)="onClassChange($event)"
               class="w-full h-10 px-3 rounded-lg border border-slate-200 text-sm bg-white text-ink focus:outline-none focus:border-brand-400 font-semibold">
@@ -180,7 +180,7 @@ const appreciation = (avg: number, fr: boolean): string => {
             </select>
           </div>
           @if (reportingPeriods().length) {
-            <div class="flex-1 min-w-[220px]">
+            <div class="flex-1 min-w-0 sm:min-w-[220px]">
               <div class="text-xs font-semibold text-mute uppercase mb-2">{{ mode() === 'grade-entry' ? (fr() ? '2. Période de notation' : '2. Grading period') : (fr() ? 'Jalon académique' : 'Academic milestone') }}</div>
               @if (mode() === 'grade-entry') {
                 <select [ngModel]="selectedReportingPeriodId()" (ngModelChange)="onReportingPeriodChange($event)"
@@ -197,7 +197,7 @@ const appreciation = (avg: number, fr: boolean): string => {
             </div>
           }
           @if (mode() === 'grade-entry' && gradeEntry(); as entry) {
-            <div class="flex-1 min-w-[240px]">
+            <div class="flex-1 min-w-0 sm:min-w-[240px]">
               <div class="text-xs font-semibold text-mute uppercase mb-2">{{ fr() ? '3. Matière' : '3. Subject' }}</div>
               <select [ngModel]="selectedGradeSubjectCode()" (ngModelChange)="onGradeSubjectChange($event)"
                 class="w-full h-10 px-3 rounded-lg border border-slate-200 text-sm bg-white text-ink focus:outline-none focus:border-brand-400 font-semibold">
@@ -365,7 +365,48 @@ const appreciation = (avg: number, fr: boolean): string => {
                 @if (entry.assessments.length) { <div class="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-sm font-semibold text-ink">{{ entry.completedStudents }} / {{ entry.totalStudents }} {{ fr() ? 'élève(s) complet(s)' : 'student(s) complete' }}</div> }
               </div>
               @if (entry.assessments.length) {
-              <div class="overflow-x-auto mt-4">
+              <div class="mt-4 grid gap-3 lg:hidden">
+                @for (row of entry.students; track row.studentId) {
+                  <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <div class="font-semibold text-ink break-words">{{ row.studentName }}</div>
+                    <div class="text-[11px] text-mute font-mono">{{ row.matricule }}</div>
+                    <div class="mt-3 grid gap-3">
+                      @for (cell of row.values; track cell.assessmentId; let i = $index) {
+                        <section class="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                          <div class="flex items-start justify-between gap-3">
+                            <div class="text-sm font-bold text-ink break-words">{{ gradeAssessmentLabel(entry, entry.assessments[i]) }}</div>
+                            <span class="shrink-0 text-xs font-semibold text-mute">{{ fr() ? 'sur' : 'out of' }} {{ entry.assessments[i].maxScore }}</span>
+                          </div>
+                          <div class="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(9rem,auto)]">
+                            <label>
+                              <span class="mb-1 block text-[11px] font-bold uppercase text-mute">{{ fr() ? 'Note' : 'Mark' }}</span>
+                              <input type="number" min="0" [max]="entry.assessments[i].maxScore" step="0.01" [ngModel]="cell.mark" (ngModelChange)="updateGradeMark(row.studentId, i, $event)"
+                                [attr.aria-label]="(fr() ? 'Note de ' : 'Mark for ') + row.studentName + ' — ' + gradeAssessmentLabel(entry, entry.assessments[i])"
+                                [disabled]="entry.packetStatus === 'SUBMITTED' || entry.packetStatus === 'ACCEPTED' || entry.packetStatus === 'LOCKED' || entry.capabilities?.canEditDraft === false"
+                                class="field text-center font-semibold disabled:bg-slate-100" placeholder="—" />
+                            </label>
+                            <label>
+                              <span class="mb-1 block text-[11px] font-bold uppercase text-mute">{{ fr() ? 'Statut' : 'Status' }}</span>
+                              <select [ngModel]="cell.valueStatus" (ngModelChange)="updateGradeStatus(row.studentId, i, $event)"
+                                [disabled]="entry.packetStatus === 'SUBMITTED' || entry.packetStatus === 'ACCEPTED' || entry.packetStatus === 'LOCKED' || entry.capabilities?.canEditDraft === false"
+                                class="field disabled:bg-slate-100">
+                                <option value="SCORED">{{ fr() ? 'Note saisie' : 'Mark entered' }}</option><option value="ABSENT">{{ fr() ? 'Absent' : 'Absent' }}</option><option value="EXEMPT">{{ fr() ? 'Dispensé' : 'Exempt' }}</option><option value="MISSING">{{ fr() ? 'À compléter' : 'To complete' }}</option>
+                              </select>
+                            </label>
+                          </div>
+                        </section>
+                      }
+                    </div>
+                    <label class="mt-3 block">
+                      <span class="mb-1 block text-[11px] font-bold uppercase text-mute">{{ fr() ? 'Appréciation (facultative)' : 'Comment (optional)' }}</span>
+                      <textarea rows="2" [ngModel]="row.comment" (ngModelChange)="updateGradeComment(row.studentId, $event)" [disabled]="entry.packetStatus === 'SUBMITTED' || entry.packetStatus === 'ACCEPTED' || entry.packetStatus === 'LOCKED' || entry.capabilities?.canEditDraft === false" maxlength="500" class="field resize-y disabled:bg-slate-100" [placeholder]="fr() ? 'Remarque sur le travail…' : 'Comment on the work…'"></textarea>
+                    </label>
+                  </article>
+                } @empty {
+                  <div class="p-6 text-center text-mute">{{ fr() ? 'Aucun élève actif dans cette classe pour la session.' : 'No active student in this class for the session.' }}</div>
+                }
+              </div>
+              <div class="hidden lg:block overflow-x-auto mt-4">
                 <table class="min-w-[880px] w-full text-sm">
                   <thead class="bg-brand-50 border-y-2 border-brand-600">
                     <tr class="text-brand-700 font-bold uppercase text-[10px]">
@@ -408,7 +449,7 @@ const appreciation = (avg: number, fr: boolean): string => {
                 <div class="mx-5 mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-950">{{ fr() ? 'La saisie ne peut pas commencer tant qu’une évaluation n’est pas configurée pour cette matière.' : 'Mark entry cannot start until an assessment is configured for this subject.' }}</div>
               }
               <div class="flex flex-wrap gap-2 items-center mt-5 pt-4 border-t border-slate-100 print:hidden">
-                <div class="flex-1 min-w-[260px] text-xs text-mute">{{ gradeOversight() ? (fr() ? 'Lecture seule : demandez toute correction à l’enseignant affecté ou à la direction.' : 'Read-only: request any correction from the assigned teacher or management.') : entry.packetStatus === 'SUBMITTED' ? (fr() ? 'Cette feuille est en attente de vérification par la direction.' : 'This sheet is waiting for management review.') : entry.packetStatus === 'ACCEPTED' ? (fr() ? 'Cette feuille a été acceptée et est verrouillée.' : 'This sheet was accepted and is locked.') : (fr() ? 'Enregistrer = garder votre travail. Envoyer à la direction = demander la vérification.' : 'Save = keep your work. Send to management = request review.') }}</div>
+                <div class="flex-1 min-w-0 sm:min-w-[260px] text-xs text-mute">{{ gradeOversight() ? (fr() ? 'Lecture seule : demandez toute correction à l’enseignant affecté ou à la direction.' : 'Read-only: request any correction from the assigned teacher or management.') : entry.packetStatus === 'SUBMITTED' ? (fr() ? 'Cette feuille est en attente de vérification par la direction.' : 'This sheet is waiting for management review.') : entry.packetStatus === 'ACCEPTED' ? (fr() ? 'Cette feuille a été acceptée et est verrouillée.' : 'This sheet was accepted and is locked.') : (fr() ? 'Enregistrer = garder votre travail. Envoyer à la direction = demander la vérification.' : 'Save = keep your work. Send to management = request review.') }}</div>
                 @if (canWrite && (entry.packetStatus === 'DRAFT' || entry.packetStatus === 'RETURNED')) {
                   <button type="button" (click)="saveGradeEntry()" [disabled]="gradeBusy() || entry.capabilities?.canEditDraft === false" class="h-10 px-4 rounded-lg border border-slate-300 text-sm font-semibold text-ink hover:bg-slate-50 disabled:opacity-50">{{ gradeBusy() ? '…' : (fr() ? 'Enregistrer sans envoyer' : 'Save without sending') }}</button>
                   <button type="button" (click)="submitGradeEntry()" [disabled]="gradeBusy() || entry.blockers.length > 0 || !entry.assessments.length || !canSubmitGrade(entry)" [title]="entry.submissionBlockers?.length ? (fr() ? 'Réparez l’affectation et complétez les champs indiqués avant l’envoi.' : 'Repair the assignment and complete the highlighted fields before sending.') : ''" class="h-10 px-4 rounded-lg bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700 disabled:opacity-50">{{ fr() ? 'Envoyer à la direction' : 'Send to management' }}</button>
@@ -482,7 +523,7 @@ const appreciation = (avg: number, fr: boolean): string => {
                   <button type="button" (click)="toggleReportInput(row.studentId)" class="w-full p-4 text-left hover:bg-slate-50/80 transition" [attr.aria-expanded]="expanded">
                     <div class="flex items-center justify-between gap-4 flex-wrap">
                       <div class="min-w-0">
-                        <div class="font-bold text-ink truncate">{{ row.studentName }}</div>
+                        <div class="font-bold text-ink break-words">{{ row.studentName }}</div>
                         <div class="mt-0.5 text-xs text-mute font-mono">{{ row.matricule }}</div>
                       </div>
                       <div class="flex flex-1 justify-end items-center gap-2 text-xs flex-wrap">
@@ -591,7 +632,7 @@ const appreciation = (avg: number, fr: boolean): string => {
                     [class]="selectedStudentId() === s.id ? 'bg-brand-50 border border-brand-200' : 'hover:bg-slate-50 border border-transparent'">
                     <bbc-avatar [name]="s.name" [hue]="s.photoHue" />
                     <div class="flex-1 min-w-0">
-                      <div class="text-sm font-semibold text-ink truncate">{{ s.name }}</div>
+                      <div class="text-sm font-semibold text-ink break-words">{{ s.name }}</div>
                       <div class="text-[11px] text-mute font-mono">{{ s.matricule }}</div>
                     </div>
                   </button>

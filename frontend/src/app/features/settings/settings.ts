@@ -757,12 +757,16 @@ export class SettingsComponent {
   /** Access Control is an administrator-only surface, including its settings tabs. */
   protected canViewAccessControl = computed(() =>
     this.auth.canAction('PERMISSION_VIEW') || this.auth.canAction('ROLE_MANAGE'));
+  protected canViewMail = computed(() =>
+    this.auth.canAction('MAIL_CONFIG_VIEW') || this.auth.canAction('MAIL_CONFIG_MANAGE'));
   protected activeTab = computed<SettingsTab>(() => {
     const current = this.tab();
-    return !this.canViewAccessControl() && (current === 'perms' || current === 'roles')
-      ? 'general' : current;
+    if (!this.canViewAccessControl() && (current === 'perms' || current === 'roles' || current === 'admins')) return 'general';
+    if (!this.canViewMail() && current === 'mail') return 'general';
+    return current;
   });
   private matrixRequested = false;
+  private mailRequested = false;
 
   /** Enable only the V2 action that governs the active settings surface. */
   protected get canWrite(): boolean {
@@ -858,12 +862,12 @@ export class SettingsComponent {
       { id: 'general', label: this.fr() ? 'Général' : 'General' },
       { id: 'calendar', label: this.fr() ? 'Calendrier' : 'Calendar' },
       { id: 'discipline', label: this.fr() ? 'Discipline' : 'Discipline' },
-      { id: 'admins', label: this.fr() ? 'Administrateurs' : 'Administrators' },
       ...(this.canViewAccessControl() ? [
+        { id: 'admins', label: this.fr() ? 'Administrateurs' : 'Administrators' },
         { id: 'perms', label: this.fr() ? 'Permissions' : 'Permissions' },
         { id: 'roles', label: this.fr() ? 'Rôles' : 'Roles' },
       ] : []),
-      { id: 'mail', label: this.fr() ? 'Messagerie' : 'E-mail' },
+      ...(this.canViewMail() ? [{ id: 'mail', label: this.fr() ? 'Messagerie' : 'E-mail' }] : []),
     ];
   });
 
@@ -906,16 +910,23 @@ export class SettingsComponent {
       if (this.canViewAccessControl() && !this.matrixRequested) {
         this.matrixRequested = true;
         this.reload();
+        this.loadAdmins();
+      }
+      if (this.canViewMail() && !this.mailRequested) {
+        this.mailRequested = true;
+        this.loadMail();
       }
     });
-    this.loadMail();
     this.loadHolidays();
     this.loadCatalog();
-    this.loadAdmins();
   }
 
   protected onTab(id: SettingsTab): void {
-    if ((id === 'perms' || id === 'roles') && !this.canViewAccessControl()) {
+    if ((id === 'perms' || id === 'roles' || id === 'admins') && !this.canViewAccessControl()) {
+      this.tab.set('general');
+      return;
+    }
+    if (id === 'mail' && !this.canViewMail()) {
       this.tab.set('general');
       return;
     }

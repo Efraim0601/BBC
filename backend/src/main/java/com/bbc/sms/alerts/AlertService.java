@@ -5,7 +5,7 @@ import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AppUserPrincipal;
 import com.bbc.sms.platform.security.AuthorizationPolicyService;
 import com.bbc.sms.platform.security.PolicyResourceContext;
-import com.bbc.sms.platform.tenant.ParcoursContext;
+import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.tenant.TenantContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
@@ -18,6 +18,7 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -32,17 +33,21 @@ public class AlertService {
     private final AlertRepository repo;
     private final JdbcTemplate jdbc;
     private final AuthorizationPolicyService policy;
+    private final TeacherScopeService teacherScope;
 
-    public AlertService(AlertRepository repo, JdbcTemplate jdbc, AuthorizationPolicyService policy) {
+    public AlertService(AlertRepository repo, JdbcTemplate jdbc, AuthorizationPolicyService policy,
+                        TeacherScopeService teacherScope) {
         this.repo = repo;
         this.jdbc = jdbc;
         this.policy = policy;
+        this.teacherScope = teacherScope;
     }
 
     @Transactional(readOnly = true)
     public List<AlertView> list() {
         requireSchool("ALERTS_VIEW");
         UUID schoolId = TenantContext.get();
+        Set<UUID> allowedStudents = teacherScope.allowedStudentIds();
         return jdbc.query("""
                 SELECT a.id, a.student_id, a.type, a.severity, a.title, a.detail,
                        a.status, a.created_at,
@@ -53,7 +58,6 @@ public class AlertService {
                 WHERE a.school_id = ? AND a.status IN ('open','ack')
                   -- Un admin de section ne suit que les élèves de son cycle ; la
                   -- clause s'efface pour les comptes non cloisonnés.
-                  AND (CAST(? AS VARCHAR) IS NULL OR s.level = CAST(? AS VARCHAR))
                 ORDER BY a.created_at DESC
                 """,
                 (rs, i) -> new AlertView(
@@ -67,18 +71,21 @@ public class AlertService {
                         rs.getString("detail"),
                         rs.getString("status"),
                         rs.getTimestamp("created_at").toInstant()),
-                schoolId, ParcoursContext.sectionLock(), ParcoursContext.sectionLock());
+                schoolId).stream()
+                .filter(alert -> allowedStudents == null || allowedStudents.contains(alert.studentId()))
+                .toList();
     }
 
     @Transactional
     public ScanResult scan() {
         requireSchool("ALERTS_MANAGE");
         UUID schoolId = TenantContext.get();
+        Set<UUID> allowedStudents = teacherScope.allowedStudentIds();
         int created = 0;
-        created += scanAbsences(schoolId);
-        created += scanDiscipline(schoolId);
-        created += scanUnpaid(schoolId);
-        created += scanGradeDrop(schoolId);
+        created += scanAbsences(schoolId, allowedStudents);
+        created += scanDiscipline(schoolId, allowedStudents);
+        created += scanUnpaid(schoolId, allowedStudents);
+        created += scanGradeDrop(schoolId, allowedStudents);
         return new ScanResult(created);
     }
 
@@ -88,6 +95,7 @@ public class AlertService {
         UUID schoolId = TenantContext.get();
         Alert a = repo.findByIdAndSchoolId(id, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Alerte"));
+        teacherScope.assertSectionStudent(a.getStudentId());
         a.setStatus("ack");
         a.setAckBy(currentUserId());
         a.setAckAt(Instant.now());
@@ -100,13 +108,14 @@ public class AlertService {
         UUID schoolId = TenantContext.get();
         Alert a = repo.findByIdAndSchoolId(id, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Alerte"));
+        teacherScope.assertSectionStudent(a.getStudentId());
         a.setStatus("resolved");
         repo.save(a);
     }
 
     // ---- scan rules ---------------------------------------------------------
 
-    private int scanAbsences(UUID schoolId) {
+    private int scanAbsences(UUID schoolId, Set<UUID> allowedStudents) {
         int created = 0;
         var rows = jdbc.queryForList("""
                 SELECT s.id AS student_id, COUNT(ar.id) AS n
@@ -120,6 +129,7 @@ public class AlertService {
                 """, schoolId);
         for (Map<String, Object> r : rows) {
             UUID studentId = (UUID) r.get("student_id");
+            if (allowedStudents != null && !allowedStudents.contains(studentId)) continue;
             long n = ((Number) r.get("n")).longValue();
             String severity = n >= 8 ? "critical" : "warn";
             String detail = n + " absences/retards sur 30 jours";
@@ -129,7 +139,7 @@ public class AlertService {
         return created;
     }
 
-    private int scanDiscipline(UUID schoolId) {
+    private int scanDiscipline(UUID schoolId, Set<UUID> allowedStudents) {
         int created = 0;
         var rows = jdbc.queryForList("""
                 SELECT s.id AS student_id, COUNT(di.id) AS n
@@ -142,6 +152,7 @@ public class AlertService {
                 """, schoolId);
         for (Map<String, Object> r : rows) {
             UUID studentId = (UUID) r.get("student_id");
+            if (allowedStudents != null && !allowedStudents.contains(studentId)) continue;
             long n = ((Number) r.get("n")).longValue();
             String severity = n >= 4 ? "critical" : "warn";
             String detail = n + " incidents disciplinaires sur 60 jours";
@@ -151,7 +162,7 @@ public class AlertService {
         return created;
     }
 
-    private int scanUnpaid(UUID schoolId) {
+    private int scanUnpaid(UUID schoolId, Set<UUID> allowedStudents) {
         int created = 0;
         var rows = jdbc.queryForList("""
                 SELECT s.id AS student_id, sf.balance AS balance, sf.status AS status
@@ -162,6 +173,7 @@ public class AlertService {
                 """, schoolId);
         for (Map<String, Object> r : rows) {
             UUID studentId = (UUID) r.get("student_id");
+            if (allowedStudents != null && !allowedStudents.contains(studentId)) continue;
             Number balance = (Number) r.get("balance");
             String status = (String) r.get("status");
             boolean critical = "unpaid".equals(status)
@@ -176,7 +188,7 @@ public class AlertService {
         return created;
     }
 
-    private int scanGradeDrop(UUID schoolId) {
+    private int scanGradeDrop(UUID schoolId, Set<UUID> allowedStudents) {
         int created = 0;
         // Average mark per (student, sequence). Only active students.
         var rows = jdbc.queryForList("""
@@ -192,6 +204,7 @@ public class AlertService {
         java.util.LinkedHashMap<UUID, List<double[]>> byStudent = new java.util.LinkedHashMap<>();
         for (Map<String, Object> r : rows) {
             UUID studentId = (UUID) r.get("student_id");
+            if (allowedStudents != null && !allowedStudents.contains(studentId)) continue;
             double seq = ((Number) r.get("sequence")).doubleValue();
             double avg = ((Number) r.get("avg_mark")).doubleValue();
             byStudent.computeIfAbsent(studentId, k -> new ArrayList<>()).add(new double[]{seq, avg});
@@ -238,4 +251,5 @@ public class AlertService {
         policy.require(action, new PolicyResourceContext(TenantContext.get(), null, LocalDate.now(),
                 null, null, null, null, null, null, null, null, null));
     }
+
 }

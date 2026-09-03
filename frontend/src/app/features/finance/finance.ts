@@ -40,27 +40,27 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
         [subtitle]="canWrite
           ? (fr() ? 'Encaissements, frais, débiteurs, dépenses' : 'Payments, fees, debtors, expenses')
           : (fr() ? 'Consultation — accès lecture seule' : 'View only — read access')">
-        <div right class="flex items-center gap-2">
+        <div right class="grid w-full grid-cols-1 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center sm:justify-end">
           <a routerLink="/finance/treasury"
-            class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-cyan-50 border border-cyan-200 text-cyan-800 hover:bg-cyan-100">
+            class="inline-flex items-center justify-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-cyan-50 border border-cyan-200 text-cyan-800 hover:bg-cyan-100">
             <bbc-icon name="wallet" [s]="16" /> {{ fr() ? 'Comptes & mouvements' : 'Accounts & movements' }}
           </a>
           <a routerLink="/finance/student-accounts"
-            class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 hover:bg-emerald-100">
+            class="inline-flex items-center justify-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 hover:bg-emerald-100">
             <bbc-icon name="users" [s]="16" /> {{ fr() ? 'Compte élève' : 'Student accounts' }}
           </a>
           @if (!canWrite) {
-            <span class="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1.5 rounded-lg">
+            <span class="inline-flex items-center justify-center gap-1.5 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1.5 rounded-lg">
               <bbc-icon name="eye" [s]="14" /> {{ fr() ? 'Lecture seule' : 'Read-only' }}
             </span>
           }
           <button (click)="exportCurrentTab()"
-            class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
+            class="inline-flex items-center justify-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
             <bbc-icon name="download" [s]="16" /> {{ fr() ? 'Exporter' : 'Export' }}
           </button>
           @if (canWrite) {
             <button (click)="openPayment()"
-              class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-brand-600 text-white hover:bg-brand-700">
+              class="inline-flex items-center justify-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-brand-600 text-white hover:bg-brand-700">
               <bbc-icon name="plus" [s]="16" /> {{ fr() ? 'Nouveau paiement' : 'New payment' }}
             </button>
           }
@@ -137,7 +137,22 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
                 ? (fr() ? 'Aucun paiement ne correspond aux filtres' : 'No payment matches these filters')
                 : (fr() ? 'Aucun paiement' : 'No payments')" />
             } @else {
-              <div class="overflow-x-auto -mx-5">
+              <div class="grid gap-3 md:hidden">
+                @for (p of pagedPayments(); track p.id) {
+                  <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <div class="flex min-w-0 items-start justify-between gap-3">
+                      <div class="min-w-0"><div class="break-words font-semibold text-ink">{{ p.studentName ?? (fr() ? 'Élève supprimé' : 'Deleted student') }}</div><div class="mt-0.5 break-all text-[11px] font-mono text-mute">{{ p.matricule || '—' }}@if (p.className) { · {{ p.className }} }</div></div>
+                      <div class="shrink-0 text-right font-bold text-emerald-700">{{ money(p.amount) }}</div>
+                    </div>
+                    <div class="mt-3 grid grid-cols-1 gap-2 text-xs min-[360px]:grid-cols-2">
+                      <div class="rounded-lg bg-slate-50 p-2"><span class="block text-[10px] font-semibold uppercase text-mute">{{ fr() ? 'Reçu / date' : 'Receipt / date' }}</span><b class="mt-1 block break-all font-mono text-brand-700">{{ p.receiptNo }}</b><span class="text-mute">{{ p.paidOn }}</span></div>
+                      <div class="rounded-lg bg-slate-50 p-2"><span class="block text-[10px] font-semibold uppercase text-mute">{{ fr() ? 'Paiement' : 'Payment' }}</span><b class="mt-1 block break-words">{{ methodLabel(p) }}</b><span class="break-all text-mute">{{ p.reference || (p.tranche ? 'T' + p.tranche : '—') }}</span></div>
+                    </div>
+                    <button (click)="viewReceipt(p)" class="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-slate-200 font-semibold text-brand-700 hover:bg-brand-50"><bbc-icon name="receipt" [s]="16" /> {{ fr() ? 'Voir le reçu' : 'View receipt' }}</button>
+                  </article>
+                }
+              </div>
+              <div class="hidden overflow-x-auto -mx-5 md:block">
                 <table class="w-full text-sm">
                   <thead class="border-y border-slate-100 bg-slate-50/50">
                     <tr class="text-[11px] uppercase tracking-wide text-mute">
@@ -175,7 +190,7 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
                         <td class="py-2.5 text-right font-bold text-emerald-700">{{ money(p.amount) }}</td>
                         <td class="py-2.5 pr-5 text-right">
                           <div class="flex items-center justify-end gap-2 opacity-70 group-hover:opacity-100 transition">
-                            <button (click)="viewReceipt(p)" class="text-mute hover:text-brand-600"
+                            <button (click)="viewReceipt(p)" class="inline-flex min-w-11 items-center justify-center text-mute hover:text-brand-600"
                               [title]="fr() ? 'Reçu' : 'Receipt'">
                               <bbc-icon name="receipt" [s]="14" />
                             </button>
@@ -281,7 +296,17 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
                 [label]="hasDebtorFilters() ? (fr() ? 'Aucun débiteur ne correspond aux filtres' : 'No debtor matches these filters')
                                        : (fr() ? 'Aucun débiteur — tous les frais sont réglés' : 'No debtors — all fees are settled')" />
             } @else {
-              <div class="overflow-x-auto -mx-5">
+              <div class="grid gap-3 md:hidden">
+                @for (d of pagedDebtors(); track d.studentId) {
+                  <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <div class="flex min-w-0 items-start justify-between gap-3"><div class="min-w-0"><b class="block break-words text-ink">{{ d.studentName }}</b><span class="mt-0.5 block text-xs text-mute">{{ d.className }}</span></div><bbc-status-pill [status]="d.status" [label]="d.status === 'partial' ? (fr() ? 'Partiel' : 'Partial') : (fr() ? 'Impayé' : 'Unpaid')" /></div>
+                    <div class="mt-3 flex items-center gap-2"><div class="h-2 flex-1 overflow-hidden rounded-full bg-slate-100"><div class="h-full rounded-full transition-all" [class]="d.progressPct >= 100 ? 'bg-emerald-500' : d.progressPct > 0 ? 'bg-gold-400' : 'bg-rose-400'" [style.width.%]="d.progressPct"></div></div><b class="w-10 text-right text-xs">{{ d.progressPct }}%</b></div>
+                    <div class="mt-3 grid grid-cols-3 gap-2 text-xs"><div class="rounded-lg bg-slate-50 p-2"><span class="block text-[9px] font-semibold uppercase text-mute">{{ fr() ? 'Attendu' : 'Expected' }}</span><b class="mt-1 block break-words">{{ money(d.total) }}</b></div><div class="rounded-lg bg-emerald-50 p-2"><span class="block text-[9px] font-semibold uppercase text-emerald-700">{{ fr() ? 'Payé' : 'Paid' }}</span><b class="mt-1 block break-words text-emerald-700">{{ money(d.paid) }}</b></div><div class="rounded-lg bg-rose-50 p-2"><span class="block text-[9px] font-semibold uppercase text-rose-700">{{ fr() ? 'Solde' : 'Balance' }}</span><b class="mt-1 block break-words text-rose-700">{{ money(d.balance) }}</b></div></div>
+                    @if (canWrite) { <button (click)="openPaymentFor(d)" class="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-brand-50 text-sm font-bold text-brand-700 hover:bg-brand-100"><bbc-icon name="cash" [s]="15" /> {{ fr() ? 'Encaisser' : 'Collect' }}</button> }
+                  </article>
+                }
+              </div>
+              <div class="hidden overflow-x-auto -mx-5 md:block">
                 <table class="w-full text-sm">
                   <thead class="border-y border-slate-100 bg-slate-50/50">
                     <tr class="text-[11px] uppercase tracking-wide text-mute">
@@ -458,7 +483,16 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
             } @else if (!filteredExpenses().length) {
               <bbc-empty icon="doc" [label]="fr() ? 'Aucune dépense enregistrée' : 'No expense recorded'" />
             } @else {
-              <div class="overflow-x-auto -mx-5">
+              <div class="grid gap-3 md:hidden">
+                @for (e of pagedExpenses(); track e.id) {
+                  <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <div class="flex items-start justify-between gap-3"><div class="min-w-0"><span class="inline-flex rounded bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-700">{{ categoryLabel(e.category) }}</span><div class="mt-2 break-words font-semibold text-ink">{{ e.label }}</div></div><b class="shrink-0 text-rose-600">{{ money(e.amount) }}</b></div>
+                    <div class="mt-3 rounded-lg bg-slate-50 p-2 text-xs text-mute"><b class="text-ink">{{ e.spentOn }}</b>@if (e.treasuryAccountName) { · {{ e.treasuryAccountName }} · {{ e.status === 'REVERSED' ? (fr() ? 'annulée' : 'reversed') : (fr() ? 'comptabilisée' : 'posted') }} }</div>
+                    @if (canWrite && e.status !== 'REVERSED') { <button (click)="confirmExpenseDel.set(e)" class="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-rose-200 text-sm font-semibold text-rose-700 hover:bg-rose-50"><bbc-icon name="trash" [s]="15" /> {{ fr() ? 'Annuler la dépense' : 'Reverse expense' }}</button> }
+                  </article>
+                }
+              </div>
+              <div class="hidden overflow-x-auto -mx-5 md:block">
                 <table class="w-full text-sm">
                   <thead class="border-y border-slate-100 bg-slate-50/50">
                     <tr class="text-[11px] uppercase tracking-wide text-mute">
@@ -854,13 +888,13 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
     @if (paymentOpen()) {
       <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div class="absolute inset-0 bg-black/40" (click)="closePayment()"></div>
-        <div class="relative bg-white rounded-xl2 shadow-card w-full max-w-xl fade-in">
+        <div class="relative bg-white rounded-xl2 shadow-card w-full max-w-xl max-h-[calc(100dvh-2rem)] overflow-y-auto fade-in">
           <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100">
             <div class="text-base font-semibold text-ink">{{ fr() ? 'Nouveau paiement' : 'New payment' }}</div>
-            <button (click)="closePayment()" class="text-mute hover:text-ink"><bbc-icon name="x" [s]="18" /></button>
+            <button (click)="closePayment()" class="inline-flex min-h-11 min-w-11 items-center justify-center text-mute hover:text-ink" [attr.aria-label]="fr() ? 'Fermer' : 'Close'"><bbc-icon name="x" [s]="18" /></button>
           </div>
           <div class="p-5 space-y-4">
-            <div class="grid grid-cols-2 gap-3">
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
                 <label class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'Classe' : 'Class' }}</label>
                 <select [ngModel]="payClass()" (ngModelChange)="onPayClass($event)"
@@ -931,7 +965,7 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
               </div>
             }
 
-            <div class="grid grid-cols-2 gap-3">
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
                 <label class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'Montant' : 'Amount' }}</label>
                 <div class="relative">
@@ -1009,13 +1043,13 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
               <div class="text-xs rounded-lg px-3 py-2 bg-rose-50 text-rose-600">{{ e }}</div>
             }
           </div>
-          <div class="flex items-center justify-end gap-2 px-5 py-4 border-t border-slate-100">
+          <div class="flex flex-col-reverse items-stretch justify-end gap-2 px-5 py-4 border-t border-slate-100 sm:flex-row sm:items-center">
             <button (click)="closePayment()"
-              class="h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
+              class="h-11 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50 sm:h-9">
               {{ i18n.t('cancel') }}
             </button>
             <button (click)="save()" [disabled]="!canSubmitPayment()"
-              class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50">
+              class="inline-flex h-11 items-center justify-center gap-2 px-3.5 text-sm font-semibold rounded-lg bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50 sm:h-9">
               <bbc-icon name="receipt" [s]="16" /> {{ fr() ? 'Générer le reçu' : 'Generate receipt' }}
             </button>
           </div>

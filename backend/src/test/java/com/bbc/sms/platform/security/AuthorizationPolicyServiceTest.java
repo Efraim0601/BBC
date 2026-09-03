@@ -58,6 +58,17 @@ class AuthorizationPolicyServiceTest {
     }
 
     @Test
+    void rolesAccessControlAndMailRemainAdministratorOnly() {
+        assertThat(AuthorizationPolicyService.administratorOnlyAction("ROLE_VIEW")).isTrue();
+        assertThat(AuthorizationPolicyService.administratorOnlyAction("ROLE_MANAGE")).isTrue();
+        assertThat(AuthorizationPolicyService.administratorOnlyAction("PERMISSION_VIEW")).isTrue();
+        assertThat(AuthorizationPolicyService.administratorOnlyAction("PERMISSION_MANAGE")).isTrue();
+        assertThat(AuthorizationPolicyService.administratorOnlyAction("MAIL_CONFIG_VIEW")).isTrue();
+        assertThat(AuthorizationPolicyService.administratorOnlyAction("MAIL_CONFIG_MANAGE")).isTrue();
+        assertThat(AuthorizationPolicyService.administratorOnlyAction("SCHOOL_PROFILE_VIEW")).isFalse();
+    }
+
+    @Test
     void unknownScopeValuesAndNoneOnResourceActionsFailClosed() {
         AuthorizationPolicyService.Action studentAction =
                 new AuthorizationPolicyService.Action("STUDENT_PROFILE_VIEW", "students", "STUDENT", "read");

@@ -34,13 +34,17 @@ export function attendanceRosterReadOnly(roster: AttendanceRoster | null): boole
     .status-btn.active-absent { color:#be123c; background:#fff1f2; border-color:#fb7185; }
     .status-btn.active-late { color:#a16207; background:#fffbeb; border-color:#fbbf24; }
     .status-btn.active-excused { color:#6d28d9; background:#f5f3ff; border-color:#a78bfa; }
+    @media (max-width: 767.98px) {
+      .btn, .status-btn { min-height:44px; }
+      .status-btn { min-width:0; width:100%; }
+    }
   `],
   template: `
     <div class="fade-in max-w-7xl mx-auto">
       <bbc-page-header [title]="fr() ? 'Présences' : 'Attendance'"
         [subtitle]="fr() ? 'Appel quotidien ou par période, analyses et contrôle des pointages' : 'Daily or period roll call, analytics and device control'" />
 
-      <div class="flex gap-2 mb-5 overflow-x-auto pb-1">
+      <div class="mobile-scroll-strip flex gap-2 mb-5 pb-1">
         @for (item of tabs(); track item.key) {
           <button class="btn whitespace-nowrap" [class.primary]="tab() === item.key" (click)="selectTab(item.key)">
             {{ fr() ? item.fr : item.en }}
@@ -126,7 +130,42 @@ export function attendanceRosterReadOnly(roster: AttendanceRoster | null): boole
                 }
               </div>
 
-              <div class="overflow-x-auto -mx-5">
+              <!-- On phones and tablets each learner is a self-contained touch card. -->
+              <div class="grid gap-3 md:hidden">
+                @for (m of r.marks; track m.studentId; let i = $index) {
+                  <article class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                    <div class="flex items-start justify-between gap-3">
+                      <div class="min-w-0">
+                        <div class="font-semibold text-slate-900 break-words">{{ m.studentName }}</div>
+                        <div class="text-xs text-slate-500 font-mono">{{ m.matricule }}</div>
+                      </div>
+                      <span class="shrink-0 rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold uppercase text-slate-600">{{ m.source }}</span>
+                    </div>
+                    <div class="label mt-3">{{ fr() ? 'Statut' : 'Status' }}</div>
+                    <div class="grid grid-cols-2 gap-2">
+                      @for (s of statuses; track s) {
+                        <button class="status-btn" [class]="statusClass(m.status, s)" (click)="setStatus(i, s)" [disabled]="r.session.status === 'FINALIZED' || !r.capabilities.canMark">{{ statusLabel(s) }}</button>
+                      }
+                    </div>
+                    <div class="mt-3 grid gap-3 sm:grid-cols-2">
+                      <label>
+                        <span class="label">{{ fr() ? 'Motif (facultatif)' : 'Reason (optional)' }}</span>
+                        <input class="field" [value]="m.reason || ''" (input)="setText(i, 'reason', $any($event.target).value)"
+                          [disabled]="r.session.status === 'FINALIZED' || !r.capabilities.canMark" [placeholder]="fr() ? 'Ajouter si connu' : 'Add if known'" />
+                      </label>
+                      <label>
+                        <span class="label">{{ fr() ? 'Observation (facultative)' : 'Note (optional)' }}</span>
+                        <input class="field" [value]="m.note || ''" (input)="setText(i, 'note', $any($event.target).value)"
+                          [disabled]="r.session.status === 'FINALIZED' || !r.capabilities.canMark" [placeholder]="fr() ? 'Ajouter une observation' : 'Add a note'" />
+                      </label>
+                    </div>
+                  </article>
+                } @empty {
+                  <bbc-empty icon="users" [label]="fr() ? 'Aucun élève inscrit dans cette classe pour cette année.' : 'No enrolled student in this class for this session.'" />
+                }
+              </div>
+
+              <div class="hidden md:block overflow-x-auto -mx-5">
                 <table class="w-full text-sm min-w-[1050px]">
                   <thead class="bg-slate-50 border-y border-slate-200"><tr class="text-left text-[11px] uppercase tracking-wide text-slate-500">
                     <th class="py-3 pl-5">{{ fr() ? 'Élève' : 'Student' }}</th><th>{{ fr() ? 'Statut' : 'Status' }}</th>
@@ -185,7 +224,21 @@ export function attendanceRosterReadOnly(roster: AttendanceRoster | null): boole
               <div class="rounded-lg border border-rose-200 p-3"><div class="label">{{ fr() ? 'Absents' : 'Absent' }}</div><b class="text-xl text-rose-700">{{ a.absent }}</b></div>
               <div class="rounded-lg border border-amber-200 p-3"><div class="label">{{ fr() ? 'Non marqués' : 'Unmarked' }}</div><b class="text-xl text-amber-700">{{ a.unmarked }}</b></div>
             </div>
-            <div class="overflow-x-auto -mx-5"><table class="w-full text-sm"><thead class="bg-slate-50 border-y border-slate-200"><tr class="text-left text-[11px] uppercase text-slate-500"><th class="pl-5 py-3">{{ fr() ? 'Élève' : 'Student' }}</th><th>{{ fr() ? 'Classe' : 'Class' }}</th><th>{{ fr() ? 'Attendues' : 'Expected' }}</th><th>{{ fr() ? 'Abs.' : 'Abs.' }}</th><th>{{ fr() ? 'Retards' : 'Late' }}</th><th>{{ fr() ? 'Non marqués' : 'Unmarked' }}</th><th class="pr-5">%</th></tr></thead><tbody>
+            <div class="grid gap-3 md:hidden">
+              @for(row of a.students;track row.studentId){
+                <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <div class="min-w-0"><b class="block break-words">{{ row.studentName }}</b><div class="mt-0.5 text-xs text-slate-500">{{ row.matricule }} · {{ row.className }}</div></div>
+                  <div class="mt-3 grid grid-cols-2 gap-2 text-xs">
+                    <div class="rounded-lg bg-slate-50 p-2"><span class="block text-[10px] font-semibold uppercase text-slate-500">{{ fr() ? 'Attendues' : 'Expected' }}</span><b>{{ row.expected }}</b></div>
+                    <div class="rounded-lg bg-rose-50 p-2"><span class="block text-[10px] font-semibold uppercase text-rose-600">{{ fr() ? 'Absences' : 'Absences' }}</span><b class="text-rose-700">{{ row.absent }}</b></div>
+                    <div class="rounded-lg bg-amber-50 p-2"><span class="block text-[10px] font-semibold uppercase text-amber-700">{{ fr() ? 'Retards' : 'Late' }}</span><b>{{ row.late }}</b></div>
+                    <div class="rounded-lg bg-blue-50 p-2"><span class="block text-[10px] font-semibold uppercase text-blue-700">{{ fr() ? 'Non marqués' : 'Unmarked' }}</span><b>{{ row.unmarked }}</b></div>
+                  </div>
+                  <div class="mt-3 flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2 text-sm"><span class="font-semibold text-slate-500">{{ fr() ? 'Taux de présence' : 'Attendance rate' }}</span><b [class.text-rose-700]="row.attendancePercent < 80">{{ row.attendancePercent }}%</b></div>
+                </article>
+              }
+            </div>
+            <div class="hidden overflow-x-auto -mx-5 md:block"><table class="w-full text-sm"><thead class="bg-slate-50 border-y border-slate-200"><tr class="text-left text-[11px] uppercase text-slate-500"><th class="pl-5 py-3">{{ fr() ? 'Élève' : 'Student' }}</th><th>{{ fr() ? 'Classe' : 'Class' }}</th><th>{{ fr() ? 'Attendues' : 'Expected' }}</th><th>{{ fr() ? 'Abs.' : 'Abs.' }}</th><th>{{ fr() ? 'Retards' : 'Late' }}</th><th>{{ fr() ? 'Non marqués' : 'Unmarked' }}</th><th class="pr-5">%</th></tr></thead><tbody>
               @for(row of a.students;track row.studentId){<tr class="border-b border-slate-100"><td class="pl-5 py-3"><b>{{ row.studentName }}</b><div class="text-xs text-slate-500">{{ row.matricule }}</div></td><td>{{ row.className }}</td><td>{{ row.expected }}</td><td>{{ row.absent }}</td><td>{{ row.late }}</td><td>{{ row.unmarked }}</td><td class="pr-5 font-bold" [class.text-rose-700]="row.attendancePercent < 80">{{ row.attendancePercent }}%</td></tr>}
             </tbody></table></div>
           }

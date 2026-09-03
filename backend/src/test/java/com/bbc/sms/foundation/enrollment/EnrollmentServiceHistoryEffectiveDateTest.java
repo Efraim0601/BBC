@@ -37,11 +37,13 @@ class EnrollmentServiceHistoryEffectiveDateTest {
     void usesSessionStartBeforeCurrentSessionBegins() {
         TenantContext.set(schoolId);
 
+        LocalDate sessionStart = LocalDate.now().plusDays(30);
+
         AcademicSession session = new AcademicSession();
         session.setId(sessionId);
         session.setSchoolId(schoolId);
-        session.setStartDate(LocalDate.of(2026, 9, 1));
-        session.setEndDate(LocalDate.of(2027, 7, 16));
+        session.setStartDate(sessionStart);
+        session.setEndDate(sessionStart.plusMonths(10));
 
         Student student = new Student();
         student.setId(studentId);

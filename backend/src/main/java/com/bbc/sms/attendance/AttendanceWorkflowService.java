@@ -133,6 +133,7 @@ public class AttendanceWorkflowService {
                 counts.put(rs.getObject(1, UUID.class), rs.getInt(2)); return counts; }, TenantContext.get(), currentSessionId);
         return classes.findBySchoolIdOrderByName(TenantContext.get()).stream()
             .filter(c -> currentSessionId == null || attendanceRepresentative(c, currentSessionId))
+            .filter(c -> attendanceInParcours(c, currentSessionId))
             .filter(c -> allowed == null || allowed.contains(c.getId()) || sharedAllowed(c, currentSessionId, allowed))
             .filter(c -> attendanceClassAllowed(c, currentSessionId, scopeDate))
             .map(c -> new AttendanceClass(c.getId(), currentSessionId == null ? c.getName()
@@ -749,15 +750,38 @@ public class AttendanceWorkflowService {
      * while every non-shared class keeps the ordinary direct assignment check.
      */
     private void assertAttendanceSelection(UUID sessionId, UUID classId, LocalDate date) {
+        SchoolClass schoolClass = requireClass(classId);
+        if (!attendanceInParcours(schoolClass, sessionId)) {
+            throw ApiException.coded(org.springframework.http.HttpStatus.FORBIDDEN,
+                    "PARCOURS_RESOURCE_MISMATCH",
+                    "Cette classe ne fait pas partie du parcours actif.");
+        }
         if (cohorts == null) {
             teacherScope.assertClass(sessionId, classId, date);
             return;
         }
         Set<UUID> allowed = teacherScope.allowedClassIds(sessionId, date);
         if (allowed == null || allowed.contains(classId)) return;
-        SchoolClass schoolClass = requireClass(classId);
         if (sharedAllowed(schoolClass, sessionId, allowed)) return;
         teacherScope.assertClass(sessionId, classId, date);
+    }
+
+    /**
+     * A shared bilingual DAILY roster belongs to either programme's selected
+     * subsystem.  Non-shared classes must match the active parcours exactly.
+     */
+    private boolean attendanceInParcours(SchoolClass schoolClass, UUID sessionId) {
+        if (ParcoursContext.includes(schoolClass.getLevel(), schoolClass.getSubsystem())) return true;
+        ParcoursContext.Scope scope = ParcoursContext.get();
+        if (scope == null || cohorts == null || sessionId == null
+                || !scope.level().equalsIgnoreCase(schoolClass.getLevel())) return false;
+        String locked = ParcoursContext.sectionLock();
+        if (locked != null && !locked.equalsIgnoreCase(schoolClass.getLevel())) return false;
+        AcademicCohortResolver.TimetableScope timetableScope =
+                cohorts.timetableScope(sessionId, schoolClass.getId(), schoolClass.getName());
+        return timetableScope.shared() && timetableScope.programmes().stream()
+                .anyMatch(programme -> programme.subsystem() != null
+                        && programme.subsystem().equalsIgnoreCase(scope.subsystem()));
     }
 
     private boolean attendanceClassAllowed(SchoolClass schoolClass, UUID academicSessionId, LocalDate date) {
@@ -810,6 +834,7 @@ public class AttendanceWorkflowService {
             if (requestedClassId != null && !requestedClassId.equals(candidate.classId())) continue;
             SchoolClass schoolClass = classesById.get(candidate.classId());
             if (schoolClass == null) continue;
+            if (!attendanceInParcours(schoolClass, candidate.academicSessionId())) continue;
             if (teacherClasses != null && !teacherClasses.contains(candidate.classId())
                     && !sharedAllowed(schoolClass, candidate.academicSessionId(), teacherClasses)) continue;
             UUID occurrenceId = "DAILY".equalsIgnoreCase(candidate.model()) ? null

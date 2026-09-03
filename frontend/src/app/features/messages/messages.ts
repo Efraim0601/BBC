@@ -55,7 +55,7 @@ interface CategoryMeta { fr: string; en: string; badge: string; icon: string; }
                   </button>
                 }
               </div>
-              <div class="grid grid-cols-3 gap-3">
+              <div class="responsive-kpi-grid grid grid-cols-3 gap-3">
                 <bbc-kpi [label]="fr() ? 'Notes' : 'Notices'" [value]="notices().length.toString()" icon="mail" />
                 <bbc-kpi [label]="fr() ? 'Accusés en attente' : 'Pending acks'" [value]="pending().toString()" icon="clock" />
                 <bbc-kpi [label]="fr() ? 'Lues / signées' : 'Read / signed'" [value]="signedCount().toString()" icon="check" />
