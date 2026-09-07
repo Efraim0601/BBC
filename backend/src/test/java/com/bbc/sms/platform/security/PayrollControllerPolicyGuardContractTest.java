@@ -16,6 +16,11 @@ class PayrollControllerPolicyGuardContractTest {
         assertTrue(source.contains("@policy.canAction('PAYROLL_PERIOD_MANAGE')"));
         assertTrue(source.contains("@policy.canAction('PAYSLIP_VIEW_ALL')"));
         assertFalse(source.contains("@perm.canAction('PAYROLL_"));
-        assertTrue(source.contains("@perm.canAction('PAYSLIP_VIEW_SELF')"));
+        String service = Files.readString(Path.of("src/main/java/com/bbc/sms/finance/payroll/PayrollService.java"));
+        assertTrue(source.contains("@perm.staffOnly()"));
+        assertTrue(service.contains("policy.require(\"PAYSLIP_VIEW_SELF\""));
+        assertTrue(service.contains("requireSelfOwnership(slip)"));
+        assertFalse(source.contains("@policy.canAction('PAYSLIP_VIEW_SELF')"));
+        assertFalse(source.contains("@perm.canAction('PAYSLIP_"));
     }
 }

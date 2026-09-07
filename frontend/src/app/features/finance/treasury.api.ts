@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
+import { newRequestKey } from '../../core/request-key';
 
 export interface TreasuryAccountView {
   id: string;
@@ -74,6 +75,6 @@ export class TreasuryApi {
   archiveAccount(id: string, body: { version: number; reason: string }): Observable<TreasuryAccountView> { return this.http.put<TreasuryAccountView>(`${this.base}/accounts/${id}/archive`, body); }
   movements(limit = 100): Observable<TreasuryMovementView[]> { return this.http.get<TreasuryMovementView[]>(`${this.base}/movements`, { params: { limit } }); }
   createMovement(body: TreasuryMovementRequest): Observable<TreasuryMovementView> {
-    return this.http.post<TreasuryMovementView>(`${this.base}/movements`, body, { headers: { 'Idempotency-Key': crypto.randomUUID() } });
+    return this.http.post<TreasuryMovementView>(`${this.base}/movements`, body, { headers: { 'Idempotency-Key': newRequestKey() } });
   }
 }

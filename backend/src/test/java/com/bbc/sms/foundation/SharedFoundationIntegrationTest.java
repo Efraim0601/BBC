@@ -23,6 +23,7 @@ import com.bbc.sms.journey.dto.JourneyPromotionDtos.PromotionActivationRequest;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AppUserPrincipal;
 import com.bbc.sms.platform.tenant.TenantContext;
+import com.bbc.sms.platform.tenant.ParcoursContext;
 import com.bbc.sms.student.StudentService;
 import com.bbc.sms.timetable.TimetableVersionService;
 import com.bbc.sms.timetable.dto.TimetableVersionDtos.TimetableVersionActionRequest;
@@ -113,6 +114,7 @@ class SharedFoundationIntegrationTest {
     @AfterEach void clearTenant() {
         SecurityContextHolder.clearContext();
         TenantContext.clear();
+        ParcoursContext.clear();
     }
 
     @Test
@@ -651,6 +653,19 @@ class SharedFoundationIntegrationTest {
     }
 
     @Test
+    void expiredIdempotencyKeyNeverRepeatsACompletedCommand() {
+        AtomicInteger calls = new AtomicInteger();
+        String first = idempotency.execute("test-expiry", "delayed", Map.of("amount", 1), String.class,
+                () -> "result-" + calls.incrementAndGet());
+        jdbc.update("UPDATE idempotency_key SET expires_at=now()-interval '1 hour' WHERE school_id=? AND endpoint='test-expiry' AND idempotency_key='delayed'", schoolId);
+        assertThat(idempotency.execute("test-expiry", "delayed", Map.of("amount", 1), String.class,
+                () -> "result-" + calls.incrementAndGet())).isEqualTo(first);
+        assertThat(calls).hasValue(1);
+        assertThatThrownBy(() -> idempotency.execute("test-expiry", "delayed", Map.of("amount", 2), String.class, () -> "bad"))
+                .isInstanceOf(ApiException.class).hasMessageContaining("autre requête");
+    }
+
+    @Test
     void officialDocumentIsDeterministicOnRetryAndProducesVerifiedPdf() throws Exception {
         UUID templateId = UUID.randomUUID();
         jdbc.update("""
@@ -724,6 +739,18 @@ class SharedFoundationIntegrationTest {
         });
 
         var candidate = preview.candidates().getFirst();
+        ParcoursContext.set(new ParcoursContext.Scope("primary", "FR"));
+        assertThat(promotions.batches(sourceSession, targetSession, null)).isEmpty();
+        assertThatThrownBy(() -> promotions.batch(preview.id())).isInstanceOf(ApiException.class).hasMessageContaining("introuvable");
+        assertThatThrownBy(() -> promotions.decisionHistory(candidate.id())).isInstanceOf(ApiException.class).hasMessageContaining("introuvable");
+        assertThatThrownBy(() -> promotions.previewReadOnly(new PromotionPreviewRequest(sourceSession, targetSession, "Foreign preview", java.util.List.of(sourceClass), null)))
+                .isInstanceOf(ApiException.class).hasMessageContaining("introuvable");
+        assertThatThrownBy(() -> promotions.commit(preview.id(), new PromotionCommitRequest("Foreign commit", preview.version())))
+                .isInstanceOf(ApiException.class).hasMessageContaining("introuvable");
+        ParcoursContext.set(new ParcoursContext.Scope("secondary", "FR"));
+        assertThat(promotions.batch(preview.id()).candidates()).hasSize(1);
+        assertThat(promotions.batches(sourceSession, targetSession, null)).hasSize(1);
+        ParcoursContext.clear();
         promotions.override(candidate.id(), new PromotionOverrideRequest("HOLD", sourceClass, "Décision du conseil", candidate.version()));
         var refreshed = promotions.batch(preview.id());
         var committed = promotions.commit(preview.id(), new PromotionCommitRequest("Conseil validé", refreshed.version()));
@@ -733,6 +760,23 @@ class SharedFoundationIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM student_enrollment WHERE school_id=? AND student_id=? AND academic_session_id=? AND school_class_id=? AND status='ACTIVE'", Integer.class, schoolId, student, targetSession, sourceClass)).isZero();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM student_enrollment WHERE school_id=? AND student_id=? AND academic_session_id=? AND status='ACTIVE'", Integer.class, schoolId, student, sourceSession)).isEqualTo(1);
         UUID planned = jdbc.queryForObject("SELECT id FROM student_enrollment WHERE school_id=? AND student_id=? AND academic_session_id=? AND status='PLANNED'", UUID.class, schoolId, student, targetSession);
+        var tomorrow = java.time.LocalDate.now().plusDays(1);
+        jdbc.update("UPDATE student_enrollment SET planned_on=? WHERE id=?", tomorrow, planned);
+        assertThatThrownBy(() -> promotions.activatePlanned(planned, new PromotionActivationRequest("Trop tôt")))
+                .isInstanceOf(ApiException.class).hasMessageContaining("reste planifiée");
+        jdbc.update("UPDATE student_enrollment SET planned_on=NULL WHERE id=?", planned);
+        jdbc.update("UPDATE academic_session SET start_date=?,end_date=? WHERE id=?", tomorrow, tomorrow.plusYears(1), targetSession);
+        assertThatThrownBy(() -> promotions.activatePlanned(planned, new PromotionActivationRequest("Session future")))
+                .isInstanceOf(ApiException.class).hasMessageContaining("reste planifiée");
+        jdbc.update("UPDATE academic_session SET start_date='2026-09-01',end_date='2027-07-31',status='CLOSED' WHERE id=?", targetSession);
+        assertThatThrownBy(() -> promotions.activatePlanned(planned, new PromotionActivationRequest("Session clôturée")))
+                .isInstanceOf(ApiException.class).hasMessageContaining("clôturée");
+        assertThat(jdbc.queryForObject("SELECT status FROM student_enrollment WHERE id=?", String.class, planned)).isEqualTo("PLANNED");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM student_enrollment WHERE school_id=? AND student_id=? AND academic_session_id=? AND status='ACTIVE'", Integer.class, schoolId, student, sourceSession)).isOne();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM promotion_transition_event WHERE target_enrollment_id=? AND action='ACTIVATED'", Integer.class, planned)).isZero();
+        assertThatThrownBy(() -> promotions.activatePlanned(UUID.randomUUID(), new PromotionActivationRequest("Identifiant absent")))
+                .isInstanceOf(ApiException.class).hasMessageContaining("introuvable");
+        jdbc.update("UPDATE academic_session SET status='DRAFT' WHERE id=?", targetSession);
         var activated = promotions.activatePlanned(planned, new PromotionActivationRequest("Rentrée confirmée"));
         assertThat(activated.status()).isEqualTo("ACTIVE");
         long transitionCount = jdbc.queryForObject("SELECT count(*) FROM promotion_transition_event WHERE target_enrollment_id=?", Long.class, planned);
@@ -743,6 +787,32 @@ class SharedFoundationIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT status FROM student_enrollment WHERE id=?", String.class, planned)).isEqualTo("ACTIVE");
         assertThat(jdbc.queryForObject("SELECT status FROM student_enrollment WHERE school_id=? AND student_id=? AND academic_session_id=? AND status='COMPLETED'", String.class, schoolId, student, sourceSession)).isEqualTo("COMPLETED");
         assertThat(jdbc.queryForObject("SELECT final_decision FROM journey_entry WHERE school_id=? AND student_id=? AND academic_year='2025-2026'", String.class, schoolId, student)).isEqualTo("HOLD");
+        ParcoursContext.set(new ParcoursContext.Scope("primary", "FR"));
+        assertThatThrownBy(() -> promotions.register(preview.id())).isInstanceOf(ApiException.class).hasMessageContaining("introuvable");
+        assertThatThrownBy(() -> promotions.activatePlanned(planned, new PromotionActivationRequest("Foreign retry")))
+                .isInstanceOf(ApiException.class).hasMessageContaining("introuvable");
+        ParcoursContext.clear();
+    }
+
+    @Test
+    void mixedParcoursPromotionBatchIsNeverPartiallyDisclosed() {
+        UUID source=UUID.randomUUID(), target=UUID.randomUUID(), batch=UUID.randomUUID();
+        String section="mx"+schoolId.toString().substring(0,8);
+        jdbc.update("INSERT INTO section(id,school_id,label,subsystem,level) VALUES (?,?,'Mixed fixture','FR','primary')", section,schoolId);
+        jdbc.update("INSERT INTO academic_session(id,school_id,code,label,start_date,end_date,status) VALUES (?,?,'SRC','Source','2025-09-01','2026-07-31','OPEN'),(?,?,'DST','Target','2026-09-01','2027-07-31','DRAFT')", source,schoolId,target,schoolId);
+        jdbc.update("INSERT INTO promotion_batch(id,school_id,source_session_id,target_session_id,name) VALUES (?,?,?,?,'Mixed private batch')",batch,schoolId,source,target);
+        for(String level : java.util.List.of("primary","secondary")) {
+            UUID clazz=UUID.randomUUID(),student=UUID.randomUUID(),enrollment=UUID.randomUUID();
+            jdbc.update("INSERT INTO school_class(id,school_id,section_id,name,subsystem,level) VALUES (?,?,?,?,'FR',?)",clazz,schoolId,section,level,level);
+            jdbc.update("INSERT INTO student(id,school_id,matricule,first_name,last_name,class_id,class_name,subsystem,level) VALUES (?,?,?,'','QA mixed',?,?,'FR',?)",student,schoolId,level,clazz,level,level);
+            jdbc.update("INSERT INTO student_enrollment(id,school_id,student_id,academic_session_id,school_class_id,class_name_snapshot,level_snapshot,subsystem_snapshot,status,enrolled_on,source) VALUES (?,?,?,?,?,?,?,'FR','ACTIVE','2025-09-01','TEST')",enrollment,schoolId,student,source,clazz,level,level);
+            jdbc.update("INSERT INTO promotion_decision(school_id,batch_id,student_id,source_enrollment_id,source_class_id,recommendation,final_decision) VALUES (?,?,?,?,?,'REVIEW','REVIEW')",schoolId,batch,student,enrollment,clazz);
+        }
+        assertThat(promotions.batch(batch).candidateCount()).isEqualTo(2);
+        ParcoursContext.set(new ParcoursContext.Scope("primary","FR"));
+        assertThat(promotions.batches(source,target,null)).isEmpty();
+        assertThatThrownBy(() -> promotions.batch(batch)).isInstanceOf(ApiException.class).hasMessageContaining("introuvable");
+        assertThatThrownBy(() -> promotions.register(batch)).isInstanceOf(ApiException.class).hasMessageContaining("introuvable");
     }
 
     @Test

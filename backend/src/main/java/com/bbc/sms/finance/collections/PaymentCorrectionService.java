@@ -102,6 +102,11 @@ public class PaymentCorrectionService {
         long allocated = active.stream().mapToLong(PaymentAllocation::getAllocatedMinor).sum();
         long credit = availableCreditForPayment(paymentId);
         List<BlockerView> blockers = new ArrayList<>();
+        if (payment.getCreatedBy() != null && payment.getCreatedBy().equals(currentUserId())) {
+            blockers.add(new BlockerView("PAYMENT_MAKER_CANNOT_REVERSE",
+                    "La personne qui a enregistré l'encaissement ne peut pas le renverser. Demandez à un autre responsable autorisé.",
+                    "OPEN_PAYMENT"));
+        }
         if (!"POSTED".equals(payment.getStatus()) && !"PARTIALLY_REFUNDED".equals(payment.getStatus())) {
             blockers.add(new BlockerView("PAYMENT_NOT_POSTED", "Cet encaissement n'est pas dans un état réversible.", "OPEN_PAYMENT"));
         }

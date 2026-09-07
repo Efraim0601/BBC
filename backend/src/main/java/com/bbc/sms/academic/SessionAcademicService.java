@@ -178,7 +178,6 @@ public class SessionAcademicService {
         AcademicReportingPeriod period = period(in.reportingPeriodId());
         AcademicPeriodRules.assertRawGradePeriod(period);
         windows.assertOpen(period.getId(), AcademicWindowPolicyService.Action.GRADE_ENTRY);
-        invalidatePublished(in.studentId(), period.getId());
         AcademicAssessment assessment = assessments.findById(in.assessmentId())
                 .filter(a -> a.getSchoolId().equals(TenantContext.get()) && a.getReportingPeriodId().equals(period.getId()))
                 .orElseThrow(() -> ApiException.badRequest("L'évaluation n'appartient pas à cette période"));
@@ -190,6 +189,8 @@ public class SessionAcademicService {
         String scopedSubjectCode = assessment.getSubjectCode() == null ? subjectCode : assessment.getSubjectCode();
         accessPolicy.require(AcademicAccessPolicyService.Capability.SUBJECT_GRADE_EDIT,
                 period.getAcademicSessionId(), scopeClassId, scopedSubjectCode, in.studentId(), period.getStartDate());
+        assertEditablePacket(period.getId(), scopeClassId, scopedSubjectCode);
+        assertNoFrozenBulletin(in.studentId(), period.getId(), scopeClassId);
         if (assessment.getClassId() != null && !assessment.getClassId().equals(enrollment.getSchoolClassId())) {
             throw ApiException.badRequest("L'évaluation est limitée à une autre classe");
         }
@@ -217,7 +218,6 @@ public class SessionAcademicService {
         AcademicReportingPeriod period = period(in.reportingPeriodId());
         AcademicPeriodRules.assertRawGradePeriod(period);
         windows.assertOpen(period.getId(), AcademicWindowPolicyService.Action.GRADE_ENTRY);
-        invalidatePublished(in.studentId(), period.getId());
         assertStudent(in.studentId());
         StudentEnrollment enrollment = resolveEnrollment(in.studentId(), period.getAcademicSessionId(), in.enrollmentId(),
                 period.getStartDate());
@@ -226,6 +226,8 @@ public class SessionAcademicService {
                 period.getAcademicSessionId(), enrollment.getSchoolClassId(), subjectCode, in.studentId(),
                 period.getStartDate());
         if (in.comment() != null && in.comment().length() > 500) throw ApiException.badRequest("La remarque ne peut pas dépasser 500 caractères");
+        assertEditablePacket(period.getId(), enrollment.getSchoolClassId(), subjectCode);
+        assertNoFrozenBulletin(in.studentId(), period.getId(), enrollment.getSchoolClassId());
         SubjectResultComment c = comments.findBySchoolIdAndStudentIdAndReportingPeriodIdAndProgrammeClassIdAndSubjectCode(
                 TenantContext.get(), in.studentId(), period.getId(), enrollment.getSchoolClassId(), subjectCode).orElseGet(SubjectResultComment::new);
         if (in.version() != null && c.getId() != null && in.version() != c.getVersion()) throw ApiException.conflict("Cette remarque a été modifiée par un autre utilisateur");
@@ -254,13 +256,28 @@ public class SessionAcademicService {
         Integer count = jdbc.queryForObject(sql, Integer.class, TenantContext.get(), id);
         return count == null ? 0 : count;
     }
-    private void invalidatePublished(UUID studentId, UUID periodId) {
-        List<BulletinVersion> published = bulletinVersions.findBySchoolIdAndStudentIdAndReportingPeriodIdAndState(
-                TenantContext.get(), studentId, periodId, "PUBLISHED");
-        if (published.isEmpty()) return;
-        windows.assertOpen(periodId, AcademicWindowPolicyService.Action.CORRECTION);
-        published.forEach(v -> v.setState("SUPERSEDED"));
-        bulletinVersions.saveAllAndFlush(published);
+    private void assertEditablePacket(UUID periodId, UUID classId, String subjectCode) {
+        List<String> states = jdbc.queryForList("""
+                SELECT status FROM academic_grade_packet
+                 WHERE school_id=? AND reporting_period_id=? AND class_id=? AND subject_code=?
+                 FOR UPDATE
+                """, String.class, TenantContext.get(), periodId, classId, subjectCode);
+        for (String state : states) GradeEntryService.requireEditablePacket(state);
+    }
+
+    private void assertNoFrozenBulletin(UUID studentId, UUID periodId, UUID classId) {
+        Integer blocked = jdbc.queryForObject("""
+                SELECT count(*) FROM bulletin_version v
+                 WHERE v.school_id=? AND v.student_id=? AND v.reporting_period_id=?
+                   AND (v.programme_class_id=? OR v.programme_class_id IS NULL)
+                   AND v.state IN ('VALIDATED','PUBLISHED')
+                   AND NOT EXISTS (SELECT 1 FROM bulletin_version correction
+                                    WHERE correction.school_id=v.school_id
+                                      AND correction.corrects_bulletin_version_id=v.id
+                                      AND correction.state='DRAFT')
+                """, Integer.class, TenantContext.get(), studentId, periodId, classId);
+        if (blocked != null && blocked > 0)
+            throw ApiException.conflict("Ouvrez d'abord une correction explicite du bulletin validé ou publié.");
     }
     private void assertStudent(UUID id) { students.findByIdAndSchoolId(id, TenantContext.get()).orElseThrow(() -> ApiException.notFound("Élève")); }
     private StudentEnrollment resolveEnrollment(UUID studentId, UUID sessionId, UUID enrollmentId,

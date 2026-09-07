@@ -93,8 +93,7 @@ public class ReportCardInputService {
                 classId, schoolClass.getName(), List.of(),
                 accessPolicy.can(AcademicAccessPolicyService.Capability.COUNCIL_INPUT_EDIT,
                         period.getAcademicSessionId(), classId, null, null, period.getStartDate()),
-                accessPolicy.can(AcademicAccessPolicyService.Capability.GRADE_PACKET_REVIEW,
-                        period.getAcademicSessionId(), classId, null, null, period.getStartDate()),
+                canReviewCouncil(period, classId),
                 period.getStartDate(), period.getEndDate(), period.effectiveAttendanceStartDate(),
                 period.effectiveAttendanceEndDate(), period.getVersion());
         List<Object> rosterArgs = new ArrayList<>(List.of(TenantContext.get(), period.getAcademicSessionId()));
@@ -115,8 +114,7 @@ public class ReportCardInputService {
                 classId, schoolClass.getName(), rows,
                 accessPolicy.can(AcademicAccessPolicyService.Capability.COUNCIL_INPUT_EDIT,
                         period.getAcademicSessionId(), classId, null, null, period.getStartDate()),
-                accessPolicy.can(AcademicAccessPolicyService.Capability.GRADE_PACKET_REVIEW,
-                        period.getAcademicSessionId(), classId, null, null, period.getStartDate()),
+                canReviewCouncil(period, classId),
                 period.getStartDate(), period.getEndDate(), period.effectiveAttendanceStartDate(),
                 period.effectiveAttendanceEndDate(), period.getVersion());
     }
@@ -212,6 +210,10 @@ public class ReportCardInputService {
     @Transactional
     public ReportCardInputsView review(UUID periodId, UUID classId, UUID studentId, ReportCardInputReview in) {
         AcademicReportingPeriod period = period(periodId);
+        // Management reviews without editing; a teacher needs explicit council-edit
+        // delegation as well as packet-review authority, not just titular oversight.
+        accessPolicy.require(councilReviewInputCapability(currentRole()),
+                period.getAcademicSessionId(), classId, null, studentId, period.getStartDate());
         accessPolicy.require(AcademicAccessPolicyService.Capability.GRADE_PACKET_REVIEW,
                 period.getAcademicSessionId(), classId, null, studentId, period.getStartDate());
         assertRoster(period, classId, studentId);
@@ -414,11 +416,23 @@ public class ReportCardInputService {
                 .orElseThrow(() -> ApiException.badRequest("L'élève n'est pas inscrit dans cette classe pour la session"));
     }
 
-    private void requireReviewer() {
+    private boolean canReviewCouncil(AcademicReportingPeriod period, UUID classId) {
+        return accessPolicy.can(councilReviewInputCapability(currentRole()),
+                period.getAcademicSessionId(), classId, null, null, period.getStartDate())
+                && accessPolicy.can(AcademicAccessPolicyService.Capability.GRADE_PACKET_REVIEW,
+                period.getAcademicSessionId(), classId, null, null, period.getStartDate());
+    }
+
+    private String currentRole() {
         var auth = SecurityContextHolder.getContext().getAuthentication();
-        String role = auth != null && auth.getPrincipal() instanceof AppUserPrincipal p ? p.roleCode() : "";
-        if (!Set.of("admin", "principal", "dean_of_studies", "censor").contains(role))
-            throw ApiException.forbidden("Seuls la direction, le censeur ou le responsable des études peuvent approuver ces données");
+        return auth != null && auth.getPrincipal() instanceof AppUserPrincipal p ? p.roleCode() : "";
+    }
+
+    static AcademicAccessPolicyService.Capability councilReviewInputCapability(String role) {
+        boolean management = Set.of("admin", "administrator", "school_admin", "principal", "dean_of_studies", "censor").contains(role)
+                || com.bbc.sms.platform.security.SectionRoles.isSectionAdmin(role);
+        return management ? AcademicAccessPolicyService.Capability.COUNCIL_INPUT_VIEW
+                : AcademicAccessPolicyService.Capability.COUNCIL_INPUT_EDIT;
     }
 
     private UUID actorId() {

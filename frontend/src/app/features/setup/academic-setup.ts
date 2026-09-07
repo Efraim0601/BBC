@@ -884,7 +884,7 @@ import { downloadCsv } from '../../core/csv';
 
     @if (assignmentImpact(); as impact) {
       <div class="fixed inset-0 z-50 bg-slate-950/40 flex items-center justify-center p-4" role="presentation">
-        <section class="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-xl p-5" role="dialog" aria-modal="true" aria-labelledby="assignment-impact-title">
+        <section class="max-h-[calc(100dvh-2rem)] overflow-y-auto bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-xl p-5" role="dialog" aria-modal="true" aria-labelledby="assignment-impact-title">
           <h2 id="assignment-impact-title" class="text-lg font-bold text-ink">{{ fr() ? 'Vérifier les conséquences de l’affectation' : 'Review assignment consequences' }}</h2>
           <p class="text-sm text-mute mt-2">{{ fr() ? 'La modification est préparée mais aucune donnée n’a encore été changée.' : 'The change is prepared, but no data has been changed yet.' }}</p>
           <div class="grid grid-cols-2 gap-3 mt-4 text-center text-sm">
@@ -900,7 +900,7 @@ import { downloadCsv } from '../../core/csv';
 
     @if (designPublish(); as request) {
       <div class="fixed inset-0 z-50 bg-slate-950/40 flex items-center justify-center p-4" role="presentation">
-        <section class="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-xl p-5" role="dialog" aria-modal="true" aria-labelledby="design-publish-title">
+        <section class="max-h-[calc(100dvh-2rem)] overflow-y-auto bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-xl p-5" role="dialog" aria-modal="true" aria-labelledby="design-publish-title">
           <h2 id="design-publish-title" class="text-lg font-bold text-ink">{{ fr() ? 'Vérifier la publication de version' : 'Review version publication' }}</h2>
           <p class="text-sm text-mute mt-2">{{ request.label }}</p>
           <div class="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-950 leading-relaxed"><strong>{{ fr() ? 'Conséquence :' : 'Consequence:' }}</strong> {{ request.kind === 'branding' ? (fr() ? 'La version publiée actuelle sera conservée dans l’historique et une nouvelle version de marque sera créée à partir du profil de l’établissement.' : 'The current published version will remain in history and a new branding version will be created from the school profile.') : (fr() ? 'Le modèle est copié dans un nouveau numéro de version. Les snapshots déjà publiés continuent de référencer leur modèle d’origine.' : 'The template is copied into a new version number. Existing published snapshots continue to reference their original template.') }}</div>

@@ -237,7 +237,7 @@ export class AvatarComponent {
   imports: [IconComponent],
   template: `
     <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 fade-in" (click)="cancel.emit()">
-      <div class="bg-white rounded-xl2 shadow-pop w-full max-w-md p-6" (click)="$event.stopPropagation()">
+      <div class="max-h-[calc(100dvh-2rem)] overflow-y-auto bg-white rounded-xl2 shadow-pop w-full max-w-md p-6" (click)="$event.stopPropagation()">
         <div class="flex items-start gap-3">
           <div class="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
             [class]="danger() ? 'bg-rose-100 text-rose-600' : 'bg-brand-50 text-brand-600'">

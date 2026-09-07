@@ -1,6 +1,7 @@
 package com.bbc.sms.finance.reporting;
 
 import com.bbc.sms.finance.FinancePolicyService;
+import com.bbc.sms.finance.FinanceCashflowSql;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.reports.dto.ReportDtos;
@@ -246,12 +247,8 @@ public class FinanceReportingService {
         List<ExpenseRow> rows = jdbc.query(sql.toString(), (rs, n) -> new ExpenseRow(
                 string(rs.getObject("id")), rs.getString("category"), rs.getString("label"),
                 rs.getObject("spent_on", LocalDate.class), rs.getLong("amount"), "LEGACY_ADAPTER", null), args.toArray());
-        long posted = scalarLong("""
-                SELECT COALESCE(SUM(CASE WHEN a.account_type='EXPENSE' THEN l.debit_minor-l.credit_minor ELSE 0 END),0)
-                  FROM journal_line l JOIN journal_entry j ON j.school_id=l.school_id AND j.id=l.journal_entry_id
-                  JOIN chart_of_account a ON a.school_id=l.school_id AND a.id=l.account_id
-                 WHERE l.school_id=? AND j.status='POSTED' AND j.entry_date BETWEEN ? AND ?
-                """, c.schoolId(), c.from(), c.effectiveTo());
+        long posted = scalarLong("SELECT COALESCE(SUM(amount),0) FROM (" + FinanceCashflowSql.EXPENSE_MOVEMENTS
+                + ") movements WHERE movement_date BETWEEN ? AND ?", c.schoolId(), c.schoolId(), c.from(), c.effectiveTo());
         List<ReportException> exceptions = new ArrayList<>();
         if (!rows.isEmpty()) exceptions.add(new ReportException("LEGACY_EXPENSE_SOURCE",
                 "Legacy expenses are shown as an adapter because the old expense table has no POSTED journal status.",
@@ -305,12 +302,12 @@ public class FinanceReportingService {
         LocalDate asOf = c.asOf();
         StringBuilder trialSql = new StringBuilder("""
                 SELECT a.id, a.code, a.name_fr, a.account_type,
-                       COALESCE(SUM(CASE WHEN j.status='POSTED' THEN l.debit_minor ELSE 0 END),0) debit,
-                       COALESCE(SUM(CASE WHEN j.status='POSTED' THEN l.credit_minor ELSE 0 END),0) credit
+                       COALESCE(SUM(CASE WHEN j.status IN ('POSTED','REVERSED') THEN l.debit_minor ELSE 0 END),0) debit,
+                       COALESCE(SUM(CASE WHEN j.status IN ('POSTED','REVERSED') THEN l.credit_minor ELSE 0 END),0) credit
                   FROM chart_of_account a
                   LEFT JOIN journal_line l ON l.school_id=a.school_id AND l.account_id=a.id
                   LEFT JOIN journal_entry j ON j.school_id=l.school_id AND j.id=l.journal_entry_id
-                       AND j.entry_date <= ? AND j.status='POSTED'
+                       AND j.entry_date <= ? AND j.status IN ('POSTED','REVERSED')
                  WHERE a.school_id=?
                 """);
         List<Object> trialArgs = new ArrayList<>(List.of(asOf, c.schoolId()));
@@ -333,7 +330,7 @@ public class FinanceReportingService {
                        COALESCE(SUM(CASE WHEN a.account_type='REVENUE' THEN l.credit_minor-l.debit_minor ELSE l.debit_minor-l.credit_minor END),0) amount
                   FROM journal_line l JOIN journal_entry j ON j.school_id=l.school_id AND j.id=l.journal_entry_id
                   JOIN chart_of_account a ON a.school_id=l.school_id AND a.id=l.account_id
-                 WHERE l.school_id=? AND j.status='POSTED' AND j.entry_date BETWEEN ? AND ?
+                 WHERE l.school_id=? AND j.status IN ('POSTED','REVERSED') AND j.entry_date BETWEEN ? AND ?
                    AND a.account_type IN ('REVENUE','EXPENSE')
                 """);
         List<Object> incomeArgs = new ArrayList<>(List.of(c.schoolId(), c.from(), c.effectiveTo()));
@@ -355,7 +352,7 @@ public class FinanceReportingService {
                        ) running_balance
                   FROM journal_line l JOIN journal_entry j ON j.school_id=l.school_id AND j.id=l.journal_entry_id
                   JOIN chart_of_account a ON a.school_id=l.school_id AND a.id=l.account_id
-                 WHERE l.school_id=? AND j.status='POSTED' AND j.entry_date BETWEEN ? AND ?
+                 WHERE l.school_id=? AND j.status IN ('POSTED','REVERSED') AND j.entry_date BETWEEN ? AND ?
                 """);
         List<Object> ledgerArgs = new ArrayList<>(List.of(c.schoolId(), c.from(), c.effectiveTo()));
         if (c.filters().academicSessionId() != null) {
@@ -403,19 +400,23 @@ public class FinanceReportingService {
     public ReportDtos.FinanceReport legacyFinance() {
         financePolicy.requireSchool("FINANCE_REPORT_VIEW");
         UUID schoolId = TenantContext.get();
-        long revenue = scalarLong("SELECT COALESCE(SUM(amount_minor),0) FROM finance_payment WHERE school_id=? AND status IN ('POSTED','PARTIALLY_REFUNDED','REFUNDED')", schoolId);
-        if (revenue == 0) revenue = scalarLong("SELECT COALESCE(SUM(amount),0) FROM payment WHERE school_id=?", schoolId);
-        long expense = scalarLong("""
-                SELECT COALESCE(SUM(l.debit_minor-l.credit_minor),0)
-                  FROM journal_line l JOIN journal_entry j ON j.school_id=l.school_id AND j.id=l.journal_entry_id
-                  JOIN chart_of_account a ON a.school_id=l.school_id AND a.id=l.account_id
-                 WHERE l.school_id=? AND j.status='POSTED' AND a.account_type='EXPENSE'
-                """, schoolId);
-        if (expense == 0) expense = scalarLong("SELECT COALESCE(SUM(amount),0) FROM expense WHERE school_id=?", schoolId);
-        long billed = scalarLong("SELECT COALESCE(SUM(adjusted_amount_minor),0) FROM student_charge WHERE school_id=? AND status NOT IN ('DRAFT','REVERSED')", schoolId);
-        long collected = scalarLong("SELECT COALESCE(SUM(paid_minor),0) FROM student_charge WHERE school_id=? AND status NOT IN ('DRAFT','REVERSED')", schoolId);
-        if (billed == 0) billed = scalarLong("SELECT COALESCE(SUM(total),0) FROM student_fee WHERE school_id=?", schoolId);
-        if (collected == 0) collected = scalarLong("SELECT COALESCE(SUM(paid),0) FROM student_fee WHERE school_id=?", schoolId);
+        long revenue = scalarLong("SELECT COALESCE(SUM(amount),0) FROM (" + FinanceCashflowSql.MOVEMENTS + ") movements",
+                schoolId, schoolId, schoolId, schoolId);
+        long expense = scalarLong("SELECT COALESCE(SUM(amount),0) FROM (" + FinanceCashflowSql.EXPENSE_MOVEMENTS
+                + ") movements", schoolId, schoolId);
+        long[] fees = jdbc.query("""
+                WITH current_charges AS (
+                    SELECT c.student_id,c.adjusted_amount_minor-c.waived_minor billed,c.paid_minor paid
+                      FROM student_charge c JOIN academic_session s ON s.school_id=c.school_id AND s.id=c.academic_session_id
+                     WHERE c.school_id=? AND s.is_current=true AND c.status IN ('POSTED','PARTIAL','PAID','WAIVED')
+                ), combined AS (
+                    SELECT billed,paid FROM current_charges
+                    UNION ALL
+                    SELECT f.total,f.paid FROM student_fee f
+                     WHERE f.school_id=? AND NOT EXISTS(SELECT 1 FROM current_charges c WHERE c.student_id=f.student_id)
+                ) SELECT COALESCE(SUM(billed),0),COALESCE(SUM(paid),0) FROM combined
+                """, rs -> rs.next() ? new long[]{rs.getLong(1),rs.getLong(2)} : new long[]{0,0}, schoolId,schoolId);
+        long billed = fees[0], collected = fees[1];
         double recovery = billed == 0 ? 0d : ((double) collected / billed) * 100d;
         return new ReportDtos.FinanceReport(revenue, expense, revenue - expense, recovery);
     }

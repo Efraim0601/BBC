@@ -114,12 +114,17 @@ public class AttendanceWorkflowService {
 
     @Transactional(readOnly = true)
     public List<AttendanceClass> attendanceClasses() {
+        return attendanceClasses(null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<AttendanceClass> attendanceClasses(LocalDate requestedDate) {
         Map<String, String> policy = policyRows().stream().collect(
             java.util.stream.Collectors.toMap(PolicyView::level, PolicyView::model));
         AcademicSession currentSession = sessions.findBySchoolIdOrderByStartDateDesc(TenantContext.get()).stream()
             .filter(AcademicSession::isCurrent).findFirst().orElse(null);
         UUID currentSessionId = currentSession == null ? null : currentSession.getId();
-        LocalDate scopeDate = currentSession == null ? LocalDate.now()
+        LocalDate scopeDate = requestedDate != null ? requestedDate : currentSession == null ? LocalDate.now()
                 : LocalDate.now().isBefore(currentSession.getStartDate()) ? currentSession.getStartDate()
                 : LocalDate.now().isAfter(currentSession.getEndDate()) ? currentSession.getEndDate() : LocalDate.now();
         Set<UUID> allowed = currentSessionId == null
@@ -135,7 +140,7 @@ public class AttendanceWorkflowService {
             .filter(c -> currentSessionId == null || attendanceRepresentative(c, currentSessionId))
             .filter(c -> attendanceInParcours(c, currentSessionId))
             .filter(c -> allowed == null || allowed.contains(c.getId()) || sharedAllowed(c, currentSessionId, allowed))
-            .filter(c -> attendanceClassAllowed(c, currentSessionId, scopeDate))
+            .filter(c -> attendanceClassAllowed(c, currentSession, scopeDate))
             .map(c -> new AttendanceClass(c.getId(), currentSessionId == null ? c.getName()
                     : cohorts == null ? c.getName() : cohorts.displayName(currentSessionId, c.getId(), c.getName()), c.getLevel(), c.getSubsystem(),
                 policy.getOrDefault(normalizeLevel(c.getLevel()), defaultModel(c.getLevel())),
@@ -167,6 +172,8 @@ public class AttendanceWorkflowService {
         SchoolClass schoolClass = requireClass(classId);
         String model = modelFor(schoolClass.getLevel());
         List<SessionKey> keys = keysFor(schoolClass, date, model);
+        if (!isTeachingDay(date))
+            throw ApiException.badRequest("Cette date n’est pas un jour de classe. Choisissez un jour d’enseignement.");
         SessionKey key;
         if (model.equals("DAILY")) {
             if (periodKey != null && !periodKey.isBlank() && !"DAILY".equalsIgnoreCase(periodKey.trim()))
@@ -784,12 +791,49 @@ public class AttendanceWorkflowService {
                         && programme.subsystem().equalsIgnoreCase(scope.subsystem()));
     }
 
-    private boolean attendanceClassAllowed(SchoolClass schoolClass, UUID academicSessionId, LocalDate date) {
-        if (academicSessionId == null) return false;
+    private boolean attendanceClassAllowed(SchoolClass schoolClass, AcademicSession academic, LocalDate date) {
+        if (academic == null || date.isBefore(academic.getStartDate()) || date.isAfter(academic.getEndDate())) return false;
         String model = modelFor(schoolClass.getLevel());
-        List<SessionKey> keys = keysFor(schoolClass, date, model);
-        return keys.stream().anyMatch(key -> policy.decide("ATTENDANCE_ROSTER_VIEW",
-                attendanceContext(academicSessionId, schoolClass, date, key)).allowed());
+        // Discovery must not depend on today's lessons: otherwise weekends,
+        // holidays and days without this teacher's subject hide the class picker.
+        // This only lists classes; each roster still checks its exact date/period.
+        if ("DAILY".equals(model)) return policy.decide("ATTENDANCE_ROSTER_VIEW",
+                attendanceContext(academic.getId(), schoolClass, date, new SessionKey("DAILY", null, null))).allowed();
+        List<AttendanceCandidate> candidates = jdbc.query("""
+            SELECT ts.id, ts.slot_idx, ts.subject_code, ts.day_idx,
+                   greatest(tv.effective_from, ?) AS valid_from,
+                   least(coalesce(tv.effective_to, ?), ?) AS valid_to
+              FROM timetable_slot ts
+              JOIN timetable_version tv ON tv.id=ts.timetable_version_id
+               AND tv.school_id=ts.school_id AND tv.academic_session_id=ts.academic_session_id
+               AND tv.status='PUBLISHED'
+              JOIN timetable_class_config cfg ON cfg.school_id=ts.school_id
+               AND cfg.academic_session_id=ts.academic_session_id AND cfg.class_id=ts.class_id
+               AND cfg.status='PUBLISHED'
+             WHERE ts.school_id=? AND ts.academic_session_id=? AND ts.class_id=?
+               AND nullif(trim(ts.subject_code),'') IS NOT NULL
+             ORDER BY tv.version_no DESC, ts.day_idx, ts.slot_idx
+            """, (rs, n) -> new AttendanceCandidate(
+                new SessionKey("P" + (rs.getInt("slot_idx") + 1), rs.getString("subject_code"), rs.getObject("id", UUID.class)),
+                discoveryOccurrenceDate(date, rs.getInt("day_idx"), rs.getObject("valid_from", LocalDate.class),
+                        rs.getObject("valid_to", LocalDate.class))),
+                academic.getStartDate(), academic.getEndDate(), academic.getEndDate(),
+                TenantContext.get(), academic.getId(), schoolClass.getId());
+        return candidates.stream().filter(candidate -> candidate.date() != null).anyMatch(candidate ->
+                policy.decide("ATTENDANCE_ROSTER_VIEW", attendanceContext(academic.getId(), schoolClass,
+                        candidate.date(), candidate.key())).allowed());
+    }
+
+    record AttendanceCandidate(SessionKey key, LocalDate date) {}
+
+    /** Nearest occurrence in the published version, without a holiday/day-of-week discovery restriction. */
+    static LocalDate discoveryOccurrenceDate(LocalDate reference, int dayIndex, LocalDate from, LocalDate to) {
+        if (dayIndex < 0 || dayIndex > 6 || from == null || to == null || to.isBefore(from)) return null;
+        LocalDate anchor = reference.isBefore(from) ? from : reference.isAfter(to) ? to : reference;
+        LocalDate occurrence = anchor.minusDays(anchor.getDayOfWeek().getValue() - 1L).plusDays(dayIndex);
+        if (occurrence.isBefore(from)) occurrence = occurrence.plusWeeks(1);
+        if (occurrence.isAfter(to)) occurrence = occurrence.minusWeeks(1);
+        return occurrence.isBefore(from) || occurrence.isAfter(to) ? null : occurrence;
     }
 
     /** Only one selector entry represents a shared daily roster. */

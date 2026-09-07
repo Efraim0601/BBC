@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
+import { newRequestKey } from '../../core/request-key';
 
 export interface AccountingApiError {
   code?: string;
@@ -134,10 +135,10 @@ export class FinanceAccountingApi {
   createJournal(body: JournalUpsert): Observable<JournalView> { return this.http.post<JournalView>(`${this.base}/journals`, body); }
   updateJournal(id: string, body: JournalUpsert): Observable<JournalView> { return this.http.put<JournalView>(`${this.base}/journals/${id}`, body); }
   postJournal(id: string): Observable<JournalView> {
-    return this.http.post<JournalView>(`${this.base}/journals/${id}/post`, {}, { headers: { 'Idempotency-Key': crypto.randomUUID() } });
+    return this.http.post<JournalView>(`${this.base}/journals/${id}/post`, {}, { headers: { 'Idempotency-Key': newRequestKey() } });
   }
   reverseJournal(id: string, body: { entryDate: string; reason: string; version: number }): Observable<JournalView> {
-    return this.http.post<JournalView>(`${this.base}/journals/${id}/reverse`, body, { headers: { 'Idempotency-Key': crypto.randomUUID() } });
+    return this.http.post<JournalView>(`${this.base}/journals/${id}/reverse`, body, { headers: { 'Idempotency-Key': newRequestKey() } });
   }
 
   trialBalance(asOfDate?: string, includeZero = false): Observable<TrialBalanceView> {

@@ -14,6 +14,7 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
   const auth = inject(AuthService);
   const scope = inject(ScopeService);
   const token = auth.accessToken;
+  const requestSession = auth.sessionVersion;
 
   const headers: Record<string, string> = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -27,7 +28,14 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
       const isAuthCall = req.url.includes('/auth/');
       const isPublicApi = req.url.includes('/public/');
       if (err.status === 401 && !isAuthCall && !isPublicApi) {
+        if (requestSession !== auth.sessionVersion) return throwError(() => err);
         return auth.refresh().pipe(
+          catchError((refreshErr: unknown) => {
+            if (requestSession === auth.sessionVersion && auth.isSessionInvalid(refreshErr)) {
+              auth.logout('expired');
+            }
+            return throwError(() => refreshErr);
+          }),
           switchMap((res) =>
             next(
               req.clone({
@@ -35,12 +43,6 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
               }),
             ),
           ),
-          catchError((refreshErr: unknown) => {
-            if (auth.isSessionInvalid(refreshErr)) {
-              auth.logout('expired');
-            }
-            return throwError(() => refreshErr);
-          }),
         );
       }
       return throwError(() => err);

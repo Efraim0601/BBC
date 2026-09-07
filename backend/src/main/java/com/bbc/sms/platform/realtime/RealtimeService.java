@@ -4,6 +4,7 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.UUID;
+import java.util.Map;
 
 /**
  * Pushes domain events to connected clients over STOMP.
@@ -16,9 +17,9 @@ public class RealtimeService {
 
     public RealtimeService(SimpMessagingTemplate messaging) { this.messaging = messaging; }
 
-    /** Broadcast to everyone watching a channel for a given school. */
+    /** Never put student, attendance, payment or event records on a school-wide topic. */
     public void broadcast(UUID schoolId, String channel, Object payload) {
-        messaging.convertAndSend("/topic/school/" + schoolId + "/" + channel, payload);
+        messaging.convertAndSend("/topic/school/" + schoolId + "/" + channel, Map.of("changed", true));
     }
 
     /** Send a private message to a single user (e.g. parent notification). */

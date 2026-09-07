@@ -20,6 +20,11 @@ public class SettingsDtos {
 
     // ---- School profile -----------------------------------------------------
 
+    /** Identity printed on documents, not the administrative configuration. */
+    public record SchoolBrandingView(String code, String name, String motto, String city,
+            String country, String address, String phone, String email, String website,
+            String currency, String authority, String academicYear) {}
+
     public record SchoolProfileView(
             String code,
             String name,

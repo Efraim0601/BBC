@@ -61,6 +61,12 @@ public class SettingsController {
 
     // ---- School profile ------------------------------------------------------
 
+    @GetMapping("/school/branding")
+    @PreAuthorize("isAuthenticated()")
+    public SchoolBrandingView schoolBranding() {
+        return schoolProfile.branding();
+    }
+
     @GetMapping("/school")
     @PreAuthorize("@policy.canAction('SCHOOL_PROFILE_VIEW')")
     public SchoolProfileView getSchool() {

@@ -31,6 +31,7 @@ import java.util.UUID;
 
 @Service
 public class StaffService {
+    private static final Set<String> DELEGABLE_TEACHING_ROLES = Set.of("teacher", "secondary_teacher", "form_teacher");
 
     private static final Map<String, String> ROLE_ALIASES = Map.ofEntries(
             Map.entry("surveillant", "prefect"),
@@ -111,6 +112,7 @@ public class StaffService {
         policy.require("HR_MANAGE", new PolicyResourceContext(schoolId, null, java.time.LocalDate.now(),
                 null, null, null, null, null, null, null, null, null));
         Employee e = find(employeeId);
+        assertManageEmployee(e);
         List<UUID> wanted = classIds == null ? List.of() : classIds.stream().distinct().toList();
 
         // Tout valider AVANT d'écrire : pas de suppression suivie d'un refus.
@@ -178,14 +180,10 @@ public class StaffService {
         apply(e, in);
         e.setInitials(initials(in.name()));
         Employee saved = repo.save(e);
-        // When a login account is requested, the UI follows up with reset-credentials
-        // (which e-mails the actual credentials and reports delivery), so skip the vague
-        // courtesy notice here to avoid sending the employee two e-mails. Otherwise send
-        // the fire-and-forget notice (no-op unless SMTP is configured).
-        if (!Boolean.TRUE.equals(in.createLogin())) {
-            mail.notifyUserCreated(schoolId, saved.getName(), saved.getEmail());
-        }
-        return toView(saved);
+        // Provision in this transaction: invalid/taken usernames roll back the employee too.
+        AccountResult credentials = Boolean.TRUE.equals(in.createLogin())
+                ? accounts.provisionOrReset(saved, in.accountOptions()) : null;
+        return toView(saved).withCredentials(credentials);
     }
 
     /**
@@ -218,17 +216,18 @@ public class StaffService {
     public EmployeeView finalizeDraft(UUID employeeId, EmployeeUpsert in, boolean createLogin) {
         requireSchool("HR_MANAGE");
         Employee e = find(employeeId);
+        assertManageEmployee(e);
         apply(e, in);
         e.setInitials(initials(in.name() != null && !in.name().isBlank() ? in.name() : e.getName()));
         e.setActive(true);
         Employee saved = repo.save(e);
+        AccountResult credentials = null;
         if (createLogin) {
-            accounts.provisionOrReset(saved);
+            credentials = accounts.provisionOrReset(saved, in.accountOptions());
         } else {
             accounts.syncAccount(saved);
-            mail.notifyUserCreated(saved.getSchoolId(), saved.getName(), saved.getEmail());
         }
-        return toView(saved);
+        return toView(saved).withCredentials(credentials);
     }
 
     /**
@@ -357,6 +356,7 @@ public class StaffService {
     public EmployeeView update(UUID id, EmployeeUpsert in) {
         requireSchool("HR_MANAGE");
         Employee e = find(id);
+        assertManageEmployee(e);
         apply(e, in);
         e.setInitials(initials(in.name()));
         Employee saved = repo.save(e);
@@ -368,8 +368,10 @@ public class StaffService {
     public void delete(UUID id) {
         requireSchool("HR_MANAGE");
         Employee e = find(id);
+        assertManageEmployee(e);
         e.setActive(false);   // soft delete — keeps payroll/academic history intact
         repo.save(e);
+        accounts.deactivateAccount(e);
     }
 
     /**
@@ -380,13 +382,16 @@ public class StaffService {
      */
     @Transactional
     public BulkDeleteResult deleteAll(List<UUID> ids) {
+        requireSchool("HR_MANAGE");
         int deleted = 0;
         List<BulkDeleteError> errors = new ArrayList<>();
         for (UUID id : new LinkedHashSet<>(ids)) {
             try {
                 Employee e = find(id);
+                assertManageEmployee(e);
                 e.setActive(false);
                 repo.save(e);
+                accounts.deactivateAccount(e);
                 deleted++;
             } catch (ApiException ex) {
                 errors.add(new BulkDeleteError(id, ex.getMessage()));
@@ -395,11 +400,46 @@ public class StaffService {
         return new BulkDeleteResult(deleted, errors.size(), errors);
     }
 
-    /** (Re)issue the employee's login credentials and e-mail them; admin action. */
+    /** (Re)issue credentials; email is sent only when explicitly requested. */
     @Transactional
-    public AccountResult resetCredentials(UUID id) {
+    public AccountResult resetCredentials(UUID id, AccountOptions options) {
         requireSchool("HR_MANAGE");
-        return accounts.provisionOrReset(find(id));
+        Employee employee = find(id);
+        assertManageEmployee(employee);
+        return accounts.provisionOrReset(employee, options);
+    }
+
+    /** Shared staff contacts may be visible without granting control of their account or files. */
+    @Transactional(readOnly = true)
+    public void requireManageEmployee(UUID id) {
+        requireSchool("HR_MANAGE");
+        assertManageEmployee(find(id));
+    }
+
+    private void assertManageEmployee(Employee employee) {
+        String level = teacherScope.staffLevelScope();
+        if (level != null && !level.equals(employee.getLevel())) {
+            throw ApiException.forbidden("La modification de cette fiche commune est réservée à la direction de l’établissement.");
+        }
+        requireRoleDelegation(employee.getRoles());
+        // Inspect the actual login too: historic HR role labels can be out of sync.
+        users.findByEmployeeId(employee.getId()).ifPresent(account -> requireRoleDelegation(loginRoles(account)));
+    }
+
+    private Set<String> loginRoles(AppUser account) {
+        Set<String> roles = new HashSet<>(jdbc.queryForList("""
+                SELECT role_code FROM app_user_role WHERE user_id=?
+                  AND (effective_from IS NULL OR effective_from<=current_date)
+                  AND (effective_to IS NULL OR effective_to>=current_date)
+                """, String.class, account.getId()));
+        if (account.getRoleCode() != null) roles.add(account.getRoleCode());
+        return roles;
+    }
+
+    private void requireRoleDelegation(Set<String> roles) {
+        if (roles != null && roles.stream().anyMatch(role -> !DELEGABLE_TEACHING_ROLES.contains(role))) {
+            requireSchool("ROLE_MANAGE");
+        }
     }
 
     /**
@@ -466,6 +506,7 @@ public class StaffService {
      * salaire — sans qu'on lui retire son rôle au passage.
      */
     private void assertNoNewPrivilege(Set<String> current, Set<String> wanted) {
+        requireRoleDelegation(wanted);
         Set<String> held = current == null ? Set.of() : current;
         for (String r : wanted) {
             if (SectionRoles.privilegedRoles().contains(r) && !held.contains(r)) {
@@ -630,7 +671,17 @@ public class StaffService {
                 e.getSex(), e.getType(), e.getEmail(), e.getPhone(), e.getFormClass(),
                 e.getLevel(), managementLevels, e.getDepartmentId(), deptName,
                 e.getMonthlySalary(), e.getHourlyRate(), roles, e.isActive(),
-                account != null, account == null ? null : account.getId(), account == null ? null : account.getUsername());
+                account != null, account == null ? null : account.getId(), account == null ? null : account.getUsername(),
+                canManageEmployee(e, account), teacherScope.staffLevelScope() == null
+                        || teacherScope.staffLevelScope().equals(e.getLevel()), null);
+    }
+
+    private boolean canManageEmployee(Employee e, AppUser account) {
+        String level = teacherScope.staffLevelScope();
+        if (level != null && !level.equals(e.getLevel())) return false;
+        boolean sensitive = (e.getRoles() != null && e.getRoles().stream().anyMatch(r -> !DELEGABLE_TEACHING_ROLES.contains(r)))
+                || (account != null && loginRoles(account).stream().anyMatch(r -> !DELEGABLE_TEACHING_ROLES.contains(r)));
+        return policy.canAction("HR_MANAGE") && (!sensitive || policy.canAction("ROLE_MANAGE"));
     }
 
     private void requireSchool(String action) {

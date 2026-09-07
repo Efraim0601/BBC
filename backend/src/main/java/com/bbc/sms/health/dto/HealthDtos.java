@@ -2,6 +2,7 @@ package com.bbc.sms.health.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -30,8 +31,8 @@ public class HealthDtos {
             String vaccinations,
             String doctorName,
             String doctorPhone,
-            Integer heightCm,
-            Integer weightKg) {}
+            @Positive Integer heightCm,
+            @Positive Integer weightKg) {}
 
     /** One logged infirmary visit. */
     public record VisitView(

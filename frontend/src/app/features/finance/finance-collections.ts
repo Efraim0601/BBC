@@ -1,7 +1,7 @@
 import { CommonModule } from '@angular/common';
 import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import {
   CashierSessionView,
   ChannelView,
@@ -15,6 +15,7 @@ import {
   StudentSearchView,
 } from './collections.api';
 import { I18nService } from '../../core/i18n.service';
+import { newRequestKey } from '../../core/request-key';
 
 type CollectionTab = 'collect' | 'payments' | 'cashier' | 'provider';
 
@@ -160,6 +161,7 @@ type CollectionTab = 'collect' | 'payments' | 'cashier' | 'provider';
 export class FinanceCollectionsComponent implements OnInit {
   private readonly api = inject(CollectionsApi);
   private readonly i18n = inject(I18nService);
+  private readonly route = inject(ActivatedRoute);
   protected fr = () => this.i18n.lang() === 'fr';
   protected tabs: { key: CollectionTab; fr: string; en: string }[] = [
     { key: 'collect', fr: 'Nouvel encaissement', en: 'New collection' },
@@ -216,12 +218,16 @@ export class FinanceCollectionsComponent implements OnInit {
   protected providerAmountModel: number | null = null;
   protected providerChannelId = '';
   protected providerResult = signal<ProviderTransactionView | null>(null);
+  private collectionFingerprint = '';
+  private collectionRequestKey = '';
 
   ngOnInit(): void {
     this.loadChannels();
     this.loadCashier();
     this.loadPayments();
     this.loading.set(false);
+    const requestedStudent = this.route.snapshot.queryParamMap.get('q');
+    if (requestedStudent) { this.searchModel = requestedStudent; this.search(); }
   }
 
   protected setTab(value: CollectionTab): void {
@@ -267,16 +273,23 @@ export class FinanceCollectionsComponent implements OnInit {
   protected treasuryAccounts() { return this.quote()?.treasuryAccounts || []; }
   protected selectedTreasuryAccount() { return this.treasuryAccounts().find(account => account.id === this.selectedTreasuryAccountId) || null; }
   protected goToPaymentDetails(): void { if (this.quote() && this.allocationTotal() <= this.quote()!.requestedMinor) this.step.set(3); }
-  protected canReview(): boolean { const channel = this.selectedChannel(); return !!this.quote() && !!channel && channel.enabled && !!channel.debitAccountId && !!this.selectedTreasuryAccountId && (!channel.requiresReference || !!this.referenceModel.trim()) && (!channel.cashierRequired || !!this.cashier()); }
+  protected canReview(): boolean { const channel = this.selectedChannel(); return !!this.quote() && this.quote()!.enrollmentId === this.selected()?.enrollmentId && this.quote()!.requestedMinor === Number(this.amountModel) && this.quote()!.postingPeriodOpen && !this.quote()!.blockers.length && !!channel && channel.enabled && !!channel.debitAccountId && !!this.selectedTreasuryAccountId && (!channel.requiresReference || !!this.referenceModel.trim()) && (!channel.cashierRequired || !!this.cashier()); }
   protected goToReview(): void { if (this.canReview()) this.step.set(4); else this.fieldError.set(this.fr() ? 'Canal, compte, référence et caisse doivent être valides.' : 'Channel, account, reference and cashier must be valid.'); }
   protected jumpTo(value: number): void { if (value <= this.step()) this.step.set(value); }
 
   protected postCollection(): void {
+    if (this.busy() || this.payment()) return;
     const selected = this.selected(); const quote = this.quote(); const channel = this.selectedChannel();
     if (!selected || !quote || !channel || !this.canReview()) return;
     this.busy.set(true);
     const allocations = quote.installments.map(line => ({ installmentId: line.installmentId, amountMinor: this.allocationFor(line.installmentId) })).filter(line => line.amountMinor > 0);
-    this.api.post({ enrollmentId: selected.enrollmentId, amountMinor: Number(this.amountModel), paymentChannelId: channel.id, treasuryAccountId: this.selectedTreasuryAccountId || null, paymentDate: this.paymentDateModel, reference: this.referenceModel.trim(), payerName: this.payerModel.trim(), note: this.noteModel.trim(), allocations, legacyReceiptNo: '' }, `collection-ui-${Date.now()}-${Math.random().toString(36).slice(2)}`).subscribe({
+    const payload = { enrollmentId: selected.enrollmentId, amountMinor: Number(this.amountModel), paymentChannelId: channel.id, treasuryAccountId: this.selectedTreasuryAccountId || null, paymentDate: this.paymentDateModel, reference: this.referenceModel.trim(), payerName: this.payerModel.trim(), note: this.noteModel.trim(), allocations, legacyReceiptNo: '' };
+    const fingerprint = JSON.stringify(payload);
+    if (fingerprint !== this.collectionFingerprint || !this.collectionRequestKey) {
+      this.collectionFingerprint = fingerprint;
+      this.collectionRequestKey = newRequestKey();
+    }
+    this.api.post(payload, this.collectionRequestKey).subscribe({
       next: value => { this.payment.set(value); this.selectedPayment.set(value); this.busy.set(false); this.success.set(this.fr() ? 'Encaissement posté avec écriture équilibrée.' : 'Collection posted with a balanced journal.'); this.loadPayments(); this.loadCashier(); }, error: err => { this.busy.set(false); this.applyError(err); },
     });
   }

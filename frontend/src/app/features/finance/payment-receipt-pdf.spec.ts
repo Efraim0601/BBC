@@ -3,6 +3,20 @@ import { describe, expect, it } from 'vitest';
 import { renderPaymentReceiptPdf } from './payment-receipt-pdf';
 
 describe('payment receipt PDF', () => {
+  it.each(['REVERSED', 'VOID'])('does not issue valid proof for a %s payment', async status => {
+    await expect(renderPaymentReceiptPdf({ french: false, school: null,
+      payment: { id: 'p', receiptNo: 'V2-1', studentId: 's', amount: 10000, method: 'CASH', paidOn: '2026-09-07', status } as any,
+    })).rejects.toThrow('not valid proof');
+  });
+
+  it('fits long student names and partially refunded payments on one page', async () => {
+    const bytes = await renderPaymentReceiptPdf({ french: true, school: null,
+      payment: { id: 'p', receiptNo: 'V2-2', studentId: 's', studentName: 'QA NOM COMPLET TRES LONG '.repeat(8),
+        amount: 35000, refundedAmount: 5000, method: 'CASH', paidOn: '2026-09-07', status: 'PARTIALLY_REFUNDED' } as any,
+    });
+    expect((await PDFDocument.load(bytes)).getPageCount()).toBe(1);
+  });
+
   it('creates one full A4 page with the real student identity', async () => {
     const bytes = await renderPaymentReceiptPdf({
       french: false,

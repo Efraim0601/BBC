@@ -49,11 +49,8 @@ public class MailService {
 
     /**
      * Sends login credentials to a newly-provisioned (or reset) staff account.
-     * Synchronous so the caller knows whether the mail actually went out: the
-     * temporary password is never shown in the UI, so a silent failure would
-     * leave the account unusable. Returns {@code false} (without throwing) when
-     * SMTP is off/unconfigured or the send fails — the caller turns that into a
-     * clear "configure SMTP then reset" message for the admin.
+     * Synchronous so the caller can report delivery and offer manual sharing
+     * if SMTP is unavailable. Returns {@code false} without throwing on failure.
      */
     public boolean sendCredentials(UUID schoolId, String displayName, String toEmail,
                                    String username, String tempPassword, String schoolCode) {

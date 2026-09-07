@@ -3,6 +3,7 @@ package com.bbc.sms.journey;
 import com.bbc.sms.foundation.audit.AuditService;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AppUserPrincipal;
+import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.tenant.TenantContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -26,10 +27,12 @@ public class JourneyPromotionService {
     private static final Set<String> DECISIONS = Set.of("PROMOTE", "REPEAT", "REVIEW", "GRADUATE", "HOLD");
     private final JdbcTemplate jdbc;
     private final AuditService audit;
+    private final TeacherScopeService scope;
 
-    public JourneyPromotionService(JdbcTemplate jdbc, AuditService audit) {
+    public JourneyPromotionService(JdbcTemplate jdbc, AuditService audit, TeacherScopeService scope) {
         this.jdbc = jdbc;
         this.audit = audit;
+        this.scope = scope;
     }
 
     @Transactional(readOnly = true)
@@ -369,17 +372,7 @@ public class JourneyPromotionService {
             """, batchId, school, in.sourceSessionId(), in.targetSessionId(), in.name().trim(), clean(in.idempotencyKey()), currentUser(),
                 authority.graphId, authority.ruleSetId, clean(in.previewFingerprint()));
 
-        String classFilter = in.sourceClassIds() == null || in.sourceClassIds().isEmpty()
-                ? "" : " AND e.school_class_id IN (" + String.join(",", Collections.nCopies(in.sourceClassIds().size(), "?")) + ")";
-        List<Object> args = new ArrayList<>(List.of(school, in.sourceSessionId()));
-        if (in.sourceClassIds() != null) args.addAll(in.sourceClassIds());
-        List<EnrollmentInfo> roster = jdbc.query("""
-            SELECT e.id enrollment_id, e.student_id, e.school_class_id, e.class_name_snapshot,
-                   e.level_snapshot, e.subsystem_snapshot, st.matricule, st.first_name, st.last_name
-              FROM student_enrollment e JOIN student st ON st.id=e.student_id
-             WHERE e.school_id=? AND e.academic_session_id=? AND e.status='ACTIVE'
-            """ + classFilter + " ORDER BY e.class_name_snapshot, st.last_name, st.first_name",
-            this::enrollment, args.toArray());
+        List<EnrollmentInfo> roster = roster(in.sourceSessionId(), in.sourceClassIds());
         if (roster.isEmpty()) throw ApiException.conflict("Aucun élève actif dans les classes sélectionnées pour cette session");
 
         for (EnrollmentInfo e : roster) createDecision(batchId, sourceSession, in.targetSessionId(), e, authority);
@@ -708,6 +701,13 @@ public class JourneyPromotionService {
     }
 
     private List<EnrollmentInfo> roster(UUID sourceSessionId, List<UUID> sourceClassIds) {
+        Set<UUID> allowed = scope.allowedClassIds();
+        if (allowed != null) {
+            if (sourceClassIds != null && !allowed.containsAll(sourceClassIds))
+                throw ApiException.notFound("Classe de promotion");
+            if (allowed.isEmpty()) return List.of();
+            if (sourceClassIds == null || sourceClassIds.isEmpty()) sourceClassIds = List.copyOf(allowed);
+        }
         String classFilter = sourceClassIds == null || sourceClassIds.isEmpty()
                 ? "" : " AND e.school_class_id IN (" + String.join(",", Collections.nCopies(sourceClassIds.size(), "?")) + ")";
         List<Object> args = new ArrayList<>(List.of(TenantContext.get(), sourceSessionId));
@@ -723,6 +723,7 @@ public class JourneyPromotionService {
 
     @Transactional(readOnly = true)
     public PromotionBatchView batch(UUID id) {
+        assertBatchScope(id);
         UUID school = TenantContext.get();
         BatchInfo b = jdbc.query("""
             SELECT b.*, ss.label source_label, ts.label target_label,
@@ -825,6 +826,7 @@ public class JourneyPromotionService {
     public List<PromotionBatchListItem> batches(UUID sourceSessionId, UUID targetSessionId, String status) {
         if (sourceSessionId != null) assertSession(sourceSessionId);
         if (targetSessionId != null) assertSession(targetSessionId);
+        String scopeFilter = batchScopeFilter();
         return jdbc.query("""
             SELECT b.*,ss.label source_label,ts.label target_label,
                    count(d.id) candidate_count,
@@ -837,6 +839,7 @@ public class JourneyPromotionService {
                AND (CAST(? AS uuid) IS NULL OR b.source_session_id=CAST(? AS uuid))
                AND (CAST(? AS uuid) IS NULL OR b.target_session_id=CAST(? AS uuid))
                AND (CAST(? AS varchar) IS NULL OR b.status=CAST(? AS varchar))
+            """ + scopeFilter + """
              GROUP BY b.id,ss.label,ts.label
              ORDER BY b.created_at DESC
             """, (rs,n) -> new PromotionBatchListItem(rs.getObject("id",UUID.class),rs.getString("name"),
@@ -1029,12 +1032,24 @@ public class JourneyPromotionService {
 
     @Transactional
     public PromotionActivationView activatePlanned(UUID enrollmentId, PromotionActivationRequest in) {
-        Map<String, Object> row = jdbc.queryForMap("""
-            SELECT e.id,e.student_id,e.previous_enrollment_id,e.school_class_id,e.status,e.planned_on,c.name
-              FROM student_enrollment e LEFT JOIN school_class c ON c.id=e.school_class_id
+        List<Map<String, Object>> rows = jdbc.queryForList("""
+            SELECT e.id,e.student_id,e.previous_enrollment_id,e.school_class_id,e.status,e.planned_on,c.name,
+                   s.start_date AS session_start,s.status AS session_status
+              FROM student_enrollment e
+              JOIN academic_session s ON s.id=e.academic_session_id AND s.school_id=e.school_id
+              LEFT JOIN school_class c ON c.id=e.school_class_id AND c.school_id=e.school_id
              WHERE e.id=? AND e.school_id=?
              FOR UPDATE OF e
             """, enrollmentId, TenantContext.get());
+        if (rows.isEmpty()) throw ApiException.notFound("Inscription planifiée");
+        Map<String, Object> row = rows.getFirst();
+        assertPromotionClass((UUID) row.get("school_class_id"));
+        UUID previousId = (UUID) row.get("previous_enrollment_id");
+        if (previousId != null) {
+            UUID previousClass = jdbc.query("SELECT school_class_id FROM student_enrollment WHERE id=? AND school_id=?",
+                    rs -> rs.next() ? rs.getObject(1, UUID.class) : null, previousId, TenantContext.get());
+            assertPromotionClass(previousClass);
+        }
         String status = (String) row.get("status");
         if ("ACTIVE".equals(status)) {
             return new PromotionActivationView(enrollmentId, (UUID) row.get("previous_enrollment_id"),
@@ -1045,6 +1060,15 @@ public class JourneyPromotionService {
         UUID sourceEnrollmentId = (UUID) row.get("previous_enrollment_id");
         java.sql.Date plannedOn = (java.sql.Date) row.get("planned_on");
         LocalDate activationDate = plannedOn == null ? LocalDate.now() : plannedOn.toLocalDate();
+        LocalDate sessionStart = ((java.sql.Date) row.get("session_start")).toLocalDate();
+        if (Set.of("CLOSED", "ARCHIVED").contains((String) row.get("session_status"))) {
+            throw ApiException.conflict("La session cible est clôturée ou archivée");
+        }
+        if (activationDate.isBefore(sessionStart)) activationDate = sessionStart;
+        if (activationDate.isAfter(LocalDate.now())) {
+            throw ApiException.conflict("Cette inscription reste planifiée jusqu'au " + activationDate
+                    + ". L'élève conserve sa classe actuelle jusque-là.");
+        }
         jdbc.update("UPDATE student_enrollment SET status='ACTIVE', enrolled_on=COALESCE(enrolled_on,?), activation_reason=?, version=version+1 WHERE id=? AND status='PLANNED'",
                 activationDate, in.reason().trim(), enrollmentId);
         int sourceChanged = 0;
@@ -1283,15 +1307,18 @@ public class JourneyPromotionService {
             LEFT JOIN school_class mc ON mc.id=d.mapped_target_class_id LEFT JOIN school_class tc ON tc.id=d.target_class_id
             WHERE d.id=? AND d.school_id=?
             """, rs -> rs.next() ? candidate(rs, 0) : null, id, TenantContext.get());
-        if (value == null) throw ApiException.notFound("Décision de promotion"); return value;
+        if (value == null) throw ApiException.notFound("Décision de promotion");
+        assertPromotionClass(value.sourceClassId()); return value;
     }
     private DecisionInfo decisionInfo(UUID id) {
         DecisionInfo value = jdbc.query("SELECT * FROM promotion_decision WHERE id=? AND school_id=?",
                 rs -> rs.next() ? mapDecisionInfo(rs, 0) : null, id, TenantContext.get());
-        if (value == null) throw ApiException.notFound("Décision de promotion"); return value;
+        if (value == null) throw ApiException.notFound("Décision de promotion");
+        assertPromotionClass(value.sourceClassId()); return value;
     }
     private void ensureDraft(UUID batchId) { if (!"DRAFT".equals(batchInfo(batchId).status)) throw ApiException.conflict("Le lot est déjà validé et ne peut plus être modifié"); }
     private BatchInfo batchInfo(UUID id) {
+        assertBatchScope(id);
         BatchInfo b = jdbc.query("""
             SELECT b.*,ss.label source_label,ts.label target_label,
                    gv.version_no graph_version_no,rs.version_no rule_set_version FROM promotion_batch b
@@ -1301,6 +1328,32 @@ public class JourneyPromotionService {
             WHERE b.id=? AND b.school_id=?
             """, rs -> rs.next() ? batchInfo(rs) : null, id, TenantContext.get());
         if (b == null) throw ApiException.notFound("Lot de promotion"); return b;
+    }
+
+    private void assertPromotionClass(UUID classId) {
+        Set<UUID> allowed = scope.allowedClassIds();
+        if (allowed != null && (classId == null || !allowed.contains(classId)))
+            throw ApiException.notFound("Classe de promotion");
+    }
+
+    /** A durable register is indivisible: never disclose a mixed-parcours batch partially. */
+    private String batchScopeFilter() {
+        Set<UUID> allowed = scope.allowedClassIds();
+        if (allowed == null) return "";
+        if (allowed.isEmpty()) return " AND false ";
+        String ids = allowed.stream().map(id -> "'" + id + "'").collect(java.util.stream.Collectors.joining(","));
+        return " AND EXISTS (SELECT 1 FROM promotion_decision sd WHERE sd.school_id=b.school_id AND sd.batch_id=b.id)"
+                + " AND NOT EXISTS (SELECT 1 FROM promotion_decision sd WHERE sd.school_id=b.school_id AND sd.batch_id=b.id"
+                + " AND sd.source_class_id NOT IN (" + ids + ")) ";
+    }
+
+    private void assertBatchScope(UUID id) {
+        String filter = batchScopeFilter();
+        if (filter.isEmpty()) return;
+        boolean visible = Boolean.TRUE.equals(jdbc.queryForObject(
+                "SELECT EXISTS (SELECT 1 FROM promotion_batch b WHERE b.id=? AND b.school_id=?" + filter + ")",
+                Boolean.class, id, TenantContext.get()));
+        if (!visible) throw ApiException.notFound("Lot de promotion");
     }
     private SessionInfo session(UUID id) {
         SessionInfo s = jdbc.query("SELECT id,code,label,start_date,end_date,status FROM academic_session WHERE id=? AND school_id=?",

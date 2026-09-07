@@ -3,6 +3,8 @@ package com.bbc.sms.finance;
 import com.bbc.sms.finance.dto.FinanceDtos.*;
 import com.bbc.sms.finance.accounting.AccountingPeriod;
 import com.bbc.sms.finance.accounting.AccountingPeriodService;
+import com.bbc.sms.finance.accounting.DocumentSequenceService;
+import com.bbc.sms.foundation.idempotency.IdempotencyService;
 import com.bbc.sms.finance.accounting.ChartOfAccount;
 import com.bbc.sms.finance.accounting.ChartOfAccountRepository;
 import com.bbc.sms.finance.accounting.JournalEntryRepository;
@@ -52,6 +54,8 @@ public class FinanceService {
     private final JournalEntryRepository journals;
     private final LedgerPostingService ledger;
     private final TreasuryService treasury;
+    private final DocumentSequenceService sequences;
+    private final IdempotencyService idempotency;
 
     private record FinanceStudent(UUID id, String matricule, String firstName,
                                   String lastName, String className, String level,
@@ -63,7 +67,8 @@ public class FinanceService {
                           AuthorizationPolicyService policy, JdbcTemplate jdbc,
                           TeacherScopeService teacherScope, AccountingPeriodService accountingPeriods,
                           ChartOfAccountRepository chartAccounts, JournalEntryRepository journals,
-                          LedgerPostingService ledger, TreasuryService treasury) {
+                          LedgerPostingService ledger, TreasuryService treasury,
+                          DocumentSequenceService sequences, IdempotencyService idempotency) {
         this.payments = payments;
         this.expenses = expenses;
         this.realtime = realtime;
@@ -80,6 +85,8 @@ public class FinanceService {
         this.journals = journals;
         this.ledger = ledger;
         this.treasury = treasury;
+        this.sequences = sequences;
+        this.idempotency = idempotency;
     }
 
     @Transactional(readOnly = true)
@@ -87,13 +94,41 @@ public class FinanceService {
         requireSchool("FINANCE_OVERVIEW_VIEW");
         UUID schoolId = TenantContext.get();
         List<Payment> rows = payments.findBySchoolIdOrderByPaidOnDesc(schoolId);
+        List<PaymentView> collections = collectionRows(schoolId);
+        Set<UUID> studentIds = rows.stream().map(Payment::getStudentId).collect(Collectors.toSet());
+        collections.forEach(p -> studentIds.add(p.studentId()));
         // Resolve student identities in one pass — a per-row lookup would be N+1.
-        Map<UUID, FinanceStudent> byId = financeStudents(schoolId,
-                rows.stream().map(Payment::getStudentId).collect(Collectors.toSet()));
+        Map<UUID, FinanceStudent> byId = financeStudents(schoolId, studentIds);
         Set<UUID> allowedStudents = teacherScope.allowedStudentIds();
-        return rows.stream()
+        List<PaymentView> history = new ArrayList<>(rows.stream()
                 .filter(p -> allowedStudents == null || allowedStudents.contains(p.getStudentId()))
-                .map(p -> toView(p, byId.get(p.getStudentId()))).toList();
+                .map(p -> toView(p, byId.get(p.getStudentId()))).toList());
+        for (PaymentView p : collections) {
+            if (allowedStudents != null && !allowedStudents.contains(p.studentId())) continue;
+            FinanceStudent s = byId.get(p.studentId());
+            history.add(new PaymentView(p.id(), p.receiptNo(), p.studentId(), s == null ? null : (s.lastName()+" "+s.firstName()).trim(),
+                    s == null ? null : s.matricule(), s == null ? null : s.className(), p.amount(), p.method(),
+                    p.methodLabelFr(), p.methodLabelEn(), p.reference(), p.tranche(), p.paidOn(), p.treasuryAccountId(),
+                    p.treasuryAccountName(), p.journalEntryId(), p.source(), p.status(), p.refundedAmount()));
+        }
+        history.sort(java.util.Comparator.comparing(PaymentView::paidOn).reversed().thenComparing(PaymentView::receiptNo, java.util.Comparator.reverseOrder()));
+        return history;
+    }
+
+    private List<PaymentView> collectionRows(UUID schoolId) {
+        return jdbc.query("""
+                SELECT p.id,p.receipt_no,p.student_id,p.amount_minor,p.channel_code_snapshot,
+                       coalesce(ch.label_fr,p.channel_code_snapshot),coalesce(ch.label_en,p.channel_code_snapshot),
+                       p.reference,p.payment_date,p.treasury_account_id,a.display_name,p.journal_entry_id,p.status,
+                       coalesce((SELECT sum(r.amount_minor) FROM refund_transaction r WHERE r.school_id=p.school_id AND r.payment_id=p.id),0)
+                  FROM finance_payment p
+                  LEFT JOIN payment_channel ch ON ch.school_id=p.school_id AND ch.code=p.channel_code_snapshot
+                  LEFT JOIN treasury_account a ON a.school_id=p.school_id AND a.id=p.treasury_account_id
+                 WHERE p.school_id=?
+                """, (rs,n) -> new PaymentView(rs.getObject(1,UUID.class),rs.getString(2),rs.getObject(3,UUID.class),
+                        null,null,null,rs.getLong(4),rs.getString(5),rs.getString(6),rs.getString(7),rs.getString(8),null,
+                        rs.getObject(9,LocalDate.class),rs.getObject(10,UUID.class),rs.getString(11),rs.getObject(12,UUID.class),
+                        "COLLECTION",rs.getString(13),rs.getLong(14)), schoolId);
     }
 
     /**
@@ -130,11 +165,30 @@ public class FinanceService {
 
     @Transactional
     public PaymentView recordPayment(PaymentRequest in) {
-        UUID schoolId = TenantContext.get();
+        return recordPayment(in, null);
+    }
+
+    @Transactional
+    public PaymentView recordPayment(PaymentRequest in, String idempotencyKey) {
         // On n'encaisse que pour un élève de son périmètre.
         teacherScope.assertSectionStudent(in.studentId());
         LocalDate paidOn = in.paidOn() == null ? LocalDate.now() : in.paidOn();
+        // Always re-authorize, including when returning a cached retry response.
         requireStudent("PAYMENT_COLLECT", in.studentId(), paidOn);
+        return idempotency.execute("finance/payments", idempotencyKey, in, PaymentView.class,
+                () -> recordPaymentInternal(in, paidOn));
+    }
+
+    private PaymentView recordPaymentInternal(PaymentRequest in, LocalDate paidOn) {
+        UUID schoolId = TenantContext.get();
+        // Serialize collection for this student before reading the running total.
+        // Two cashiers must not both spend the same remaining fee balance.
+        jdbc.queryForObject("SELECT id FROM student WHERE school_id=? AND id=? FOR UPDATE",
+                UUID.class, schoolId, in.studentId());
+        if (fees.hasV2Charges(schoolId, in.studentId())) {
+            throw ApiException.coded(org.springframework.http.HttpStatus.CONFLICT, "USE_CHARGE_COLLECTION",
+                    "Cet élève est géré par les charges et échéances. Utilisez Encaissements & comptes élèves pour éviter une double facturation.");
+        }
 
         long configuredTotal = expectedTotal(schoolId, in.studentId());
         if (configuredTotal <= 0) {
@@ -157,7 +211,8 @@ public class FinanceService {
 
         Payment p = new Payment();
         p.setSchoolId(schoolId);
-        p.setReceiptNo("RCT-2026-" + String.format("%04d", 1000 + payments.countBySchoolId(schoolId)));
+        String periodKey = String.valueOf(paidOn.getYear());
+        p.setReceiptNo(sequences.allocate("RECEIPT", periodKey, "RCT/" + periodKey + "/", 6));
         p.setStudentId(in.studentId());
         p.setAmount(in.amount());
         p.setMethod(channel.getCode());
@@ -313,17 +368,14 @@ public class FinanceService {
         LocalDate from = to.minusDays(29);   // 30-day window inclusive of today
 
         Set<UUID> allowedStudents = teacherScope.allowedStudentIds();
-        List<Payment> recentPayments = payments.findBySchoolIdAndPaidOnBetween(schoolId, from, to);
-        if (allowedStudents != null) {
-            recentPayments = recentPayments.stream()
-                    .filter(p -> allowedStudents.contains(p.getStudentId())).toList();
-        }
+        List<CashEvent> events = cashEvents(schoolId, from, to).stream()
+                .filter(p -> allowedStudents == null || allowedStudents.contains(p.studentId())).toList();
 
         Map<LocalDate, Long> byDay = new HashMap<>();
         long totalRevenue30d = 0;
-        for (Payment p : recentPayments) {
-            byDay.merge(p.getPaidOn(), p.getAmount(), Long::sum);
-            totalRevenue30d += p.getAmount();
+        for (CashEvent event : events) {
+            byDay.merge(event.date(), event.amount(), Long::sum);
+            totalRevenue30d += event.amount();
         }
 
         List<RevenuePoint> revenueSeries = new ArrayList<>();
@@ -335,17 +387,26 @@ public class FinanceService {
         // Dépenses hors périmètre d'un admin de cycle : à zéro, et le champ
         // `section` dit à l'écran pourquoi le solde n'est pas celui de l'école.
         long totalExpense30d = allowedStudents != null ? 0L
-                : expenses.findBySchoolIdOrderBySpentOnDesc(schoolId).stream()
-                        .filter(e -> !e.getSpentOn().isBefore(from) && !e.getSpentOn().isAfter(to))
-                        .filter(e -> "POSTED".equals(e.getStatus()))
-                        .mapToLong(Expense::getAmount)
-                        .sum();
+                : java.util.Objects.requireNonNullElse(jdbc.queryForObject(
+                        "SELECT COALESCE(SUM(amount),0) FROM (" + FinanceCashflowSql.EXPENSE_MOVEMENTS
+                                + ") movements WHERE movement_date BETWEEN ? AND ?",
+                        Long.class, schoolId, schoolId, from, to), 0L);
 
         long balance30d = totalRevenue30d - totalExpense30d;
-        int paymentsCount = recentPayments.size();
+        int paymentsCount = (int)events.stream().filter(e -> e.amount() > 0).count();
 
         return new FinanceSummary(totalRevenue30d, totalExpense30d, balance30d, paymentsCount,
                 revenueSeries, ParcoursContext.effectiveLevel());
+    }
+
+    record CashEvent(UUID studentId, LocalDate date, long amount) {}
+
+    /** Count money on its actual posting date, including later refunds/reversals. */
+    private List<CashEvent> cashEvents(UUID schoolId, LocalDate from, LocalDate to) {
+        return jdbc.query("SELECT student_id,movement_date,amount FROM (" + FinanceCashflowSql.MOVEMENTS
+                        + ") movements WHERE movement_date BETWEEN ? AND ?",
+                (rs,n) -> new CashEvent(rs.getObject(1,UUID.class),rs.getObject(2,LocalDate.class),rs.getLong(3)),
+                schoolId,schoolId,schoolId,schoolId,from,to);
     }
 
     private PaymentView toView(Payment p) {
@@ -363,7 +424,7 @@ public class FinanceService {
                 ch == null ? p.getMethod() : ch.getLabelEn(),
                 p.getReference(), p.getTranche(), p.getPaidOn(), p.getTreasuryAccountId(),
                 p.getTreasuryAccountId() == null ? null : treasury.displayNameForWorkflow(p.getTreasuryAccountId()),
-                p.getJournalEntryId());
+                p.getJournalEntryId(), "LEGACY_PAYMENT", "POSTED", 0);
     }
 
     private ExpenseView toView(Expense e) {

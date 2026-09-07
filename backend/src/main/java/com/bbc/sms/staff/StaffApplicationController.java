@@ -2,6 +2,8 @@ package com.bbc.sms.staff;
 
 import com.bbc.sms.staff.dto.StaffDtos.*;
 import jakarta.validation.Valid;
+import org.springframework.http.CacheControl;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
@@ -56,7 +58,7 @@ public class StaffApplicationController {
 
     @PostMapping("/applications/{id}/finalize")
     @PreAuthorize("@policy.canAction('HR_MANAGE')")
-    public StaffApplicationView finalize(@PathVariable UUID id, @Valid @RequestBody StaffApplicationFinalize in) {
-        return service.finalize(id, in);
+    public ResponseEntity<StaffApplicationView> finalize(@PathVariable UUID id, @Valid @RequestBody StaffApplicationFinalize in) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.finalize(id, in));
     }
 }

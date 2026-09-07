@@ -4,6 +4,9 @@ import com.bbc.sms.foundation.session.AcademicSessionService;
 import com.bbc.sms.foundation.session.SessionDtos.SessionUpsert;
 import com.bbc.sms.platform.security.AppUserPrincipal;
 import com.bbc.sms.platform.tenant.TenantContext;
+import com.bbc.sms.platform.tenant.ParcoursContext;
+import com.bbc.sms.platform.common.ApiException;
+import org.springframework.http.HttpStatus;
 import com.bbc.sms.student.StudentRegistrationService;
 import com.bbc.sms.student.StudentRegistrationService.RegistrationRequest;
 import com.bbc.sms.student.StudentService;
@@ -44,7 +47,7 @@ class FamilyManagementIntegrationTest {
   SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(principal,null,principal.getAuthorities()));
   sessions.create(new SessionUpsert("2026-27","2026-2027",LocalDate.of(2026,8,1),LocalDate.of(2027,7,31),"OPEN",true,null,null,null,null,null));
  }
- @AfterEach void clear(){SecurityContextHolder.clearContext();TenantContext.clear();}
+ @AfterEach void clear(){SecurityContextHolder.clearContext();TenantContext.clear();ParcoursContext.clear();}
 
  @Test void registrationIsAtomicAndExistingGuardianCanBeLinkedToSibling(){
   GuardianInput invalid=new GuardianInput(null,"Parent sans email",null,null,"MOTHER","SEND_INVITE",null,true,true,1,true,true,true,true,true,true,false,true,null);
@@ -103,5 +106,79 @@ class FamilyManagementIntegrationTest {
   assertThatThrownBy(()->imports.commit(preview.jobId())).hasMessageContaining("état");
   List<String> hashes=jdbc.query("SELECT token_hash FROM guardian_account_token WHERE school_id=?",(rs,i)->rs.getString(1),school);assertThat(hashes).hasSize(2).allMatch(hash->hash.length()==64&&!hash.contains("toko@example"));
  }
+ @Test void familyPreviewRejectsFutureBirthDateButKeepsFirstNameOptional(){
+  var valid=importRow("VALID","SingleName",LocalDate.of(2015,1,1));
+  var future=importRow("FUTURE","FutureChild",LocalDate.now().plusDays(1));
+  var preview=imports.dryRun(new FamilyImportRequest("future.csv",List.of(valid,future)));
+  assertThat(preview.validRows()).isEqualTo(1);
+  assertThat(preview.rows().get(1).outcome()).isEqualTo("ERROR");
+  var committed=imports.commit(preview.jobId());
+  assertThat(committed.createdRows()).isEqualTo(1);
+  assertThat(committed.failedRows()).isEqualTo(1);
+  assertThat(jdbc.queryForObject("SELECT count(*) FROM student WHERE school_id=? AND dob>current_date",Integer.class,school)).isZero();
+ }
+
+ @Test void oneChangedRowDoesNotRollbackOtherFamiliesAndRetryKeepsTotals(){
+  var preview=imports.dryRun(new FamilyImportRequest("partial.csv",List.of(
+    importRow("DUP","AlreadyCreated",LocalDate.of(2015,1,1)),
+    importRow("OK","StillValid",LocalDate.of(2015,1,1)))));
+  students.create(student("","AlreadyCreated"));
+  var committed=imports.commit(preview.jobId());
+  assertThat(committed.status()).isEqualTo("COMPLETED_ERRORS");
+  assertThat(committed.createdRows()).isEqualTo(1);
+  assertThat(committed.linkedGuardians()).isEqualTo(1);
+  assertThat(committed.failedRows()).isEqualTo(1);
+  var retry=imports.commit(preview.jobId());
+  assertThat(retry.createdRows()).isEqualTo(1);
+  assertThat(retry.linkedGuardians()).isEqualTo(1);
+  assertThat(jdbc.queryForObject("SELECT count(*) FROM student WHERE school_id=?",Integer.class,school)).isEqualTo(2);
+ }
+
+ @Test void familyImportCannotBeReadOrCommittedOutsideItsParcours(){
+  var preview=imports.dryRun(new FamilyImportRequest("primary.csv",List.of(importRow("ONE","PrimaryChild",LocalDate.of(2015,1,1)))));
+  ParcoursContext.set(new ParcoursContext.Scope("secondary","FR"));
+  assertThatThrownBy(()->imports.view(preview.jobId())).isInstanceOfSatisfying(ApiException.class,e->assertThat(e.getStatus()).isIn(HttpStatus.NOT_FOUND,HttpStatus.FORBIDDEN));
+  assertThatThrownBy(()->imports.commit(preview.jobId())).isInstanceOfSatisfying(ApiException.class,e->assertThat(e.getStatus()).isIn(HttpStatus.NOT_FOUND,HttpStatus.FORBIDDEN));
+  assertThatThrownBy(()->imports.dryRun(new FamilyImportRequest("foreign.csv",List.of(importRow("TWO","ForeignChild",LocalDate.of(2015,1,1)))))).isInstanceOf(ApiException.class);
+  assertThat(jdbc.queryForObject("SELECT count(*) FROM student WHERE school_id=?",Integer.class,school)).isZero();
+  ParcoursContext.clear();imports.commit(preview.jobId());
+  ParcoursContext.set(new ParcoursContext.Scope("secondary","FR"));
+  assertThatThrownBy(()->imports.commit(preview.jobId())).isInstanceOfSatisfying(ApiException.class,e->assertThat(e.getStatus()).isIn(HttpStatus.NOT_FOUND,HttpStatus.FORBIDDEN));
+ }
+
+ @Test void unknownAndForeignFamilyImportJobsReturnNotFound(){
+  assertThatThrownBy(()->imports.view(UUID.randomUUID())).isInstanceOfSatisfying(ApiException.class,e->assertThat(e.getStatus()).isEqualTo(HttpStatus.NOT_FOUND));
+  var preview=imports.dryRun(new FamilyImportRequest("own.csv",List.of(importRow("ONE","OwnChild",LocalDate.of(2015,1,1)))));
+  UUID other=UUID.randomUUID();jdbc.update("INSERT INTO school(id,code,name) VALUES (?,?,?)",other,"OTHER"+other.toString().substring(0,6),"Other school");
+  jdbc.update("UPDATE family_import_job SET school_id=? WHERE id=?",other,preview.jobId());
+  assertThatThrownBy(()->imports.commit(preview.jobId())).isInstanceOfSatisfying(ApiException.class,e->assertThat(e.getStatus()).isEqualTo(HttpStatus.NOT_FOUND));
+ }
+
+ @Test void internalRegistrationCannotBypassBirthDateValidation(){
+  var future=new StudentUpsert("","FutureInternal",null,"F",LocalDate.now().plusDays(1),null,false,classId,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,false);
+  assertThatThrownBy(()->students.create(future)).isInstanceOf(ApiException.class);
+  assertThat(jdbc.queryForObject("SELECT count(*) FROM student WHERE school_id=?",Integer.class,school)).isZero();
+ }
+
+ @Test void concurrentFamilyCommitCreatesEachPupilOnlyOnce() throws Exception {
+  var preview=imports.dryRun(new FamilyImportRequest("concurrent.csv",List.of(importRow("ONE","ConcurrentChild",LocalDate.of(2015,1,1)))));
+  var authentication=SecurityContextHolder.getContext().getAuthentication();
+  var gate=new java.util.concurrent.CountDownLatch(1);
+  var executor=java.util.concurrent.Executors.newFixedThreadPool(2);
+  java.util.concurrent.Callable<Integer> task=()->{
+   TenantContext.set(school);SecurityContextHolder.getContext().setAuthentication(authentication);
+   try { gate.await();imports.commit(preview.jobId());return 200; }
+   catch(ApiException e){return e.getStatus().value();}
+   finally {TenantContext.clear();SecurityContextHolder.clearContext();}
+  };
+  try {
+   var first=executor.submit(task);var second=executor.submit(task);gate.countDown();
+   assertThat(List.of(first.get(30,java.util.concurrent.TimeUnit.SECONDS),second.get(30,java.util.concurrent.TimeUnit.SECONDS))).containsExactlyInAnyOrder(200,409);
+   assertThat(jdbc.queryForObject("SELECT count(*) FROM student WHERE school_id=?",Integer.class,school)).isEqualTo(1);
+   assertThat(imports.view(preview.jobId()).createdRows()).isEqualTo(1);
+  } finally {executor.shutdownNow();}
+ }
+
+ private FamilyImportRow importRow(String key,String last,LocalDate dob){return new FamilyImportRow(key,"",last,null,"F",dob,null,false,classId,List.of(new FamilyImportGuardian("Parent "+last,null,null,"GUARDIAN","NO_PORTAL")));}
  private StudentUpsert student(String first,String last){return new StudentUpsert(first,last,null,"F",LocalDate.of(2015,1,1),null,false,classId,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,false);}
 }

@@ -6,6 +6,7 @@ import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.mail.MailService;
 import com.bbc.sms.platform.security.AppUserPrincipal;
 import com.bbc.sms.platform.security.AuthorizationPolicyService;
+import com.bbc.sms.platform.security.ParcoursAccessService;
 import com.bbc.sms.platform.security.PolicyResourceContext;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.staff.dto.StaffDtos.*;
@@ -33,16 +34,18 @@ public class StaffApplicationService {
     private final StaffService staff;
     private final MailService mail;
     private final AuthorizationPolicyService policy;
+    private final ParcoursAccessService parcours;
 
     public StaffApplicationService(StaffApplicationRepository apps, SchoolRepository schools,
                                    EmployeeRepository employees, StaffService staff, MailService mail,
-                                   AuthorizationPolicyService policy) {
+                                   AuthorizationPolicyService policy, ParcoursAccessService parcours) {
         this.apps = apps;
         this.schools = schools;
         this.employees = employees;
         this.staff = staff;
         this.mail = mail;
         this.policy = policy;
+        this.parcours = parcours;
     }
 
     // ---- Portal settings (admin) -------------------------------------------
@@ -209,11 +212,11 @@ public class StaffApplicationService {
                 in.monthlySalary(),
                 in.hourlyRate(),
                 in.roles(),
-                createLogin);
-        staff.finalizeDraft(a.getEmployeeId(), upsert, createLogin);
+                createLogin, in.accountOptions());
+        EmployeeView employee = staff.finalizeDraft(a.getEmployeeId(), upsert, createLogin);
         a.setStatus("finalized");
         a.setFinalizedAt(Instant.now());
-        return toView(apps.save(a), employeeCode(a.getEmployeeId()));
+        return toView(apps.save(a), employeeCode(a.getEmployeeId())).withCredentials(employee.credentials());
     }
 
     // ---- helpers -----------------------------------------------------------
@@ -296,7 +299,7 @@ public class StaffApplicationService {
                 a.getEmail(), a.getPhone(), a.getFormClass(), a.getDepartmentHint(),
                 a.getDesiredRoles(), a.getNotes(), a.getRejectReason(),
                 a.getEmployeeId(), employeeCode,
-                a.getSubmittedAt(), a.getDecidedAt(), a.getFinalizedAt());
+                a.getSubmittedAt(), a.getDecidedAt(), a.getFinalizedAt(), null);
     }
 
     private static UUID currentUserId() {
@@ -330,7 +333,12 @@ public class StaffApplicationService {
     }
 
     private void requireSchool(String action) {
-        policy.require(action, new PolicyResourceContext(TenantContext.get(), null, java.time.LocalDate.now(),
+        var decision = policy.require(action, new PolicyResourceContext(TenantContext.get(), null, java.time.LocalDate.now(),
                 null, null, null, null, null, null, null, null, null));
+        // Applications have no trusted level until a school-wide reviewer assigns one.
+        // A selected parcours must not turn a scoped HR grant into access to every applicant.
+        if (!"SCHOOL_ALL".equals(decision.matchedScope()) || !parcours.isGlobal(currentUserId())) {
+            throw ApiException.forbidden("Les candidatures et le portail commun nécessitent un accès RH à tout l’établissement.");
+        }
     }
 }

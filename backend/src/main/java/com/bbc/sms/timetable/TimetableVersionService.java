@@ -13,16 +13,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import org.apache.pdfbox.pdmodel.PDDocument;
-import org.apache.pdfbox.pdmodel.PDPage;
-import org.apache.pdfbox.pdmodel.PDPageContentStream;
-import org.apache.pdfbox.pdmodel.common.PDRectangle;
-import org.apache.pdfbox.pdmodel.font.PDFont;
-import org.apache.pdfbox.pdmodel.font.PDType0Font;
-import org.apache.pdfbox.pdmodel.font.PDType1Font;
-
 import java.io.ByteArrayOutputStream;
-import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.*;
@@ -916,33 +907,23 @@ public class TimetableVersionService {
         ensureOwned(versionId);
         TimetableVersionView version = versionView(versionId);
         List<TimetableExportRow> rows = exportRows(versionId);
-        try (PDDocument document = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            document.getDocumentInformation().setTitle("BBC SMS Timetable V" + version.versionNo());
-            document.getDocumentInformation().setAuthor("BBC SMS");
-            PDFont normal = loadFont(document, "/usr/share/fonts/dejavu/DejaVuSans.ttf");
-            PDFont bold = loadFont(document, "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf");
-            PDPage page = new PDPage(PDRectangle.A4);
-            document.addPage(page);
-            float y = 790;
-            PDPageContentStream stream = new PDPageContentStream(document, page);
-            stream.setFont(bold, 14);
-            stream.beginText(); stream.newLineAtOffset(42, y); stream.showText("BBC SMS TIMETABLE V" + version.versionNo()); stream.endText(); y -= 22;
-            stream.setFont(normal, 8);
-            stream.beginText(); stream.newLineAtOffset(42, y); stream.showText("Session " + version.academicSessionId() + " | " + version.timezone() + " | " + version.effectiveFrom() + " -> " + (version.effectiveTo() == null ? "open" : version.effectiveTo())); stream.endText(); y -= 22;
-            stream.setFont(bold, 8);
-            stream.beginText(); stream.newLineAtOffset(42, y); stream.showText("Class | Day | Period | Subject | Teacher ID | Room"); stream.endText(); y -= 14;
-            stream.setFont(normal, 7);
-            for (TimetableExportRow row : rows) {
-                if (y < 40) { stream.close(); page = new PDPage(PDRectangle.A4); document.addPage(page); stream = new PDPageContentStream(document, page); stream.setFont(normal, 7); y = 790; }
-                String line = row.className() + " | " + row.dayIdx() + " | " + row.slotIdx() + " | " + row.subjectCode() + " | " + row.teacherId() + " | " + row.room();
-                stream.beginText(); stream.newLineAtOffset(42, y); stream.showText(clipPdf(line, 150)); stream.endText(); y -= 11;
-            }
-            stream.close();
-            document.save(out);
-            return out.toByteArray();
-        } catch (Exception ex) {
-            throw new IllegalStateException("Unable to create timetable PDF", ex);
-        }
+        UUID school = TenantContext.get();
+        String session = jdbc.queryForObject("SELECT label FROM academic_session WHERE id=? AND school_id=?",
+                String.class, version.academicSessionId(), school);
+        Map<String,String> teachers = jdbc.query("SELECT id::text,name FROM employee WHERE school_id=?",
+                rs -> { Map<String,String> map = new HashMap<>(); while (rs.next()) map.put(rs.getString(1),rs.getString(2)); return map; }, school);
+        Map<String,String> subjects = jdbc.query("SELECT code,coalesce(label->>'fr',label->>'en',code) FROM subject WHERE school_id=?",
+                rs -> { Map<String,String> map = new HashMap<>(); while (rs.next()) map.put(rs.getString(1),rs.getString(2)); return map; }, school);
+        Map<Integer,String> times = jdbc.query("SELECT slot_idx,to_char(start_time,'HH24:MI')||' - '||to_char(end_time,'HH24:MI') FROM timetable_period WHERE school_id=?",
+                rs -> { Map<Integer,String> map = new HashMap<>(); while (rs.next()) map.put(rs.getInt(1),rs.getString(2)); return map; }, school);
+        List<String> days = List.of("Lun / Mon", "Mar / Tue", "Mer / Wed", "Jeu / Thu", "Ven / Fri", "Sam / Sat", "Dim / Sun");
+        var display = rows.stream().map(row -> new TimetablePdfRenderer.Row(row.className(),
+                days.get(row.dayIdx()), times.getOrDefault(row.slotIdx(), "P" + (row.slotIdx()+1)),
+                subjects.getOrDefault(row.subjectCode(), row.subjectCode()),
+                teachers.getOrDefault(row.teacherId(), "Non affecté / Unassigned"), row.room())).toList();
+        var date = java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy");
+        String validity = "Du / From " + date.format(version.effectiveFrom()) + (version.effectiveTo() == null ? "" : " au / to " + date.format(version.effectiveTo())) + "  |  " + version.timezone();
+        return TimetablePdfRenderer.render(session, validity, "V" + version.versionNo() + " · " + version.status(), display);
     }
 
     @Transactional(readOnly = true)
@@ -959,7 +940,6 @@ public class TimetableVersionService {
                 }, versionId, TenantContext.get());
         LocalDate from = localDate(version.get("effective_from"));
         LocalDate to = localDate(version.get("effective_to"));
-        LocalDate weekStart = from.minusDays(from.getDayOfWeek().getValue() - 1L);
         String timezone = String.valueOf(version.get("timezone"));
         List<String> events = jdbc.query("""
             SELECT c.id::text AS class_id,c.name,s.subject_code,s.day_idx,s.slot_idx,p.start_time,p.end_time,
@@ -971,14 +951,42 @@ public class TimetableVersionService {
                AND (CAST(? AS varchar) IS NULL OR upper(c.subsystem)=upper(?))
              ORDER BY c.name,s.day_idx,s.slot_idx
             """, (rs,n) -> {
-                LocalDate day = weekStart.plusDays(rs.getInt("day_idx"));
-                String start = day.toString().replace("-", "") + "T" + rs.getTime("start_time").toLocalTime().toString().replace(":", "");
-                String end = day.toString().replace("-", "") + "T" + rs.getTime("end_time").toLocalTime().toString().replace(":", "");
+                LocalDate day = firstCalendarOccurrence(from, rs.getInt("day_idx"));
+                if (to != null && day.isAfter(to)) return null;
+                String start = calendarTime(day, rs.getTime("start_time").toLocalTime());
+                String end = calendarTime(day, rs.getTime("end_time").toLocalTime());
                  String summary = icalEscape(rs.getString("subject_code") + " - " + rs.getString("name"));
-                 String rule = to == null ? "RRULE:FREQ=WEEKLY" : "RRULE:FREQ=WEEKLY;UNTIL=" + to.plusDays(1).toString().replace("-", "") + "T000000Z";
-                 return "BEGIN:VEVENT\nUID=" + versionId + "-" + rs.getString("class_id") + "-" + rs.getInt("day_idx") + "-" + rs.getInt("slot_idx") + "@bbc-sms\nDTSTART;TZID=" + timezone + ":" + start + "\nDTEND;TZID=" + timezone + ":" + end + "\n" + rule + "\nSUMMARY:" + summary + "\nEND:VEVENT";
+                 String rule = to == null ? "RRULE:FREQ=WEEKLY" : "RRULE:FREQ=WEEKLY;UNTIL=" + calendarUntil(to, timezone);
+                 String stamp = java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'")
+                         .withZone(java.time.ZoneOffset.UTC).format(java.time.Instant.now());
+                 return "BEGIN:VEVENT\nUID=" + versionId + "-" + rs.getString("class_id") + "-" + rs.getInt("day_idx") + "-" + rs.getInt("slot_idx") + "@bbc-sms\nDTSTAMP:" + stamp + "\nDTSTART;TZID=" + timezone + ":" + start + "\nDTEND;TZID=" + timezone + ":" + end + "\n" + rule + "\nSUMMARY:" + summary + "\nEND:VEVENT";
             }, TenantContext.get(), versionId, level, level, subsystem, subsystem);
-        return "BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//BBC SMS//Timetable//EN\nX-WR-TIMEZONE:" + timezone + "\n" + String.join("\n", events) + "\nEND:VCALENDAR\n";
+        String calendar = "BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//BBC SMS//Timetable//EN\nX-WR-TIMEZONE:" + timezone + "\n" + String.join("\n", events.stream().filter(Objects::nonNull).toList()) + "\nEND:VCALENDAR\n";
+        return calendarOutput(calendar);
+    }
+
+    static LocalDate firstCalendarOccurrence(LocalDate from, int dayIdx) {
+        return from.plusDays(Math.floorMod(dayIdx - (from.getDayOfWeek().getValue() - 1), 7));
+    }
+    static String calendarTime(LocalDate day, java.time.LocalTime time) {
+        return day.atTime(time).format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss"));
+    }
+    static String calendarUntil(LocalDate to, String timezone) {
+        return to.plusDays(1).atStartOfDay(java.time.ZoneId.of(timezone)).minusSeconds(1)
+                .withZoneSameInstant(java.time.ZoneOffset.UTC).format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'"));
+    }
+    static String calendarOutput(String raw) {
+        StringBuilder out = new StringBuilder();
+        for (String line : raw.split("\n")) {
+            int bytes = 0;
+            for (int cp : line.codePoints().toArray()) {
+                String ch = new String(Character.toChars(cp)); int size = ch.getBytes(StandardCharsets.UTF_8).length;
+                if (bytes + size > 75) { out.append("\r\n "); bytes = 1; }
+                out.append(ch); bytes += size;
+            }
+            out.append("\r\n");
+        }
+        return out.toString();
     }
 
     public UUID currentDraftVersion(UUID sessionId) {
@@ -1315,17 +1323,6 @@ public class TimetableVersionService {
     private static String columnName(int value) { StringBuilder result = new StringBuilder(); while (value > 0) { int rem = (value - 1) % 26; result.insert(0, (char) ('A' + rem)); value = (value - 1) / 26; } return result.toString(); }
     private static String xml(String value) { return value == null ? "" : value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&apos;"); }
     private static void zipEntry(java.util.zip.ZipOutputStream zip, String name, String value) throws Exception { java.util.zip.ZipEntry entry = new java.util.zip.ZipEntry(name); entry.setTime(0); zip.putNextEntry(entry); zip.write(value.getBytes(StandardCharsets.UTF_8)); zip.closeEntry(); }
-    private static PDFont loadFont(PDDocument document, String path) {
-        try {
-            File file = new File(path);
-            if (file.isFile()) return PDType0Font.load(document, file);
-        } catch (Exception ignored) { }
-        return path.toLowerCase(Locale.ROOT).contains("bold") ? PDType1Font.HELVETICA_BOLD : PDType1Font.HELVETICA;
-    }
-    private static String clipPdf(String value, int max) {
-        String text = value == null ? "" : value;
-        return text.length() <= max ? text : text.substring(0, Math.max(0, max - 1)) + "…";
-    }
     private record TimetableExportRow(String className, int dayIdx, int slotIdx, String subjectCode, String teacherId, String room) {}
 
     /** Minimal row used for policy filtering before substitution DTOs are materialized. */
@@ -1468,11 +1465,16 @@ public class TimetableVersionService {
         return LocalDate.parse(value.toString());
     }
     private static void validateDates(LocalDate from,LocalDate to){if(to!=null&&to.isBefore(from))throw ApiException.badRequest("La période d'effet du planning est invalide");}
-    private static String normalizeTimezone(String value){return value==null||value.isBlank()?"Africa/Douala":value.trim();}
+    private static String normalizeTimezone(String value){
+        String zone = value==null||value.isBlank()?"Africa/Douala":value.trim();
+        try { return java.time.ZoneId.of(zone).getId(); }
+        catch (java.time.DateTimeException ex) { throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST,
+                "TIMETABLE_TIMEZONE_INVALID", "Le fuseau horaire est invalide.", "timezone", "Choose a valid IANA timezone."); }
+    }
     private static String blank(String v,String d){return v==null||v.isBlank()?d:v.trim();}
     private static String clean(String v){return v==null||v.isBlank()?null:v.trim().toUpperCase(Locale.ROOT);}
     private static String cleanReason(String v){return v==null||v.isBlank()?null:v.trim();}
     private static String csv(String v){if(v==null)return "";return "\""+v.replace("\"","\"\"")+"\"";}
-    private static String icalEscape(String v){return v==null?"":v.replace("\\","\\\\").replace(";","\\;").replace(",","\\,").replace("\n","\\n");}
+    private static String icalEscape(String v){return v==null?"":v.replace("\\","\\\\").replace(";","\\;").replace(",","\\,").replace("\r\n","\n").replace("\r","\n").replace("\n","\\n");}
     private UUID currentUser(){var a=SecurityContextHolder.getContext().getAuthentication();return a!=null&&a.getPrincipal() instanceof AppUserPrincipal p?p.userId():null;}
 }

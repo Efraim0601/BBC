@@ -1,7 +1,8 @@
-import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
+import { afterNextRender, Component, ChangeDetectionStrategy, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { GlobalLoadingService } from './core/global-loading.service';
 import { I18nService } from './core/i18n.service';
+import { NativePlatformService } from './core/native-platform.service';
 
 @Component({
   selector: 'bbc-root',
@@ -11,6 +12,13 @@ import { I18nService } from './core/i18n.service';
   template: `
     <div class="app-frame" [attr.aria-busy]="loading.blocking()">
       <router-outlet />
+
+      @if (native.isNative && !native.online()) {
+        <div class="native-offline-pill" role="status" aria-live="polite">
+          <span class="native-offline-dot" aria-hidden="true"></span>
+          {{ fr() ? 'Hors connexion — vos données seront disponibles au retour du réseau' : 'Offline — your data will return when the network reconnects' }}
+        </div>
+      }
 
       @if (loading.blocking()) {
         <div class="global-loading-mask" role="status" aria-live="polite" aria-atomic="true">
@@ -30,6 +38,38 @@ import { I18nService } from './core/i18n.service';
   `,
   styles: [`
     :host, .app-frame { display: block; height: 100%; }
+    .native-offline-pill {
+      position: fixed;
+      top: .6rem;
+      left: 50%;
+      z-index: 10020;
+      display: flex;
+      align-items: center;
+      gap: .55rem;
+      width: max-content;
+      max-width: calc(100vw - 2rem);
+      min-height: 2.5rem;
+      padding: .55rem .85rem;
+      border: 1px solid rgba(255,255,255,.28);
+      border-radius: 999px;
+      color: #fff;
+      background: rgba(15, 34, 56, .96);
+      box-shadow: 0 10px 30px rgba(15, 34, 56, .28);
+      font-size: .76rem;
+      font-weight: 800;
+      line-height: 1.25;
+      transform: translateX(-50%);
+      backdrop-filter: blur(14px);
+      animation: loader-enter .2s ease-out;
+    }
+    .native-offline-dot {
+      width: .52rem;
+      height: .52rem;
+      flex: 0 0 auto;
+      border-radius: 50%;
+      background: #f59e0b;
+      box-shadow: 0 0 0 .22rem rgba(245, 158, 11, .17);
+    }
     .global-loading-mask {
       position: fixed;
       inset: 0;
@@ -89,5 +129,11 @@ import { I18nService } from './core/i18n.service';
 export class App {
   protected readonly loading = inject(GlobalLoadingService);
   private readonly i18n = inject(I18nService);
+  protected readonly native = inject(NativePlatformService);
   protected readonly fr = () => this.i18n.lang() === 'fr';
+
+  constructor() {
+    this.native.initialize();
+    afterNextRender(() => void this.native.finishLaunch());
+  }
 }

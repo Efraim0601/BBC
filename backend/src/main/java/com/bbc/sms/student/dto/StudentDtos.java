@@ -2,6 +2,7 @@ package com.bbc.sms.student.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.PastOrPresent;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -66,7 +67,7 @@ public class StudentDtos {
             @NotBlank String lastName,
             String niu,
             String sex,
-            LocalDate dob,
+            @PastOrPresent(message = "La date de naissance ne peut pas être dans le futur") LocalDate dob,
             String birthplace,
             boolean repeats,
             UUID classId,

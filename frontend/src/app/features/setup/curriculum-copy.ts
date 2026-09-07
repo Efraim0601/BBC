@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, EventEmitter, Input, OnChanges, Output, SimpleChanges, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { newRequestKey } from '../../core/request-key';
 import {
   CurriculumCopyApplyRequest, CurriculumCopyEdit, CurriculumCopyPreview, CurriculumCopyPreviewRequest,
   CurriculumCopyRow, SetupApi,
@@ -139,7 +140,7 @@ export class CurriculumCopyComponent implements OnChanges {
       reason: this.reason.trim(), previewFingerprint: p.fingerprint,
     };
     this.busy.set(true);
-    this.api.applyCurriculumCopy(body, crypto.randomUUID()).subscribe({
+    this.api.applyCurriculumCopy(body, newRequestKey()).subscribe({
       next: () => { this.busy.set(false); this.message.set({ ok: true, text: 'Curriculum copied and audited.' }); this.applied.emit(); },
       error: (e) => { this.busy.set(false); this.message.set({ ok: false, text: e?.error?.message ?? 'Apply failed; the preview may be stale.' }); },
     });

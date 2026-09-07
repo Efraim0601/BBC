@@ -2,6 +2,7 @@ import { Injectable, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable, tap } from 'rxjs';
 import { environment } from '../../environments/environment';
+import { AuthService } from './auth.service';
 
 export interface SchoolProfile {
   code: string;
@@ -29,27 +30,41 @@ export interface SchoolProfile {
 @Injectable({ providedIn: 'root' })
 export class SchoolService {
   private http = inject(HttpClient);
+  private auth = inject(AuthService);
   private base = `${environment.apiUrl}/settings/school`;
 
   readonly profile = signal<SchoolProfile | null>(null);
   private inFlight = false;
+  private loadedSession = -1;
 
   /** Fetch once. Safe to call from every component's constructor. */
   ensureLoaded(): void {
+    const session = this.auth.sessionVersion;
+    if (session !== this.loadedSession) {
+      this.profile.set(null);
+      this.inFlight = false;
+      this.loadedSession = session;
+    }
     if (this.profile() || this.inFlight) return;
     this.inFlight = true;
-    this.http.get<SchoolProfile>(this.base).subscribe({
-      next: (p) => { this.profile.set(p); this.inFlight = false; },
-      error: () => { this.inFlight = false; },
+    this.http.get<SchoolProfile>(`${this.base}/branding`).subscribe({
+      next: (p) => { if (session === this.auth.sessionVersion) { this.profile.set(p); this.inFlight = false; } },
+      error: () => { if (session === this.auth.sessionVersion) this.inFlight = false; },
     });
   }
 
   reload(): Observable<SchoolProfile> {
-    return this.http.get<SchoolProfile>(this.base).pipe(tap((p) => this.profile.set(p)));
+    const session = this.auth.sessionVersion;
+    return this.http.get<SchoolProfile>(`${this.base}/branding`).pipe(tap((p) => {
+      if (session === this.auth.sessionVersion) { this.loadedSession = session; this.profile.set(p); }
+    }));
   }
 
   update(body: Omit<SchoolProfile, 'code' | 'academicYear'>): Observable<SchoolProfile> {
-    return this.http.put<SchoolProfile>(this.base, body).pipe(tap((p) => this.profile.set(p)));
+    const session = this.auth.sessionVersion;
+    return this.http.put<SchoolProfile>(this.base, body).pipe(tap((p) => {
+      if (session === this.auth.sessionVersion) { this.loadedSession = session; this.profile.set(p); }
+    }));
   }
 
   /** Money label — falls back to FCFA until the profile lands. */

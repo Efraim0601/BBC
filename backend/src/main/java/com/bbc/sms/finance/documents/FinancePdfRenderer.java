@@ -169,17 +169,42 @@ public class FinancePdfRenderer {
 
     private void drawStudentIdentity(PDPageContentStream stream, PDType0Font font,
                                      ConsolidatedReceiptView receipt) throws Exception {
-        fillAndStroke(stream, 48, 626, 499, 78, 248, 250, 252, 219, 228, 236);
-        drawText(stream, font, "ÉLÈVE / STUDENT", 62, 682, 7, 100, 116, 139);
-        drawText(stream, font, clipped(font, blank(receipt.studentName()), 278, 14),
-                62, 660, 14, 18, 52, 83);
-        drawText(stream, font, "MATRICULE / ID", 350, 682, 7, 100, 116, 139);
-        drawText(stream, font, clipped(font, blank(receipt.matricule()), 180, 10),
-                350, 662, 10, 18, 52, 83);
-        drawText(stream, font, clipped(font, "Classe / Class: " + blank(receipt.className()), 270, 8),
-                62, 640, 8, 100, 116, 139);
-        drawText(stream, font, clipped(font, "Session: " + blank(receipt.sessionLabel()), 180, 8),
-                350, 640, 8, 100, 116, 139);
+        fillAndStroke(stream, 48, 614, 499, 90, 248, 250, 252, 219, 228, 236);
+        drawText(stream, font, "ÉLÈVE / STUDENT", 62, 692, 7, 100, 116, 139);
+        float size = 14;
+        List<String> nameLines = wrappedToWidth(font, blank(receipt.studentName()), 470, size);
+        while (nameLines.size() > 3 && size > 8) {
+            size -= 1;
+            nameLines = wrappedToWidth(font, blank(receipt.studentName()), 470, size);
+        }
+        float y = 676;
+        for (String line : nameLines) {
+            drawText(stream, font, line, 62, y, size, 18, 52, 83);
+            y -= 13;
+        }
+        drawText(stream, font, "Matricule / ID: " + blank(receipt.matricule()),
+                62, 636, 8, 18, 52, 83);
+        drawText(stream, font, clipped(font, "Classe / Class: " + blank(receipt.className()), 210, 8),
+                330, 636, 8, 100, 116, 139);
+        drawText(stream, font, clipped(font, "Session: " + blank(receipt.sessionLabel()), 470, 8),
+                62, 623, 8, 100, 116, 139);
+    }
+
+    /** Essential identity text wraps instead of silently losing part of a name. */
+    private static List<String> wrappedToWidth(PDType0Font font, String value, float width, float size) throws Exception {
+        List<String> lines = new ArrayList<>();
+        String remaining = value.replaceAll("\\s+", " ").trim();
+        while (!remaining.isEmpty()) {
+            int end = remaining.length();
+            while (end > 1 && font.getStringWidth(remaining.substring(0, end)) / 1000f * size > width) end--;
+            if (end < remaining.length()) {
+                int space = remaining.lastIndexOf(' ', end);
+                if (space > 0) end = space;
+            }
+            lines.add(remaining.substring(0, end).trim());
+            remaining = remaining.substring(end).trim();
+        }
+        return lines;
     }
 
     private void drawAccountSummary(PDPageContentStream stream, PDType0Font font,

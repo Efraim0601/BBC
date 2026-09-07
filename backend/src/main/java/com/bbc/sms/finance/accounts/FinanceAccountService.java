@@ -200,7 +200,8 @@ public class FinanceAccountService {
                        current.academic_session_id,current.class_name,current.enrolled_on,current.exited_on,
                        COALESCE(charges.billed,0) v2_billed,COALESCE(fees.billed,0) legacy_billed,
                        COALESCE(v2.paid,0) v2_paid,COALESCE(legacy.paid,0) legacy_paid,
-                       COALESCE(v2.payment_count,0)+COALESCE(legacy.payment_count,0) payment_count
+                       COALESCE(v2.payment_count,0)+COALESCE(legacy.payment_count,0) payment_count,
+                       charges.student_id IS NOT NULL has_v2
                   FROM current_students current
                   LEFT JOIN charge_totals charges ON charges.student_id=current.student_id
                   LEFT JOIN legacy_fees fees ON fees.student_id=current.student_id
@@ -215,7 +216,7 @@ public class FinanceAccountService {
                         rs.getObject("academic_session_id", UUID.class), rs.getString("class_name"),
                         rs.getObject("enrolled_on", LocalDate.class), rs.getObject("exited_on", LocalDate.class),
                         rs.getLong("v2_billed"), rs.getLong("legacy_billed"), rs.getLong("v2_paid"),
-                        rs.getLong("legacy_paid"), rs.getLong("payment_count")), args.toArray()).stream()
+                        rs.getLong("legacy_paid"), rs.getLong("payment_count"), rs.getBoolean("has_v2")), args.toArray()).stream()
                 .map(this::searchView)
                 .filter(v -> allowedStudents == null || allowedStudents.contains(v.studentId()))
                 .filter(v -> needle.isBlank()
@@ -309,10 +310,12 @@ public class FinanceAccountService {
                                   WHERE c.school_id=? AND c.student_id=?
                                     AND c.status IN ('POSTED','PARTIAL','PAID','WAIVED')),0),
                        COALESCE((SELECT MAX(f.total) FROM student_fee f
-                                  WHERE f.school_id=? AND f.student_id=?),0)
-                """, (rs, n) -> new BillingTotals(rs.getLong(1), rs.getLong(2)),
-                schoolId, studentId, schoolId, studentId);
-        long billed = billing.v2Billed() > 0 ? billing.v2Billed() : billing.legacyBilled();
+                                  WHERE f.school_id=? AND f.student_id=?),0),
+                       EXISTS(SELECT 1 FROM student_charge c WHERE c.school_id=? AND c.student_id=?
+                                   AND c.status IN ('POSTED','PARTIAL','PAID','WAIVED'))
+                """, (rs, n) -> new BillingTotals(rs.getLong(1), rs.getLong(2), rs.getBoolean(3)),
+                schoolId, studentId, schoolId, studentId, schoolId, studentId);
+        long billed = billedTotal(billing.hasV2(), billing.v2Billed(), billing.legacyBilled());
         List<AccountPaymentView> payments = jdbc.query(paymentSql(), (rs, n) -> new AccountPaymentView(
                 rs.getObject("id", UUID.class), rs.getString("source"), rs.getString("receipt_no"),
                 rs.getObject("payment_date", LocalDate.class), rs.getLong("amount_minor"),
@@ -406,11 +409,11 @@ public class FinanceAccountService {
     }
 
     private StudentAccountSearchView searchView(SearchAccountRow row) {
-        long billed = row.v2Billed() > 0 ? row.v2Billed() : row.legacyBilled();
+        long billed = billedTotal(row.hasV2(), row.v2Billed(), row.legacyBilled());
         long paid = row.v2Paid() + row.legacyPaid();
         return new StudentAccountSearchView(row.studentId(), row.studentName(), row.matricule(),
                 row.enrollmentId(), row.academicSessionId(), row.className(), row.enrolledOn(), row.exitedOn(),
-                billed, paid, Math.max(0, billed - paid), Math.max(0, paid - billed), row.paymentCount());
+                billed, paid, Math.max(0, billed - paid), Math.max(0, paid - billed), row.paymentCount(), row.hasV2());
     }
 
     private static String documentVersion(String snapshotHash) {
@@ -437,11 +440,15 @@ public class FinanceAccountService {
     private record StudentIdentity(UUID id, String name, String matricule,
                                    String className, String sessionLabel) {}
 
-    private record BillingTotals(long v2Billed, long legacyBilled) {}
+    static long billedTotal(boolean hasV2, long v2Billed, long legacyBilled) {
+        return hasV2 ? v2Billed : legacyBilled;
+    }
+
+    private record BillingTotals(long v2Billed, long legacyBilled, boolean hasV2) {}
 
     private record SearchAccountRow(UUID studentId, String studentName, String matricule,
                                     UUID enrollmentId, UUID academicSessionId, String className,
                                     LocalDate enrolledOn, LocalDate exitedOn, long v2Billed,
                                     long legacyBilled, long v2Paid, long legacyPaid,
-                                    long paymentCount) {}
+                                    long paymentCount, boolean hasV2) {}
 }

@@ -6,9 +6,11 @@ import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.security.AppUserPrincipal;
 import com.bbc.sms.platform.security.PermissionService;
+import com.bbc.sms.platform.security.ParcoursAccessService;
 import com.bbc.sms.platform.security.SectionRoles;
 import com.bbc.sms.platform.storage.ObjectStorage;
 import com.bbc.sms.platform.tenant.TenantContext;
+import com.bbc.sms.platform.tenant.ParcoursContext;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -91,17 +93,19 @@ public class LibraryService {
     private final TeacherScopeService teacherScope;
     private final PermissionService perm;
     private final JdbcTemplate jdbc;
+    private final ParcoursAccessService parcours;
 
     public LibraryService(SharedResourceRepository repo,
                           ObjectStorage storage,
                           TeacherScopeService teacherScope,
                           PermissionService perm,
-                          JdbcTemplate jdbc) {
+                          JdbcTemplate jdbc, ParcoursAccessService parcours) {
         this.repo = repo;
         this.storage = storage;
         this.teacherScope = teacherScope;
         this.perm = perm;
         this.jdbc = jdbc;
+        this.parcours = parcours;
     }
 
     /** Le fichier servi au téléchargement — le flux est à fermer par l'appelant. */
@@ -119,7 +123,7 @@ public class LibraryService {
     @Transactional(readOnly = true)
     public List<ResourceView> list() {
         boolean canWrite = perm.can("library", "write");
-        String viewerSection = teacherScope.section();
+        Set<String> viewerSection = allowedSections();
         return repo.findBySchoolIdOrderByCreatedAtDesc(TenantContext.get()).stream()
                 .filter(r -> inScope(r, viewerSection))
                 .filter(r -> canWrite || (r.isPublished() && !"parents".equals(r.getAudience())))
@@ -132,7 +136,7 @@ public class LibraryService {
     public Download download(UUID id) {
         SharedResource r = require(id);
         boolean canWrite = perm.can("library", "write");
-        String viewerSection = teacherScope.section();
+        Set<String> viewerSection = allowedSections();
         if (!inScope(r, viewerSection)) throw denied();
         if (!canWrite && (!r.isPublished() || "parents".equals(r.getAudience()))) throw denied();
         return open(r);
@@ -248,32 +252,51 @@ public class LibraryService {
     private String resolveSection(String requested) {
         String locked = teacherScope.adminSection();
         if (locked != null) return locked;
-        if (requested == null || requested.isBlank()) return null;   // toute l'école
-        String section = requested.trim().toLowerCase(Locale.ROOT);
-        if (!SectionRoles.SECTIONS.contains(section)) {
+        Set<String> allowed = allowedSections();
+        String section = requested == null || requested.isBlank() ? null : requested.trim().toLowerCase(Locale.ROOT);
+        if (section != null && !SectionRoles.SECTIONS.contains(section)) {
             throw ApiException.badRequest("Cycle inconnu : " + requested);
+        }
+        if (allowed != null) {
+            if (section == null && allowed.size() == 1) return allowed.iterator().next();
+            if (section == null || !allowed.contains(section)) throw denied();
         }
         return section;
     }
 
+    /** Explicit/derived parcours, including principals without an employee record. Empty never means global. */
+    private Set<String> allowedSections() {
+        AppUserPrincipal user = principal();
+        if (user == null) return Set.of();
+        ParcoursContext.Scope selected = ParcoursContext.get();
+        if (selected != null) {
+            return parcours.isAllowed(user.userId(), selected) ? Set.of(selected.level()) : Set.of();
+        }
+        if (parcours.isGlobal(user.userId())) return null;
+        return parcours.allowed(user.userId()).stream().map(ParcoursContext.Scope::level)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+
     /** La ressource est-elle dans le périmètre de lecture d'un compte cloisonné ? */
-    private static boolean inScope(SharedResource r, String viewerSection) {
-        return viewerSection == null || r.getSection() == null || viewerSection.equals(r.getSection());
+    private static boolean inScope(SharedResource r, Set<String> viewerSection) {
+        return viewerSection == null || (!viewerSection.isEmpty()
+                && (r.getSection() == null || viewerSection.contains(r.getSection())));
     }
 
     /** Modifiable : école entière pour qui n'est pas cloisonné, son cycle sinon. */
-    private static boolean editable(SharedResource r, String viewerSection) {
-        return viewerSection == null || viewerSection.equals(r.getSection());
+    private static boolean editable(SharedResource r, Set<String> viewerSection) {
+        return viewerSection == null || (r.getSection() != null && viewerSection.contains(r.getSection()));
     }
 
     private void assertEditable(SharedResource r) {
-        if (!editable(r, teacherScope.section())) {
+        if (!editable(r, allowedSections())) {
             throw new ApiException(HttpStatus.FORBIDDEN,
                     "Cette ressource ne relève pas de votre section");
         }
     }
 
     private static boolean visibleToParent(SharedResource r, Set<String> childSections) {
+        if (childSections.isEmpty()) return false;
         if (!r.isPublished()) return false;
         if (!"all".equals(r.getAudience()) && !"parents".equals(r.getAudience())) return false;
         return r.getSection() == null || childSections.contains(r.getSection());
@@ -283,8 +306,12 @@ public class LibraryService {
     private Set<String> childSections(UUID parentUserId) {
         return Set.copyOf(jdbc.queryForList("""
                 SELECT DISTINCT s.level FROM student s
-                  JOIN parent_student ps ON ps.student_id = s.id
-                 WHERE ps.parent_user_id = ? AND s.school_id = ? AND s.level IS NOT NULL
+                  JOIN student_guardian sg ON sg.student_id=s.id
+                  JOIN guardian g ON g.id=sg.guardian_id AND g.school_id=s.school_id
+                 WHERE g.app_user_id=? AND s.school_id=? AND s.level IS NOT NULL AND s.active=true
+                   AND g.status='ACTIVE' AND sg.portal_access=true
+                   AND sg.effective_from<=current_date
+                   AND (sg.effective_to IS NULL OR sg.effective_to>=current_date)
                 """, String.class, parentUserId, TenantContext.get()));
     }
 

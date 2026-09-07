@@ -587,11 +587,8 @@ public class PayrollService {
             throw structured(org.springframework.http.HttpStatus.BAD_REQUEST, "PAYROLL_PAYMENT_REFERENCE_REQUIRED",
                     "Une référence est obligatoire pour ce canal.", Map.of("reference", "Saisissez la référence opérateur."), List.of());
         }
-        if ("CASH".equalsIgnoreCase(channel.getCode()) && !cashierOpen()) {
-            throw structured(org.springframework.http.HttpStatus.CONFLICT, "CASHIER_SESSION_REQUIRED",
-                    "Une session de caisse ouverte est requise pour payer la paie en espèces.",
-                    Map.of("paymentChannelId", "Ouvrez le tiroir de caisse avant de continuer."), List.of());
-        }
+        // Payroll has its own approval, payment and treasury journal. Student
+        // collection drawers do not record salary outflows and are not a payroll prerequisite.
         TreasuryService.TreasuryRecord treasuryRecord = treasury.requireActiveRecord(request.treasuryAccountId());
         ChartOfAccount paymentAccount = requirePostingAccount(treasuryRecord.chartAccountId(), paymentDate, "Compte de paiement");
         ChartOfAccount payable = requireAccountByCode("2200", "Passif de paie", "LIABILITY", paymentDate);

@@ -125,6 +125,11 @@ public class StaffDocumentService {
         Employee employee = employees.findByIdAndSchoolId(id, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("L'employé"));
         teacherScope.assertEmployee(employee.getId());
+        // A shared directory contact is not a grant to their private HR dossier.
+        String level = teacherScope.staffLevelScope();
+        if (level != null && !level.equals(employee.getLevel())) {
+            throw ApiException.forbidden("Les documents privés de cet employé ne relèvent pas de votre section.");
+        }
         return employee;
     }
 

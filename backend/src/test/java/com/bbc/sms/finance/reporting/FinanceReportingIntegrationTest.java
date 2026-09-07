@@ -181,6 +181,26 @@ class FinanceReportingIntegrationTest {
     }
 
     @Test
+    void legacySummaryCombinesPaymentSystemsWithoutResurrectingReversedExpenses() {
+        jdbc.update("INSERT INTO payment(id,school_id,receipt_no,student_id,amount,method,paid_on) VALUES (?,?, 'LEGACY-1',?,5000,'CASH','2026-01-15')",
+                UUID.randomUUID(),schoolId,studentId);
+        jdbc.update("INSERT INTO expense(id,school_id,spent_on,category,label,amount,status) VALUES (?,?,'2026-01-15','QA','Reversed test expense',7000,'REVERSED')",
+                UUID.randomUUID(),schoolId);
+        var report=reporting.legacyFinance();
+        assertThat(report.totalRevenue()).isEqualTo(40000);
+        assertThat(report.totalExpense()).isZero();
+        assertThat(report.recoveryRate()).isEqualTo(30);
+    }
+
+    @Test
+    void fullyWaivedChargesDoNotFallBackToLegacyFeesInReports() {
+        jdbc.update("INSERT INTO student_fee(id,school_id,student_id,total,paid,balance,status) VALUES (?,?,?,150000,30000,120000,'partial')",
+                UUID.randomUUID(),schoolId,studentId);
+        jdbc.update("UPDATE student_charge SET status='WAIVED',paid_minor=0,waived_minor=100000,outstanding_minor=0 WHERE id=?",chargeId);
+        assertThat(reporting.legacyFinance().recoveryRate()).isZero();
+    }
+
+    @Test
     void validatesContextAndTenantBeforeReadingReports() {
         assertCode("REPORT_CONTEXT_REQUIRED", () -> reporting.collections(
                 new ReportFilters(null, LocalDate.of(2026, 1, 1), LocalDate.of(2026, 1, 31),
@@ -267,6 +287,41 @@ class FinanceReportingIntegrationTest {
 
     private ReportFilters filters(LocalDate from, LocalDate to, LocalDate asOf, int limit) {
         return new ReportFilters(sessionId, from, to, asOf, classId, "secondary", "TUITION", null, null, limit, 0);
+    }
+
+    @Test void reversedJournalsRemainInTrialBalancesAndBothGeneralLedgers() {
+        var draft=ledger.createDraftInternal(new JournalUpsert(LocalDate.of(2026,1,16),"QA reversal","XAF",periodId,"TEST","QA-REV","QA-REV",
+                List.of(new JournalLineInput(debitAccountId,15000,0,null,null,null,null,null,"Cash"),
+                        new JournalLineInput(creditAccountId,0,15000,null,null,null,null,null,"Revenue")),null));
+        var posted=ledger.postNowInternal(draft.id());
+        ledger.reverseNowInternal(posted.id(),new com.bbc.sms.finance.accounting.AccountingDtos.ReverseRequest(LocalDate.of(2026,1,20),"QA reverse",posted.version()));
+        var before=ledger.trialBalanceInternal(LocalDate.of(2026,1,18),false);
+        assertThat(before.rows()).filteredOn(r -> r.accountId().equals(debitAccountId)).singleElement()
+                .satisfies(r -> assertThat(r.balanceMinor()).isEqualTo(15000));
+        var after=ledger.trialBalanceInternal(LocalDate.of(2026,1,31),false);
+        assertThat(after.rows()).allSatisfy(r -> assertThat(r.balanceMinor()).isZero());
+        var general=ledger.generalLedger(debitAccountId,LocalDate.of(2026,1,1),LocalDate.of(2026,1,31));
+        assertThat(general.lines()).hasSize(2);
+        assertThat(general.totalDebitMinor()).isEqualTo(general.totalCreditMinor());
+        var report=reporting.accounting(filters(LocalDate.of(2026,1,1),LocalDate.of(2026,1,31),LocalDate.of(2026,1,31),100)).data();
+        assertThat(report.trialBalance().rows()).allSatisfy(r -> assertThat(r.balanceMinor()).isZero());
+        assertThat(report.incomeStatement().revenueMinor()).isZero();
+        assertThat(report.ledger()).hasSize(4).extracting(r -> r.status()).contains("REVERSED","POSTED");
+    }
+
+    @Test void expenseOriginalAndReversalOffsetWithoutLosingHistoricalAmounts() {
+        UUID expense=UUID.randomUUID();
+        jdbc.update("INSERT INTO chart_of_account(id,school_id,code,name_fr,name_en,account_type,normal_side,currency) VALUES (?,?,'6500','Charges','Expenses','EXPENSE','DEBIT','XAF')",expense,schoolId);
+        var draft=ledger.createDraftInternal(new JournalUpsert(LocalDate.of(2026,1,16),"QA expense","XAF",periodId,"TEST","QA-EXP","QA-EXP",
+                List.of(new JournalLineInput(expense,3000,0,null,null,null,null,null,"Expense"),
+                        new JournalLineInput(debitAccountId,0,3000,null,null,null,null,null,"Cash")),null));
+        var posted=ledger.postNowInternal(draft.id());
+        ledger.reverseNowInternal(posted.id(),new com.bbc.sms.finance.accounting.AccountingDtos.ReverseRequest(LocalDate.of(2026,1,20),"QA undo",posted.version()));
+        assertThat(reporting.legacyFinance().totalExpense()).isZero();
+        assertThat(reporting.expenses(filters(LocalDate.of(2026,1,1),LocalDate.of(2026,1,31),LocalDate.of(2026,1,18),100)).data().postedExpenseMinor()).isEqualTo(3000);
+        assertThat(reporting.expenses(filters(LocalDate.of(2026,1,1),LocalDate.of(2026,1,31),LocalDate.of(2026,1,31),100)).data().postedExpenseMinor()).isZero();
+        jdbc.update("INSERT INTO expense(id,school_id,spent_on,category,label,amount,status) VALUES (?,?,'2026-01-21','QA','Unlinked legacy',500,'POSTED')",UUID.randomUUID(),schoolId);
+        assertThat(reporting.legacyFinance().totalExpense()).isEqualTo(500);
     }
 
     private void insertPayment(UUID id, long amount, LocalDate paymentDate, String receipt, String sourceEvent,

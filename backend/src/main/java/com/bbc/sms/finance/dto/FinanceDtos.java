@@ -28,7 +28,10 @@ public class FinanceDtos {
             LocalDate paidOn,
             UUID treasuryAccountId,
             String treasuryAccountName,
-            UUID journalEntryId) {}
+            UUID journalEntryId,
+            String source,
+            String status,
+            long refundedAmount) {}
 
     public record PaymentRequest(
             @NotNull UUID studentId,

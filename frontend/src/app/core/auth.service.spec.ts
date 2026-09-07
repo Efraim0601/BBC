@@ -55,4 +55,43 @@ describe('AuthService capability session boundary', () => {
     expect(auth.actionState('CLASS_MANAGE')).toBe('DENY');
     http.verify();
   });
+
+  it('does not let an old refresh replace a different account after logout', () => {
+    const { auth, http } = setup();
+    auth.login('admin', 'admin').subscribe();
+    http.expectOne('/api/auth/login').flush(token('admin'));
+    http.expectOne('/api/access/me/capabilities').flush(capabilities('ALLOW'));
+    auth.refresh().subscribe();
+    const staleRefresh = http.expectOne('/api/auth/refresh');
+    auth.logout();
+    auth.login('teacher', 'teacher').subscribe();
+    http.expectOne('/api/auth/login').flush(token('teacher'));
+    http.expectOne('/api/access/me/capabilities').flush(capabilities('DENY'));
+
+    staleRefresh.flush(token('admin'));
+    expect(auth.user()?.username).toBe('teacher');
+    expect(auth.accessToken).toBe('teacher-access');
+    expect(auth.actionState('CLASS_MANAGE')).toBe('DENY');
+    http.verify();
+  });
+
+  it('does not restore a signed-out account when a delayed refresh completes', () => {
+    const { auth, http } = setup();
+    auth.login('admin', 'admin').subscribe();
+    http.expectOne('/api/auth/login').flush(token('admin'));
+    http.expectOne('/api/access/me/capabilities').flush(capabilities('ALLOW'));
+    auth.refresh().subscribe();
+    const staleRefresh = http.expectOne('/api/auth/refresh');
+    auth.logout();
+    staleRefresh.flush(token('admin'));
+    expect(auth.user()).toBeNull();
+    expect(auth.accessToken).toBeNull();
+    http.verify();
+  });
+
+  it('recovers from invalid persisted user JSON instead of crashing the application', () => {
+    localStorage.setItem('bbc-user', '{broken');
+    const { auth } = setup();
+    expect(auth.user()).toBeNull();
+  });
 });

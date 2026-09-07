@@ -27,6 +27,7 @@ import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -109,6 +110,59 @@ class AttendanceWorkflowServiceTest {
         assertThat(service.sessionOptions(classId, today)).isEmpty();
         verify(teacherScope).assertClass(sessionId, classId, today);
         verify(teacherScope, never()).assertClass(classId);
+    }
+
+    @Test
+    void dailyClassesRemainVisibleOnSundayButNoRosterCanBeCreated() {
+        TenantContext.set(schoolId);
+        LocalDate sunday = today.minusDays(4);
+        JdbcTemplate jdbc = jdbcForDailyModel();
+        TeacherScopeService teacherScope = mock(TeacherScopeService.class);
+        AuthorizationPolicyService policy = mock(AuthorizationPolicyService.class);
+        when(sessions().findBySchoolIdOrderByStartDateDesc(schoolId)).thenReturn(List.of(session(true)));
+        when(classes().findBySchoolIdOrderByName(schoolId)).thenReturn(List.of(schoolClass()));
+        when(classes().findByIdAndSchoolId(classId, schoolId)).thenReturn(Optional.of(schoolClass()));
+        when(teacherScope.allowedClassIds(sessionId, sunday)).thenReturn(Set.of(classId));
+        when(policy.decide(eq("ATTENDANCE_ROSTER_VIEW"), any())).thenReturn(
+                PolicyDecision.allow("ATTENDANCE_ROSTER_VIEW", "ROLE:teacher", "TITULAIRE_CLASSES", 1));
+        AttendanceWorkflowService service = service(jdbc, classes(), sessions(), teacherScope, policy);
+
+        assertThat(service.attendanceClasses(sunday)).extracting(AttendanceDtos.AttendanceClass::id).containsExactly(classId);
+        assertThat(service.sessionOptions(classId, sunday)).isEmpty();
+        assertThatThrownBy(() -> service.roster(classId, sunday, "DAILY"))
+                .hasMessageContaining("jour de classe");
+        verify(jdbc, never()).update(anyString(), any(Object[].class));
+    }
+
+    @Test
+    void classDiscoveryRetainsExplicitDenialAndAssignmentLimits() {
+        TenantContext.set(schoolId);
+        JdbcTemplate jdbc = jdbcForDailyModel();
+        TeacherScopeService teacherScope = mock(TeacherScopeService.class);
+        AuthorizationPolicyService policy = mock(AuthorizationPolicyService.class);
+        when(sessions().findBySchoolIdOrderByStartDateDesc(schoolId)).thenReturn(List.of(session(true)));
+        when(classes().findBySchoolIdOrderByName(schoolId)).thenReturn(List.of(schoolClass()));
+        when(teacherScope.allowedClassIds(sessionId, today)).thenReturn(Set.of(classId));
+        when(policy.decide(eq("ATTENDANCE_ROSTER_VIEW"), any())).thenReturn(
+                PolicyDecision.deny("ATTENDANCE_ROSTER_VIEW", "POLICY_SCOPE_DENIED", "Denied", "Denied", 1, null));
+        AttendanceWorkflowService service = service(jdbc, classes(), sessions(), teacherScope, policy);
+        assertThat(service.attendanceClasses(today)).isEmpty();
+        when(teacherScope.allowedClassIds(sessionId, today)).thenReturn(Set.of());
+        clearInvocations(policy);
+        assertThat(service.attendanceClasses(today)).isEmpty();
+        verifyNoInteractions(policy);
+    }
+
+    @Test
+    void publishedOccurrenceDiscoveryUsesTheRightWeekdayAndVersionBounds() {
+        LocalDate from = LocalDate.of(2026, 9, 1);
+        LocalDate to = LocalDate.of(2027, 7, 31);
+        LocalDate sunday = LocalDate.of(2026, 9, 6);
+        assertThat(AttendanceWorkflowService.discoveryOccurrenceDate(sunday, 1, from, to)).isEqualTo(from);
+        assertThat(AttendanceWorkflowService.discoveryOccurrenceDate(sunday, 0, from, to)).isEqualTo("2026-09-07");
+        assertThat(AttendanceWorkflowService.discoveryOccurrenceDate(to, 0, from, to)).isEqualTo("2027-07-26");
+        assertThat(AttendanceWorkflowService.discoveryOccurrenceDate(sunday, 0, from, from.plusDays(2))).isNull();
+        assertThat(AttendanceWorkflowService.discoveryOccurrenceDate(sunday, 7, from, to)).isNull();
     }
 
     @Test

@@ -78,39 +78,16 @@ public class DisciplineService {
         return toView(repo.save(i), student);
     }
 
-    /**
-     * Notify the parent of a student. SMS/email delivery is simulated (same approach
-     * as Events) until a provider is wired — we still validate the contact and return
-     * a clear outcome so the UI is no longer a dead button.
-     */
+    /** No delivery provider is connected: do not pretend to have queued or delivered a message. */
     @Transactional(readOnly = true)
     public NotifyResult notifyParent(NotifyRequest in) {
         Student student = resolveStudent(in.studentRef());
         studentAccess.requireAction(student.getId(), "DISCIPLINE_MANAGE");
         String channel = in.channel() == null ? "" : in.channel().trim().toLowerCase();
-        if (!channel.equals("sms") && !channel.equals("email")) {
+        if (!channel.equals("sms") && !channel.equals("email"))
             throw ApiException.badRequest("Canal invalide (sms ou email)");
-        }
-        String recipient = channel.equals("sms")
-                ? blankToNull(student.getParentPhone())
-                : null;   // no parent e-mail column yet — SMS is the supported channel
-        boolean delivered = recipient != null;
-        if (delivered) {
-            log.info("Discipline notify [{}] → {} for student {} : {}",
-                    channel, recipient, student.getMatricule(),
-                    in.message() == null ? "" : in.message().substring(0, Math.min(80, in.message().length())));
-        } else {
-            log.info("Discipline notify [{}] skipped — no parent contact for {}",
-                    channel, student.getMatricule());
-        }
-        String msg = delivered
-                ? (channel.equals("sms")
-                    ? "SMS enregistré pour envoi vers " + recipient
-                    : "E-mail enregistré pour envoi vers " + recipient)
-                : (channel.equals("sms")
-                    ? "Aucun téléphone parent renseigné pour cet élève"
-                    : "Aucun e-mail parent renseigné pour cet élève — utilisez SMS");
-        return new NotifyResult(student.getId(), channel, delivered, recipient, msg);
+        return new NotifyResult(student.getId(), channel, false, null,
+                "L'envoi automatique n'est pas connecté. Aucun message n'a été envoyé. Contactez le parent manuellement.");
     }
 
     @Transactional

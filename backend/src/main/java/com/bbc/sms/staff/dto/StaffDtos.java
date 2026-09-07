@@ -3,6 +3,8 @@ package com.bbc.sms.staff.dto;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.Valid;
+import com.fasterxml.jackson.annotation.JsonInclude;
 
 import java.util.List;
 import java.util.Set;
@@ -32,7 +34,16 @@ public class StaffDtos {
             boolean active,
             boolean hasLogin,
             UUID accountUserId,
-            String username) {}
+            String username,
+            boolean canManage,
+            boolean canViewDocuments,
+            @JsonInclude(JsonInclude.Include.NON_NULL) AccountResult credentials) {
+        public EmployeeView withCredentials(AccountResult result) {
+            return new EmployeeView(id, code, name, initials, sex, type, email, phone,
+                    formClass, section, managementLevels, departmentId, departmentName,
+                    monthlySalary, hourlyRate, roles, active, hasLogin, accountUserId, username, canManage, canViewDocuments, result);
+        }
+    }
 
     public record EmployeeUpsert(
             @NotBlank String name,
@@ -47,10 +58,8 @@ public class StaffDtos {
             long monthlySalary,
             int hourlyRate,
             Set<String> roles,
-            // When true, the UI will follow up with reset-credentials to provision the
-            // login and e-mail the password; create() then skips its courtesy notice so
-            // the employee doesn't receive two e-mails.
-            Boolean createLogin) {}
+            Boolean createLogin,
+            @Valid AccountOptions accountOptions) {}
 
     /** Une classe assignée à un enseignant, telle qu'affichée sur sa fiche. */
     public record TeacherClassView(
@@ -76,12 +85,33 @@ public class StaffDtos {
     /** Remplace la totalité des classes d'un enseignant (liste vide = plus aucune). */
     public record SetTeacherClasses(List<UUID> classIds) {}
 
-    /** Outcome of provisioning/resetting a staff login — never carries the password. */
+    /** Email delivery is opt-in; a blank username generates one from the employee's name. */
+    public record AccountOptions(
+            @Pattern(regexp = "^$|^[a-zA-Z0-9][a-zA-Z0-9._-]{2,63}$",
+                    message = "Identifiant : 3 à 64 lettres, chiffres, points, tirets ou underscores") String username,
+            Boolean sendEmail) {
+        public AccountOptions {
+            username = username == null ? null : username.trim();
+        }
+        public static AccountOptions manual() { return new AccountOptions(null, false); }
+    }
+
+    /** Fresh credentials are returned only by the protected create/reset operation, never a profile read. */
     public record AccountResult(
             boolean hasAccount,
             String username,
             boolean emailSent,
-            String message) {}
+            String message,
+            @JsonInclude(JsonInclude.Include.NON_NULL) String password,
+            boolean emailRequested) {
+        public AccountResult withoutPassword() {
+            return new AccountResult(hasAccount, username, emailSent, message, null, emailRequested);
+        }
+        @Override public String toString() {
+            return "AccountResult[hasAccount=" + hasAccount + ", username=" + username
+                    + ", emailSent=" + emailSent + ", password=[REDACTED]]";
+        }
+    }
 
     /** One row of a bulk staff import (CSV / Excel parsed on the client). */
     public record StaffImportRow(
@@ -156,7 +186,14 @@ public class StaffDtos {
             String employeeCode,
             java.time.Instant submittedAt,
             java.time.Instant decidedAt,
-            java.time.Instant finalizedAt) {}
+            java.time.Instant finalizedAt,
+            @JsonInclude(JsonInclude.Include.NON_NULL) AccountResult credentials) {
+        public StaffApplicationView withCredentials(AccountResult result) {
+            return new StaffApplicationView(id, status, name, sex, type, email, phone, formClass,
+                    departmentHint, desiredRoles, notes, rejectReason, employeeId, employeeCode,
+                    submittedAt, decidedAt, finalizedAt, result);
+        }
+    }
 
     public record StaffApplicationReject(@NotBlank String reason) {}
 
@@ -169,7 +206,8 @@ public class StaffDtos {
             String formClass,
             String section,
             Set<String> managementLevels,
-            Boolean createLogin) {}
+            Boolean createLogin,
+            @Valid AccountOptions accountOptions) {}
 
     public record StaffPortalSettingsView(
             boolean enabled,

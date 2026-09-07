@@ -30,7 +30,14 @@ export class ScopeService {
   private restore(): Parcours | null {
     if (localStorage.getItem(ALL_KEY) === '1') return null;
     const raw = localStorage.getItem(SCOPE_KEY);
-    return raw ? (JSON.parse(raw) as Parcours) : null;
+    if (!raw) return null;
+    try {
+      const scope = JSON.parse(raw) as Parcours;
+      if (scope && ['maternelle', 'primary', 'secondary'].includes(scope.level)
+          && ['FR', 'EN'].includes(scope.subsystem)) return scope;
+    } catch { /* Invalid saved context should reopen the picker, not crash the app. */ }
+    localStorage.removeItem(SCOPE_KEY);
+    return null;
   }
 
   set(scope: Parcours): void {

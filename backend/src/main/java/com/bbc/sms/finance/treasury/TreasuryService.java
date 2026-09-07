@@ -276,7 +276,7 @@ public class TreasuryService {
         return account;
     }
 
-    private static void validateMovement(String type, TreasuryRecord from, TreasuryRecord to, ChartOfAccount offset) {
+    static void validateMovement(String type, TreasuryRecord from, TreasuryRecord to, ChartOfAccount offset) {
         if ("TRANSFER".equals(type)) {
             if (from == null || to == null || from.id().equals(to.id())) throw ApiException.badRequest("Un transfert doit avoir deux comptes de trésorerie différents.");
             if (offset != null) throw ApiException.badRequest("Un transfert ne peut pas utiliser de compte de contrepartie.");
@@ -285,14 +285,18 @@ public class TreasuryService {
         if (to == null && from == null) throw ApiException.badRequest("Sélectionnez le compte de trésorerie concerné.");
         if (to != null && from != null) throw ApiException.badRequest("Un dépôt ou retrait ne peut concerner qu'un seul compte de trésorerie.");
         if (offset == null) throw ApiException.badRequest("Sélectionnez le compte de contrepartie.");
+        if ("WITHDRAWAL".equals(type) && from == null)
+            throw ApiException.badRequest("Un retrait nécessite un compte de trésorerie source.");
+        if (("DEPOSIT".equals(type) || "OPENING".equals(type)) && to == null)
+            throw ApiException.badRequest("Un dépôt nécessite un compte de trésorerie destinataire.");
     }
 
     private static UUID debitAccount(String type, TreasuryRecord from, TreasuryRecord to, ChartOfAccount offset) {
-        return "WITHDRAWAL".equals(type) ? offset.getId() : (to != null ? to.chartAccountId() : from.chartAccountId());
+        return from != null && !"TRANSFER".equals(type) ? offset.getId() : to.chartAccountId();
     }
 
     private static UUID creditAccount(String type, TreasuryRecord from, TreasuryRecord to, ChartOfAccount offset) {
-        return "WITHDRAWAL".equals(type) ? from.chartAccountId() : (to != null && !"TRANSFER".equals(type) ? offset.getId() : from.chartAccountId());
+        return from != null ? from.chartAccountId() : offset.getId();
     }
 
     private static String accountSql() {

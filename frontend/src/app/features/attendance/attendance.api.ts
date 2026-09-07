@@ -25,7 +25,9 @@ export class AttendanceApi {
   updatePolicy(level: string, policy: Partial<AttendancePolicy>): Observable<AttendancePolicy> {
     return this.http.put<AttendancePolicy>(`${this.base}/policies/${level}`, policy);
   }
-  classes(): Observable<AttendanceClass[]> { return this.http.get<AttendanceClass[]>(`${this.base}/classes`); }
+  classes(date?: string): Observable<AttendanceClass[]> {
+    return this.http.get<AttendanceClass[]>(`${this.base}/classes`, {params: date ? {date} : {}});
+  }
   sessions(classId: string, date: string): Observable<AttendanceSessionSummary[]> {
     return this.http.get<AttendanceSessionSummary[]>(`${this.base}/sessions?classId=${classId}&date=${date}`);
   }

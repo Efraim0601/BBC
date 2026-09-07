@@ -11,7 +11,7 @@ import { I18nService, Lang } from '../../core/i18n.service';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [FormsModule],
   template: `
-    <div class="h-screen w-screen flex bg-surface overflow-hidden">
+    <div class="h-[100dvh] min-h-0 w-full flex bg-surface overflow-hidden">
       <!-- Left — brand panel -->
       <div class="hidden lg:flex w-1/2 relative overflow-hidden bg-gradient-to-br from-brand-700 to-brand-900 text-white">
         <div class="absolute -top-32 -right-24 w-[420px] h-[420px] rounded-full bg-gold-400/15 blur-3xl"></div>
@@ -60,7 +60,7 @@ import { I18nService, Lang } from '../../core/i18n.service';
       </div>
 
       <!-- Right — form -->
-      <div class="flex-1 flex items-center justify-center p-6 lg:p-12 relative scroll-y">
+      <div class="relative flex min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-6 pb-6 pt-20 lg:p-12">
         <div class="absolute top-6 right-6 flex items-center bg-slate-100 rounded-lg p-0.5">
           @for (l of langs; track l) {
             <button (click)="i18n.setLang(l)"
@@ -71,7 +71,7 @@ import { I18nService, Lang } from '../../core/i18n.service';
           }
         </div>
 
-        <div class="w-full max-w-md">
+        <div class="my-auto w-full max-w-md shrink-0 py-2">
           <div class="flex lg:hidden items-center gap-3 mb-8">
             <div class="w-12 h-12 bg-white rounded-lg p-1">
               <img src="bbc-logo.png" alt="BBC" class="w-full h-full object-contain" />

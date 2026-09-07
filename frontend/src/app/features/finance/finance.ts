@@ -11,6 +11,8 @@ import { TreasuryApi, TreasuryAccountView } from './treasury.api';
 import { ClassView } from '../../core/setup.api';
 import { AuthService } from '../../core/auth.service';
 import { I18nService } from '../../core/i18n.service';
+import { newRequestKey } from '../../core/request-key';
+import { validPaymentReceipt, netPaymentAmount, paymentStatusLabel } from './payment-state';
 import { SchoolService } from '../../core/school.service';
 import { FinanceSummary, PaymentView, Student } from '../../core/models';
 import { downloadCsv, stampedName } from '../../core/csv';
@@ -41,14 +43,18 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
           ? (fr() ? 'Encaissements, frais, débiteurs, dépenses' : 'Payments, fees, debtors, expenses')
           : (fr() ? 'Consultation — accès lecture seule' : 'View only — read access')">
         <div right class="grid w-full grid-cols-1 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center sm:justify-end">
+          @if (auth.canAction('TREASURY_ACCOUNT_VIEW')) {
           <a routerLink="/finance/treasury"
             class="inline-flex items-center justify-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-cyan-50 border border-cyan-200 text-cyan-800 hover:bg-cyan-100">
             <bbc-icon name="wallet" [s]="16" /> {{ fr() ? 'Comptes & mouvements' : 'Accounts & movements' }}
           </a>
+          }
+          @if (auth.canAction('FINANCE_STUDENT_ACCOUNT_VIEW')) {
           <a routerLink="/finance/student-accounts"
             class="inline-flex items-center justify-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 hover:bg-emerald-100">
             <bbc-icon name="users" [s]="16" /> {{ fr() ? 'Compte élève' : 'Student accounts' }}
           </a>
+          }
           @if (!canWrite) {
             <span class="inline-flex items-center justify-center gap-1.5 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1.5 rounded-lg">
               <bbc-icon name="eye" [s]="14" /> {{ fr() ? 'Lecture seule' : 'Read-only' }}
@@ -144,6 +150,7 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
                       <div class="min-w-0"><div class="break-words font-semibold text-ink">{{ p.studentName ?? (fr() ? 'Élève supprimé' : 'Deleted student') }}</div><div class="mt-0.5 break-all text-[11px] font-mono text-mute">{{ p.matricule || '—' }}@if (p.className) { · {{ p.className }} }</div></div>
                       <div class="shrink-0 text-right font-bold text-emerald-700">{{ money(p.amount) }}</div>
                     </div>
+                    <div class="mt-2 text-xs font-semibold" [class.text-rose-700]="!validReceipt(p)" [class.text-mute]="validReceipt(p)">{{ paymentStatus(p) }}@if ((p.refundedAmount ?? 0) > 0) { · {{ fr() ? 'Remboursé' : 'Refunded' }} {{ money(p.refundedAmount ?? 0) }} · Net {{ money(netPayment(p)) }} }</div>
                     <div class="mt-3 grid grid-cols-1 gap-2 text-xs min-[360px]:grid-cols-2">
                       <div class="rounded-lg bg-slate-50 p-2"><span class="block text-[10px] font-semibold uppercase text-mute">{{ fr() ? 'Reçu / date' : 'Receipt / date' }}</span><b class="mt-1 block break-all font-mono text-brand-700">{{ p.receiptNo }}</b><span class="text-mute">{{ p.paidOn }}</span></div>
                       <div class="rounded-lg bg-slate-50 p-2"><span class="block text-[10px] font-semibold uppercase text-mute">{{ fr() ? 'Paiement' : 'Payment' }}</span><b class="mt-1 block break-words">{{ methodLabel(p) }}</b><span class="break-all text-mute">{{ p.reference || (p.tranche ? 'T' + p.tranche : '—') }}</span></div>
@@ -187,7 +194,7 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
                           }
                         </td>
                         <td class="py-2.5 text-mute">{{ p.paidOn }}</td>
-                        <td class="py-2.5 text-right font-bold text-emerald-700">{{ money(p.amount) }}</td>
+                        <td class="py-2.5 text-right font-bold text-emerald-700">{{ money(p.amount) }}<div class="text-[11px] font-medium" [class.text-rose-700]="!validReceipt(p)" [class.text-mute]="validReceipt(p)">{{ paymentStatus(p) }}@if ((p.refundedAmount ?? 0) > 0) {<div>{{ fr() ? 'Remboursé' : 'Refunded' }} {{ money(p.refundedAmount ?? 0) }} · Net {{ money(netPayment(p)) }}</div>}</div></td>
                         <td class="py-2.5 pr-5 text-right">
                           <div class="flex items-center justify-end gap-2 opacity-70 group-hover:opacity-100 transition">
                             <button (click)="viewReceipt(p)" class="inline-flex min-w-11 items-center justify-center text-mute hover:text-brand-600"
@@ -938,6 +945,9 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
                     <div class="font-bold">✓ {{ fr() ? 'Frais entièrement réglés' : 'Fees paid in full' }}</div>
                     <p class="mt-0.5 text-xs">{{ fr() ? 'Aucun nouveau paiement n’est attendu pour cette grille.' : 'No additional payment is expected for this fee grid.' }}</p>
                   </div>
+                } @else if (st.legacyCollectionAllowed === false) {
+                  <p class="text-sm text-ink">{{ fr() ? 'Cet élève utilise les frais par échéances. Continuez dans son compte pour affecter le paiement aux bons frais.' : 'This student uses scheduled charges. Continue in collections to allocate the payment to the correct fees.' }}</p>
+                  <a routerLink="/finance/collections" [queryParams]="{q: st.matricule || st.studentName}" class="mt-2 inline-flex rounded-lg bg-brand-600 px-3 py-2 text-sm font-semibold text-white">{{ fr() ? 'Ouvrir les encaissements par échéance' : 'Open scheduled collections' }}</a>
                 } @else if (st.tranches.length) {
                   <div class="flex flex-wrap gap-1.5">
                     @for (t of st.tranches; track t.index) {
@@ -1044,13 +1054,13 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
             }
           </div>
           <div class="flex flex-col-reverse items-stretch justify-end gap-2 px-5 py-4 border-t border-slate-100 sm:flex-row sm:items-center">
-            <button (click)="closePayment()"
+            <button (click)="closePayment()" [disabled]="paymentSaving()"
               class="h-11 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50 sm:h-9">
               {{ i18n.t('cancel') }}
             </button>
             <button (click)="save()" [disabled]="!canSubmitPayment()"
               class="inline-flex h-11 items-center justify-center gap-2 px-3.5 text-sm font-semibold rounded-lg bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50 sm:h-9">
-              <bbc-icon name="receipt" [s]="16" /> {{ fr() ? 'Générer le reçu' : 'Generate receipt' }}
+              <bbc-icon name="receipt" [s]="16" /> {{ paymentSaving() ? (fr() ? 'Enregistrement…' : 'Saving…') : (fr() ? 'Générer le reçu' : 'Generate receipt') }}
             </button>
           </div>
         </div>
@@ -1061,21 +1071,22 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
     @if (receipt(); as r) {
       <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div class="absolute inset-0 bg-black/40" (click)="receipt.set(null)"></div>
-        <div class="relative flex max-h-[calc(100vh-2rem)] w-full max-w-3xl flex-col overflow-hidden rounded-xl2 bg-slate-100 shadow-card fade-in">
+        <div role="dialog" aria-modal="true" [attr.aria-label]="fr() ? 'Reçu de paiement' : 'Payment receipt'" class="relative flex max-h-[calc(100dvh-2rem)] min-w-0 w-full max-w-3xl flex-col overflow-hidden rounded-xl2 bg-slate-100 shadow-card fade-in">
           <div class="flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
             <div><div class="text-base font-semibold text-ink">{{ fr() ? 'Reçu de paiement' : 'Payment receipt' }}</div><div class="text-xs text-mute font-mono">{{ r.receiptNo }}</div></div>
-            <button (click)="receipt.set(null)" class="text-mute hover:text-ink"><bbc-icon name="x" [s]="18" /></button>
+            <button [attr.aria-label]="fr() ? 'Fermer le reçu' : 'Close receipt'" (click)="receipt.set(null)" class="text-mute hover:text-ink"><bbc-icon name="x" [s]="18" /></button>
           </div>
           @if (receiptError(); as message) { <div class="mx-5 mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{{ message }}</div> }
-          <div class="overflow-auto p-5">
-            <article class="receipt-print-paper finance-payment-sheet flex min-h-[700px] flex-col rounded-lg border border-slate-200 bg-white p-8 shadow-sm">
-              <div class="flex items-center gap-4 pb-5 border-b-[3px] border-brand-600">
+          @if (!validReceipt(r)) { <div class="mx-5 mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{{ fr() ? 'Paiement annulé : ce reçu ne constitue plus une preuve de paiement.' : 'Reversed payment: this receipt is no longer valid proof of payment.' }}</div> }
+          <div class="min-h-0 overflow-y-auto overflow-x-hidden p-3 sm:p-5">
+            <article class="receipt-print-paper finance-payment-sheet flex min-w-0 sm:min-h-[700px] flex-col rounded-lg border border-slate-200 bg-white p-4 sm:p-8 shadow-sm [overflow-wrap:anywhere]">
+              <div class="flex flex-wrap items-center gap-3 sm:gap-4 pb-5 border-b-[3px] border-brand-600">
                 <div class="w-14 h-14 rounded-xl bg-brand-700 text-gold-400 flex items-center justify-center font-display font-bold text-base shrink-0">BBC</div>
                 <div class="flex-1 min-w-0">
-                  <div class="font-display text-xl font-bold text-brand-700 leading-tight">{{ school.profile()?.name || 'Bayo Bilingual Complex' }}</div>
+                  <div class="font-display text-base sm:text-xl font-bold text-brand-700 leading-tight">{{ school.profile()?.name || 'Bayo Bilingual Complex' }}</div>
                   <div class="mt-1 flex flex-wrap gap-x-1 text-[11px] text-mute"><span>{{ school.location() || 'Maroua, Cameroun' }}</span>@if (school.profile()?.phone; as phone) { <span>· {{ phone }}</span> }@if (school.profile()?.email; as email) { <span>· {{ email }}</span> }</div>
                 </div>
-                <div class="text-right">
+                <div class="w-full sm:w-auto text-left sm:text-right">
                   <div class="text-[10px] uppercase tracking-wider text-brand-600 font-bold">{{ fr() ? 'Reçu de paiement' : 'Payment receipt' }}</div>
                   <div class="text-sm font-mono font-bold text-ink">{{ r.receiptNo }}</div>
                   <div class="mt-1 text-[10px] text-mute">{{ r.paidOn }}</div>
@@ -1091,38 +1102,41 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
                 <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
                   <div class="text-[10px] uppercase tracking-wide text-mute font-semibold">{{ fr() ? 'Paiement' : 'Payment' }}</div>
                   <div class="mt-1 font-semibold text-ink">{{ fr() ? 'Enregistré le' : 'Recorded on' }} {{ r.paidOn }}</div>
-                  <div class="mt-1 text-xs text-mute">{{ fr() ? 'Année scolaire' : 'Academic year' }} {{ school.profile()?.academicYear || '—' }}</div>
+                  <div class="mt-1 text-xs text-mute">{{ school.profile()?.academicYear || (fr() ? 'Année scolaire non renseignée' : 'Academic year not configured') }}</div>
                 </div>
               </div>
 
               <div class="overflow-hidden rounded-xl border border-slate-200 bg-white">
-                <div class="flex items-center justify-between px-5 py-3.5 border-b border-slate-100">
+                <div class="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-5 py-3.5 border-b border-slate-100">
                   <span class="text-sm font-semibold text-ink">@if (r.tranche) { {{ fr() ? 'Tranche' : 'Installment' }} {{ r.tranche }} — }{{ fr() ? 'Frais scolaires' : 'School fees' }}</span>
                   <span class="text-sm font-mono font-bold">{{ money(r.amount) }}</span>
                 </div>
-                <div class="flex items-center justify-between px-5 py-4 bg-emerald-50">
-                  <span class="text-sm font-bold text-brand-700">{{ fr() ? 'TOTAL PAYÉ' : 'TOTAL PAID' }}</span>
-                  <span class="text-2xl font-bold text-brand-700 font-mono">{{ money(r.amount) }}</span>
+                <div class="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-5 py-4 bg-emerald-50">
+                  <span class="text-sm font-bold text-brand-700">{{ fr() ? 'TOTAL NET PAYÉ' : 'NET AMOUNT PAID' }}</span>
+                  <span class="text-xl sm:text-2xl font-bold text-brand-700 font-mono">{{ money(netPayment(r)) }}</span>
                 </div>
+                @if ((r.refundedAmount ?? 0) > 0) { <div class="px-3 py-3 text-sm text-amber-800 sm:px-5">{{ fr() ? 'Remboursé depuis ce versement' : 'Refunded from this payment' }} : {{ money(r.refundedAmount ?? 0) }}</div> }
               </div>
 
               <div class="mt-5 grid grid-cols-1 gap-x-8 gap-y-4 text-xs sm:grid-cols-2">
                 <div><div class="text-[10px] uppercase tracking-wide text-mute font-semibold">{{ fr() ? 'Méthode' : 'Method' }}</div><div class="mt-1 font-semibold text-ink">{{ methodLabel(r) }}</div></div>
                 <div><div class="text-[10px] uppercase tracking-wide text-mute font-semibold">{{ fr() ? 'Compte crédité' : 'Credited account' }}</div><div class="mt-1 font-semibold text-ink">{{ r.treasuryAccountName || '—' }}</div></div>
                 <div><div class="text-[10px] uppercase tracking-wide text-mute font-semibold">{{ fr() ? 'Référence' : 'Reference' }}</div><div class="mt-1 font-semibold text-ink">{{ r.reference || '—' }}</div></div>
-                <div><div class="text-[10px] uppercase tracking-wide text-mute font-semibold">{{ fr() ? 'Statut' : 'Status' }}</div><div class="mt-1"><bbc-status-pill status="paid" /></div></div>
+                <div><div class="text-[10px] uppercase tracking-wide text-mute font-semibold">{{ fr() ? 'Statut' : 'Status' }}</div><div class="mt-1 font-semibold">{{ paymentStatus(r) }}</div></div>
               </div>
 
-              <div class="mt-auto pt-12"><div class="pt-4 border-t border-slate-200 flex items-end justify-between">
-                <div class="text-[10px] text-mute leading-relaxed">{{ fr() ? 'Reçu généré électroniquement — valide sans signature.' : 'Electronically generated — valid without signature.' }}<br />{{ fr() ? 'Conservez ce reçu pour vos archives.' : 'Keep this receipt for your records.' }}</div>
-                <div class="text-right"><div class="font-mono text-xs font-bold text-ink">{{ r.receiptNo }}</div><div class="text-[10px] text-mute">BBC SMS</div></div>
+              <div class="mt-auto pt-6 sm:pt-12"><div class="pt-4 border-t border-slate-200 flex flex-wrap items-end justify-between gap-3">
+                <div class="text-[10px] text-mute leading-relaxed">{{ validReceipt(r) ? (fr() ? 'Duplicata généré électroniquement.' : 'Electronically generated duplicate.') : (fr() ? 'ANNULÉ — consultation de l’historique uniquement.' : 'REVERSED — historical record only.') }}<br />{{ fr() ? 'Conservez ce reçu pour vos archives.' : 'Keep this receipt for your records.' }}</div>
+                <div class="w-full sm:w-auto text-left sm:text-right"><div class="font-mono text-xs font-bold text-ink">{{ r.receiptNo }}</div><div class="text-[10px] text-mute">BBC SMS</div></div>
               </div></div>
             </article>
           </div>
-          <div class="flex items-center justify-end gap-2 border-t border-slate-200 bg-white px-5 py-4">
+          <div class="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-slate-200 bg-white px-3 sm:px-5 py-3">
             <button (click)="receipt.set(null)" class="h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">{{ fr() ? 'Fermer' : 'Close' }}</button>
+            @if (validReceipt(r)) {
             <button (click)="downloadReceiptPdf()" [disabled]="receiptDownloadBusy()" class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-brand-700 hover:bg-slate-50 disabled:opacity-50"><bbc-icon name="download" [s]="16" /> {{ receiptDownloadBusy() ? '…' : (fr() ? 'Télécharger PDF' : 'Download PDF') }}</button>
             <button (click)="print()" class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-brand-600 text-white hover:bg-brand-700"><bbc-icon name="printer" [s]="16" /> {{ fr() ? 'Imprimer' : 'Print' }}</button>
+            }
           </div>
         </div>
       </div>
@@ -1130,10 +1144,13 @@ type Tab = 'payments' | 'debtors' | 'expenses' | 'fees' | 'channels';
   `,
 })
 export class FinanceComponent {
+  protected validReceipt = validPaymentReceipt;
+  protected netPayment = netPaymentAmount;
+  protected paymentStatus = (p: PaymentView) => paymentStatusLabel(p, this.fr());
   protected i18n = inject(I18nService);
   private api = inject(FinanceApi);
   private studentApi = inject(StudentApi);
-  private auth = inject(AuthService);
+  protected auth = inject(AuthService);
   private treasuryApi = inject(TreasuryApi);
   protected school = inject(SchoolService);
 
@@ -1151,6 +1168,9 @@ export class FinanceComponent {
   protected paymentPage = signal(1);
   protected paymentPageSize = signal(25);
   protected paymentOpen = signal(false);
+  protected paymentSaving = signal(false);
+  private paymentRequestKey = '';
+  private paymentRequestFingerprint = '';
   protected receipt = signal<PaymentView | null>(null);
   protected receiptDownloadBusy = signal(false);
   protected receiptError = signal<string | null>(null);
@@ -1363,6 +1383,7 @@ export class FinanceComponent {
 
   /** Un canal peut exiger une référence : le bouton reste inactif tant qu'elle manque. */
   protected canSubmitPayment(): boolean {
+    if (this.paymentSaving() || this.statement()?.legacyCollectionAllowed === false) return false;
     if (!this.draft.studentId || !this.draft.treasuryAccountId || !!this.paymentAmountProblem()) return false;
     const ch = this.selectedChannel();
     if (!ch) return false;
@@ -1723,9 +1744,9 @@ export class FinanceComponent {
   protected exportPayments(): void {
     downloadCsv(
       stampedName('encaissements'),
-      ['Recu', 'Eleve', 'Matricule', 'Classe', 'Tranche', 'Moyen', 'Reference', 'Date', 'Montant'],
+      ['Recu', 'Eleve', 'Matricule', 'Classe', 'Tranche', 'Moyen', 'Reference', 'Date', 'Montant', 'Statut', 'Rembourse', 'Net'],
       this.filtered().map((p) => [p.receiptNo, p.studentName, p.matricule, p.className,
-        p.tranche ?? '', this.methodLabel(p), p.reference ?? '', p.paidOn, p.amount]),
+        p.tranche ?? '', this.methodLabel(p), p.reference ?? '', p.paidOn, p.amount, this.paymentStatus(p), p.refundedAmount ?? 0, netPaymentAmount(p)]),
     );
   }
 
@@ -1756,6 +1777,9 @@ export class FinanceComponent {
   }
 
   protected openPayment(): void {
+    if (this.paymentSaving()) return;
+    this.paymentRequestKey = '';
+    this.paymentRequestFingerprint = '';
     this.draft = this.blank();
     // Premier canal actif par défaut — l'espèce n'est pas toujours acceptée.
     const first = this.activeChannels()[0];
@@ -1785,6 +1809,7 @@ export class FinanceComponent {
   }
 
   protected closePayment(): void {
+    if (this.paymentSaving()) return;
     this.paymentOpen.set(false);
   }
 
@@ -1794,7 +1819,10 @@ export class FinanceComponent {
     this.statement.set(null);
     this.payStudents.set([]);
     if (!name) return;
-    this.studentApi.list(name).subscribe({ next: (r) => this.payStudents.set(r), error: () => this.payStudents.set([]) });
+    this.studentApi.list(name).subscribe({
+      next: (r) => { if (this.payClass() === name) this.payStudents.set(r); },
+      error: () => { if (this.payClass() === name) this.payStudents.set([]); },
+    });
   }
 
   /** À la sélection d'un élève, on charge sa situation : grille, tranches et reste dû. */
@@ -1807,11 +1835,12 @@ export class FinanceComponent {
     if (!studentId) return;
     this.api.statement(studentId).subscribe({
       next: (st) => {
+        if (this.draft.studentId !== studentId) return;
         this.statement.set(st);
         const next = st.tranches.find((t) => t.remaining > 0);
-        if (next) this.pickTranche(next);
+        if (next && st.legacyCollectionAllowed !== false) this.pickTranche(next);
       },
-      error: () => this.statement.set(null),
+      error: () => { if (this.draft.studentId === studentId) this.statement.set(null); },
     });
   }
 
@@ -1844,6 +1873,7 @@ export class FinanceComponent {
     this.receipt.set(p);
   }
   protected print(): void {
+    if (!validPaymentReceipt(this.receipt())) return;
     document.body.classList.add('printing-receipt');
     window.print();
     window.setTimeout(() => document.body.classList.remove('printing-receipt'), 250);
@@ -1851,7 +1881,7 @@ export class FinanceComponent {
 
   protected async downloadReceiptPdf(): Promise<void> {
     const payment = this.receipt();
-    if (!payment) return;
+    if (!validPaymentReceipt(payment) || !payment) return;
     this.receiptDownloadBusy.set(true);
     this.receiptError.set(null);
     try {
@@ -1881,8 +1911,16 @@ export class FinanceComponent {
   protected save(): void {
     if (!this.canSubmitPayment()) return;
     this.payError.set(null);
-    this.api.recordPayment(this.draft).subscribe({
+    const payload = { ...this.draft };
+    const fingerprint = JSON.stringify(payload);
+    if (fingerprint !== this.paymentRequestFingerprint || !this.paymentRequestKey) {
+      this.paymentRequestFingerprint = fingerprint;
+      this.paymentRequestKey = newRequestKey();
+    }
+    this.paymentSaving.set(true);
+    this.api.recordPayment(payload, this.paymentRequestKey).subscribe({
       next: (created) => {
+        this.paymentSaving.set(false);
         this.paymentOpen.set(false);
         this.draft = this.blank();
         this.statement.set(null);
@@ -1892,8 +1930,11 @@ export class FinanceComponent {
         if (created) this.receipt.set(created);
       },
       // Le serveur refuse un canal désactivé ou une référence manquante : son message est le plus précis.
-      error: (e) => this.payError.set(e?.error?.message
-        ?? (this.fr() ? 'Encaissement impossible.' : 'Could not record the payment.')),
+      error: (e) => {
+        this.paymentSaving.set(false);
+        this.payError.set(e?.error?.message
+          ?? (this.fr() ? 'Encaissement non confirmé. Réessayez sans modifier les informations : le même paiement ne sera pas enregistré deux fois.' : 'Payment not confirmed. Retry without changing the details: the same payment will not be recorded twice.'));
+      },
     });
   }
 

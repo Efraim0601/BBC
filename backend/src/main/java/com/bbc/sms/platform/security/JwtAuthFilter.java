@@ -2,7 +2,6 @@ package com.bbc.sms.platform.security;
 
 import com.bbc.sms.platform.tenant.ParcoursContext;
 import com.bbc.sms.platform.tenant.TenantContext;
-import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -20,9 +19,9 @@ import java.io.IOException;
 @Component
 public class JwtAuthFilter extends OncePerRequestFilter {
 
-    private final JwtService jwt;
+    private final SessionTokenService sessions;
 
-    public JwtAuthFilter(JwtService jwt) { this.jwt = jwt; }
+    public JwtAuthFilter(SessionTokenService sessions) { this.sessions = sessions; }
 
     @Override
     protected void doFilterInternal(@NonNull HttpServletRequest request,
@@ -31,25 +30,21 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         String header = request.getHeader("Authorization");
         if (header != null && header.startsWith("Bearer ")) {
             try {
-                Claims claims = jwt.parse(header.substring(7));
-                if ("access".equals(claims.get("typ", String.class))) {
-                    AppUserPrincipal principal = jwt.toPrincipal(claims);
-                    var auth = new UsernamePasswordAuthenticationToken(
-                            principal, null, principal.getAuthorities());
-                    auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-                    SecurityContextHolder.getContext().setAuthentication(auth);
-                    TenantContext.set(principal.schoolId());
-                    // Optional parcours scope (Maternelle/Primaire/Secondaire × FR/EN) used
-                    // to compartmentalise list views. Validated against the user's allowed
-                    // parcours by @parcours when an endpoint requires it.
-                    ParcoursContext.set(ParcoursContext.parse(request.getHeader("X-Parcours")));
-                    // Verrou de section d'un administrateur de cycle : il se lit dans le
-                    // code de rôle, donc sans requête. Contrairement au parcours, il ne
-                    // vient pas du client — un en-tête absent ne l'affranchit de rien.
-                    ParcoursContext.lockSection(SectionRoles.sectionOf(principal.roleCode()));
-                }
+                AppUserPrincipal principal = sessions.requireAccess(header.substring(7));
+                var requestedScope = ParcoursContext.parse(request.getHeader("X-Parcours"));
+                var auth = new UsernamePasswordAuthenticationToken(
+                        principal, null, principal.getAuthorities());
+                auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                SecurityContextHolder.getContext().setAuthentication(auth);
+                TenantContext.set(principal.schoolId());
+                // The client may narrow its parcours; the server controls the section lock.
+                ParcoursContext.set(requestedScope);
+                ParcoursContext.lockSection(SectionRoles.sectionOf(principal.roleCode()));
             } catch (Exception ignored) {
-                // invalid/expired token -> stays anonymous, secured endpoints will 401
+                // Fail closed even if authentication failed after a context was bound.
+                SecurityContextHolder.clearContext();
+                TenantContext.clear();
+                ParcoursContext.clear();
             }
         }
         try {

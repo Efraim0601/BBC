@@ -103,7 +103,16 @@ public class FeeDtos {
             int progressPct,
             String status,
             List<TrancheStatusView> tranches,
-            List<PaymentLineView> payments) {}
+            List<PaymentLineView> payments,
+            boolean legacyCollectionAllowed) {
+        public StudentFeeStatementView(UUID studentId, String studentName, String matricule,
+                                       String className, String gridSource, long total, long paid,
+                                       long balance, int progressPct, String status,
+                                       List<TrancheStatusView> tranches, List<PaymentLineView> payments) {
+            this(studentId, studentName, matricule, className, gridSource, total, paid, balance,
+                    progressPct, status, tranches, payments, true);
+        }
+    }
 
     public record PaymentLineView(
             String receiptNo,

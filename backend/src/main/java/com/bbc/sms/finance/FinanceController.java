@@ -26,8 +26,9 @@ public class FinanceController {
     @PostMapping("/payments")
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("@perm.canAction('PAYMENT_COLLECT')")
-    public PaymentView recordPayment(@Valid @RequestBody PaymentRequest in) {
-        return service.recordPayment(in);
+    public PaymentView recordPayment(@Valid @RequestBody PaymentRequest in,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+        return service.recordPayment(in, idempotencyKey);
     }
 
     @GetMapping("/expenses")

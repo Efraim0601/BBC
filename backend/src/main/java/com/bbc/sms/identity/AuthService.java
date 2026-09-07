@@ -6,7 +6,9 @@ import com.bbc.sms.platform.security.AppUserPrincipal;
 import com.bbc.sms.platform.security.JwtService;
 import com.bbc.sms.platform.security.ParcoursAccessService;
 import com.bbc.sms.platform.security.SectionRoles;
-import io.jsonwebtoken.Claims;
+import com.bbc.sms.platform.security.SessionTokenService;
+import jakarta.persistence.EntityManager;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -24,23 +26,37 @@ public class AuthService {
     private final JwtService jwt;
     private final JdbcTemplate jdbc;
     private final ParcoursAccessService parcoursAccess;
+    private final SessionTokenService sessions;
+    private final EntityManager entityManager;
 
     public AuthService(AppUserRepository users, SchoolRepository schools,
                        PasswordEncoder encoder, JwtService jwt, JdbcTemplate jdbc,
-                       ParcoursAccessService parcoursAccess) {
+                       ParcoursAccessService parcoursAccess, SessionTokenService sessions,
+                       EntityManager entityManager) {
         this.users = users;
         this.schools = schools;
         this.encoder = encoder;
         this.jwt = jwt;
         this.jdbc = jdbc;
         this.parcoursAccess = parcoursAccess;
+        this.sessions = sessions;
+        this.entityManager = entityManager;
     }
 
-    @Transactional
+    @Transactional(noRollbackFor = ApiException.class)
     public TokenResponse login(LoginRequest req) {
-        AppUser user = resolveUser(req);
+        AppUser candidate = resolveUser(req);
+        AppUser user = users.lockActiveLoginById(candidate.getId())
+                .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "Identifiants invalides"));
+        // resolveUser loaded this entity before the lock. Refresh its first-level-cache
+        // state after acquiring the lock, otherwise concurrent attempts all save 0 + 1.
+        entityManager.refresh(user);
         if (user.getLockedUntil() != null && user.getLockedUntil().isAfter(java.time.OffsetDateTime.now())) {
             throw new ApiException(HttpStatus.LOCKED, "Compte temporairement verrouillé après plusieurs échecs");
+        }
+        if (user.getLockedUntil() != null) {
+            user.setFailedAttempts(0);
+            user.setLockedUntil(null);
         }
         if (!encoder.matches(req.password(), user.getPasswordHash())) {
             user.setFailedAttempts(user.getFailedAttempts() + 1);
@@ -57,18 +73,11 @@ public class AuthService {
 
     @Transactional(readOnly = true)
     public TokenResponse refresh(RefreshRequest req) {
-        Claims claims;
         try {
-            claims = jwt.parse(req.refreshToken());
-        } catch (Exception e) {
+            return tokens(sessions.requireUser(req.refreshToken(), "refresh"));
+        } catch (AuthenticationException e) {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "Refresh token invalide");
         }
-        if (!"refresh".equals(claims.get("typ", String.class))) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, "Token non valide pour le rafraîchissement");
-        }
-        AppUser user = users.findById(UUID.fromString(claims.get("uid", String.class)))
-                .orElseThrow(() -> ApiException.notFound("Utilisateur"));
-        return tokens(user);
     }
 
     private AppUser resolveUser(LoginRequest req) {
@@ -88,8 +97,8 @@ public class AuthService {
         AppUserPrincipal principal = new AppUserPrincipal(
                 user.getId(), user.getSchoolId(), user.getUsername(),
                 user.getRoleCode(), user.getDisplayName(), user.getInitials());
-        String access = jwt.issueAccess(principal);
-        String refresh = jwt.issueRefresh(principal);
+        String access = jwt.issueAccess(principal, user.getCredentialsVersion());
+        String refresh = jwt.issueRefresh(principal, user.getCredentialsVersion());
         return new TokenResponse(access, refresh, jwt.getAccessMs(), buildUserView(user));
     }
 

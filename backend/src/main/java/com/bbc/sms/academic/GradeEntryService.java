@@ -197,12 +197,8 @@ public class GradeEntryService {
         AcademicGradePacket packet = packet(period, in.classId(), subjectCode, subject);
         String previousPacketStatus = packet.getStatus();
         adoptAssignment(packet, subject);
-        if ("ACCEPTED".equals(packet.getStatus()) || "LOCKED".equals(packet.getStatus())) {
-            windows.assertOpen(period.getId(), AcademicWindowPolicyService.Action.CORRECTION);
-            packet.setStatus("DRAFT");
-        } else {
-            windows.assertOpen(period.getId(), AcademicWindowPolicyService.Action.GRADE_ENTRY);
-        }
+        requireEditablePacket(packet.getStatus());
+        windows.assertOpen(period.getId(), AcademicWindowPolicyService.Action.GRADE_ENTRY);
         if (in.packetVersion() != null && packet.getId() != null && in.packetVersion() != packet.getVersion()) {
             throw ApiException.conflict("La feuille de saisie a été modifiée par un autre utilisateur. Rechargez-la avant d'enregistrer.");
         }
@@ -307,8 +303,10 @@ public class GradeEntryService {
             updateWorkflow(period.getId(), in.classId(), subjectCode, "SUBMITTED");
         } else {
             requireIndependentReviewer(packet.getSubmittedBy(), currentUserId());
-            windows.assertOpen(period.getId(), AcademicWindowPolicyService.Action.REVIEW);
-            if (!"SUBMITTED".equals(previousPacketStatus)) {
+            boolean reopening = "RETURN".equals(action) && Set.of("ACCEPTED", "LOCKED").contains(previousPacketStatus);
+            windows.assertOpen(period.getId(), reopening ? AcademicWindowPolicyService.Action.CORRECTION : AcademicWindowPolicyService.Action.REVIEW);
+            if (reopening) invalidateValidatedBulletins(period.getId(), period.getAcademicSessionId(), in.classId());
+            if (!"SUBMITTED".equals(previousPacketStatus) && !reopening) {
                 throw ApiException.conflict("Seule une feuille soumise peut être acceptée ou retournée.");
             }
             if ("RETURN".equals(action) && (in.reason() == null || in.reason().isBlank())) {
@@ -323,6 +321,12 @@ public class GradeEntryService {
         packets.saveAndFlush(packet);
         recordPacketTransition(packet, previousPacketStatus, packet.getStatus(), in.reason());
         return view(period.getId(), in.classId(), subjectCode);
+    }
+
+    static void requireEditablePacket(String status) {
+        if (status != null && !Set.of("DRAFT", "RETURNED").contains(status)) {
+            throw ApiException.conflict("Cette feuille est verrouillée. Un responsable doit la retourner pour correction avant toute modification.");
+        }
     }
 
     private void updateWorkflow(UUID periodId, UUID classId, String subjectCode, String state) {
@@ -455,7 +459,7 @@ public class GradeEntryService {
 
     private AcademicGradePacket packet(AcademicReportingPeriod period, UUID classId, String subjectCode,
                                        GradeEntrySubjectView subject) {
-        return packets.findBySchoolIdAndReportingPeriodIdAndClassIdAndSubjectCode(TenantContext.get(), period.getId(), classId, subjectCode).orElseGet(() -> {
+        return packets.findForUpdate(TenantContext.get(), period.getId(), classId, subjectCode).orElseGet(() -> {
             AcademicGradePacket p = new AcademicGradePacket(); p.setSchoolId(TenantContext.get()); p.setAcademicSessionId(period.getAcademicSessionId());
             p.setReportingPeriodId(period.getId()); p.setClassId(classId); p.setSubjectCode(subjectCode); return p;
         });

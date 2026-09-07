@@ -21,6 +21,8 @@ import {
   ListPaginationComponent, paginateRows,
 } from '../../core/ui';
 import { PhotoApi } from '../../core/photo.api';
+import { StaffLoginOptionsComponent, validStaffUsername } from './staff-login-options';
+import { StaffCredentialsDialogComponent, StaffCredentialSheet } from './staff-credentials-dialog';
 
 const fmtMoney = (n: number) => `${Math.round(n).toLocaleString('fr-FR')} FCFA`;
 const fmtShort = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? Math.round(n / 1e3) + 'k' : '' + n);
@@ -39,6 +41,7 @@ interface StaffDocumentDraft {
     FormsModule, DatePipe, RouterLink, IconComponent, CardComponent, KpiComponent, PageHeaderComponent,
     EmptyComponent, AvatarComponent, TabsComponent, ChipFilterComponent,
     DataTableComponent, CellTemplateDirective, PhotoCaptureComponent, ListPaginationComponent,
+    StaffLoginOptionsComponent, StaffCredentialsDialogComponent,
   ],
   template: `
     <div class="fade-in max-w-7xl mx-auto">
@@ -51,11 +54,13 @@ interface StaffDocumentDraft {
               class="inline-flex items-center justify-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
               <bbc-icon name="download" [s]="16" /> {{ fr() ? 'Exporter' : 'Export' }}
             </button>
-            @if (canWrite) {
+            @if (auth.canAction('PAYROLL_VIEW')) {
               <a routerLink="/finance/payroll"
                 class="inline-flex items-center justify-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-violet-50 border border-violet-200 text-violet-700 hover:bg-violet-100">
                 {{ fr() ? 'Traiter la paie dans Finance' : 'Process payroll in Finance' }}
               </a>
+            }
+            @if (canWrite) {
               <button (click)="downloadStaffTemplate()"
                 class="inline-flex items-center justify-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
                 {{ fr() ? 'Modèle CSV' : 'CSV template' }}
@@ -225,7 +230,7 @@ interface StaffDocumentDraft {
                           [class]="e.type === 'Permanent' ? 'bg-emerald-400 text-emerald-900' : 'bg-amber-400 text-amber-900'">{{ e.type }}</span>
                       </div>
                     </div>
-                    @if (canWrite) {
+                    @if (canManageEmployee(e)) {
                       <div class="flex flex-col gap-1.5 shrink-0">
                         <button (click)="openEdit(e)"
                           class="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-lg bg-gold-400 text-brand-900 hover:bg-gold-300">
@@ -302,27 +307,26 @@ interface StaffDocumentDraft {
                   <!-- Login account -->
                   <div>
                     <div class="text-[11px] uppercase tracking-wider text-mute font-semibold mb-2">{{ fr() ? 'Compte de connexion' : 'Login account' }}</div>
-                    <div class="flex items-center justify-between gap-3 p-3 rounded-lg bg-slate-50">
+                    <div class="flex flex-col items-start gap-3 p-3 rounded-lg bg-slate-50 sm:flex-row sm:items-center sm:justify-between">
                       <div class="min-w-0">
                         @if (e.hasLogin) {
                           <div class="text-sm font-semibold text-ink">
                             {{ fr() ? 'Identifiant' : 'Username' }} : <span class="font-mono">{{ e.username }}</span>
                           </div>
                           <div class="text-[11px] text-mute mt-0.5">
-                            {{ fr() ? 'Le mot de passe n’est jamais affiché — réinitialisez pour en envoyer un nouveau par e-mail.'
-                                    : 'The password is never shown — reset to e-mail a new one.' }}
+                            {{ canManageEmployee(e)
+                              ? (fr() ? 'Réinitialisez pour obtenir un nouveau mot de passe à partager. L’envoi par e-mail est facultatif.' : 'Reset to get a new password to share. Email delivery is optional.')
+                              : (fr() ? 'Compte en lecture seule. Contactez l’administrateur pour modifier son accès.' : 'Read-only account. Contact the administrator to change its access.') }}
                           </div>
                         } @else {
                           <div class="text-sm font-semibold text-ink">{{ fr() ? 'Aucun compte de connexion' : 'No login account' }}</div>
                           <div class="text-[11px] text-mute mt-0.5">
-                            {{ e.email
-                                ? (fr() ? 'Créez le compte pour envoyer les identifiants par e-mail.' : 'Create the account to e-mail the credentials.')
-                                : (fr() ? 'Ajoutez d’abord un e-mail à la fiche.' : 'Add an e-mail to the record first.') }}
+                            {{ fr() ? 'Créez un compte et obtenez les identifiants à l’écran, même sans e-mail.' : 'Create an account and get the credentials on screen, even without email.' }}
                           </div>
                         }
                       </div>
-                      @if (canWrite) {
-                        <button (click)="resetCredentials(e)" [disabled]="resetting() || (!e.hasLogin && !e.email)"
+                      @if (canManageEmployee(e)) {
+                        <button (click)="openAccountDialog(e)" [disabled]="resetting()"
                           class="shrink-0 inline-flex items-center gap-1.5 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50 disabled:opacity-50">
                           <bbc-icon name="send" [s]="15" />
                           {{ e.hasLogin ? (fr() ? 'Réinitialiser' : 'Reset') : (fr() ? 'Créer le compte' : 'Create account') }}
@@ -356,7 +360,9 @@ interface StaffDocumentDraft {
                       }
                     </div>
 
-                    @if (profileDocumentsBusy()) {
+                    @if (e.canViewDocuments === false) {
+                      <div class="text-xs text-mute py-2">{{ fr() ? 'Ce contact est partagé. Son dossier RH privé reste réservé à son périmètre de gestion.' : 'This is a shared contact. Its private HR dossier is restricted to its management scope.' }}</div>
+                    } @else if (profileDocumentsBusy()) {
                       <div class="text-xs text-mute py-2">{{ fr() ? 'Chargement des documents…' : 'Loading documents…' }}</div>
                     } @else if (profileDocuments().length) {
                       <div class="grid min-w-0 gap-2 sm:grid-cols-2">
@@ -942,11 +948,14 @@ interface StaffDocumentDraft {
                       }
                     </div>
                   }
-                  <label class="flex items-start gap-2 cursor-pointer" [class.opacity-50]="!fa.email">
+                  <label class="flex items-start gap-2 cursor-pointer">
                     <input type="checkbox" [ngModel]="finalizeCreateLogin()" (ngModelChange)="finalizeCreateLogin.set($event)"
-                      [disabled]="!fa.email" class="mt-0.5 w-4 h-4 rounded border-slate-300 text-brand-600" />
-                    <span class="text-sm">{{ fr() ? 'Créer le compte de connexion (e-mail requis)' : 'Create login account (e-mail required)' }}</span>
+                      class="mt-0.5 w-4 h-4 rounded border-slate-300 text-brand-600" />
+                    <span class="text-sm">{{ fr() ? 'Créer le compte de connexion' : 'Create login account' }}</span>
                   </label>
+                  @if (finalizeCreateLogin()) {
+                    <bbc-staff-login-options [email]="fa.email" [(username)]="loginUsername" [(sendEmail)]="sendCredentialEmail" />
+                  }
                   <div class="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
                     <button type="button" (click)="finalizeApp.set(null)" class="h-11 px-4 rounded-lg bg-slate-100 text-sm font-semibold sm:h-9">{{ i18n.t('cancel') }}</button>
                     <button type="button" (click)="doFinalize()" [disabled]="finalizing()"
@@ -1138,23 +1147,22 @@ interface StaffDocumentDraft {
                   </select>
                 </label>
                 <label class="block">
-                  <span class="text-xs font-semibold text-ink">Email</span>
+                  <span class="text-xs font-semibold text-ink">{{ fr() ? 'E-mail (facultatif)' : 'Email (optional)' }}</span>
                   <input type="email" [(ngModel)]="draft.email"
                     class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
                 </label>
                 <label class="block">
-                  <span class="text-xs font-semibold text-ink">{{ fr() ? 'Téléphone' : 'Phone' }}</span>
-                  <input [(ngModel)]="draft.phone" placeholder="+237 6XX XX XX XX"
+                  <span class="text-xs font-semibold text-ink">{{ fr() ? 'Téléphone / WhatsApp (facultatif)' : 'Phone / WhatsApp (optional)' }}</span>
+                  <input type="tel" [(ngModel)]="draft.phone" placeholder="+237 6XX XX XX XX"
                     class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 focus:outline-none focus:border-brand-400" />
+                  <span class="mt-1 block text-xs text-mute">{{ fr() ? 'Ajoutez l’indicatif du pays (+237…) pour le partage par WhatsApp.' : 'Include the country code (+237…) for WhatsApp sharing.' }}</span>
                 </label>
               </div>
 
               @if (!editId()) {
                 <div class="mt-4 p-3 rounded-lg border border-slate-200 bg-slate-50/60">
-                  <label class="flex items-start gap-2.5 cursor-pointer select-none"
-                    [class.opacity-50]="!draft.email?.trim()">
+                  <label class="flex items-start gap-2.5 cursor-pointer select-none">
                     <input type="checkbox" [ngModel]="createLogin()" (ngModelChange)="createLogin.set($event)"
-                      [disabled]="!draft.email?.trim()"
                       class="mt-0.5 w-4 h-4 rounded border-slate-300 text-brand-600 focus:ring-brand-400" />
                     <span>
                       <span class="text-sm font-semibold text-ink flex items-center gap-1.5">
@@ -1162,14 +1170,15 @@ interface StaffDocumentDraft {
                         {{ fr() ? 'Créer un compte de connexion' : 'Create a login account' }}
                       </span>
                       <span class="text-[11px] text-mute block mt-0.5">
-                        {{ draft.email?.trim()
-                            ? (fr() ? 'Les identifiants seront envoyés par e-mail à ' + draft.email + '. Le rôle du compte est le rôle principal ci-dessous.'
-                                    : 'Credentials will be e-mailed to ' + draft.email + '. The account role is the primary role below.')
-                            : (fr() ? 'Renseignez un e-mail ci-dessus pour activer cette option.'
-                                    : 'Enter an e-mail above to enable this option.') }}
+                        {{ fr() ? 'Aucun e-mail ni téléphone requis. Les accès suivent les rôles choisis ci-dessous.' : 'No email or phone is required. Access follows the roles selected below.' }}
                       </span>
                     </span>
                   </label>
+                  @if (createLogin()) {
+                    <div class="mt-4 border-t border-slate-200 pt-4">
+                      <bbc-staff-login-options [email]="draft.email" [(username)]="loginUsername" [(sendEmail)]="sendCredentialEmail" />
+                    </div>
+                  }
                 </div>
               }
             </section>
@@ -1423,10 +1432,29 @@ interface StaffDocumentDraft {
         </bbc-card>
       }
 
+      @if (accountDialog(); as employee) {
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
+          <section role="dialog" aria-modal="true" aria-labelledby="staff-account-title" class="w-full max-w-lg max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl bg-white p-5 shadow-pop sm:p-6">
+            <h2 id="staff-account-title" class="text-xl font-bold text-ink">{{ employee.hasLogin ? (fr() ? 'Réinitialiser le mot de passe' : 'Reset password') : (fr() ? 'Créer le compte de connexion' : 'Create login account') }}</h2>
+            <p class="mt-1 mb-4 break-words text-sm text-mute">{{ employee.name }}</p>
+            @if (employee.hasLogin) { <p class="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">{{ fr() ? 'L’ancien mot de passe sera remplacé dès la confirmation.' : 'The old password will be replaced when you confirm.' }}</p> }
+            <bbc-staff-login-options [email]="employee.email" [existing]="employee.hasLogin" [(username)]="loginUsername" [(sendEmail)]="sendCredentialEmail" />
+            @if (accountDialogError(); as error) { <p class="mt-3 text-sm text-rose-700" role="alert">{{ error }}</p> }
+            <div class="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button type="button" (click)="accountDialog.set(null)" [disabled]="resetting()" class="min-h-11 rounded-lg bg-slate-100 px-4 text-sm font-semibold">{{ i18n.t('cancel') }}</button>
+              <button type="button" (click)="issueCredentials()" [disabled]="resetting() || (!employee.hasLogin && !validUsername(loginUsername()))" class="min-h-11 rounded-lg bg-brand-600 px-4 text-sm font-semibold text-white disabled:opacity-50">{{ resetting() ? (fr() ? 'Enregistrement…' : 'Saving…') : (fr() ? 'Confirmer' : 'Confirm') }}</button>
+            </div>
+          </section>
+        </div>
+      }
+      @if (credentialSheet(); as sheet) {
+        <bbc-staff-credentials-dialog [sheet]="sheet" [busy]="saving()" (closed)="closeCredentials()" />
+      }
+
       <!-- Confirm bulk delete -->
       @if (confirmBulk()) {
         <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 fade-in" (click)="confirmBulk.set(false)">
-          <div class="bg-white rounded-xl2 shadow-pop w-full max-w-md p-6" (click)="$event.stopPropagation()">
+          <div class="max-h-[calc(100dvh-2rem)] overflow-y-auto bg-white rounded-xl2 shadow-pop w-full max-w-md p-6" (click)="$event.stopPropagation()">
             <div class="flex items-start gap-3">
               <div class="w-10 h-10 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
                 <bbc-icon name="trash" [s]="18" />
@@ -1534,6 +1562,11 @@ export class StaffComponent {
    * for the bootstrap administrator until the scoped HR setup exception is
    * explicitly granted. */
   protected get canWrite(): boolean { return this.auth.canAction('HR_MANAGE'); }
+  protected canManageEmployee(e: EmployeeView): boolean { return this.canWrite && e.canManage === true; }
+  protected canReviewSchoolApplications = computed(() =>
+    this.auth.user()?.parcoursScopeMode === 'GLOBAL'
+    && this.auth.capabilities()?.actions.some(a => a.actionCode === 'HR_VIEW'
+      && a.effect === 'ALLOW' && a.scopeMode === 'SCHOOL_ALL') === true);
   protected draft: EmployeeUpsert = this.blank();
   protected draftRoles = signal<string[]>([]);
   protected draftManagementLevels = signal<Set<string>>(new Set());
@@ -1589,6 +1622,13 @@ export class StaffComponent {
     return values.map((value) => ({ value, label: this.documentTypeLabel(value) }));
   });
   protected createLogin = signal(true);
+  protected loginUsername = signal('');
+  protected sendCredentialEmail = signal(false);
+  protected accountDialog = signal<EmployeeView | null>(null);
+  protected accountDialogError = signal<string | null>(null);
+  protected credentialSheet = signal<StaffCredentialSheet | null>(null);
+  protected validUsername = validStaffUsername;
+  private credentialsNextEmployeeId: string | null = null;
   protected accountMsg = signal<{ text: string; ok: boolean } | null>(null);
   protected resetting = signal(false);
   protected trackId = (e: EmployeeView) => e.id;
@@ -1607,7 +1647,7 @@ export class StaffComponent {
 
   protected tabs = computed(() => [
     { id: 'directory', label: this.fr() ? 'Annuaire' : 'Directory' },
-    { id: 'applications', label: this.fr() ? 'Candidatures' : 'Applications' },
+    ...(this.canReviewSchoolApplications() ? [{ id: 'applications', label: this.fr() ? 'Candidatures' : 'Applications' }] : []),
     { id: 'departments', label: this.fr() ? 'Départements' : 'Departments' },
     { id: 'leave', label: this.fr() ? 'Congés' : 'Leave' },
     { id: 'payroll', label: this.fr() ? 'Masse salariale' : 'Payroll' },
@@ -1632,6 +1672,7 @@ export class StaffComponent {
   protected roleCatalog = computed(() =>
     this.roleDefs()
       .filter((r) => !['parent', 'administrator', 'admin', 'school_admin'].includes(r.code))
+      .filter((r) => this.auth.canAction('ROLE_MANAGE') || ['teacher', 'secondary_teacher', 'form_teacher'].includes(r.code))
       .map((r) => ({ value: r.code, label: this.fr() ? r.labelFr : (r.labelEn || r.labelFr) })),
   );
 
@@ -1715,7 +1756,7 @@ export class StaffComponent {
     if (this.isTeacher(emp)) {
       this.api.classesOf(emp.id).subscribe((cs) => this.selectedClasses.set(cs));
     }
-    this.loadProfileDocuments(emp.id);
+    if (emp.canViewDocuments !== false) this.loadProfileDocuments(emp.id);
   }, { allowSignalWrites: true });
 
   /** Un employé porte-t-il un rôle enseignant ? */
@@ -1879,6 +1920,7 @@ export class StaffComponent {
   private loadLeaves(): void { this.hrApi.listLeaves().subscribe((l) => this.leaves.set(l)); }
 
   protected setTab(id: string): void {
+    if (id === 'applications' && !this.canReviewSchoolApplications()) id = 'directory';
     const allowed = ['directory', 'payroll', 'departments', 'leave', 'applications'] as const;
     this.tab.set((allowed as readonly string[]).includes(id) ? (id as typeof allowed[number]) : 'directory');
     this.deptForm.set(false);
@@ -2003,7 +2045,9 @@ export class StaffComponent {
     this.finalizeRoles.set(['teacher']);
     this.finalizeManagementLevels.set(new Set());
     this.finalizeScopeAttempted.set(false);
-    this.finalizeCreateLogin.set(!!a.email);
+    this.finalizeCreateLogin.set(true);
+    this.loginUsername.set('');
+    this.sendCredentialEmail.set(false);
   }
 
   protected toggleFinalizeRole(role: string): void {
@@ -2021,18 +2065,23 @@ export class StaffComponent {
     if (!a) return;
     this.finalizeScopeAttempted.set(true);
     if (this.finalizeRoles().includes('principal') && !this.finalizeManagementLevels().size) return;
+    if (this.finalizeCreateLogin() && !validStaffUsername(this.loginUsername())) return;
     this.finalizing.set(true);
     this.appErr.set(null);
     const body: StaffApplicationFinalize = {
       ...this.finalizeDraft,
       roles: this.finalizeRoles(),
       managementLevels: [...this.finalizeManagementLevels()],
-      createLogin: !!a.email && this.finalizeCreateLogin(),
+      createLogin: this.finalizeCreateLogin(),
+      accountOptions: this.finalizeCreateLogin() ? { username: this.loginUsername().trim(), sendEmail: this.sendCredentialEmail() && !!a.email?.trim() } : undefined,
     };
     this.api.finalizeApplication(a.id, body).subscribe({
-      next: () => {
+      next: (res) => {
         this.finalizing.set(false);
         this.finalizeApp.set(null);
+        if (res.credentials?.password) {
+          this.credentialSheet.set({ employeeName: res.name, phone: res.phone, result: res.credentials });
+        }
         this.loadApplications();
         this.reload();
       },
@@ -2107,6 +2156,8 @@ export class StaffComponent {
     this.draft = this.blank();
     this.draftRoles.set(['teacher']);
     this.createLogin.set(true);
+    this.loginUsername.set('');
+    this.sendCredentialEmail.set(false);
     this.editId.set(null);
     this.photoDraft.set(null);
     this.photoWasSet = false;
@@ -2163,28 +2214,44 @@ export class StaffComponent {
     }
   }
 
-  protected resetCredentials(e: EmployeeView): void {
-    const action = e.hasLogin
-      ? (this.fr() ? `réinitialiser les identifiants de « ${e.name} » ?` : `reset credentials for "${e.name}"?`)
-      : (this.fr() ? `créer le compte de connexion de « ${e.name} » ?` : `create a login account for "${e.name}"?`);
-    if (!confirm((this.fr() ? 'Voulez-vous ' : 'Do you want to ') + action)) return;
+  protected openAccountDialog(e: EmployeeView): void {
+    if (!this.canManageEmployee(e)) return;
+    this.loginUsername.set(e.username ?? '');
+    this.sendCredentialEmail.set(false);
+    this.accountDialogError.set(null);
+    this.accountDialog.set(e);
+  }
+
+  protected issueCredentials(): void {
+    const e = this.accountDialog();
+    if (!e || !this.canManageEmployee(e) || this.resetting() || (!e.hasLogin && !validStaffUsername(this.loginUsername()))) return;
     this.resetting.set(true);
-    this.accountMsg.set(null);
-    this.api.resetCredentials(e.id).subscribe({
+    this.accountDialogError.set(null);
+    this.api.resetCredentials(e.id, { username: e.hasLogin ? undefined : this.loginUsername().trim(), sendEmail: this.sendCredentialEmail() && !!e.email?.trim() }).subscribe({
       next: (r: AccountResult) => {
         this.resetting.set(false);
-        this.accountMsg.set({ text: r.message, ok: r.emailSent });
+        this.accountDialog.set(null);
+        this.credentialSheet.set({ employeeName: e.name, phone: e.phone, result: r });
         this.reload();
       },
       error: (err) => {
         this.resetting.set(false);
-        this.accountMsg.set({ text: err?.error?.message ?? (this.fr() ? 'Opération impossible.' : 'Operation failed.'), ok: false });
+        this.accountDialogError.set(err?.error?.message ?? (this.fr() ? 'Opération impossible.' : 'Operation failed.'));
       },
     });
   }
 
   protected openEdit(e: EmployeeView): void {
+    if (!this.canManageEmployee(e)) return;
     void this.router.navigate(['/staff', e.id, 'edit']);
+  }
+
+  protected closeCredentials(): void {
+    if (this.saving()) return;
+    this.credentialSheet.set(null);
+    const employeeId = this.credentialsNextEmployeeId;
+    this.credentialsNextEmployeeId = null;
+    if (employeeId) void this.router.navigate(['/staff', employeeId]);
   }
 
   private populateEdit(e: EmployeeView): void {
@@ -2455,7 +2522,11 @@ export class StaffComponent {
       return;
     }
     const isNew = !this.editId();
-    const wantsLogin = isNew && !!email && this.createLogin();
+    const wantsLogin = isNew && this.createLogin();
+    if (wantsLogin && !validStaffUsername(this.loginUsername())) {
+      alert(this.fr() ? 'Vérifiez le format de l’identifiant de connexion.' : 'Check the login username format.');
+      return;
+    }
     const body: EmployeeUpsert = {
       ...this.draft,
       email: email || null as any,
@@ -2463,6 +2534,7 @@ export class StaffComponent {
       roles: this.draftRoles(),
       managementLevels: [...this.draftManagementLevels()],
       createLogin: wantsLogin,
+      accountOptions: wantsLogin ? { username: this.loginUsername().trim(), sendEmail: this.sendCredentialEmail() && !!email } : undefined,
     };
     const id = this.editId();
     this.saving.set(true);
@@ -2471,13 +2543,16 @@ export class StaffComponent {
       next: (res) => {
         this.selectedId.set(res?.id ?? id);
         this.accountMsg.set(null);
+        if (res.credentials?.password) {
+          this.credentialSheet.set({ employeeName: res.name, phone: res.phone, result: res.credentials });
+        }
         if (res?.id) {
           this.savePhoto(res.id);
           this.saveClasses(res.id);
           this.editId.set(res.id);
           this.saveDocuments(res.id, () => {
             this.saving.set(false);
-            this.completeSave(res.id, wantsLogin);
+            this.completeSave(res.id);
           });
         } else {
           this.saving.set(false);
@@ -2495,22 +2570,14 @@ export class StaffComponent {
     });
   }
 
-  private completeSave(employeeId: string, wantsLogin: boolean): void {
-    const finish = (): void => {
-      this.reload();
-      void this.router.navigate(['/staff', employeeId]);
-    };
-    if (wantsLogin) {
-      this.api.resetCredentials(employeeId).subscribe({
-        next: (r: AccountResult) => { this.accountMsg.set({ text: r.message, ok: r.emailSent }); finish(); },
-        error: (err) => { this.accountMsg.set({ text: err?.error?.message ?? (this.fr() ? 'Compte non créé.' : 'Account not created.'), ok: false }); finish(); },
-      });
-    } else {
-      finish();
-    }
+  private completeSave(employeeId: string): void {
+    this.reload();
+    if (this.credentialSheet()) this.credentialsNextEmployeeId = employeeId;
+    else void this.router.navigate(['/staff', employeeId]);
   }
 
   remove(e: EmployeeView): void {
+    if (!this.canManageEmployee(e)) return;
     this.api.remove(e.id).subscribe(() => {
       if (this.selectedId() === e.id) this.selectedId.set(null);
       this.reload();
@@ -2519,7 +2586,8 @@ export class StaffComponent {
   }
 
   protected onSelectionChange(ids: Set<unknown>): void {
-    this.selection.set(new Set([...ids].map(String)));
+    const editable = new Set(this.rows().filter(e => this.canManageEmployee(e)).map(e => e.id));
+    this.selection.set(new Set([...ids].map(String).filter(id => editable.has(id))));
   }
 
   protected clearSelection(): void {

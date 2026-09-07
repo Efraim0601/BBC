@@ -1,17 +1,9 @@
 package com.bbc.sms.platform.realtime;
 
-import com.bbc.sms.platform.security.AppUserPrincipal;
-import com.bbc.sms.platform.security.JwtService;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.messaging.Message;
-import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.simp.config.ChannelRegistration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
-import org.springframework.messaging.simp.stomp.StompCommand;
-import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
-import org.springframework.messaging.support.ChannelInterceptor;
-import org.springframework.messaging.support.MessageHeaderAccessor;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.web.socket.config.annotation.*;
 
 /**
@@ -23,13 +15,18 @@ import org.springframework.web.socket.config.annotation.*;
 @EnableWebSocketMessageBroker
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
-    private final JwtService jwt;
+    private final RealtimeChannelInterceptor authorization;
+    private final String[] allowedOrigins;
 
-    public WebSocketConfig(JwtService jwt) { this.jwt = jwt; }
+    public WebSocketConfig(RealtimeChannelInterceptor authorization,
+                           @Value("${bbc.cors.allowed-origins}") String allowedOrigins) {
+        this.authorization = authorization;
+        this.allowedOrigins = java.util.Arrays.stream(allowedOrigins.split(",")).map(String::trim).toArray(String[]::new);
+    }
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
-        registry.addEndpoint("/ws").setAllowedOriginPatterns("*").withSockJS();
+        registry.addEndpoint("/ws").setAllowedOrigins(allowedOrigins).withSockJS();
     }
 
     @Override
@@ -41,21 +38,6 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void configureClientInboundChannel(ChannelRegistration registration) {
-        registration.interceptors(new ChannelInterceptor() {
-            @Override
-            public Message<?> preSend(Message<?> message, MessageChannel channel) {
-                StompHeaderAccessor accessor =
-                        MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);
-                if (accessor != null && StompCommand.CONNECT.equals(accessor.getCommand())) {
-                    String header = accessor.getFirstNativeHeader("Authorization");
-                    if (header != null && header.startsWith("Bearer ")) {
-                        AppUserPrincipal p = jwt.toPrincipal(jwt.parse(header.substring(7)));
-                        var auth = new UsernamePasswordAuthenticationToken(p, null, p.getAuthorities());
-                        accessor.setUser(auth);
-                    }
-                }
-                return message;
-            }
-        });
+        registration.interceptors(authorization);
     }
 }

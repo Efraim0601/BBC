@@ -87,6 +87,11 @@ export const canReviewGradePacket = (
   entry: Pick<GradeEntryView, 'packetStatus' | 'capabilities'>,
 ): boolean => entry.packetStatus === 'SUBMITTED' && entry.capabilities?.canReview === true;
 
+export const canReturnGradePacket = (
+  entry: Pick<GradeEntryView, 'packetStatus' | 'capabilities'>,
+): boolean => ['SUBMITTED', 'ACCEPTED', 'LOCKED'].includes(entry.packetStatus)
+  && entry.capabilities?.canReview === true;
+
 /**
  * A Secondary homeroom teacher may inspect a colleague's subject sheet for
  * class oversight. The server remains the source of truth for that distinction.
@@ -94,6 +99,11 @@ export const canReviewGradePacket = (
 export const isReadOnlyGradeOversight = (
   entry: Pick<GradeEntryView, 'capabilities'> | null | undefined,
 ): boolean => entry?.capabilities?.oversightOnly === true;
+
+export const isReadOnlyGradeSheet = (
+  entry: Pick<GradeEntryView, 'packetStatus' | 'capabilities'> | null | undefined,
+): boolean => !!entry && (['SUBMITTED', 'ACCEPTED', 'LOCKED'].includes(entry.packetStatus)
+  || entry.capabilities?.canEditDraft === false || isReadOnlyGradeOversight(entry));
 
 export const computedPeriodCodes = (lines: BulletinView['lines']): string[] => {
   const seen = new Set<string>();
@@ -159,6 +169,9 @@ const appreciation = (avg: number, fr: boolean): string => {
           @if (gradeOversight()) {
             <div class="font-bold">{{ fr() ? 'Supervision des notes — lecture seule' : 'Grade-sheet oversight — read-only' }}</div>
             <div class="mt-1 text-brand-900">{{ fr() ? 'Cette feuille appartient à l’enseignant affecté. Consultez les notes et demandez toute correction à cet enseignant ou à la direction ; vous ne pouvez pas modifier sa feuille.' : 'This sheet belongs to the assigned teacher. Review the marks and request corrections from that teacher or management; you cannot edit the sheet.' }}</div>
+          } @else if (gradeReadOnly()) {
+            <div class="font-bold">{{ fr() ? 'Feuille de notes — lecture seule' : 'Grade sheet — read-only' }}</div>
+            <div class="mt-1 text-brand-900">{{ fr() ? 'Choisissez la classe, la période et la matière pour consulter les notes. Cette feuille est verrouillée ; contactez la direction si une correction est nécessaire.' : 'Choose the class, period and subject to view marks. This sheet is locked; contact management if a correction is needed.' }}</div>
           } @else {
             <div class="font-bold">{{ fr() ? 'Saisie des notes : votre feuille de travail' : 'Grade entry: your work sheet' }}</div>
             <div class="mt-1 text-brand-900">{{ fr() ? '1. Choisissez la classe · 2. Choisissez la période · 3. Choisissez la matière · 4. Saisissez une note pour chaque élève · 5. Enregistrez ou envoyez à la direction.' : '1. Choose the class · 2. Choose the period · 3. Choose the subject · 4. Enter one mark for each student · 5. Save or send it to management.' }}</div>
@@ -168,7 +181,7 @@ const appreciation = (avg: number, fr: boolean): string => {
 
       <!-- Toolbar: class + sequence -->
       <bbc-card className="mb-5 print:hidden">
-        <div class="flex items-start gap-4 flex-wrap">
+        <div class="flex flex-col sm:flex-row items-stretch sm:items-start gap-4 flex-wrap">
           <div class="flex-1 min-w-0 sm:min-w-[240px]">
             <div class="text-xs font-semibold text-mute uppercase mb-2">{{ mode() === 'grade-entry' ? (fr() ? '1. Classe' : '1. Class') : (fr() ? 'Classe' : 'Class') }}</div>
             <select [ngModel]="selectedClass()" (ngModelChange)="onClassChange($event)"
@@ -302,6 +315,8 @@ const appreciation = (avg: number, fr: boolean): string => {
               <div class="mt-4 rounded-lg border border-brand-200 bg-brand-50 px-3 py-3 text-sm text-brand-950">
                 @if (gradeOversight()) {
                   <strong>{{ fr() ? 'Votre rôle :' : 'Your role:' }}</strong> {{ fr() ? 'vérifiez les notes de votre collègue en lecture seule. Demandez-lui une correction ou contactez la direction si nécessaire.' : 'review your colleague’s marks in read-only mode. Ask that teacher for a correction or contact management when needed.' }}
+                } @else if (entry.packetStatus === 'SUBMITTED' || entry.packetStatus === 'ACCEPTED' || entry.packetStatus === 'LOCKED' || entry.capabilities?.canEditDraft === false) {
+                  <strong>{{ fr() ? 'Lecture seule :' : 'Read-only:' }}</strong> {{ fr() ? 'cette feuille ne peut pas être modifiée. Consultez son statut ci-dessus et contactez la direction si une correction est nécessaire.' : 'this sheet cannot be edited. Check its status above and contact management if a correction is needed.' }}
                 } @else {
                   <strong>{{ fr() ? 'Votre tâche :' : 'Your task:' }}</strong> {{ fr() ? 'saisissez la note prévue pour chaque élève. Enregistrez pour garder un brouillon ; envoyez ensuite la feuille à la direction.' : 'enter the required mark for each student. Save to keep a draft; then send the sheet to management.' }}
                 }
@@ -326,25 +341,29 @@ const appreciation = (avg: number, fr: boolean): string => {
               }
               @if (entry.blockers.length) {
                 <div class="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-950" role="status">
-                  <div class="font-bold">{{ fr() ? 'Il reste des champs à compléter avant l’envoi' : 'Some fields still need to be completed before sending' }}</div>
+                  <div class="font-bold">{{ gradeReadOnly() ? (fr() ? 'Données manquantes à signaler à la direction' : 'Missing data to report to management') : (fr() ? 'Il reste des champs à compléter avant l’envoi' : 'Some fields still need to be completed before sending') }}</div>
                   <ul class="mt-1 list-disc pl-5">@for (blocker of entry.blockers; track blocker) { <li>{{ gradeBlockerLabel(blocker) }}</li> }</ul>
                 </div>
               } @else if (entry.totalStudents > 0 && entry.assessments.length > 0) {
                 @if (gradeOversight()) {
                   <div class="mt-4 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-800">{{ fr() ? 'La feuille de votre collègue est complète. Elle reste disponible uniquement pour vérification en lecture seule.' : 'Your colleague’s sheet is complete. It remains available for read-only review only.' }}</div>
+                } @else if (entry.packetStatus === 'SUBMITTED' || entry.packetStatus === 'ACCEPTED' || entry.packetStatus === 'LOCKED' || entry.capabilities?.canEditDraft === false) {
+                  <div class="mt-4 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-800">{{ fr() ? 'Toutes les notes obligatoires sont renseignées. La feuille est en lecture seule.' : 'All required marks are entered. The sheet is read-only.' }}</div>
                 } @else {
                   <div class="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">{{ fr() ? 'Toutes les notes obligatoires sont renseignées. Vous pouvez enregistrer ou envoyer la feuille.' : 'All required marks are entered. You can save or send the sheet.' }}</div>
                 }
               }
+              @if (!gradeReadOnly()) {
               <div class="mt-4 text-sm text-mute">{{ fr() ? 'Saisissez la note sur le barème affiché (par exemple /20). Pour un élève absent ou dispensé, choisissez le statut correspondant au lieu de saisir une note.' : 'Enter the mark using the scale shown (for example /20). For an absent or exempt student, choose the matching status instead of entering a mark.' }}</div>
+              }
             </bbc-card>
             @if (gradeEntry(); as entry) {
             <bbc-card className="mb-4 border-brand-200 bg-brand-50/40">
               <div class="flex items-start gap-3">
                 <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-100 text-brand-700 font-bold">✓</div>
                 <div>
-                  <div class="font-bold text-ink">{{ gradeOversight() ? (fr() ? 'Notes à vérifier' : 'Marks to review') : (fr() ? 'Note à saisir' : 'Mark to enter') }}</div>
-                  <div class="mt-1 text-sm text-mute">{{ gradeOversight() ? (fr() ? 'Consultez les notes et leurs statuts. Cette feuille reste non modifiable.' : 'Review the marks and their statuses. This sheet remains non-editable.') : (fr() ? 'Saisissez une note pour chaque élève sur le barème affiché. Les détails techniques sont gérés automatiquement par le système.' : 'Enter one mark for each student using the scale shown. Technical details are handled automatically by the system.') }}</div>
+                  <div class="font-bold text-ink">{{ gradeReadOnly() ? (fr() ? 'Notes à vérifier' : 'Marks to review') : (fr() ? 'Note à saisir' : 'Mark to enter') }}</div>
+                  <div class="mt-1 text-sm text-mute">{{ gradeReadOnly() ? (fr() ? 'Consultez les notes et leurs statuts. Cette feuille reste non modifiable.' : 'Review the marks and their statuses. This sheet remains non-editable.') : (fr() ? 'Saisissez une note pour chaque élève sur le barème affiché. Les détails techniques sont gérés automatiquement par le système.' : 'Enter one mark for each student using the scale shown. Technical details are handled automatically by the system.') }}</div>
                 </div>
               </div>
               @if (entry.assessments.length === 1) {
@@ -361,7 +380,7 @@ const appreciation = (avg: number, fr: boolean): string => {
             }
             <bbc-card className="overflow-hidden">
               <div class="flex items-start justify-between gap-3 flex-wrap px-5 pt-5">
-                <div><h2 class="text-lg font-bold text-ink">{{ gradeOversight() ? (fr() ? '4. Vérifier les notes' : '4. Review marks') : (fr() ? '4. Saisir les notes' : '4. Enter marks') }}</h2><p class="mt-1 text-sm text-mute">{{ gradeOversight() ? (fr() ? 'Une ligne = un élève. Les valeurs de cette feuille collègue sont affichées en lecture seule.' : 'One row = one student. Values from this colleague’s sheet are shown read-only.') : (fr() ? 'Une ligne = un élève. Remplissez chaque colonne obligatoire.' : 'One row = one student. Complete every required column.') }}</p></div>
+                <div><h2 class="text-lg font-bold text-ink">{{ gradeReadOnly() ? (fr() ? '4. Vérifier les notes' : '4. Review marks') : (fr() ? '4. Saisir les notes' : '4. Enter marks') }}</h2><p class="mt-1 text-sm text-mute">{{ gradeReadOnly() ? (fr() ? 'Une ligne = un élève. Les valeurs de cette feuille sont affichées en lecture seule.' : 'One row = one student. Values from this sheet are shown read-only.') : (fr() ? 'Une ligne = un élève. Remplissez chaque colonne obligatoire.' : 'One row = one student. Complete every required column.') }}</p></div>
                 @if (entry.assessments.length) { <div class="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-sm font-semibold text-ink">{{ entry.completedStudents }} / {{ entry.totalStudents }} {{ fr() ? 'élève(s) complet(s)' : 'student(s) complete' }}</div> }
               </div>
               @if (entry.assessments.length) {
@@ -454,8 +473,10 @@ const appreciation = (avg: number, fr: boolean): string => {
                   <button type="button" (click)="saveGradeEntry()" [disabled]="gradeBusy() || entry.capabilities?.canEditDraft === false" class="h-10 px-4 rounded-lg border border-slate-300 text-sm font-semibold text-ink hover:bg-slate-50 disabled:opacity-50">{{ gradeBusy() ? '…' : (fr() ? 'Enregistrer sans envoyer' : 'Save without sending') }}</button>
                   <button type="button" (click)="submitGradeEntry()" [disabled]="gradeBusy() || entry.blockers.length > 0 || !entry.assessments.length || !canSubmitGrade(entry)" [title]="entry.submissionBlockers?.length ? (fr() ? 'Réparez l’affectation et complétez les champs indiqués avant l’envoi.' : 'Repair the assignment and complete the highlighted fields before sending.') : ''" class="h-10 px-4 rounded-lg bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700 disabled:opacity-50">{{ fr() ? 'Envoyer à la direction' : 'Send to management' }}</button>
                 }
-                @if (canReviewGradePacket(entry)) {
+                @if (canReturnGradePacket(entry)) {
                   <button type="button" (click)="reviewGradeEntry('RETURN')" [disabled]="gradeBusy()" class="h-10 px-4 rounded-lg border border-rose-200 text-rose-700 text-sm font-semibold hover:bg-rose-50 disabled:opacity-50">{{ fr() ? 'Retourner pour correction' : 'Return for correction' }}</button>
+                }
+                @if (canReviewGradePacket(entry)) {
                   <button type="button" (click)="reviewGradeEntry('ACCEPT')" [disabled]="gradeBusy()" class="h-10 px-4 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50">{{ fr() ? 'Accepter la feuille' : 'Accept the sheet' }}</button>
                 }
               </div>
@@ -1066,7 +1087,7 @@ const appreciation = (avg: number, fr: boolean): string => {
       }
       @if (refreshDialog()) {
         <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/55" (click)="cancelRefresh()">
-          <section class="bg-white rounded-xl2 shadow-pop w-full max-w-md p-6" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+          <section class="max-h-[calc(100dvh-2rem)] overflow-y-auto bg-white rounded-xl2 shadow-pop w-full max-w-md p-6" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
             <h3 class="text-lg font-bold text-ink">{{ fr() ? 'Actualiser ce brouillon ?' : 'Refresh this draft?' }}</h3>
             <p class="text-sm text-mute mt-2">{{ fr() ? 'Les sources courantes seront recalculées. L’ancienne version sera conservée comme supersédée.' : 'Current sources will be recalculated. The previous version will be retained as superseded.' }}</p>
             <label class="block mt-4"><span class="text-xs font-semibold">{{ fr() ? 'Motif obligatoire' : 'Required reason' }}</span><textarea [(ngModel)]="refreshReason" rows="3" maxlength="500" class="w-full mt-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm" [class.border-rose-400]="!refreshReason.trim()" [placeholder]="fr() ? 'Ex. Notes S1 et S2 contrôlées.' : 'E.g. S1 and S2 grades checked.'"></textarea></label>
@@ -1077,7 +1098,7 @@ const appreciation = (avg: number, fr: boolean): string => {
       }
       @if (publicationDialog()) {
         <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/55" (click)="cancelPublication()">
-          <section class="bg-white rounded-xl2 shadow-pop w-full max-w-md p-6" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+          <section class="max-h-[calc(100dvh-2rem)] overflow-y-auto bg-white rounded-xl2 shadow-pop w-full max-w-md p-6" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
             <h3 class="text-lg font-bold text-ink">{{ fr() ? 'Publier ce bulletin ?' : 'Publish this report card?' }}</h3>
             <p class="text-sm text-mute mt-2">{{ fr() ? 'Le bulletin validé deviendra visible dans le portail parent et ne sera plus modifiable comme brouillon.' : 'The validated report card will become visible in the parent portal and will no longer be editable as a draft.' }}</p>
             <label class="block mt-4"><span class="text-xs font-semibold">{{ fr() ? 'Motif obligatoire' : 'Required reason' }}</span><textarea [(ngModel)]="publicationReason" rows="3" class="w-full mt-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm" [placeholder]="fr() ? 'Ex. Bulletin du 1er trimestre contrôlé par le conseil de classe.' : 'E.g. First-term report card checked by the class council.'"></textarea></label>
@@ -1087,7 +1108,7 @@ const appreciation = (avg: number, fr: boolean): string => {
       }
       @if (gradeReviewDialog(); as action) {
         <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/55" (click)="cancelGradeReview()">
-          <section class="bg-white rounded-xl2 shadow-pop w-full max-w-md p-6" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
+          <section class="max-h-[calc(100dvh-2rem)] overflow-y-auto bg-white rounded-xl2 shadow-pop w-full max-w-md p-6" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
             <h3 class="text-lg font-bold text-ink">{{ action === 'ACCEPT' ? (fr() ? 'Accepter cette feuille ?' : 'Accept this grade sheet?') : (fr() ? 'Retourner cette feuille ?' : 'Return this grade sheet?') }}</h3>
             <p class="text-sm text-mute mt-2">{{ action === 'ACCEPT' ? (fr() ? 'Les notes seront acceptées et entreront dans les calculs du bulletin.' : 'The grades will be accepted and included in report-card calculations.') : (fr() ? 'La feuille repassera en brouillon pour permettre à l’enseignant de la corriger.' : 'The sheet will return to draft so the teacher can correct it.') }}</p>
             @if (action === 'RETURN') {
@@ -1100,7 +1121,7 @@ const appreciation = (avg: number, fr: boolean): string => {
 
       @if (inputReviewTarget(); as review) {
         <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4" role="presentation">
-          <section class="w-full max-w-md rounded-xl2 bg-white shadow-pop p-6" role="dialog" aria-modal="true">
+          <section class="max-h-[calc(100dvh-2rem)] overflow-y-auto w-full max-w-md rounded-xl2 bg-white shadow-pop p-6" role="dialog" aria-modal="true">
             <h3 class="text-lg font-bold text-ink">{{ review.action === 'APPROVE' ? (fr() ? 'Approuver les éléments ?' : 'Approve these inputs?') : (fr() ? 'Retourner les éléments ?' : 'Return these inputs?') }}</h3>
             <p class="text-sm text-mute mt-2">{{ review.row.studentName }} · {{ fr() ? 'Cette décision sera journalisée et recalculera le bulletin si nécessaire.' : 'This decision is audited and recalculates the bulletin when necessary.' }}</p>
             <label class="field-label mt-4"><span>{{ review.action === 'APPROVE' ? (fr() ? 'Motif (facultatif)' : 'Reason (optional)') : (fr() ? 'Motif obligatoire' : 'Required reason') }}</span><textarea [(ngModel)]="inputReviewReason" rows="3" maxlength="500" class="field resize-y" [class.border-rose-400]="review.action !== 'APPROVE' && !inputReviewReason.trim()"></textarea></label>
@@ -1172,6 +1193,7 @@ export class AcademicComponent {
   protected pv = signal<PvView | null>(null);
   protected gradeEntry = signal<GradeEntryView | null>(null);
   protected gradeOversight = computed(() => isReadOnlyGradeOversight(this.gradeEntry()));
+  protected gradeReadOnly = computed(() => isReadOnlyGradeSheet(this.gradeEntry()));
   protected gradeEntryError = signal<string | null>(null);
   protected reportInputs = signal<ReportCardInputsView | null>(null);
   protected inputDrafts = signal<Record<string, ReportCardInputUpsert>>({});
@@ -1253,6 +1275,7 @@ export class AcademicComponent {
 
   protected canReview = computed(() => ['admin', 'principal', 'dean_of_studies', 'censor'].includes(this.auth.user()?.role ?? ''));
   protected readonly canReviewGradePacket = canReviewGradePacket;
+  protected readonly canReturnGradePacket = canReturnGradePacket;
 
   protected filteredClassStudents = computed(() => {
     const q = this.studentQuery().trim().toLowerCase();

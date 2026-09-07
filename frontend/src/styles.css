@@ -52,6 +52,7 @@
   --ok:#16A34A;
   --warn:#F59E0B;
   --bad:#DC2626;
+  --native-tab-height: 4.75rem;
 }
 
 html, body, #root, bbc-root { height: 100%; }
@@ -59,11 +60,125 @@ html, body, #root, bbc-root { height: 100%; }
 html, body { margin: 0; background: #F5F6FA; color: #0F2238; }
 body { overflow: hidden; font-family: 'Manrope', ui-sans-serif, system-ui, -apple-system, sans-serif; }
 
+/* Capacitor Android shell. These rules are inert in the normal web build. */
+body.native-app {
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
+body.native-app .mobile-native-brand { display: block; }
+body.native-app [data-shell-main] > div {
+  padding-bottom: calc(var(--native-tab-height) + env(safe-area-inset-bottom, 0px) + 1.25rem);
+}
+
+.native-tab-bar {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 80;
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  align-items: start;
+  height: calc(var(--native-tab-height) + env(safe-area-inset-bottom, 0px));
+  padding: .42rem .45rem calc(.35rem + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid rgba(199, 210, 224, .78);
+  background: rgba(255, 255, 255, .96);
+  box-shadow: 0 -12px 32px rgba(15, 34, 56, .10);
+  backdrop-filter: blur(18px) saturate(1.35);
+  -webkit-backdrop-filter: blur(18px) saturate(1.35);
+}
+.native-tab-item {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 3.8rem;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: .2rem;
+  border-radius: .9rem;
+  color: #718096;
+  text-decoration: none;
+  transition: color .18s ease, background-color .18s ease, transform .18s ease;
+}
+.native-tab-item:active { transform: scale(.96); }
+.native-tab-icon {
+  display: grid;
+  width: 1.65rem;
+  height: 1.65rem;
+  place-items: center;
+  border-radius: .58rem;
+  transition: color .18s ease, background-color .18s ease, transform .18s ease;
+}
+.native-tab-icon svg { width: 1.28rem; height: 1.28rem; }
+.native-tab-label {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  padding-inline: .12rem;
+  font-size: .625rem;
+  font-weight: 800;
+  line-height: 1.1;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.native-tab-item.native-tab-active { color: var(--brand-700); }
+.native-tab-item.native-tab-active::before {
+  position: absolute;
+  top: -.43rem;
+  width: 1.7rem;
+  height: .18rem;
+  border-radius: 0 0 999px 999px;
+  background: var(--gold-400);
+  content: '';
+}
+.native-tab-item.native-tab-active .native-tab-icon {
+  color: #fff;
+  background: linear-gradient(145deg, #21486f, var(--brand-700));
+  box-shadow: 0 .35rem .85rem rgba(21, 47, 75, .22);
+  transform: translateY(-.08rem);
+}
+body.native-keyboard-open .native-tab-bar {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(110%);
+}
+body.native-keyboard-open [data-shell-main] > div { padding-bottom: 1rem; }
+
+@media (max-width: 639.98px) {
+  body.native-app .mobile-native-brand > div:last-child { display: none; }
+  body.native-app .mobile-native-brand > div:first-child { font-size: .78rem; letter-spacing: .01em; }
+  body.native-app input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+  body.native-app select,
+  body.native-app textarea { font-size: 16px !important; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .native-tab-item, .native-tab-icon, .native-tab-bar { transition: none; }
+}
+
 /* scrollbar */
 .scroll-y { overflow-y: auto; scrollbar-width: thin; scrollbar-color: #C7D2E0 transparent; }
 .scroll-y::-webkit-scrollbar { width: 10px; height: 10px; }
 .scroll-y::-webkit-scrollbar-thumb { background: #C7D2E0; border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
 .scroll-y::-webkit-scrollbar-thumb:hover { background: #97A8BD; background-clip: padding-box; border: 2px solid transparent; }
+
+/* Short-screen safety net for centered dialogs. A dialog with its own max-height
+   keeps its dedicated scroll behavior; otherwise its panel becomes scrollable. */
+.fixed.inset-0.z-50.flex.items-center.justify-center
+  > :not(.absolute):not([class*="max-h-"]) {
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* This standalone account form is a flex child; keeping its natural height is
+   what lets the surrounding short-screen container acquire a real scroll range. */
+bbc-parent-account-action form { flex-shrink: 0; }
 
 /* fingerprint pulse */
 @keyframes fp-pulse {
@@ -219,6 +334,22 @@ nav[aria-label="Fee plan workspace"]::-webkit-scrollbar { display: none; }
     min-height: 44px !important;
     height: auto !important;
   }
+  .student-list-actions {
+    display: grid !important;
+    width: 100%;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .student-list-actions > * { width: 100%; }
+  .student-list-actions > * > button,
+  .student-list-actions > button {
+    width: 100%;
+    min-height: 44px !important;
+    justify-content: center;
+  }
+  .student-list-actions .student-new-action {
+    order: -1;
+    grid-column: 1 / -1;
+  }
   .bbc-card-actions > [action] {
     width: 100%;
     flex-wrap: wrap;
@@ -241,6 +372,8 @@ nav[aria-label="Fee plan workspace"]::-webkit-scrollbar { display: none; }
 @media (max-width: 359.98px) {
   .responsive-kpi-grid,
   .module-catalog-grid { grid-template-columns: minmax(0, 1fr) !important; }
+  .student-list-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .student-list-actions .student-import-action { grid-column: 1 / -1; }
 }
 
 @media (pointer: coarse) {

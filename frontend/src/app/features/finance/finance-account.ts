@@ -4,6 +4,7 @@ import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/cor
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { I18nService } from '../../core/i18n.service';
+import { SchoolService } from '../../core/school.service';
 import {
   ConsolidatedReceipt, FinanceAccountApi, StudentAccountClassOption,
   StudentAccountSearchView, StudentFinanceAccount,
@@ -53,13 +54,15 @@ import {
             @for (result of results(); track result.enrollmentId) {
               <button type="button" class="result-row" [class.selected]="selected()?.studentId === result.studentId" (click)="choose(result)">
                 <span><strong>{{ result.studentName }}</strong><small>{{ result.matricule || '—' }} · {{ result.className || '—' }}</small></span>
-                <span class="account-state" [class.due]="result.outstandingMinor > 0" [class.settled]="result.billedMinor > 0 && result.outstandingMinor === 0" [class.unconfigured]="result.billedMinor === 0">
+                <span class="account-state" [class.due]="result.outstandingMinor > 0" [class.settled]="(result.billedMinor > 0 || result.chargesConfigured) && result.outstandingMinor === 0" [class.unconfigured]="result.billedMinor === 0 && !result.chargesConfigured">
                   @if (result.outstandingMinor > 0) {
                     <small>{{ fr() ? 'Solde dû' : 'Balance due' }}</small><b>{{ money(result.outstandingMinor) }}</b>
                   } @else if (result.billedMinor > 0) {
                     <b>{{ fr() ? 'Soldé' : 'Paid in full' }}</b><small>{{ money(result.paidMinor) }} {{ fr() ? 'payé' : 'paid' }}</small>
                   } @else if (result.paidMinor > 0) {
                     <small>{{ fr() ? 'Versements enregistrés' : 'Payments recorded' }}</small><b>{{ money(result.paidMinor) }}</b><small>{{ fr() ? 'Aucun frais facturé' : 'No fees billed' }}</small>
+                  } @else if (result.chargesConfigured) {
+                    <b>{{ fr() ? 'Aucun montant dû' : 'No amount due' }}</b><small>{{ money(0) }}</small>
                   } @else {
                     <b>{{ fr() ? 'Aucun frais configuré' : 'No fees configured' }}</b><small>{{ fr() ? 'Aucun versement' : 'No payment' }}</small>
                   }
@@ -112,7 +115,7 @@ import {
             <div class="document-scroll">
               <article class="receipt-print-paper consolidated-sheet">
                 <header class="receipt-header">
-                  <div class="receipt-brand"><span class="brand-mark">BBC</span><div><strong>Bayo Bilingual Complex</strong><small>Maroua · Cameroun</small></div></div>
+                  <div class="receipt-brand"><span class="brand-mark">BBC</span><div><strong>{{ school.profile()?.name || 'Bayo Bilingual Complex' }}</strong><small>{{ school.location() || 'Maroua · Cameroun' }}</small>@if(school.profile()?.phone; as phone){<small>{{ phone }}</small>}@if(school.profile()?.email; as email){<small>{{ email }}</small>}</div></div>
                   <div class="receipt-number"><span>{{ fr() ? 'RELEVÉ DES PAIEMENTS' : 'PAYMENT STATEMENT' }}</span><strong>{{ receipt.receiptNumber }}</strong><small>{{ fr() ? 'Émis le' : 'Issued' }} {{ receipt.issueDate }}</small></div>
                 </header>
                 <section class="student-identity">
@@ -147,6 +150,7 @@ import {
 export class FinanceAccountComponent {
   private readonly api = inject(FinanceAccountApi);
   private readonly i18n = inject(I18nService);
+  protected readonly school = inject(SchoolService);
   protected readonly fr = () => this.i18n.lang() === 'fr';
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
@@ -162,6 +166,7 @@ export class FinanceAccountComponent {
   protected selectedClassId = '';
 
   constructor() {
+    this.school.ensureLoaded();
     this.api.context().subscribe({
       next: value => { this.classes.set(value.classes); this.contextBusy.set(false); },
       error: error => { this.contextBusy.set(false); this.applyError(error); },

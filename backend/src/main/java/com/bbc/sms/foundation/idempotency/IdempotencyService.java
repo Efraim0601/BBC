@@ -37,16 +37,19 @@ public class IdempotencyService {
         String hash = sha256(json(request));
         String lockName = schoolId + "|" + endpoint + "|" + safeKey;
         jdbc.execute((ConnectionCallback<Void>) con -> {
-            var ps = con.prepareStatement("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))");
-            ps.setString(1, lockName);
-            ps.execute();
+            try (var ps = con.prepareStatement("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))")) {
+                ps.setString(1, lockName);
+                ps.execute();
+            }
             return null;
         });
         List<Row> rows = jdbc.query("""
                 SELECT request_hash, response_json::text FROM idempotency_key
-                WHERE school_id=? AND endpoint=? AND idempotency_key=? AND expires_at>now()
+                WHERE school_id=? AND endpoint=? AND idempotency_key=?
                 """, (rs, n) -> new Row(rs.getString(1), rs.getString(2)), schoolId, endpoint, safeKey);
         if (!rows.isEmpty()) {
+            // A retained key identifies one logical operation, even after its cache
+            // retention date. Never rerun money movement and then hit the unique key.
             Row row = rows.get(0);
             if (!row.requestHash.equals(hash)) throw ApiException.conflict("Cette clé d’idempotence a été utilisée avec une autre requête");
             try { return mapper.readValue(row.responseJson, responseType); }

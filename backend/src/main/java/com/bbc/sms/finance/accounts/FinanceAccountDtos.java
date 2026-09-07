@@ -18,7 +18,7 @@ public final class FinanceAccountDtos {
                                            LocalDate enrolledOn, LocalDate exitedOn,
                                            long billedMinor, long paidMinor,
                                            long outstandingMinor, long creditMinor,
-                                           long paymentCount) {}
+                                           long paymentCount, boolean chargesConfigured) {}
 
     public record AccountPaymentView(UUID id, String source, String receiptNo,
                                      LocalDate paymentDate, long amountMinor,

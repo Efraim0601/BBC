@@ -26,6 +26,8 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -75,7 +77,7 @@ class PayrollServicePreviewTest {
         period.setEndDate(LocalDate.of(2026, 2, 28));
         period.setPaymentDate(LocalDate.of(2026, 2, 28));
         period.setStatus("OPEN");
-        when(periods.findByIdAndSchoolId(PERIOD_ID, SCHOOL_ID)).thenReturn(java.util.Optional.of(period));
+        lenient().when(periods.findByIdAndSchoolId(PERIOD_ID, SCHOOL_ID)).thenReturn(java.util.Optional.of(period));
     }
 
     @AfterEach
@@ -98,6 +100,23 @@ class PayrollServicePreviewTest {
         assertThat(preview.grossMinor()).isEqualTo(350_000);
         assertThat(preview.netMinor()).isEqualTo(350_000);
     }
+
+    @Test
+    void approvedCashPayrollUsesTreasuryWithoutRequiringAStudentCollectionDrawer() {
+        UUID runId=UUID.randomUUID(), accountId=UUID.randomUUID();
+        PayrollRun run=new PayrollRun(); run.setId(runId); run.setSchoolId(SCHOOL_ID);
+        run.setPayrollPeriodId(PERIOD_ID); run.setStatus("APPROVED");
+        when(runs.findByIdAndSchoolId(runId,SCHOOL_ID)).thenReturn(java.util.Optional.of(run));
+        var channel=new com.bbc.sms.finance.PaymentChannel();
+        channel.setId(UUID.randomUUID()); channel.setSchoolId(SCHOOL_ID); channel.setCode("CASH"); channel.setEnabled(true);
+        when(channels.findById(channel.getId())).thenReturn(java.util.Optional.of(channel));
+        when(treasury.requireActiveRecord(accountId)).thenThrow(new TreasuryReached());
+        assertThatThrownBy(() -> service.payNow(runId,new PayrollDtos.PayRequest(channel.getId(),accountId,
+                period.getPaymentDate(),"AUDIT",null,run.getVersion()),"audit"))
+                .isInstanceOf(TreasuryReached.class);
+    }
+
+    private static class TreasuryReached extends RuntimeException {}
 
     @Test
     void previewReturnsPreciseSalaryAndAccountMappingBlockers() {

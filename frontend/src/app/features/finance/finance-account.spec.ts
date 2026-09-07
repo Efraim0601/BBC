@@ -4,6 +4,7 @@ import { provideRouter } from '@angular/router';
 import { of } from 'rxjs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { I18nService } from '../../core/i18n.service';
+import { SchoolService } from '../../core/school.service';
 import { FinanceAccountApi, StudentFinanceAccount } from './finance-account.api';
 import { FinanceAccountComponent } from './finance-account';
 
@@ -27,6 +28,7 @@ describe('student finance accounts', () => {
         provideRouter([]),
         { provide: FinanceAccountApi, useValue: api },
         { provide: I18nService, useValue: { lang: signal('en') } },
+        { provide: SchoolService, useValue: { ensureLoaded: vi.fn(), profile: signal({ name: 'BBC Configured School', phone: '+237 695674582', email: 'info@bbcomplex.com' }), location: () => 'Maroua, Cameroun' } },
       ],
     });
     const fixture = TestBed.createComponent(FinanceAccountComponent);
@@ -60,5 +62,17 @@ describe('student finance accounts', () => {
     expect(text).toContain('BBC-2');
     expect(text).toContain('Download PDF');
     expect(text).toContain('Print');
+    expect(text).toContain('BBC Configured School');
+    expect(text).toContain('Maroua, Cameroun');
+    expect(text).toContain('+237 695674582');
+    expect(text).toContain('info@bbcomplex.com');
+  });
+
+  it('does not label fully waived charges as missing configuration or a payment',()=>{
+    const {fixture}=create({search:vi.fn(()=>of([{studentId:'waived',studentName:'Waived QA',enrollmentId:'waived-e',billedMinor:0,paidMinor:0,outstandingMinor:0,creditMinor:0,paymentCount:0,chargesConfigured:true}]))});
+    (fixture.componentInstance as any).classChanged('class-1');fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('No amount due');
+    expect(fixture.nativeElement.textContent).not.toContain('No fees configured');
+    expect(fixture.nativeElement.textContent).not.toContain('Paid in full');
   });
 });

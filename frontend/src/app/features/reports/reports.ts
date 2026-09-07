@@ -28,7 +28,7 @@ const PALETTE = ['#1B3A5C', '#D4A843', '#2D5586', '#E2C05A', '#7E9CBA', '#94701D
   template: `
     <div class="fade-in max-w-6xl mx-auto">
       <bbc-page-header [title]="i18n.t('reports')"
-        [subtitle]="fr() ? 'Analytique complète — école entière' : 'Full analytics — whole school'">
+        [subtitle]="fr() ? 'Analytique des données de votre périmètre' : 'Analytics for your authorized scope'">
         <div right class="flex items-center gap-2">
           <button (click)="print()"
             class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">

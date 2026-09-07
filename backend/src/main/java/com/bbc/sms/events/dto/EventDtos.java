@@ -18,7 +18,8 @@ public class EventDtos {
             String audience,
             List<String> targetClasses,
             boolean notified,
-            LocalDate notifiedAt) {}
+            LocalDate notifiedAt,
+            boolean canEdit) {}
 
     public record EventUpsert(
             @NotBlank String title,

@@ -226,11 +226,10 @@ export class DashboardComponent {
   });
 
   protected alerts = computed(() => {
-    const debtors = 0;
     return [
-      { title: this.fr() ? 'Lecteur d’empreintes' : 'Fingerprint reader', body: this.fr() ? 'Entrée principale — opérationnel' : 'Main gate — operational', icon: 'fingerprint', cls: 'bg-brand-50 text-brand-600 border-brand-100' },
+      { title: this.fr() ? 'Lecteur d’empreintes' : 'Fingerprint reader', body: this.fr() ? 'Vérifiez l’état du lecteur dans Présence → Appareils.' : 'Check reader status in Attendance → Devices.', icon: 'fingerprint', cls: 'bg-brand-50 text-brand-600 border-brand-100' },
       { title: this.fr() ? 'Présence du jour' : "Today's attendance", body: this.attRate() + '% ' + (this.fr() ? 'de présence' : 'present'), icon: 'check', cls: 'bg-emerald-50 text-emerald-600 border-emerald-100' },
-      { title: this.fr() ? 'Sauvegarde quotidienne' : 'Daily backup', body: this.fr() ? 'Effectuée à 02:00 — 100% OK' : 'Completed at 02:00 — 100% OK', icon: 'check', cls: 'bg-emerald-50 text-emerald-600 border-emerald-100' },
+      { title: this.fr() ? 'Sauvegardes' : 'Backups', body: this.fr() ? 'État non vérifié ici. L’administrateur doit contrôler la sauvegarde et sa restauration.' : 'Not verified here. The administrator must check backups and restoration.', icon: 'info', cls: 'bg-amber-50 text-amber-700 border-amber-100' },
     ];
   });
 

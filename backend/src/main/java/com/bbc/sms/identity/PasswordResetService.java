@@ -82,6 +82,9 @@ public class PasswordResetService {
         }
 
         user.setPasswordHash(encoder.encode(tempPassword));
+        user.setCredentialsVersion(user.getCredentialsVersion() + 1);
+        user.setFailedAttempts(0);
+        user.setLockedUntil(null);
         users.save(user);
         return new ForgotPasswordResponse(true, GENERIC_OK);
     }

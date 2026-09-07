@@ -69,7 +69,7 @@ import { formatStudentDate, maskStudentDateInput, parseStudentDate } from './stu
 
       @if(adding() && canManageGuardians()){
         <div class="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
-          <form novalidate (ngSubmit)="addGuardian()" class="bg-white rounded-2xl shadow-xl border border-slate-200 p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto space-y-5">
+          <form novalidate (ngSubmit)="addGuardian()" class="bg-white rounded-2xl shadow-xl border border-slate-200 p-6 w-full max-w-2xl max-h-[calc(100dvh-2rem)] overflow-y-auto space-y-5">
             <div class="flex justify-between gap-3"><div><h2 class="text-lg font-bold">{{fr()?'Ajouter ou retrouver un parent':'Add or find guardian'}}</h2><p class="text-sm text-mute mt-1">{{fr()?'Recherchez d’abord un compte existant, ou complétez les informations ci-dessous.':'Search for an existing account first, or complete the information below.'}}</p></div><button type="button" class="text-2xl text-slate-500" (click)="closeAdd()">×</button></div>
 
             <label><span class="label">{{fr()?'Rechercher un parent existant':'Search existing guardian'}}</span><div class="flex gap-2"><input [(ngModel)]="searchQ" name="search" class="input flex-1" [placeholder]="fr()?'Nom, e-mail ou téléphone':'Name, email or phone'"/><button type="button" class="btn-secondary" (click)="searchGuardian()">{{fr()?'Rechercher':'Search'}}</button></div><span class="field-help">{{fr()?'Minimum 3 caractères.':'At least 3 characters.'}}</span></label>
@@ -92,7 +92,7 @@ import { formatStudentDate, maskStudentDateInput, parseStudentDate } from './stu
 
       @if(allowedPortalTarget();as target){
         <div class="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
-          <form novalidate (ngSubmit)="savePortalAccess()" class="bg-white rounded-2xl shadow-xl border border-slate-200 p-6 w-full max-w-lg space-y-5">
+          <form novalidate (ngSubmit)="savePortalAccess()" class="bg-white rounded-2xl shadow-xl border border-slate-200 p-6 w-full max-w-lg max-h-[calc(100dvh-2rem)] overflow-y-auto space-y-5">
             <div class="flex justify-between gap-3"><div><h2 class="text-lg font-bold">{{fr()?'Ajouter un e-mail au parent':'Add an email to the guardian'}}</h2><p class="text-sm text-mute mt-1">{{target.displayName}} · {{fr()?'Vous pourrez activer le portail maintenant ou plus tard.':'Enable portal access now or leave it disabled.'}}</p></div><button type="button" class="text-2xl text-slate-500" (click)="closePortalAccess()">×</button></div>
             <label><span class="label">E-mail@if(portalMode!=='NO_PORTAL'){<span class="required-mark">*</span>} <span class="text-mute">({{fr()?'facultatif sans portail':'optional without portal'}})</span></span><input [(ngModel)]="portalEmail" name="portalEmail" type="email" class="input w-full" placeholder="parent@example.com" [class.input-error]="portalAttempted()&&portalEmailInvalid()" [attr.aria-invalid]="portalAttempted()&&portalEmailInvalid()"/>@if(portalAttempted()&&portalEmailInvalid()){<span class="field-error">{{!portalEmail.trim()?(fr()?'Ajoutez un e-mail pour activer le portail.':'Add an email to enable portal access.'):(fr()?'Saisissez une adresse e-mail valide.':'Enter a valid email address.')}}</span>}</label>
             <label><span class="label">{{fr()?'Mode d’accès':'Access mode'}}<span class="required-mark">*</span></span><select [(ngModel)]="portalMode" name="portalMode" class="input w-full"><option value="SEND_INVITE">{{fr()?'Envoyer une invitation sécurisée':'Send secure invitation'}}</option><option value="CREATE_ACCOUNT">{{fr()?'Créer avec mot de passe initial':'Create with initial password'}}</option><option value="NO_PORTAL">{{fr()?'Contact sans accès portail':'Contact without portal access'}}</option></select></label>
@@ -107,7 +107,7 @@ import { formatStudentDate, maskStudentDateInput, parseStudentDate } from './stu
 
       @if(editing() && canEditProfile()){
         <div class="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
-          <form novalidate (ngSubmit)="saveStudent()" class="bg-white rounded-2xl shadow-xl border border-slate-200 p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto space-y-5">
+          <form novalidate (ngSubmit)="saveStudent()" class="bg-white rounded-2xl shadow-xl border border-slate-200 p-6 w-full max-w-2xl max-h-[calc(100dvh-2rem)] overflow-y-auto space-y-5">
             <div class="flex justify-between"><div><h2 class="text-lg font-bold">{{fr()?'Modifier la fiche élève':'Edit student profile'}}</h2><p class="text-sm text-mute mt-1">{{fr()?'Les champs obligatoires sont clairement indiqués.':'Required fields are clearly marked.'}}</p></div><button type="button" class="text-2xl text-slate-500" (click)="editing.set(false)">×</button></div>
             @if(editAttempted()&&!editValid()){<div role="alert" class="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700">{{fr()?'Corrigez les champs en rouge avant d’enregistrer.':'Correct the fields in red before saving.'}}</div>}
             <div class="grid sm:grid-cols-2 gap-4">

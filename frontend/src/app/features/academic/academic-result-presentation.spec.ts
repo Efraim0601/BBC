@@ -1,7 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { academicBulletinTitle, canReviewGradePacket, computedPeriodCodes, formatAcademicMark, isReadOnlyGradeOversight } from './academic';
+import { academicBulletinTitle, canReviewGradePacket, canReturnGradePacket, computedPeriodCodes, formatAcademicMark, isReadOnlyGradeOversight, isReadOnlyGradeSheet } from './academic';
 
 describe('computed bulletin presentation', () => {
+  it('marks locked sheets read-only even for their assigned teacher', () => {
+    for (const packetStatus of ['SUBMITTED','ACCEPTED','LOCKED'] as const) {
+      expect(isReadOnlyGradeSheet({packetStatus})).toBe(true);
+    }
+    expect(isReadOnlyGradeSheet({packetStatus:'DRAFT', capabilities:{canEditDraft:false} as any})).toBe(true);
+    expect(isReadOnlyGradeSheet({packetStatus:'RETURNED', capabilities:{canEditDraft:true} as any})).toBe(false);
+    expect(isReadOnlyGradeSheet(null)).toBe(false);
+  });
+  it('allows only authorized reviewers to return an accepted sheet for correction', () => {
+    expect(canReturnGradePacket({packetStatus:'ACCEPTED',capabilities:{canReview:true} as any})).toBe(true);
+    expect(canReturnGradePacket({packetStatus:'ACCEPTED',capabilities:{canReview:false} as any})).toBe(false);
+    expect(canReviewGradePacket({packetStatus:'ACCEPTED',capabilities:{canReview:true} as any})).toBe(false);
+    expect(canReturnGradePacket({packetStatus:'DRAFT',capabilities:{canReview:true} as any})).toBe(false);
+  });
   it('keeps missing current marks visible instead of rendering zero', () => {
     expect(formatAcademicMark(null)).toBe('—');
     expect(formatAcademicMark(12.805555555)).toBe('12.81');

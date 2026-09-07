@@ -1,6 +1,7 @@
 package com.bbc.sms.guardian;
 
 import jakarta.validation.constraints.*;
+import jakarta.validation.Valid;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -45,12 +46,14 @@ public final class GuardianDtos {
     public record ResetParentPasswordRequest(@NotBlank String token, @Size(min=8,max=100) String password) {}
     public record PublicMessage(String message) {}
 
-    public record FamilyImportGuardian(String displayName, String email, String phone,
+    public record FamilyImportGuardian(@NotBlank String displayName, @Email String email, String phone,
         String relationshipType, String accessMode) {}
-    public record FamilyImportRow(@NotBlank String externalKey, @NotBlank String firstName,
-        @NotBlank String lastName, String niu, String sex, LocalDate dob, String birthplace,
+    public record FamilyImportRow(@NotBlank String externalKey, String firstName,
+        @NotBlank(message="Le nom de l’élève est obligatoire") String lastName, String niu,
+        @Pattern(regexp="[MF]",message="Le sexe doit être M ou F") String sex,
+        @PastOrPresent(message="La date de naissance ne peut pas être dans le futur") LocalDate dob, String birthplace,
         Boolean repeats, UUID classId,
-        List<FamilyImportGuardian> guardians) {}
+        List<@Valid @NotNull FamilyImportGuardian> guardians) {}
     public record FamilyImportRequest(String sourceName, @NotEmpty List<FamilyImportRow> rows) {}
     public record FamilyImportRowView(int rowNumber, String externalKey, String studentName,
         String outcome, String message) {}

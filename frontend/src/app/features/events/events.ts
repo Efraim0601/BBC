@@ -144,7 +144,7 @@ const EVENT_TYPES: Record<string, TypeMeta> = {
             </div>
             <div class="mt-4 p-3 rounded-lg bg-emerald-50 flex items-center gap-2.5">
               <div class="w-8 h-8 rounded-md bg-white flex items-center justify-center text-emerald-600 shrink-0"><bbc-icon name="send" [s]="16" /></div>
-              <div class="text-xs text-ink">{{ fr() ? 'Les notifications partent par WhatsApp (canal principal) et SMS de secours.' : 'Notifications go via WhatsApp (main channel) and SMS fallback.' }}</div>
+              <div class="text-xs text-ink">{{ fr() ? 'L’envoi SMS/WhatsApp n’est pas connecté. Contactez les parents manuellement. Les anciens statuts « Notifié » ne prouvent pas la réception.' : 'SMS/WhatsApp delivery is not connected. Contact parents manually. Historical “Notified” statuses do not prove delivery.' }}</div>
             </div>
           </bbc-card>
         </div>
@@ -175,7 +175,7 @@ const EVENT_TYPES: Record<string, TypeMeta> = {
                   <div class="text-xs text-mute mt-1">{{ e.description }}</div>
                 }
               </div>
-              @if (canWrite) {
+              @if (canWrite && e.canEdit) {
                 <div class="flex items-center gap-1 shrink-0">
                   <button (click)="remove(e)" title="{{ fr() ? 'Supprimer' : 'Delete' }}"
                     class="w-7 h-7 rounded text-mute hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center"><bbc-icon name="trash" [s]="14" /></button>
@@ -206,9 +206,9 @@ const EVENT_TYPES: Record<string, TypeMeta> = {
                     }
                   </span>
                 } @else if (canWrite) {
-                  <button (click)="notify(e)"
+                  <button disabled [attr.title]="fr() ? 'Envoi automatique non connecté' : 'Automatic delivery is not connected'"
                     class="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-lg bg-emerald-600 text-white hover:bg-emerald-700">
-                    <bbc-icon name="send" [s]="14" /> {{ fr() ? 'Notifier les parents' : 'Notify parents' }}
+                    <bbc-icon name="send" [s]="14" /> {{ fr() ? 'Envoi indisponible' : 'Delivery unavailable' }}
                   </button>
                 } @else {
                   <span class="text-[11px] text-amber-600 font-semibold">{{ fr() ? 'Non notifié' : 'Not notified' }}</span>
@@ -223,7 +223,7 @@ const EVENT_TYPES: Record<string, TypeMeta> = {
     <!-- Create modal -->
     @if (creating()) {
       <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" (click)="closeCreate()">
-        <div class="bg-white rounded-xl2 shadow-card w-full max-w-2xl max-h-[90vh] overflow-y-auto" (click)="$event.stopPropagation()">
+        <div class="bg-white rounded-xl2 shadow-card w-full max-w-2xl max-h-[calc(100dvh-2rem)] overflow-y-auto" (click)="$event.stopPropagation()">
           <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100">
             <div class="text-[15px] font-semibold text-ink font-display">{{ fr() ? 'Nouvel événement' : 'New event' }}</div>
             <button (click)="closeCreate()" class="w-8 h-8 rounded-lg text-mute hover:bg-slate-100 flex items-center justify-center"><bbc-icon name="x" [s]="18" /></button>
@@ -264,7 +264,7 @@ const EVENT_TYPES: Record<string, TypeMeta> = {
             <div>
               <label class="text-xs font-semibold text-mute mb-2 block">{{ fr() ? 'Public ciblé' : 'Target audience' }}</label>
               <div class="flex items-center gap-2 mb-2">
-                <button (click)="draft.audience = 'all'"
+                <button (click)="draft.audience = 'all'" [disabled]="authScopeRestricted()"
                   class="px-3 py-1.5 text-xs font-bold rounded-lg border transition"
                   [class]="draft.audience === 'all' ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-slate-200 text-mute hover:border-brand-300'">
                   {{ fr() ? 'Toute l’école' : 'Whole school' }}
@@ -316,6 +316,7 @@ export class EventsComponent {
   protected setupClasses = signal<ClassView[]>([]);
   protected selectedTargets = signal<string[]>([]);
   protected canWrite = this.auth.can('events', 'write');
+  protected authScopeRestricted = () => this.auth.user()?.parcoursScopeMode !== 'GLOBAL';
   protected creating = signal(false);
   protected eventQuery = signal('');
   protected eventTypeFilter = signal<string | null>(null);
@@ -375,7 +376,7 @@ export class EventsComponent {
     return [
       { n: 1, text: f ? 'Créez un événement et sa date.' : 'Create an event and its date.' },
       { n: 2, text: f ? 'Choisissez les classes concernées (ou toute l’école).' : 'Choose concerned classes (or the whole school).' },
-      { n: 3, text: f ? 'Cliquez « Notifier les parents » — envoi WhatsApp + SMS aux parents concernés.' : 'Click "Notify parents" — WhatsApp + SMS to concerned parents.' },
+      { n: 3, text: f ? 'Prévenez les parents manuellement : aucun SMS ni WhatsApp automatique n’est envoyé.' : 'Contact parents manually: no automatic SMS or WhatsApp is sent.' },
       { n: 4, text: f ? 'Les parents voient l’événement dans leur espace.' : 'Parents see the event in their portal.' },
     ];
   });
@@ -391,6 +392,7 @@ export class EventsComponent {
 
   protected openCreate(): void {
     this.draft = this.blank();
+    if (this.authScopeRestricted()) this.draft.audience = 'classes';
     this.selectedTargets.set([]);
     this.creating.set(true);
   }
@@ -398,6 +400,7 @@ export class EventsComponent {
   protected closeCreate(): void {
     this.creating.set(false);
     this.draft = this.blank();
+    if (this.authScopeRestricted()) this.draft.audience = 'classes';
     this.selectedTargets.set([]);
   }
 
@@ -407,7 +410,7 @@ export class EventsComponent {
   }
 
   protected save(): void {
-    if (!this.draft.title || !this.draft.eventDate) return;
+    if (!this.draft.title || !this.draft.eventDate || (this.draft.audience === 'classes' && !this.selectedTargets().length)) return;
     const body: EventUpsert = {
       title: this.draft.title,
       type: this.draft.type,

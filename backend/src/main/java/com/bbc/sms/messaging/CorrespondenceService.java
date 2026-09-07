@@ -5,6 +5,7 @@ import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AppUserPrincipal;
 import com.bbc.sms.platform.security.AuthorizationPolicyService;
 import com.bbc.sms.platform.security.PolicyResourceContext;
+import com.bbc.sms.platform.security.TeacherScopeService;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.student.Student;
 import com.bbc.sms.student.StudentRepository;
@@ -18,6 +19,7 @@ import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -26,12 +28,14 @@ public class CorrespondenceService {
     private final CorrespondenceRepository repo;
     private final StudentRepository students;
     private final AuthorizationPolicyService policy;
+    private final TeacherScopeService scope;
 
     public CorrespondenceService(CorrespondenceRepository repo, StudentRepository students,
-                                 AuthorizationPolicyService policy) {
+                                 AuthorizationPolicyService policy, TeacherScopeService scope) {
         this.repo = repo;
         this.students = students;
         this.policy = policy;
+        this.scope = scope;
     }
 
     @Transactional(readOnly = true)
@@ -39,9 +43,11 @@ public class CorrespondenceService {
         requireSchool("MESSAGES_VIEW");
         UUID schoolId = TenantContext.get();
         Map<UUID, Student> byId = new HashMap<>();
+        Set<UUID> allowed = scope.allowedStudentIds();
         students.findBySchoolIdAndActiveTrueOrderByLastNameAsc(schoolId)
                 .forEach(s -> byId.put(s.getId(), s));
         return repo.findBySchoolIdOrderByCreatedAtDesc(schoolId).stream()
+                .filter(notice -> allowed == null || allowed.contains(notice.getStudentId()))
                 .map(c -> toView(c, byId.get(c.getStudentId())))
                 .toList();
     }
@@ -49,6 +55,7 @@ public class CorrespondenceService {
     @Transactional(readOnly = true)
     public List<NoticeView> forStudent(UUID studentId) {
         requireSchool("MESSAGES_VIEW");
+        scope.assertStudent(studentId);
         UUID schoolId = TenantContext.get();
         Student student = students.findByIdAndSchoolId(studentId, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Élève"));
@@ -60,6 +67,7 @@ public class CorrespondenceService {
     @Transactional
     public NoticeView create(NoticeUpsert in) {
         requireSchool("MESSAGES_MANAGE");
+        scope.assertStudent(in.studentId());
         UUID schoolId = TenantContext.get();
         Student student = students.findByIdAndSchoolId(in.studentId(), schoolId)
                 .orElseThrow(() -> ApiException.notFound("Élève"));
@@ -81,6 +89,7 @@ public class CorrespondenceService {
         UUID schoolId = TenantContext.get();
         Correspondence c = repo.findByIdAndSchoolId(id, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Correspondance"));
+        scope.assertStudent(c.getStudentId());
         c.setAcknowledgedAt(Instant.now());
         c.setAcknowledgedBy(in.signedBy().trim());
         Student student = students.findByIdAndSchoolId(c.getStudentId(), schoolId).orElse(null);
@@ -92,6 +101,7 @@ public class CorrespondenceService {
         requireSchool("MESSAGES_MANAGE");
         Correspondence c = repo.findByIdAndSchoolId(id, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Correspondance"));
+        scope.assertStudent(c.getStudentId());
         repo.delete(c);
     }
 

@@ -13,6 +13,7 @@ export interface EventView {
   targetClasses: string[];
   notified: boolean;
   notifiedAt: string | null;
+  canEdit?: boolean;
 }
 
 export interface EventUpsert {

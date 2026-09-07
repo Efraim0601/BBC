@@ -191,7 +191,7 @@ const FALLBACK_SANCTIONS = [
 
         <bbc-card className="col-span-12 lg:col-span-5"
           [title]="fr() ? 'Notifier le parent' : 'Notify parent'"
-          [subtitle]="fr() ? 'SMS / Email au parent' : 'SMS / Email to parent'">
+          [subtitle]="fr() ? 'Modèle à transmettre manuellement' : 'Template to send manually'">
 
           <div class="mb-3">
             <div class="text-xs font-semibold text-mute mb-1.5">{{ fr() ? 'Modèles' : 'Templates' }}</div>
@@ -231,18 +231,18 @@ const FALLBACK_SANCTIONS = [
           }
 
           <div class="grid grid-cols-2 gap-2 mt-3">
-            <button (click)="sendNotify('sms')" [disabled]="!canWrite || notifying() || !notifyRef().trim()"
+            <button disabled
               class="inline-flex items-center justify-center gap-1.5 h-9 px-3 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50 disabled:opacity-50">
               <bbc-icon name="phone" [s]="14" /> SMS
             </button>
-            <button (click)="sendNotify('email')" [disabled]="!canWrite || notifying() || !notifyRef().trim()"
+            <button disabled
               class="inline-flex items-center justify-center gap-1.5 h-9 px-3 text-sm font-semibold rounded-lg bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50">
               <bbc-icon name="send" [s]="14" /> {{ fr() ? 'Envoyer' : 'Send' }}
             </button>
           </div>
           <div class="text-[11px] text-mute mt-2 flex items-center gap-1.5">
             <bbc-icon name="bell" [s]="12" />
-            {{ fr() ? 'Le SMS est lu plus vite par les parents.' : 'SMS is read faster by parents.' }}
+            {{ fr() ? 'L’envoi automatique n’est pas connecté. Copiez ce modèle et contactez le parent manuellement. Aucun message n’est envoyé par ces boutons.' : 'Automatic delivery is not connected. Copy this template and contact the parent manually. These buttons do not send messages.' }}
           </div>
         </bbc-card>
       </div>

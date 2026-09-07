@@ -37,7 +37,7 @@ export function canPickParcoursLevel(user: ParcoursUser, level: Lvl): boolean {
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="min-h-screen w-screen bg-surface flex flex-col">
+    <div class="h-[100dvh] min-h-0 w-full overflow-hidden bg-surface flex flex-col">
       <!-- Top bar — logo stays where the navbar normally sits -->
       <header class="h-16 bg-brand-700 text-white px-4 flex items-center gap-3 shrink-0 shadow-sm">
         <div class="flex items-center gap-2.5 px-2 py-1.5 shrink-0">
@@ -67,9 +67,9 @@ export function canPickParcoursLevel(user: ParcoursUser, level: Lvl): boolean {
         </button>
       </header>
 
-      <div class="flex-1 flex items-center justify-center p-6 scroll-y">
-      <div class="w-full max-w-3xl">
-        <div class="mb-8">
+      <main class="flex-1 min-h-0 flex overflow-y-auto overscroll-y-contain px-4 py-5 sm:p-6">
+      <div class="my-auto w-full max-w-3xl shrink-0 py-1 sm:py-4">
+        <div class="mb-5 sm:mb-8">
           <h1 class="font-display text-2xl font-bold text-ink leading-tight">
             {{ noAssignedParcours()
               ? (fr() ? 'Aucun parcours attribué' : 'No parcours assigned')
@@ -104,11 +104,11 @@ export function canPickParcoursLevel(user: ParcoursUser, level: Lvl): boolean {
             </button>
           </section>
         } @else if (step() === 'level') {
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
             @for (lv of levels(); track lv.value) {
               <button (click)="pickLevel(lv.value)"
-                class="group text-left rounded-2xl border border-slate-200 bg-white p-6 hover:border-brand-400 hover:shadow-pop transition">
-                <div class="w-12 h-12 rounded-xl flex items-center justify-center mb-4 {{ lv.bg }}" [innerHTML]="lv.icon"></div>
+                class="group text-left rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 hover:border-brand-400 hover:shadow-pop transition">
+                <div class="w-12 h-12 rounded-xl flex items-center justify-center mb-3 sm:mb-4 {{ lv.bg }}" [innerHTML]="lv.icon"></div>
                 <div class="font-display font-bold text-lg text-ink">{{ lv.label }}</div>
                 <div class="text-xs text-mute mt-1">{{ lv.sub }}</div>
               </button>
@@ -116,7 +116,7 @@ export function canPickParcoursLevel(user: ParcoursUser, level: Lvl): boolean {
           </div>
           @if (canSeeAll()) {
             <button (click)="commitAll()"
-              class="mt-6 w-full text-left rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-5 hover:border-brand-400 hover:bg-white transition">
+              class="mt-4 sm:mt-6 w-full text-left rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-5 hover:border-brand-400 hover:bg-white transition">
               <div class="font-display font-bold text-ink">{{ allLabel() }}</div>
               <div class="text-xs text-mute mt-1">{{ allHint() }}</div>
             </button>
@@ -136,7 +136,7 @@ export function canPickParcoursLevel(user: ParcoursUser, level: Lvl): boolean {
           </button>
         }
       </div>
-      </div>
+      </main>
     </div>
   `,
 })

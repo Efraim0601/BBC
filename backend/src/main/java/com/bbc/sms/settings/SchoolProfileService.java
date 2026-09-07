@@ -37,6 +37,14 @@ public class SchoolProfileService {
         return toView(current());
     }
 
+    @Transactional(readOnly = true)
+    @org.springframework.security.access.prepost.PreAuthorize("isAuthenticated()")
+    public SchoolBrandingView branding() {
+        SchoolProfileView s = toView(current());
+        return new SchoolBrandingView(s.code(), s.name(), s.motto(), s.city(), s.country(),
+                s.address(), s.phone(), s.email(), s.website(), s.currency(), s.authority(), s.academicYear());
+    }
+
     @Transactional
     public SchoolProfileView update(SchoolProfileUpdate in) {
         require("SCHOOL_PROFILE_MANAGE");

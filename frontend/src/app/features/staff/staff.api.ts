@@ -26,6 +26,11 @@ export interface EmployeeView {
   hasLogin: boolean;
   accountUserId: string | null;
   username: string | null;
+  /** Server-calculated authority over this individual record and login. */
+  canManage?: boolean;
+  canViewDocuments?: boolean;
+  /** Present only in the create response; never stored in the directory. */
+  credentials?: AccountResult;
 }
 
 export interface EmployeeUpsert {
@@ -42,6 +47,7 @@ export interface EmployeeUpsert {
   hourlyRate?: number;
   roles?: string[];
   createLogin?: boolean;
+  accountOptions?: AccountOptions;
 }
 
 /** Une classe assignée à un enseignant. */
@@ -71,6 +77,13 @@ export interface AccountResult {
   username: string;
   emailSent: boolean;
   message: string;
+  password?: string;
+  emailRequested: boolean;
+}
+
+export interface AccountOptions {
+  username?: string;
+  sendEmail?: boolean;
 }
 
 export interface StaffImportRow {
@@ -153,6 +166,7 @@ export interface StaffApplicationView {
   submittedAt: string;
   decidedAt: string | null;
   finalizedAt: string | null;
+  credentials?: AccountResult;
 }
 
 export interface StaffApplicationFinalize {
@@ -165,6 +179,7 @@ export interface StaffApplicationFinalize {
   section?: string | null;
   managementLevels?: string[];
   createLogin?: boolean;
+  accountOptions?: AccountOptions;
 }
 
 export interface StaffPortalSettingsView {
@@ -199,8 +214,8 @@ export class StaffApi {
   bulkDelete(ids: string[]): Observable<BulkDeleteResult> {
     return this.http.post<BulkDeleteResult>(`${this.base}/bulk-delete`, { ids });
   }
-  resetCredentials(id: string): Observable<AccountResult> {
-    return this.http.post<AccountResult>(`${this.base}/${id}/reset-credentials`, {});
+  resetCredentials(id: string, options: AccountOptions = {}): Observable<AccountResult> {
+    return this.http.post<AccountResult>(`${this.base}/${id}/reset-credentials`, options);
   }
   importStaff(body: StaffImportRequest): Observable<StaffImportResult> {
     return this.http.post<StaffImportResult>(`${this.base}/import`, body);

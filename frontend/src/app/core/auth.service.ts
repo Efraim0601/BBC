@@ -1,7 +1,7 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Router } from '@angular/router';
-import { Observable, finalize, shareReplay, throwError, tap } from 'rxjs';
+import { Observable, filter, finalize, shareReplay, throwError, tap } from 'rxjs';
 import { environment } from '../../environments/environment';
 import { ActionEffect, CapabilityView, Level, TokenResponse, UserView } from './models';
 import { ScopeService } from './scope.service';
@@ -35,6 +35,8 @@ export class AuthService {
   private capabilitiesInFlight$: Observable<CapabilityView> | null = null;
   /** Prevent a response started for a previous persona/session from winning a later login. */
   private capabilitiesGeneration = 0;
+  /** A response from a previous sign-in must never restore or replace today's account. */
+  private sessionGeneration = 0;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
@@ -47,17 +49,28 @@ export class AuthService {
 
   private restoreUser(): UserView | null {
     const raw = localStorage.getItem(USER_KEY);
-    return raw ? (JSON.parse(raw) as UserView) : null;
+    if (!raw) return null;
+    try {
+      const user = JSON.parse(raw) as UserView;
+      if (user && typeof user.id === 'string' && typeof user.role === 'string'
+          && user.permissions && typeof user.permissions === 'object') return user;
+    } catch { /* An interrupted storage write must not turn login into a blank screen. */ }
+    for (const key of [USER_KEY, ACCESS_KEY, REFRESH_KEY, EXPIRES_KEY]) localStorage.removeItem(key);
+    return null;
   }
 
   get accessToken(): string | null {
     return localStorage.getItem(ACCESS_KEY);
   }
 
+  get sessionVersion(): number { return this.sessionGeneration; }
+
   login(username: string, password: string, schoolCode?: string): Observable<TokenResponse> {
+    const generation = ++this.sessionGeneration;
+    this.refreshInFlight$ = null;
     return this.http
       .post<TokenResponse>(`${environment.apiUrl}/auth/login`, { username, password, schoolCode })
-      .pipe(tap((res) => this.persist(res)));
+      .pipe(filter(() => generation === this.sessionGeneration), tap((res) => this.persist(res)));
   }
 
   /** Self-service reset — always resolves with a generic message (anti-enumeration). */
@@ -80,17 +93,19 @@ export class AuthService {
       return throwError(() => new HttpErrorResponse({ status: 401, statusText: 'No refresh token' }));
     }
 
-    this.refreshInFlight$ = this.http
+    const generation = this.sessionGeneration;
+    const request$ = this.http
       .post<TokenResponse>(`${environment.apiUrl}/auth/refresh`, { refreshToken })
       .pipe(
+        filter(() => generation === this.sessionGeneration),
         tap((res) => this.persist(res)),
         finalize(() => {
-          this.refreshInFlight$ = null;
+          if (this.refreshInFlight$ === request$) this.refreshInFlight$ = null;
         }),
         shareReplay({ bufferSize: 1, refCount: true }),
       );
-
-    return this.refreshInFlight$;
+    this.refreshInFlight$ = request$;
+    return request$;
   }
 
   /** True when the refresh endpoint itself rejected the session (not a network blip). */
@@ -102,6 +117,8 @@ export class AuthService {
   /** @param reason optional cause (e.g. 'expired') surfaced on the login screen. */
   logout(reason?: string): void {
     this.clearRefreshTimer();
+    this.sessionGeneration += 1;
+    this.refreshInFlight$ = null;
     this.capabilitiesGeneration += 1;
     this.capabilitiesInFlight$ = null;
     localStorage.removeItem(ACCESS_KEY);

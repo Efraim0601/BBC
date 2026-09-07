@@ -70,7 +70,7 @@ public class StaffController {
     @PutMapping("/{id}/photo")
     @PreAuthorize("@policy.canAction('HR_MANAGE')")
     public void savePhoto(@PathVariable UUID id, @RequestBody PhotoUpload in) {
-        service.get(id);
+        service.requireManageEmployee(id);
         photos.save(PhotoService.EMPLOYEE, id, in.dataUrl());
     }
 
@@ -78,7 +78,7 @@ public class StaffController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @PreAuthorize("@policy.canAction('HR_MANAGE')")
     public void deletePhoto(@PathVariable UUID id) {
-        service.get(id);
+        service.requireManageEmployee(id);
         photos.delete(PhotoService.EMPLOYEE, id);
     }
 
@@ -97,6 +97,7 @@ public class StaffController {
                                             @RequestPart("file") MultipartFile file,
                                             @RequestParam(name = "documentType", defaultValue = "other") String documentType,
                                             @RequestParam(name = "label", required = false) String label) {
+        service.requireManageEmployee(employeeId);
         return documents.upload(employeeId, file, documentType, label);
     }
 
@@ -119,6 +120,7 @@ public class StaffController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @PreAuthorize("@policy.canAction('HR_MANAGE')")
     public void deleteDocument(@PathVariable UUID employeeId, @PathVariable UUID documentId) {
+        service.requireManageEmployee(employeeId);
         documents.delete(employeeId, documentId);
     }
 
@@ -137,8 +139,9 @@ public class StaffController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("@policy.canAction('HR_MANAGE')")
-    public EmployeeView create(@Valid @RequestBody EmployeeUpsert in) {
-        return service.create(in);
+    public ResponseEntity<EmployeeView> create(@Valid @RequestBody EmployeeUpsert in) {
+        return ResponseEntity.status(HttpStatus.CREATED).cacheControl(CacheControl.noStore())
+                .body(service.create(in));
     }
 
     @PostMapping("/import")
@@ -169,12 +172,14 @@ public class StaffController {
 
     /**
      * Create the employee's login account if missing, otherwise regenerate its
-     * password; the new credentials are e-mailed to the employee. Doubles as the
+     * password; the new credentials can be shared manually or e-mailed. Doubles as the
      * admin "reset credentials" action.
      */
     @PostMapping("/{id}/reset-credentials")
     @PreAuthorize("@policy.canAction('HR_MANAGE')")
-    public AccountResult resetCredentials(@PathVariable UUID id) {
-        return service.resetCredentials(id);
+    public ResponseEntity<AccountResult> resetCredentials(@PathVariable UUID id,
+            @Valid @RequestBody(required = false) AccountOptions options) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(service.resetCredentials(id, options));
     }
 }

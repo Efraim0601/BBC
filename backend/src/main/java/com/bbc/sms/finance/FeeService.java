@@ -213,6 +213,7 @@ public class FeeService {
         policy.require("PAYMENT_VIEW", new PolicyResourceContext(schoolId, null, LocalDate.now(),
                 null, null, null, studentId, null, null, null, null, null));
         teacherScope.assertSectionStudent(studentId);
+        if (hasV2Charges(schoolId, studentId)) return v2StatementForParent(schoolId, studentId);
         return statementInternal(schoolId, studentId);
     }
 
@@ -302,10 +303,10 @@ public class FeeService {
         return new StudentFeeStatementView(
                 s.getId(), s.getFirstName() + " " + s.getLastName(), s.getMatricule(), s.getClassName(),
                 totals.gridSource(), totals.adjustedAmountMinor(), totals.paidMinor(), balance, progress,
-                status, tranches, payments);
+                status, tranches, payments, false);
     }
 
-    private boolean hasV2Charges(UUID schoolId, UUID studentId) {
+    boolean hasV2Charges(UUID schoolId, UUID studentId) {
         Integer count = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM student_charge
                  WHERE school_id=? AND student_id=?
@@ -464,12 +465,27 @@ public class FeeService {
         Map<UUID, Long> receivedByStudent = payments.findBySchoolIdOrderByPaidOnDesc(schoolId).stream()
                 .collect(Collectors.groupingBy(Payment::getStudentId,
                         Collectors.summingLong(Payment::getAmount)));
+        // Charges, not the old fee grid, remain authoritative after migration.
+        // Aggregate once for the school, then apply the existing student scope below.
+        Map<UUID, V2StudentTotals> chargedStudents = jdbc.query("""
+                SELECT student_id, SUM(adjusted_amount_minor-waived_minor), SUM(paid_minor),
+                       SUM(outstanding_minor),
+                       (SELECT COUNT(*) FROM charge_installment i JOIN student_charge c ON c.id=i.charge_id
+                         WHERE c.school_id=sc.school_id AND c.student_id=sc.student_id
+                           AND c.status NOT IN ('VOID','CANCELLED') AND i.outstanding_minor=0)
+                  FROM student_charge sc
+                 WHERE school_id=? AND status NOT IN ('VOID','CANCELLED')
+                 GROUP BY school_id,student_id
+                """, (rs, n) -> new V2StudentTotals(rs.getObject(1, UUID.class), rs.getLong(2),
+                        rs.getLong(3), rs.getLong(4), rs.getInt(5)), schoolId).stream()
+                .collect(Collectors.toMap(V2StudentTotals::studentId, row -> row));
 
         Set<UUID> covered = new HashSet<>();
         List<StudentFee> synchronizedRows = new ArrayList<>();
         for (Student student : activeStudents) {
             FeeConfig grid = resolveGrid(student, grids, classIdsByName).orElse(null);
-            if (grid == null || grid.getTotal() <= 0) continue;
+            V2StudentTotals charged = chargedStudents.get(student.getId());
+            if (charged == null && (grid == null || grid.getTotal() <= 0)) continue;
 
             covered.add(student.getId());
             StudentFee fee = feeByStudent.get(student.getId());
@@ -480,11 +496,11 @@ public class FeeService {
                 fee.setStudentId(student.getId());
             }
 
-            long total = grid.getTotal();
+            long total = charged == null ? grid.getTotal() : charged.total();
             long received = Math.max(0, receivedByStudent.getOrDefault(student.getId(), 0L));
-            long applied = Math.min(total, received);
-            long balance = total - applied;
-            int tranchesPaid = coveredTranches(grid, applied);
+            long applied = charged == null ? Math.min(total, received) : charged.paid();
+            long balance = charged == null ? total - applied : charged.balance();
+            int tranchesPaid = charged == null ? coveredTranches(grid, applied) : charged.installmentsPaid();
             String status = balance == 0 ? "paid" : (applied > 0 ? "partial" : "unpaid");
             boolean changed = newRow || fee.getTotal() != total || fee.getPaid() != applied
                     || fee.getBalance() != balance || fee.getTranchesPaid() != tranchesPaid
@@ -512,6 +528,8 @@ public class FeeService {
         }
         return covered;
     }
+
+    private record V2StudentTotals(UUID studentId, long total, long paid, long balance, int installmentsPaid) {}
 
     private Optional<FeeConfig> findExisting(UUID schoolId, FeeConfigUpdate in) {
         List<FeeConfig> all = feeConfigs.findBySchoolId(schoolId);

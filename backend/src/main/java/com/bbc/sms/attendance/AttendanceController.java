@@ -60,7 +60,10 @@ public class AttendanceController {
 
     @GetMapping("/classes")
     @PreAuthorize("@perm.staffOnly()")
-    public List<AttendanceClass> classes() { return workflow.attendanceClasses(); }
+    public List<AttendanceClass> classes(@RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+        return workflow.attendanceClasses(date);
+    }
 
     @GetMapping("/sessions")
     @PreAuthorize("@perm.staffOnly()")

@@ -181,17 +181,17 @@ public class PayrollController {
         return payroll.regeneratePayslip(id, key);
     }
 
-    /** Employee self-service is ownership checked in the service, not by a caller-supplied employee id. */
+    /** SELF is resolved and authorized in the service; a context-free action gate cannot resolve an employee. */
     @GetMapping("/self/payslips")
-    @PreAuthorize("@perm.canAction('PAYSLIP_VIEW_SELF')")
+    @PreAuthorize("@perm.staffOnly()")
     public List<PayslipView> selfPayslips() { return payroll.selfPayslips(); }
 
     @GetMapping("/self/payslips/{id}")
-    @PreAuthorize("@perm.canAction('PAYSLIP_VIEW_SELF')")
+    @PreAuthorize("@perm.staffOnly()")
     public PayslipView selfPayslip(@PathVariable UUID id) { return payroll.payslip(id, true); }
 
     @GetMapping("/self/payslips/{id}/download")
-    @PreAuthorize("@perm.canAction('PAYSLIP_VIEW_SELF')")
+    @PreAuthorize("@perm.staffOnly()")
     public ResponseEntity<byte[]> downloadSelf(@PathVariable UUID id) {
         PayslipView slip = payroll.payslip(id, true);
         UUID documentId = payroll.payslipDocument(id, true);

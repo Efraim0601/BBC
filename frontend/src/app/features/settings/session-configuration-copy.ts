@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { newRequestKey } from '../../core/request-key';
 import {
   AcademicSessionView, ConfigurationCopyApplyRequest, ConfigurationCopyEdit, ConfigurationCopyPreview,
   ConfigurationCopyPreviewRequest, FoundationApi,
@@ -127,7 +128,7 @@ export class SessionConfigurationCopyComponent {
     const p = this.proposal(); if (!p || !this.reason.trim()) return;
     const body: ConfigurationCopyApplyRequest = { sourceSessionId: this.sourceId, dateStrategy: this.dateStrategy, mergeMode: this.mergeMode, scopes: this.scopes, edits: this.edits, selectedKeys: this.selectedKeys, reason: this.reason.trim(), previewFingerprint: p.fingerprint };
     this.busy.set(true);
-    this.api.applyConfigurationCopy(this.target.id, body, crypto.randomUUID()).subscribe({
+    this.api.applyConfigurationCopy(this.target.id, body, newRequestKey()).subscribe({
       next: () => { this.busy.set(false); this.message.set({ ok: true, text: 'Configuration copied and audited.' }); this.applied.emit(); },
       error: (e) => { this.busy.set(false); this.message.set({ ok: false, text: e?.error?.message ?? 'Apply failed; the preview may be stale.' }); },
     });

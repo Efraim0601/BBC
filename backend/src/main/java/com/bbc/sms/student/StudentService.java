@@ -274,7 +274,7 @@ public class StudentService {
     private List<DuplicateMatch> findDuplicates(String lastName, String firstName, LocalDate dob,
                                                 String niu, UUID classId, UUID excludeId) {
         String key = nameKey(lastName, firstName);
-        boolean hasName = !normalise(lastName).isEmpty() && !normalise(firstName).isEmpty();
+        boolean hasName = !normalise(lastName).isEmpty();
         String niuKey = blankToNull(niu);
         if (!hasName && niuKey == null) return List.of();
 
@@ -329,8 +329,7 @@ public class StudentService {
         List<BulkDeleteError> errors = new ArrayList<>();
         for (UUID id : new LinkedHashSet<>(ids)) {
             try {
-                teacherScope.assertStudent(id);
-                Student s = find(id);
+                Student s = requireAction(id, "STUDENT_PROFILE_DEACTIVATE");
                 s.setActive(false);
                 repo.save(s);
                 deleted++;
@@ -406,8 +405,11 @@ public class StudentService {
             String lastName = fl[0], firstName = fl[1];
             String label = (lastName + " " + firstName).trim();
             try {
-                if (firstName.isBlank() || lastName.isBlank()) {
-                    throw new IllegalArgumentException("Nom et prénom obligatoires");
+                if (lastName.isBlank()) {
+                    throw new IllegalArgumentException("Le nom est obligatoire");
+                }
+                if (row.dob() != null && row.dob().isAfter(LocalDate.now())) {
+                    throw new IllegalArgumentException("La date de naissance ne peut pas être dans le futur");
                 }
                 String sex = blankToNull(row.sex());
                 if (sex != null) {
@@ -611,7 +613,7 @@ public class StudentService {
         combined = combined.replaceAll("\\s+", " ");
         if (combined.isEmpty()) return new String[]{"", ""};
         int sp = combined.indexOf(' ');
-        if (sp < 0) return new String[]{combined, "-"};              // single token — keep name non-null
+        if (sp < 0) return new String[]{combined, ""};               // first name is optional, just as in manual creation
         return new String[]{combined.substring(0, sp).trim(), combined.substring(sp + 1).trim()};
     }
 
@@ -621,6 +623,9 @@ public class StudentService {
     }
 
     private void apply(Student s, StudentUpsert in) {
+        // Internal registration/import calls do not pass through controller validation.
+        if (in.lastName() == null || in.lastName().isBlank()) throw ApiException.badRequest("Le nom de l’élève est obligatoire");
+        if (in.dob() != null && in.dob().isAfter(LocalDate.now())) throw ApiException.badRequest("La date de naissance ne peut pas être dans le futur");
         UUID schoolId = TenantContext.get();
         // The family name is the only mandatory identity field. Keep the database
         // column non-null so existing projections and report code can safely use it.

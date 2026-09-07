@@ -1,4 +1,5 @@
 import { Injectable, inject } from '@angular/core';
+import { newRequestKey } from '../../core/request-key';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
@@ -146,6 +147,7 @@ export interface PaymentLineView {
 
 /** Situation de scolarité d'un élève, telle que la voient l'économat et le parent. */
 export interface StudentFeeStatementView {
+  legacyCollectionAllowed?: boolean;
   studentId: string;
   studentName: string;
   matricule: string;
@@ -175,8 +177,8 @@ export class FinanceApi {
   payments(): Observable<PaymentView[]> {
     return this.http.get<PaymentView[]>(`${this.base}/payments`);
   }
-  recordPayment(body: PaymentRequest): Observable<PaymentView> {
-    return this.http.post<PaymentView>(`${this.base}/payments`, body);
+  recordPayment(body: PaymentRequest, requestKey = newRequestKey()): Observable<PaymentView> {
+    return this.http.post<PaymentView>(`${this.base}/payments`, body, {headers: {'Idempotency-Key': requestKey}});
   }
 
   debtors(): Observable<SituationView[]> {

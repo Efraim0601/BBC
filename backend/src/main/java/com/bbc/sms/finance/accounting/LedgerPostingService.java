@@ -271,12 +271,12 @@ public class LedgerPostingService {
         LocalDate date = asOfDate == null ? LocalDate.now() : asOfDate;
         List<TrialBalanceRow> rows = jdbc.query("""
                 SELECT a.id, a.code, a.name_fr, a.account_type, COALESCE(a.currency,'XAF'),
-                       COALESCE(SUM(CASE WHEN j.status='POSTED' THEN l.debit_minor ELSE 0 END),0),
-                       COALESCE(SUM(CASE WHEN j.status='POSTED' THEN l.credit_minor ELSE 0 END),0)
+                       COALESCE(SUM(CASE WHEN j.status IN ('POSTED','REVERSED') THEN l.debit_minor ELSE 0 END),0),
+                       COALESCE(SUM(CASE WHEN j.status IN ('POSTED','REVERSED') THEN l.credit_minor ELSE 0 END),0)
                   FROM chart_of_account a
                   LEFT JOIN journal_line l ON l.school_id=a.school_id AND l.account_id=a.id
                   LEFT JOIN journal_entry j ON j.school_id=l.school_id AND j.id=l.journal_entry_id
-                         AND j.entry_date <= ? AND j.status='POSTED'
+                         AND j.entry_date <= ? AND j.status IN ('POSTED','REVERSED')
                  WHERE a.school_id=?
                  GROUP BY a.id, a.code, a.name_fr, a.account_type, a.currency
                  ORDER BY a.code
@@ -305,7 +305,7 @@ public class LedgerPostingService {
                        l.debit_minor, l.credit_minor
                   FROM journal_line l
                   JOIN journal_entry j ON j.school_id=l.school_id AND j.id=l.journal_entry_id
-                 WHERE l.school_id=? AND l.account_id=? AND j.status='POSTED'
+                 WHERE l.school_id=? AND l.account_id=? AND j.status IN ('POSTED','REVERSED')
                    AND j.entry_date BETWEEN ? AND ?
                  ORDER BY j.entry_date, j.number, l.line_number
                 """, (rs, n) -> new RawLedgerLine(rs.getObject(1, UUID.class), rs.getString(2),

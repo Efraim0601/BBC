@@ -1,12 +1,14 @@
 import { DOCUMENT } from '@angular/common';
-import { Component, ChangeDetectionStrategy, inject, signal, computed } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, signal, computed, OnDestroy } from '@angular/core';
 import { RouterOutlet, RouterLink, RouterLinkActive, Router, NavigationEnd } from '@angular/router';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
+import { Subscription } from 'rxjs';
 import { AuthService } from '../core/auth.service';
 import { ScopeService } from '../core/scope.service';
 import { I18nService, Lang } from '../core/i18n.service';
-import { NAV_GROUPS, RECENT_MODS_KEY } from '../core/nav-items';
+import { MOD_BY_ID, NAV_GROUPS, NAV_ICONS, RECENT_MODS_KEY } from '../core/nav-items';
 import { guideHrefForRole } from '../core/role-guide';
+import { NativePlatformService } from '../core/native-platform.service';
 
 const NAV_COLLAPSE_KEY = 'bbc.nav.collapsed';
 
@@ -17,7 +19,7 @@ const NAV_COLLAPSE_KEY = 'bbc.nav.collapsed';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterOutlet, RouterLink, RouterLinkActive],
   template: `
-    <div class="h-[100dvh] min-h-[100svh] w-screen flex flex-col bg-surface text-ink">
+    <div class="h-[100dvh] min-h-0 w-full overflow-hidden flex flex-col bg-surface text-ink">
       <header class="h-16 bg-brand-700 text-white px-3 sm:px-4 flex items-center gap-2 sm:gap-3 shrink-0 shadow-sm z-30">
         <button (click)="toggle()" [title]="menuLabel()" [attr.aria-label]="menuLabel()"
           class="w-11 h-11 sm:w-9 sm:h-9 rounded-lg hover:bg-white/10 transition flex items-center justify-center shrink-0">
@@ -27,7 +29,7 @@ const NAV_COLLAPSE_KEY = 'bbc.nav.collapsed';
           <div class="w-8 h-8 bg-white rounded-md p-0.5 shrink-0">
             <img src="bbc-logo.png" alt="BBC" class="w-full h-full object-contain" />
           </div>
-          <div class="text-left hidden lg:block">
+          <div class="mobile-native-brand text-left hidden lg:block">
             <div class="font-display font-bold text-[14px] leading-tight">BBC SMS</div>
             <div class="text-[10px] text-gold-200">{{ user()?.schoolName || 'Bayo Bilingual Complex' }}</div>
           </div>
@@ -123,28 +125,90 @@ const NAV_COLLAPSE_KEY = 'bbc.nav.collapsed';
           </nav>
         </aside>
 
-        <main data-shell-main class="flex-1 scroll-y overflow-x-hidden min-w-0 overscroll-contain">
+        <main data-shell-main class="flex-1 min-h-0 scroll-y overflow-x-hidden min-w-0 overscroll-contain">
           <div class="px-4 sm:px-6 py-4 sm:py-6 min-h-full">
             <router-outlet />
           </div>
         </main>
       </div>
+
+      @if (native.isNative && !mobileOpen()) {
+        <nav class="native-tab-bar lg:hidden" [attr.aria-label]="fr() ? 'Navigation principale' : 'Main navigation'">
+          @for (tab of nativeTabs(); track tab.id) {
+            <a [routerLink]="tab.route" routerLinkActive="native-tab-active"
+              [routerLinkActiveOptions]="{ exact: tab.id === 'home' }"
+              class="native-tab-item" [attr.aria-label]="fr() ? tab.labelFr : tab.labelEn">
+              <span class="native-tab-icon" [innerHTML]="trust(tab.svg)"></span>
+              <span class="native-tab-label">{{ fr() ? tab.labelFr : tab.labelEn }}</span>
+            </a>
+          }
+        </nav>
+      }
     </div>
   `,
 })
-export class ShellComponent {
+export class ShellComponent implements OnDestroy {
   protected auth = inject(AuthService);
   protected i18n = inject(I18nService);
   private scope = inject(ScopeService);
   private sanitizer = inject(DomSanitizer);
   private router = inject(Router);
   private document = inject(DOCUMENT);
+  protected native = inject(NativePlatformService);
+  private unregisterNativeBack: () => void = () => undefined;
+  private routerSubscription = Subscription.EMPTY;
+  private readonly resizeHandler = (): void => this.isMobile.set(window.innerWidth < 1024);
 
   protected user = this.auth.user;
   protected langs: Lang[] = ['fr', 'en'];
   protected fr = () => this.i18n.lang() === 'fr';
   protected helpHref = computed(() => guideHrefForRole(this.user()?.role, this.document.baseURI));
   protected trust = (svg: string): SafeHtml => this.sanitizer.bypassSecurityTrustHtml(svg);
+
+  /** Four permission-aware shortcuts plus Home, tuned to each everyday role. */
+  protected nativeTabs = computed(() => {
+    const user = this.user();
+    const allowed = new Set(user?.modules ?? []);
+    const preferredByRole: Record<string, string[]> = {
+      teacher: ['students', 'presence', 'academic', 'timetable'],
+      secondary_teacher: ['students', 'presence', 'academic', 'timetable'],
+      form_teacher: ['students', 'presence', 'academic', 'timetable'],
+      accountant: ['finance', 'students', 'finance-treasury', 'reports'],
+      econome: ['finance', 'students', 'finance-treasury', 'reports'],
+      finance_collector: ['finance', 'students', 'finance-collections', 'finance-treasury'],
+      principal: ['students', 'academic', 'presence', 'timetable'],
+      administrator: ['students', 'academic', 'finance', 'settings'],
+      admin: ['students', 'academic', 'finance', 'settings'],
+    };
+    const fallback = NAV_GROUPS.flatMap((group) => group.mods.map((mod) => mod.id));
+    const candidates = [...(preferredByRole[user?.role ?? ''] ?? []), ...fallback];
+    const seen = new Set<string>();
+    const modules = candidates
+      .filter((id) => {
+        if (seen.has(id)) return false;
+        seen.add(id);
+        return Boolean(MOD_BY_ID[id]) && this.moduleVisible(id, allowed);
+      })
+      .slice(0, 4)
+      .map((id) => ({
+        id,
+        route: MOD_BY_ID[id]!.route,
+        svg: MOD_BY_ID[id]!.svg,
+        labelFr: this.i18n.moduleLabel(id),
+        labelEn: this.i18n.moduleLabel(id),
+      }));
+
+    return [
+      {
+        id: 'home',
+        route: '/apps',
+        svg: NAV_ICONS.home,
+        labelFr: 'Accueil',
+        labelEn: 'Home',
+      },
+      ...modules,
+    ];
+  });
 
   /** Compact label of the active parcours shown in the header (e.g. "Primaire · FR"). */
   protected scopeLabel = computed(() => {
@@ -189,10 +253,10 @@ export class ShellComponent {
 
   constructor() {
     if (typeof window !== 'undefined') {
-      window.addEventListener('resize', () => this.isMobile.set(window.innerWidth < 1024));
+      window.addEventListener('resize', this.resizeHandler);
     }
     // Close the mobile drawer + record the visited module on every navigation.
-    this.router.events.subscribe((e) => {
+    this.routerSubscription = this.router.events.subscribe((e) => {
       if (e instanceof NavigationEnd) {
         this.mobileOpen.set(false);
         this.recordRecent(e.urlAfterRedirects);
@@ -206,6 +270,27 @@ export class ShellComponent {
         }
       }
     });
+
+    this.unregisterNativeBack = this.native.registerBackHandler((canGoBack) => {
+      if (this.mobileOpen()) {
+        this.mobileOpen.set(false);
+        return true;
+      }
+
+      const currentPath = this.router.url.split(/[?#]/, 1)[0];
+      if (currentPath !== '/apps' && currentPath !== '/parcours') {
+        if (canGoBack && window.history.length > 1) window.history.back();
+        else void this.router.navigate(['/apps']);
+        return true;
+      }
+      return false;
+    });
+  }
+
+  ngOnDestroy(): void {
+    if (typeof window !== 'undefined') window.removeEventListener('resize', this.resizeHandler);
+    this.routerSubscription.unsubscribe();
+    this.unregisterNativeBack();
   }
 
   /** Persist the most-recently opened modules (most recent first, max 4) for the home screen. */

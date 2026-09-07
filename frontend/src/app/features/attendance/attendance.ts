@@ -97,8 +97,8 @@ export function attendanceRosterReadOnly(roster: AttendanceRoster | null): boole
               @else { {{ selected.enrolledCount }} {{ fr() ? 'élève(s) actif(s) dans cette classe.' : 'active student(s) in this class.' }} }
             </div>
           }
-          @if (selectedClass()?.model === 'PERIOD' && sessionOptions().length === 0 && dateInActiveSession()) {
-            <div class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">{{ fr() ? 'Aucune période publiée pour cette classe et cette date. Créez et publiez un créneau dans Emploi du temps avant de faire l’appel.' : 'No published period exists for this class and date. Create and publish a timetable slot before taking attendance.' }}</div>
+          @if (selectedClass() && sessionOptions().length === 0 && dateInActiveSession() && !busy()) {
+            <div class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">{{ fr() ? 'Aucun appel accessible à cette date (jour sans classe, sans cours attribué ou emploi du temps non publié). Choisissez un autre jour ou contactez le responsable des emplois du temps.' : 'No attendance session is available on this date (a non-school day, no assigned lesson, or an unpublished timetable). Choose another day or contact the timetable administrator.' }}</div>
           }
         </bbc-card>
 
@@ -272,7 +272,7 @@ export function attendanceRosterReadOnly(roster: AttendanceRoster | null): boole
 
     @if (modal()) {
       <div class="fixed inset-0 z-50 bg-slate-950/45 flex items-center justify-center p-4" (click)="closeModal()">
-        <div class="bg-white rounded-xl shadow-2xl max-w-md w-full p-5" (click)="$event.stopPropagation()">
+        <div class="max-h-[calc(100dvh-2rem)] overflow-y-auto bg-white rounded-xl shadow-2xl max-w-md w-full p-5" (click)="$event.stopPropagation()">
           <h3 class="text-lg font-bold text-slate-900">{{ modal() === 'reopen' ? (fr()?'Rouvrir l’appel finalisé ?':'Reopen finalized roll call?') : (fr()?'Générer les séances attendues ?':'Generate expected sessions?') }}</h3>
           <p class="text-sm text-slate-600 mt-2">{{ modal() === 'reopen' ? (fr()?'Les marques pourront être modifiées. Le motif et toutes les corrections resteront dans l’historique.':'Marks will become editable. The reason and all corrections remain in the audit history.') : (fr()?'Cette action crée ou synchronise les séances à partir du calendrier et de l’emploi du temps. Elle ne marque aucun élève automatiquement.':'This creates or synchronizes sessions from the calendar and timetable. It does not mark any student automatically.') }}</p>
           @if(modal() === 'reopen'){<label class="block mt-4"><span class="label">{{ fr() ? 'Motif' : 'Reason' }} <b class="text-rose-600">*</b></span><textarea class="field min-h-24" [class.invalid]="modalAttempted() && !modalReason().trim()" [value]="modalReason()" (input)="modalReason.set($any($event.target).value)"></textarea>@if(modalAttempted()&&!modalReason().trim()){<div class="text-xs text-rose-600 mt-1">{{ fr()?'Le motif est obligatoire.':'A reason is required.' }}</div>}</label>}
@@ -316,9 +316,10 @@ export class AttendanceComponent {
   protected dateInActiveSession = computed(() => { const s=this.activeSession(); return !!s && this.date() >= s.startDate && this.date() <= s.endDate; });
   protected currentPolicy = computed(() => this.policies().find(p => p.level === this.selectedClass()?.level));
   protected readOnlyRoster = computed(() => attendanceRosterReadOnly(this.roster()));
+  private selectionVersion = 0;
 
   constructor() {
-    this.api.classes().subscribe({next:v=>this.classes.set(v),error:e=>this.fail(e)});
+    this.loadClasses();
     // Policy configuration is an admin-only read.  A teacher can still use
     // the scoped roster workflow; do not turn the expected 403 for this
     // optional data into a visible error on the permitted attendance page.
@@ -333,11 +334,46 @@ export class AttendanceComponent {
     this.foundation.currentSession().subscribe({next:s=>{ this.activeSession.set(s); if (!this.dateInRange(this.date(), s)) this.applySuggestedDate(s); },error:e=>this.fail(e)});
   }
   protected selectTab(tab: Tab): void { this.tab.set(tab); this.clearNotice(); if(tab==='analytics') this.loadAnalytics(); if(tab==='devices') this.loadDevices(); }
-  protected setDate(v:string):void { if(!v)return; this.date.set(v); this.periodKey.set(''); this.roster.set(null); if(this.classId() && this.dateInActiveSession()) this.loadSessionOptions(); }
-  protected selectClass(id:string):void { this.classId.set(id); this.periodKey.set(''); this.roster.set(null); if(id && this.dateInActiveSession()) this.loadSessionOptions(); else this.sessionOptions.set([]); }
-  private loadSessionOptions():void { this.busy.set(true); this.api.sessions(this.classId(),this.date()).subscribe({next:s=>{this.sessionOptions.set(s);this.busy.set(false);if(this.selectedClass()?.model==='DAILY')this.loadRoster();},error:e=>{this.busy.set(false);this.fail(e);}}); }
-  protected selectPeriod(key:string):void { this.periodKey.set(key); if(key)this.loadRoster(); else this.roster.set(null); }
-  private loadRoster():void { this.busy.set(true);this.api.roster(this.classId(),this.date(),this.periodKey()||undefined).subscribe({next:r=>{this.roster.set(r);this.busy.set(false);},error:e=>{this.busy.set(false);this.fail(e);}}); }
+  protected setDate(v:string):void {
+    if(!v)return;
+    this.selectionVersion++; this.date.set(v); this.periodKey.set(''); this.roster.set(null);
+    this.sessionOptions.set([]); this.clearNotice(); this.loadClasses(v);
+  }
+  private loadClasses(date?:string):void {
+    const version=this.selectionVersion;
+    this.busy.set(true);
+    this.api.classes(date).subscribe({next:classes=>{
+      if(version!==this.selectionVersion)return;
+      this.classes.set(classes); this.busy.set(false);
+      if(this.classId() && !classes.some(c=>c.id===this.classId())) this.classId.set('');
+      if(this.classId() && this.dateInActiveSession())this.loadSessionOptions();
+    },error:e=>{if(version===this.selectionVersion){this.busy.set(false);this.fail(e);}}});
+  }
+  protected selectClass(id:string):void {
+    this.selectionVersion++; this.classId.set(id); this.periodKey.set(''); this.roster.set(null);
+    this.sessionOptions.set([]); this.busy.set(false); this.clearNotice();
+    if(id && this.dateInActiveSession())this.loadSessionOptions();
+  }
+  private loadSessionOptions():void {
+    const version=this.selectionVersion;
+    this.busy.set(true);
+    this.api.sessions(this.classId(),this.date()).subscribe({next:s=>{
+      if(version!==this.selectionVersion)return;
+      this.sessionOptions.set(s);this.busy.set(false);
+      if(this.selectedClass()?.model==='DAILY' && s.length)this.loadRoster();
+    },error:e=>{if(version===this.selectionVersion){this.busy.set(false);this.fail(e);}}});
+  }
+  protected selectPeriod(key:string):void {
+    this.selectionVersion++; this.periodKey.set(key); this.roster.set(null); this.busy.set(false); this.clearNotice();
+    if(key)this.loadRoster();
+  }
+  private loadRoster():void {
+    const version=this.selectionVersion;
+    this.busy.set(true);
+    this.api.roster(this.classId(),this.date(),this.periodKey()||undefined).subscribe({next:r=>{
+      if(version===this.selectionVersion){this.roster.set(r);this.busy.set(false);}
+    },error:e=>{if(version===this.selectionVersion){this.busy.set(false);this.fail(e);}}});
+  }
   protected setStatus(i:number,status:RollStatus):void { if(!this.roster()?.capabilities.canMark)return;this.updateMark(i,{status,lateMinutes:status==='late'?Math.max(1,this.currentPolicy()?.lateAfterMinutes||1):0}); }
   protected setText(i:number,key:'reason'|'note',value:string):void { if(!this.roster()?.capabilities.canMark)return;this.updateMark(i,{[key]:value}); }
   private updateMark(i:number,change:Partial<AttendanceRosterMark>):void { this.roster.update(r=>r?({...r,marks:r.marks.map((m,x)=>x===i?({...m,...change}):m)}):r); }

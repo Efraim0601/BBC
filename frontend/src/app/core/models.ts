@@ -168,6 +168,9 @@ export interface PaymentView {
   treasuryAccountId?: string | null;
   treasuryAccountName?: string | null;
   journalEntryId?: string | null;
+  source?: 'LEGACY_PAYMENT' | 'COLLECTION';
+  status?: string;
+  refundedAmount?: number;
 }
 
 export interface FinanceSummary {

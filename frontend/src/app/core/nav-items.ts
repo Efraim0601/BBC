@@ -44,8 +44,8 @@ export const NAV_GROUPS: Group[] = [
   ]},
   { key: 'education', labelFr: 'Pédagogie', labelEn: 'Education', mods: [
     { id: 'academic', route: '/academic', iconBg: 'bg-emerald-100 text-emerald-700', color: 'from-emerald-500 to-emerald-700', svg: NAV_ICONS.book, subFr: 'Notes, bulletins, procès-verbaux', subEn: 'Grades, report cards, master sheets' },
-    { id: 'presence', route: '/presence', iconBg: 'bg-amber-100 text-amber-700', color: 'from-amber-500 to-amber-700', svg: NAV_ICONS.fingerprint, subFr: 'Empreinte digitale, SMS auto', subEn: 'Biometric, auto SMS' },
-    { id: 'discipline', route: '/discipline', iconBg: 'bg-orange-100 text-orange-700', color: 'from-orange-500 to-orange-700', svg: NAV_ICONS.shield, subFr: 'Incidents, SMS parents', subEn: 'Incidents, parent SMS' },
+    { id: 'presence', route: '/presence', iconBg: 'bg-amber-100 text-amber-700', color: 'from-amber-500 to-amber-700', svg: NAV_ICONS.fingerprint, subFr: 'Appel, absences et retards', subEn: 'Roll call, absences and lateness' },
+    { id: 'discipline', route: '/discipline', iconBg: 'bg-orange-100 text-orange-700', color: 'from-orange-500 to-orange-700', svg: NAV_ICONS.shield, subFr: 'Incidents et suivi des élèves', subEn: 'Incidents and student follow-up' },
     { id: 'coursebook', route: '/coursebook', iconBg: 'bg-lime-100 text-lime-700', color: 'from-lime-500 to-lime-700', svg: NAV_ICONS.clipboard, subFr: 'Cahier de textes & devoirs', subEn: 'Class log & homework' },
     { id: 'promotion', route: '/promotion', iconBg: 'bg-teal-100 text-teal-700', color: 'from-teal-500 to-teal-700', svg: NAV_ICONS.cap, subFr: 'Fin d’année, admis & redoublants', subEn: 'End of year, promotions & repeats' },
   ]},
@@ -61,7 +61,7 @@ export const NAV_GROUPS: Group[] = [
   { key: 'steering', labelFr: 'Pilotage', labelEn: 'Steering', mods: [
     { id: 'dashboard', route: '/dashboard', iconBg: 'bg-brand-100 text-brand-700', color: 'from-brand-500 to-brand-700', svg: NAV_ICONS.home, subFr: "Vue d'ensemble · KPIs", subEn: 'Overview · KPIs' },
     { id: 'alerts', route: '/alerts', iconBg: 'bg-amber-100 text-amber-700', color: 'from-amber-500 to-amber-700', svg: NAV_ICONS.alert, subFr: 'Élèves à risque · alertes auto', subEn: 'At-risk students · auto alerts' },
-    { id: 'reports', route: '/reports', iconBg: 'bg-indigo-100 text-indigo-700', color: 'from-indigo-500 to-indigo-700', svg: NAV_ICONS.chart, subFr: 'Analytique école entière', subEn: 'School-wide analytics' },
+    { id: 'reports', route: '/reports', iconBg: 'bg-indigo-100 text-indigo-700', color: 'from-indigo-500 to-indigo-700', svg: NAV_ICONS.chart, subFr: 'Analytique de votre périmètre', subEn: 'Analytics for your scope' },
     { id: 'settings', route: '/settings', iconBg: 'bg-slate-100 text-slate-700', color: 'from-slate-500 to-slate-700', svg: NAV_ICONS.settings, subFr: 'Configuration, rôles, lecteur', subEn: 'Config, roles, reader' },
     { id: 'access-control', route: '/access-control', iconBg: 'bg-indigo-100 text-indigo-700', color: 'from-indigo-500 to-indigo-700', svg: NAV_ICONS.shield, subFr: 'Profils, exceptions, aperçus auditables', subEn: 'Profiles, exceptions, auditable previews' },
   ]},

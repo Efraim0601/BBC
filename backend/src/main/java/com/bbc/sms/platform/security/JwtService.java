@@ -29,6 +29,10 @@ public class JwtService {
     }
 
     public String issueAccess(AppUserPrincipal p) {
+        return issueAccess(p, 0);
+    }
+
+    public String issueAccess(AppUserPrincipal p, int credentialsVersion) {
         Date now = new Date();
         return Jwts.builder()
                 .subject(p.username())
@@ -38,6 +42,7 @@ public class JwtService {
                 .claim("name", p.displayName())
                 .claim("initials", p.initials())
                 .claim("typ", "access")
+                .claim("cv", credentialsVersion)
                 .issuedAt(now)
                 .expiration(new Date(now.getTime() + accessMs))
                 .signWith(key)
@@ -45,12 +50,18 @@ public class JwtService {
     }
 
     public String issueRefresh(AppUserPrincipal p) {
+        return issueRefresh(p, 0);
+    }
+
+    public String issueRefresh(AppUserPrincipal p, int credentialsVersion) {
         Date now = new Date();
         return Jwts.builder()
                 .subject(p.username())
                 .claim("uid", p.userId().toString())
                 .claim("sid", p.schoolId().toString())
+                .claim("role", p.roleCode())
                 .claim("typ", "refresh")
+                .claim("cv", credentialsVersion)
                 .issuedAt(now)
                 .expiration(new Date(now.getTime() + refreshMs))
                 .signWith(key)

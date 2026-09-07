@@ -4,6 +4,7 @@ import { Client, IMessage, StompSubscription } from '@stomp/stompjs';
 import SockJS from 'sockjs-client';
 import { environment } from '../../environments/environment';
 import { AuthService } from './auth.service';
+import { ScopeService } from './scope.service';
 
 /**
  * STOMP-over-WebSocket client. Lazily connects on the first watch().
@@ -12,6 +13,7 @@ import { AuthService } from './auth.service';
 @Injectable({ providedIn: 'root' })
 export class RealtimeService {
   private auth = inject(AuthService);
+  private scope = inject(ScopeService);
   private client?: Client;
   private subjects = new Map<string, Subject<any>>();
   private subs = new Map<string, StompSubscription>();
@@ -21,7 +23,7 @@ export class RealtimeService {
       if (!this.auth.user()) this.disconnect();
     });
   }
-  /** Subscribe to a tenant channel (e.g. "attendance", "payments"). */
+  /** Receive an invalidation signal, then reload data through its permission-checked API. */
   watch<T = any>(channel: string): Observable<T> {
     this.ensureConnected();
     if (!this.subjects.has(channel)) {
@@ -41,7 +43,8 @@ export class RealtimeService {
       beforeConnect: () => {
         const token = this.auth.accessToken;
         if (this.client) {
-          this.client.connectHeaders = token ? { Authorization: `Bearer ${token}` } : {};
+          const scope = this.scope.header();
+          this.client.connectHeaders = token ? { Authorization: `Bearer ${token}`, ...(scope ? { 'X-Parcours': scope } : {}) } : {};
         }
       },
       reconnectDelay: 4000,

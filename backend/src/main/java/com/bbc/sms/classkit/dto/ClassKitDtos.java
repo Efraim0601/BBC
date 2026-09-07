@@ -1,6 +1,8 @@
 package com.bbc.sms.classkit.dto;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.PositiveOrZero;
 
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -14,8 +16,8 @@ public class ClassKitDtos {
 
     public record ItemUpsert(
             @NotBlank String label,
-            Integer quantity,
-            Long price,
+            @Positive Integer quantity,
+            @PositiveOrZero Long price,
             String note,
             String subjectCode,
             String author,

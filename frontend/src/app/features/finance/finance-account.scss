@@ -5,6 +5,7 @@
 .eyebrow { color: #64748b; font-size: .73rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
 .workspace-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 18px; box-shadow: 0 12px 30px rgba(15, 23, 42, .05); padding: 22px; margin-top: 18px; }
 .section-heading, .history-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.section-heading > div, .history-heading > div { min-width: 0; overflow-wrap: anywhere; }
 .section-heading h2, .history-heading h3 { margin: 2px 0 5px; font-size: 1.15rem; }
 .search-grid { display: grid; grid-template-columns: minmax(220px, .9fr) minmax(260px, 1.4fr) auto; gap: 12px; margin-top: 18px; align-items: end; }
 .search-grid label { display: grid; gap: 6px; color: #475569; font-size: .76rem; font-weight: 800; }
@@ -45,7 +46,7 @@ td { padding: 12px 8px; border-bottom: 1px solid #e2e8f0; vertical-align: top; f
 .message.success { border: 1px solid #bbf7d0; background: #f0fdf4; color: #166534; }
 .document-modal { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 24px; }
 .modal-backdrop { position: absolute; inset: 0; border: 0; background: rgba(15, 23, 42, .68); cursor: pointer; }
-.document-dialog { position: relative; display: flex; flex-direction: column; width: min(1040px, 100%); max-height: calc(100vh - 48px); overflow: hidden; border-radius: 18px; background: #f1f5f9; box-shadow: 0 30px 80px rgba(15, 23, 42, .35); }
+.document-dialog { position: relative; display: flex; flex-direction: column; width: min(1040px, 100%); max-height: calc(100dvh - 48px); overflow: hidden; border-radius: 18px; background: #f1f5f9; box-shadow: 0 30px 80px rgba(15, 23, 42, .35); }
 .document-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 18px; border-bottom: 1px solid #cbd5e1; background: #fff; }
 .document-toolbar strong, .document-toolbar small { display: block; }
 .document-toolbar small { margin-top: 2px; color: #64748b; }
@@ -54,7 +55,9 @@ td { padding: 12px 8px; border-bottom: 1px solid #e2e8f0; vertical-align: top; f
 .consolidated-sheet { box-sizing: border-box; display: flex; flex-direction: column; width: min(210mm, 100%); min-height: 297mm; margin: 0 auto; padding: 15mm 16mm; background: #fff; color: #10243c; box-shadow: 0 12px 34px rgba(15, 23, 42, .16); font-family: Arial, sans-serif; }
 .receipt-header { display: flex; justify-content: space-between; gap: 24px; padding-bottom: 18px; border-bottom: 3px solid #0f766e; }
 .receipt-brand { display: flex; align-items: center; gap: 12px; }
+.receipt-brand > div, .student-identity > div { min-width: 0; overflow-wrap: anywhere; }
 .brand-mark { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 12px; background: #123453; color: #f6c453; font-weight: 900; }
+.brand-mark { flex-shrink: 0; }
 .receipt-brand strong, .receipt-brand small, .receipt-number span, .receipt-number strong, .receipt-number small { display: block; }
 .receipt-brand strong { font-family: Georgia, serif; font-size: 1.15rem; }
 .receipt-brand small, .receipt-number small { margin-top: 4px; color: #64748b; font-size: .72rem; }
@@ -93,7 +96,7 @@ td { padding: 12px 8px; border-bottom: 1px solid #e2e8f0; vertical-align: top; f
   .totals-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .totals-grid > div { min-width: 0; padding: 11px; }
   .totals-grid b { overflow-wrap: anywhere; font-size: 1rem; }
-  .primary-button, .secondary-button { width: 100%; min-height: 44px; }
+  .primary-button, .secondary-button { width: 100%; min-height: 44px; white-space: normal; }
   .toolbar-actions { flex-direction: column; }
   .document-modal { padding: 0; }
   .document-dialog { max-height: 100dvh; border-radius: 0; }

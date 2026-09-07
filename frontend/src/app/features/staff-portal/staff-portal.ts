@@ -12,8 +12,8 @@ import { IconComponent } from '../../core/ui';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [FormsModule, RouterLink, IconComponent],
   template: `
-    <div class="min-h-screen bg-surface flex flex-col">
-      <header class="border-b border-slate-200 bg-white">
+    <div class="h-[100dvh] min-h-0 overflow-hidden bg-surface flex flex-col">
+      <header class="shrink-0 border-b border-slate-200 bg-white">
         <div class="max-w-2xl mx-auto px-4 py-4 flex items-center justify-between gap-3">
           <div class="flex items-center gap-3 min-w-0">
             <div class="w-10 h-10 bg-white rounded-lg border border-slate-100 p-1 shrink-0">
@@ -40,7 +40,7 @@ import { IconComponent } from '../../core/ui';
         </div>
       </header>
 
-      <main class="flex-1 px-4 py-8">
+      <main class="flex-1 min-h-0 overflow-y-auto overscroll-y-contain px-4 py-8">
         <div class="max-w-2xl mx-auto">
           @if (loadError(); as err) {
             <div class="rounded-xl border border-rose-200 bg-rose-50 p-6 text-center">

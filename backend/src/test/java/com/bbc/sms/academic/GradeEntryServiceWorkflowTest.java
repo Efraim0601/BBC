@@ -60,7 +60,7 @@ class GradeEntryServiceWorkflowTest {
         AcademicGradePacket packet = new AcademicGradePacket();
         packet.setId(UUID.randomUUID());
         packet.setStatus("SUBMITTED");
-        when(packets().findBySchoolIdAndReportingPeriodIdAndClassIdAndSubjectCode(
+        when(packets().findForUpdate(
                 schoolId, periodId, classId, "FRANCAIS")).thenReturn(Optional.of(packet));
 
         AcademicAccessPolicyService access = mock(AcademicAccessPolicyService.class);
@@ -111,6 +111,18 @@ class GradeEntryServiceWorkflowTest {
         assertThatThrownBy(() -> GradeEntryService.requireIndependentReviewer(userId, userId))
                 .isInstanceOf(com.bbc.sms.platform.common.ApiException.class)
                 .extracting("code").isEqualTo("GRADE_PACKET_SELF_REVIEW_DENIED");
+    }
+
+    @Test
+    void savedOrSubmittedSheetsRequireAnExplicitReviewerReturn() {
+        for (String state : List.of("SUBMITTED", "ACCEPTED", "LOCKED", "UNKNOWN")) {
+            assertThatThrownBy(() -> GradeEntryService.requireEditablePacket(state))
+                    .isInstanceOf(com.bbc.sms.platform.common.ApiException.class)
+                    .hasMessageContaining("verrouillée");
+        }
+        GradeEntryService.requireEditablePacket("DRAFT");
+        GradeEntryService.requireEditablePacket("RETURNED");
+        GradeEntryService.requireEditablePacket(null);
     }
 
     @Test

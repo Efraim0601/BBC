@@ -11,7 +11,7 @@ export interface StudentAccountSearchView {
   studentId: string; studentName: string; matricule: string | null; enrollmentId: string;
   academicSessionId: string; className: string | null; enrolledOn: string; exitedOn: string | null;
   billedMinor: number; paidMinor: number; outstandingMinor: number; creditMinor: number;
-  paymentCount: number;
+  paymentCount: number; chargesConfigured?: boolean;
 }
 
 export interface FinanceAccountPayment {

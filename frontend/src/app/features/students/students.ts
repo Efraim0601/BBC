@@ -10,6 +10,7 @@ import { ScopeService } from '../../core/scope.service';
 import { Student } from '../../core/models';
 import { FoundationApi } from '../../core/foundation.api';
 import { downloadCsv, stampedName } from '../../core/csv';
+import { studentWorkbookCsv } from '../../core/spreadsheet-import';
 import {
   IconComponent, CardComponent, PageHeaderComponent,
   AvatarComponent, ChipFilterComponent, StatusPillComponent,
@@ -41,7 +42,7 @@ interface HeaderMap {
   template: `
     <div class="fade-in max-w-7xl mx-auto">
       <bbc-page-header [title]="i18n.t('students')" [subtitle]="headerSub()">
-        <div right class="flex items-center gap-2">
+        <div right class="student-list-actions flex items-center justify-end gap-2 flex-wrap">
           @if (mode() === 'list') {
             <div class="relative">
               <button type="button" (click)="exportMenuOpen.set(!exportMenuOpen())"
@@ -69,13 +70,13 @@ interface HeaderMap {
                 <bbc-icon name="download" [s]="16" /> {{ fr() ? 'Modèle import' : 'Import template' }}
               </button>
               <button (click)="openImport()"
-                class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
+                class="student-import-action inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50">
                 <bbc-icon name="download" [s]="16" /> {{ fr() ? 'Importer' : 'Import' }}
               </button>
             }
             @if (canCreateStudent) {
               <button (click)="openCreate()"
-                class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-brand-600 hover:bg-brand-700 text-white">
+                class="student-new-action inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-brand-600 hover:bg-brand-700 text-white">
                 <bbc-icon name="plus" [s]="16" /> {{ i18n.t('newStudent') }}
               </button>
             }
@@ -852,7 +853,7 @@ interface HeaderMap {
       <!-- Doublon : confirmation avant d'enregistrer un homonyme -->
       @if (dupPrompt()) {
         <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 fade-in" (click)="dupPrompt.set(false)">
-          <div class="bg-white rounded-xl2 shadow-pop w-full max-w-lg p-6" (click)="$event.stopPropagation()">
+          <div class="max-h-[calc(100dvh-2rem)] overflow-y-auto bg-white rounded-xl2 shadow-pop w-full max-w-lg p-6" (click)="$event.stopPropagation()">
             <div class="flex items-start gap-3">
               <div class="w-10 h-10 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
                 <bbc-icon name="alertTri" [s]="18" />
@@ -894,7 +895,7 @@ interface HeaderMap {
       <!-- Confirm delete -->
       @if (confirmDel(); as cd) {
         <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 fade-in" (click)="confirmDel.set(null)">
-          <div class="bg-white rounded-xl2 shadow-pop w-full max-w-md p-6" (click)="$event.stopPropagation()">
+          <div class="max-h-[calc(100dvh-2rem)] overflow-y-auto bg-white rounded-xl2 shadow-pop w-full max-w-md p-6" (click)="$event.stopPropagation()">
             <div class="flex items-start gap-3">
               <div class="w-10 h-10 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
                 <bbc-icon name="trash" [s]="18" />
@@ -919,7 +920,7 @@ interface HeaderMap {
       <!-- Confirm bulk delete -->
       @if (confirmBulk()) {
         <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 fade-in" (click)="confirmBulk.set(false)">
-          <div class="bg-white rounded-xl2 shadow-pop w-full max-w-md p-6" (click)="$event.stopPropagation()">
+          <div class="max-h-[calc(100dvh-2rem)] overflow-y-auto bg-white rounded-xl2 shadow-pop w-full max-w-md p-6" (click)="$event.stopPropagation()">
             <div class="flex items-start gap-3">
               <div class="w-10 h-10 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
                 <bbc-icon name="trash" [s]="18" />
@@ -1808,9 +1809,7 @@ export class StudentsComponent {
           // Parse the raw .xls/.xlsx register: take the first sheet, emit CSV.
           // xlsx is heavy (~700 kB) so it is loaded on demand, only when needed.
           const XLSX = await import('xlsx');
-          const wb = XLSX.read(reader.result, { type: 'array' });
-          const sheet = wb.Sheets[wb.SheetNames[0]];
-          this.onText(XLSX.utils.sheet_to_csv(sheet));
+          this.onText(studentWorkbookCsv(reader.result, XLSX));
         } else {
           this.onText(String(reader.result ?? ''));
         }

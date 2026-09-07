@@ -3,6 +3,7 @@ package com.bbc.sms.identity;
 import com.bbc.sms.identity.dto.AuthDtos.*;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.AppUserPrincipal;
+import org.springframework.http.HttpStatus;
 import jakarta.validation.Valid;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
@@ -39,7 +40,7 @@ public class AuthController {
 
     @GetMapping("/me")
     public UserView me(@AuthenticationPrincipal AppUserPrincipal principal) {
-        if (principal == null) throw ApiException.notFound("Session");
+        if (principal == null) throw new ApiException(HttpStatus.UNAUTHORIZED, "Session expirée ou authentification requise.");
         AppUser user = users.findById(principal.userId())
                 .orElseThrow(() -> ApiException.notFound("Utilisateur"));
         return auth.buildUserView(user);

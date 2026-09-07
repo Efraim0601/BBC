@@ -8,7 +8,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
-/** Authenticated principal, fully derived from the JWT (no DB lookup per request). */
+/** Authenticated principal, validated against the current account for each request. */
 public record AppUserPrincipal(
         UUID userId,
         UUID schoolId,
