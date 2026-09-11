@@ -91,12 +91,15 @@ public class PasswordResetService {
 
     private AppUser resolveUserQuietly(String username, String schoolCode) {
         try {
+            List<String> identifiers = LoginIdentifiers.candidates(username);
+            List<AppUser> matches;
             if (schoolCode != null && !schoolCode.isBlank()) {
-                return schools.findByCode(schoolCode.trim())
-                        .flatMap(s -> users.findBySchoolIdAndUsernameAndActiveTrue(s.getId(), username))
-                        .orElse(null);
+                School school = schools.findByCode(schoolCode.trim()).orElse(null);
+                if (school == null) return null;
+                matches = users.findBySchoolIdAndUsernameInAndActiveTrue(school.getId(), identifiers);
+            } else {
+                matches = users.findByUsernameInAndActiveTrue(identifiers);
             }
-            List<AppUser> matches = users.findByUsernameAndActiveTrue(username);
             if (matches.size() == 1) return matches.get(0);
             // Ambiguous or missing — do not reset (admin must use school code / staff reset).
             return null;

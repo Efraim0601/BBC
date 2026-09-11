@@ -113,12 +113,21 @@
         <form class="form" data-login-form data-api-base="/api" data-app-base="/app/" novalidate>
           <p class="form__error" data-login-error role="alert" hidden></p>
 
-          <div class="field">
+          <div class="signin-method" role="group" aria-label="Mode de connexion">
+            <button type="button" data-identifier-choice="identifier" aria-pressed="true" data-fr="E-mail / identifiant" data-en="Email / username">E-mail / identifiant</button>
+            <button type="button" data-identifier-choice="phone" aria-pressed="false" data-fr="Téléphone" data-en="Phone number">Téléphone</button>
+          </div>
+          <div class="field" data-identifier-fields="identifier">
             <label for="lg-user">
-              <span data-fr="Identifiant" data-en="Username">Identifiant</span> <span class="req">*</span>
+              <span data-fr="E-mail ou identifiant" data-en="Email or username">E-mail ou identifiant</span> <span class="req">*</span>
             </label>
             <input id="lg-user" name="username" type="text" required
                    autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false">
+          </div>
+          <div class="field" data-identifier-fields="phone" hidden>
+            <label for="lg-phone"><span data-fr="Numéro de téléphone" data-en="Phone number">Numéro de téléphone</span> <span class="req">*</span></label>
+            <div class="phone-with-prefix"><span aria-hidden="true">+237</span><input id="lg-phone" name="phone" type="tel" inputmode="numeric" autocomplete="username" placeholder="6XX XX XX XX" pattern="[26][0-9]{8}" aria-describedby="lg-phone-hint" disabled></div>
+            <small id="lg-phone-hint" data-fr="Saisissez les 9 chiffres. +237 est fixe et ajouté automatiquement." data-en="Enter the 9 digits. +237 is fixed and added automatically.">Saisissez les 9 chiffres. +237 est fixe et ajouté automatiquement.</small>
           </div>
 
           <div class="field">
@@ -138,17 +147,26 @@
         <details class="qa" style="margin-top:22px;box-shadow:none">
           <summary data-fr="Mot de passe oublié ?" data-en="Forgotten your password?">Mot de passe oublié ?</summary>
           <div class="qa__body">
-            <p data-fr="Saisissez votre identifiant : si le compte existe, la marche à suivre est envoyée à l’adresse déclarée à l’inscription."
-               data-en="Enter your username: if the account exists, instructions are sent to the address given at enrolment.">
-              Saisissez votre identifiant : si le compte existe, la marche à suivre est envoyée à l’adresse déclarée à l’inscription.
+            <p data-fr="Saisissez votre e-mail, téléphone ou identifiant. Si un e-mail est associé à votre compte, la marche à suivre y sera envoyée. Sans e-mail, contactez l’administration."
+               data-en="Enter your email, phone number or username. If an email is linked to your account, instructions will be sent there. Without an email, contact the administration.">
+              Saisissez votre e-mail, téléphone ou identifiant. Si un e-mail est associé à votre compte, la marche à suivre y sera envoyée. Sans e-mail, contactez l’administration.
             </p>
             <form class="form" data-forgot-form data-api-base="/api" novalidate>
-              <div class="field">
+              <div class="signin-method" role="group" aria-label="Retrouver le compte">
+                <button type="button" data-identifier-choice="identifier" aria-pressed="true" data-fr="E-mail / identifiant" data-en="Email / username">E-mail / identifiant</button>
+                <button type="button" data-identifier-choice="phone" aria-pressed="false" data-fr="Téléphone" data-en="Phone number">Téléphone</button>
+              </div>
+              <div class="field" data-identifier-fields="identifier">
                 <label for="fg-user">
-                  <span data-fr="Identifiant" data-en="Username">Identifiant</span> <span class="req">*</span>
+                  <span data-fr="E-mail ou identifiant" data-en="Email or username">E-mail ou identifiant</span> <span class="req">*</span>
                 </label>
                 <input id="fg-user" name="username" type="text" required
                        autocomplete="username" autocapitalize="none" spellcheck="false">
+              </div>
+              <div class="field" data-identifier-fields="phone" hidden>
+                <label for="fg-phone"><span data-fr="Numéro de téléphone" data-en="Phone number">Numéro de téléphone</span> <span class="req">*</span></label>
+                <div class="phone-with-prefix"><span aria-hidden="true">+237</span><input id="fg-phone" name="phone" type="tel" inputmode="numeric" autocomplete="username" placeholder="6XX XX XX XX" pattern="[26][0-9]{8}" aria-describedby="fg-phone-hint" disabled></div>
+                <small id="fg-phone-hint" data-fr="Saisissez les 9 chiffres. +237 est fixe et ajouté automatiquement." data-en="Enter the 9 digits. +237 is fixed and added automatically.">Saisissez les 9 chiffres. +237 est fixe et ajouté automatiquement.</small>
               </div>
               <button class="btn btn--outline btn--block" type="submit"
                       data-fr="Envoyer la marche à suivre" data-en="Send instructions">Envoyer la marche à suivre</button>

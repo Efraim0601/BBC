@@ -34,7 +34,7 @@ export function staffWhatsappNumber(phone: string | null | undefined): string | 
           <label class="block"><span class="text-xs font-semibold text-mute">{{ fr() ? 'Page de connexion' : 'Sign-in page' }}</span>
             <input readonly [value]="loginUrl" class="mt-1 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-ink" />
           </label>
-          <label class="block"><span class="text-xs font-semibold text-mute">{{ fr() ? 'Identifiant' : 'Username' }}</span>
+          <label class="block"><span class="text-xs font-semibold text-mute">{{ identifierLabel() }}</span>
             <input readonly [value]="sheet().result.username" class="mt-1 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2 font-mono text-base font-semibold text-ink" />
           </label>
           <label class="block"><span class="text-xs font-semibold text-mute">{{ fr() ? 'Nouveau mot de passe' : 'New password' }}</span>
@@ -75,16 +75,20 @@ export class StaffCredentialsDialogComponent {
   readonly closed = output<void>();
   protected copied = signal(false);
   protected copyFailed = signal(false);
+  protected identifierLabel = computed(() => this.sheet().result.username.startsWith('+')
+    ? (this.fr() ? 'Téléphone de connexion' : 'Sign-in phone number')
+    : this.sheet().result.username.includes('@') ? (this.fr() ? 'E-mail de connexion' : 'Sign-in email')
+    : (this.fr() ? 'Identifiant' : 'Username'));
   protected fr = () => this.i18n.lang() === 'fr';
   protected loginUrl = environment.native ? 'https://bbcomplex.com/app/login' : new URL('login', this.document.baseURI).href;
   protected shareText = computed(() => [
     'BBC SMS — ' + this.sheet().employeeName,
     this.loginUrl,
-    (this.fr() ? 'Identifiant : ' : 'Username: ') + this.sheet().result.username,
+    this.identifierLabel() + ': ' + this.sheet().result.username,
     (this.fr() ? 'Mot de passe : ' : 'Password: ') + (this.sheet().result.password ?? ''),
   ].join('\n'));
   protected whatsappUrl = computed(() => {
-    const number = staffWhatsappNumber(this.sheet().phone);
+    const number = staffWhatsappNumber(this.sheet().result.username.startsWith('+') ? this.sheet().result.username : this.sheet().phone);
     return number ? `https://wa.me/${number}?text=${encodeURIComponent(this.shareText())}` : null;
   });
   protected async copy(): Promise<void> {

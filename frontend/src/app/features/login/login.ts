@@ -4,12 +4,14 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { AuthService } from '../../core/auth.service';
 import { I18nService, Lang } from '../../core/i18n.service';
+import { CameroonPhoneFieldComponent } from '../../core/ui/cameroon-phone-field';
+import { cameroonPhoneNumber } from '../../core/cameroon-phone';
 
 @Component({
   selector: 'bbc-login',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule],
+  imports: [FormsModule, CameroonPhoneFieldComponent],
   template: `
     <div class="h-[100dvh] min-h-0 w-full flex bg-surface overflow-hidden">
       <!-- Left — brand panel -->
@@ -89,14 +91,31 @@ import { I18nService, Lang } from '../../core/i18n.service';
             </div>
 
             <form (ngSubmit)="submit()" class="space-y-4">
+              <div class="grid grid-cols-2 gap-2" role="group" [attr.aria-label]="fr() ? 'Se connecter avec' : 'Sign in with'">
+                <button type="button" (click)="chooseIdentifier('identifier')" [attr.aria-pressed]="identifierMethod() === 'identifier'"
+                  class="min-h-11 rounded-lg border px-3 py-2 text-sm font-semibold"
+                  [class]="identifierMethod() === 'identifier' ? 'border-brand-600 bg-brand-50 text-brand-800' : 'border-slate-200 text-mute'">
+                  {{ fr() ? 'E-mail / identifiant' : 'Email / username' }}
+                </button>
+                <button type="button" (click)="chooseIdentifier('phone')" [attr.aria-pressed]="identifierMethod() === 'phone'"
+                  class="min-h-11 rounded-lg border px-3 py-2 text-sm font-semibold"
+                  [class]="identifierMethod() === 'phone' ? 'border-brand-600 bg-brand-50 text-brand-800' : 'border-slate-200 text-mute'">
+                  {{ fr() ? 'Téléphone' : 'Phone number' }}
+                </button>
+              </div>
+              @if (identifierMethod() === 'phone') {
+                <bbc-cameroon-phone-field fieldId="login-phone" [(value)]="phone" [required]="true" autocomplete="username"
+                  [label]="fr() ? 'Numéro de téléphone' : 'Phone number'" />
+              } @else {
               <div>
-                <label class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ i18n.t('username') }}</label>
+                <label for="login-identifier" class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'E-mail ou identifiant' : 'Email or username' }}</label>
                 <div class="relative">
                   <svg class="absolute left-3 top-1/2 -translate-y-1/2 text-mute" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"/><path d="m22 6-10 7L2 6"/></svg>
-                  <input name="username" [(ngModel)]="username" autocomplete="username"
+                  <input id="login-identifier" name="username" [(ngModel)]="username" autocomplete="username" autocapitalize="none" spellcheck="false"
                     class="w-full h-11 pl-10 pr-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400" />
                 </div>
               </div>
+              }
 
               <div>
                 <div class="flex items-center justify-between mb-1.5">
@@ -136,20 +155,37 @@ import { I18nService, Lang } from '../../core/i18n.service';
               <h2 class="text-[26px] font-bold text-ink leading-tight">{{ fr() ? 'Mot de passe oublié' : 'Forgot password' }}</h2>
               <p class="text-mute text-sm mt-1.5">
                 {{ fr()
-                  ? 'Indiquez votre identifiant. Si un e-mail est associé à votre compte personnel, un mot de passe temporaire vous sera envoyé.'
-                  : 'Enter your username. If an e-mail is linked to your staff account, a temporary password will be sent.' }}
+                  ? 'Indiquez votre e-mail, téléphone ou identifiant. Si un e-mail est associé à votre compte personnel, un mot de passe temporaire vous sera envoyé. Sans e-mail, contactez l’administration.'
+                  : 'Enter your email, phone number or username. If an email is linked to your staff account, a temporary password will be sent. Without an email, contact the administration.' }}
               </p>
             </div>
 
             <form (ngSubmit)="submitForgot()" class="space-y-4">
+              <div class="grid grid-cols-2 gap-2" role="group" [attr.aria-label]="fr() ? 'Retrouver le compte avec' : 'Find account with'">
+                <button type="button" (click)="chooseIdentifier('identifier')" [attr.aria-pressed]="identifierMethod() === 'identifier'"
+                  class="min-h-11 rounded-lg border px-3 py-2 text-sm font-semibold"
+                  [class]="identifierMethod() === 'identifier' ? 'border-brand-600 bg-brand-50 text-brand-800' : 'border-slate-200 text-mute'">
+                  {{ fr() ? 'E-mail / identifiant' : 'Email / username' }}
+                </button>
+                <button type="button" (click)="chooseIdentifier('phone')" [attr.aria-pressed]="identifierMethod() === 'phone'"
+                  class="min-h-11 rounded-lg border px-3 py-2 text-sm font-semibold"
+                  [class]="identifierMethod() === 'phone' ? 'border-brand-600 bg-brand-50 text-brand-800' : 'border-slate-200 text-mute'">
+                  {{ fr() ? 'Téléphone' : 'Phone number' }}
+                </button>
+              </div>
+              @if (identifierMethod() === 'phone') {
+                <bbc-cameroon-phone-field fieldId="forgot-phone" [(value)]="phone" [required]="true" autocomplete="username"
+                  [label]="fr() ? 'Numéro de téléphone' : 'Phone number'" />
+              } @else {
               <div>
-                <label class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ i18n.t('username') }}</label>
+                <label for="forgot-identifier" class="block text-xs font-semibold text-mute uppercase tracking-wide mb-1.5">{{ fr() ? 'E-mail ou identifiant' : 'Email or username' }}</label>
                 <div class="relative">
                   <svg class="absolute left-3 top-1/2 -translate-y-1/2 text-mute" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"/><path d="m22 6-10 7L2 6"/></svg>
-                  <input name="forgotUsername" [(ngModel)]="username" autocomplete="username" required
+                  <input id="forgot-identifier" name="forgotUsername" [(ngModel)]="username" autocomplete="username" autocapitalize="none" spellcheck="false" required
                     class="w-full h-11 pl-10 pr-3 text-sm rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400" />
                 </div>
               </div>
+              }
 
               @if (forgotInfo()) {
                 <div class="text-xs text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2 leading-relaxed">{{ forgotInfo() }}</div>
@@ -158,7 +194,7 @@ import { I18nService, Lang } from '../../core/i18n.service';
                 <div class="text-xs text-rose-600 bg-rose-50 rounded-lg px-3 py-2">{{ error() }}</div>
               }
 
-              <button type="submit" [disabled]="loading() || !username.trim()"
+              <button type="submit" [disabled]="loading() || !signInIdentifier()"
                 class="w-full h-12 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-lg transition disabled:opacity-60 flex items-center justify-center gap-2 mt-2">
                 {{ loading()
                   ? (fr() ? 'Envoi…' : 'Sending…')
@@ -186,6 +222,8 @@ export class LoginComponent {
 
   protected readonly langs: Lang[] = ['fr', 'en'];
   protected username = '';
+  protected phone: string | null | undefined = '';
+  protected identifierMethod = signal<'identifier' | 'phone'>('identifier');
   protected password = '';
   protected showPwd = signal(false);
   protected loading = signal(false);
@@ -227,10 +265,27 @@ export class LoginComponent {
     this.loading.set(false);
   }
 
+  protected chooseIdentifier(method: 'identifier' | 'phone'): void {
+    this.identifierMethod.set(method);
+    this.error.set(null);
+    this.forgotInfo.set(null);
+  }
+
+  protected signInIdentifier(): string | null {
+    return this.identifierMethod() === 'phone' ? cameroonPhoneNumber(this.phone) : this.username.trim() || null;
+  }
+
   submit(): void {
+    const identifier = this.signInIdentifier();
+    if (!identifier) {
+      this.error.set(this.identifierMethod() === 'phone'
+        ? (this.fr() ? 'Saisissez les 9 chiffres du numéro. +237 est ajouté automatiquement.' : 'Enter the 9 phone-number digits. +237 is added automatically.')
+        : (this.fr() ? 'Renseignez votre e-mail ou identifiant.' : 'Enter your email or username.'));
+      return;
+    }
     this.loading.set(true);
     this.error.set(null);
-    this.auth.login(this.username, this.password).subscribe({
+    this.auth.login(identifier, this.password).subscribe({
       next: (res) => this.router.navigate([res.user.role === 'parent' ? '/parent' : '/parcours']),
       error: (e) => {
         this.error.set(e?.error?.message ?? 'Connexion impossible');
@@ -240,7 +295,7 @@ export class LoginComponent {
   }
 
   submitForgot(): void {
-    const u = this.username.trim();
+    const u = this.signInIdentifier();
     if (!u) return;
     this.loading.set(true);
     this.error.set(null);

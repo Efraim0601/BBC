@@ -20,7 +20,7 @@ public class AppUser {
     @Column(name = "school_id", nullable = false)
     private UUID schoolId;
 
-    @Column(nullable = false)
+    @Column(nullable = false, length = 254)
     private String username;
 
     @Column(name = "password_hash", nullable = false)

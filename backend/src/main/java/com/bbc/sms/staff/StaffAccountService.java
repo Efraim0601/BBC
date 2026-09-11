@@ -3,6 +3,7 @@ package com.bbc.sms.staff;
 import com.bbc.sms.identity.AppUser;
 import com.bbc.sms.identity.AppUserRepository;
 import com.bbc.sms.identity.SchoolRepository;
+import com.bbc.sms.identity.LoginIdentifiers;
 import com.bbc.sms.platform.mail.MailService;
 import com.bbc.sms.staff.dto.StaffDtos.AccountResult;
 import com.bbc.sms.staff.dto.StaffDtos.AccountOptions;
@@ -69,7 +70,13 @@ public class StaffAccountService {
             throw ApiException.badRequest("Réactivez la fiche de l'employé avant de créer ou réinitialiser son compte.");
         }
         AccountOptions options = requestedOptions == null ? AccountOptions.manual() : requestedOptions;
+        if (!Set.of("username", "email", "phone").contains(options.loginMethod())) {
+            throw ApiException.badRequest("Choisissez e-mail ou téléphone pour la connexion.");
+        }
         boolean sendEmail = Boolean.TRUE.equals(options.sendEmail());
+        if ("phone".equals(options.loginMethod()) && sendEmail) {
+            throw ApiException.badRequest("Connexion par téléphone : transmettez les identifiants manuellement.");
+        }
         String email = e.getEmail() == null ? "" : e.getEmail().trim();
         if (sendEmail && email.isEmpty()) {
             throw ApiException.badRequest("Renseignez un e-mail ou désactivez l'envoi par e-mail.");
@@ -81,9 +88,22 @@ public class StaffAccountService {
         if (!requestedUsername.isEmpty() && !requestedUsername.matches("^[a-z0-9][a-z0-9._-]{2,63}$")) {
             throw ApiException.badRequest("Identifiant : 3 à 64 lettres, chiffres, points, tirets ou underscores.");
         }
+        if (!"username".equals(options.loginMethod())) {
+            if (!requestedUsername.isEmpty()) {
+                throw ApiException.badRequest("L'identifiant utilise l'e-mail ou le téléphone de la fiche, pas un autre nom d'utilisateur.");
+            }
+            requestedUsername = "email".equals(options.loginMethod())
+                    ? LoginIdentifiers.email(email) : LoginIdentifiers.phone(e.getPhone());
+            if (requestedUsername == null || ("email".equals(options.loginMethod()) && requestedUsername.length() > 160)) {
+                throw ApiException.badRequest("email".equals(options.loginMethod())
+                        ? "Renseignez une adresse e-mail valide pour la connexion (160 caractères maximum)."
+                        : "Renseignez un téléphone valide : 9 chiffres au Cameroun ou un numéro avec indicatif (+237…).");
+            }
+        }
         if (u == null) {
             if (!requestedUsername.isEmpty()
-                    && users.existsBySchoolIdAndUsernameIgnoreCase(e.getSchoolId(), requestedUsername)) {
+                    && (users.existsBySchoolIdAndUsernameIgnoreCase(e.getSchoolId(), requestedUsername)
+                        || users.existsBySchoolIdAndUsernameIn(e.getSchoolId(), LoginIdentifiers.candidates(requestedUsername)))) {
                 throw ApiException.badRequest("Cet identifiant est déjà utilisé. Choisissez-en un autre.");
             }
             u = new AppUser();
@@ -208,7 +228,8 @@ public class StaffAccountService {
         if (base.length() > 56) base = base.substring(0, 56);
         String candidate = base;
         int n = 2;
-        while (users.existsBySchoolIdAndUsernameIgnoreCase(e.getSchoolId(), candidate)) {
+        while (users.existsBySchoolIdAndUsernameIgnoreCase(e.getSchoolId(), candidate)
+                || users.existsBySchoolIdAndUsernameIn(e.getSchoolId(), LoginIdentifiers.candidates(candidate))) {
             candidate = base + n++;
         }
         return candidate;

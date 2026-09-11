@@ -7,6 +7,7 @@ import org.springframework.data.repository.query.Param;
 import jakarta.persistence.LockModeType;
 
 import java.util.List;
+import java.util.Collection;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -25,6 +26,9 @@ public interface AppUserRepository extends JpaRepository<AppUser, UUID> {
 
     List<AppUser> findByUsernameAndActiveTrue(String username);
     Optional<AppUser> findBySchoolIdAndUsernameAndActiveTrue(UUID schoolId, String username);
+    List<AppUser> findByUsernameInAndActiveTrue(Collection<String> usernames);
+    List<AppUser> findBySchoolIdAndUsernameInAndActiveTrue(UUID schoolId, Collection<String> usernames);
+    boolean existsBySchoolIdAndUsernameIn(UUID schoolId, Collection<String> usernames);
     Optional<AppUser> findByEmployeeId(UUID employeeId);
     List<AppUser> findBySchoolIdAndEmployeeIdNotNull(UUID schoolId);
     boolean existsBySchoolIdAndUsername(UUID schoolId, String username);

@@ -84,6 +84,7 @@ export interface AccountResult {
 export interface AccountOptions {
   username?: string;
   sendEmail?: boolean;
+  loginMethod?: 'email' | 'phone' | 'username';
 }
 
 export interface StaffImportRow {

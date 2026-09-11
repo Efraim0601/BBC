@@ -35,6 +35,47 @@
 
   function fr() { return document.documentElement.getAttribute('lang') !== 'en'; }
 
+  function nationalPhone(value) {
+    var compact = (value || '').trim().replace(/[\s().-]/g, '');
+    if (compact.indexOf('+237') === 0) return compact.slice(4);
+    if (compact.indexOf('00237') === 0) return compact.slice(5);
+    if (/^237\d{9}$/.test(compact)) return compact.slice(3);
+    return compact;
+  }
+
+  function setupIdentifier(target) {
+    var phone = target.elements.phone;
+    target.querySelectorAll('[data-identifier-choice]').forEach(function (choice) {
+      choice.addEventListener('click', function () {
+        var selected = choice.getAttribute('data-identifier-choice');
+        target.setAttribute('data-identifier-method', selected);
+        target.querySelectorAll('[data-identifier-choice]').forEach(function (button) {
+          button.setAttribute('aria-pressed', String(button.getAttribute('data-identifier-choice') === selected));
+        });
+        target.querySelectorAll('[data-identifier-fields]').forEach(function (panel) {
+          panel.hidden = panel.getAttribute('data-identifier-fields') !== selected;
+          panel.querySelector('input').disabled = panel.hidden;
+        });
+        target.querySelectorAll('[data-login-error], [data-forgot-feedback]').forEach(function (note) { note.hidden = true; });
+      });
+    });
+    if (phone) phone.addEventListener('input', function () { phone.value = nationalPhone(phone.value); });
+  }
+
+  function readIdentifier(target) {
+    if (target.getAttribute('data-identifier-method') !== 'phone') return (target.elements.username.value || '').trim();
+    var digits = nationalPhone(target.elements.phone.value);
+    return /^[26]\d{8}$/.test(digits) ? '+237' + digits : '';
+  }
+
+  function missingIdentifier(target) {
+    return target.getAttribute('data-identifier-method') === 'phone'
+      ? (fr() ? 'Saisissez les 9 chiffres du numéro. +237 est ajouté automatiquement.' : 'Enter the 9 phone-number digits. +237 is added automatically.')
+      : (fr() ? 'Renseignez votre e-mail ou identifiant.' : 'Enter your email or username.');
+  }
+
+  setupIdentifier(form);
+
   function showError(message) {
     if (!box) return;
     box.textContent = message;
@@ -93,11 +134,11 @@
     event.preventDefault();
     clearError();
 
-    var username = (form.elements.username.value || '').trim();
+    var username = readIdentifier(form);
     var password = form.elements.password.value || '';
     if (!username || !password) {
-      showError(fr() ? 'Renseignez votre identifiant et votre mot de passe.'
-                     : 'Enter your username and your password.');
+      showError(!username ? missingIdentifier(form)
+        : (fr() ? 'Renseignez votre mot de passe.' : 'Enter your password.'));
       return;
     }
 
@@ -170,14 +211,18 @@
   ------------------------------------------------------------------------ */
   var forgotForm = document.querySelector('[data-forgot-form]');
   if (forgotForm) {
+    setupIdentifier(forgotForm);
     var forgotBase = (forgotForm.getAttribute('data-api-base') || apiBase).replace(/\/$/, '');
     var forgotNote = forgotForm.querySelector('[data-forgot-feedback]');
     var forgotButton = forgotForm.querySelector('[type="submit"]');
 
     forgotForm.addEventListener('submit', function (event) {
       event.preventDefault();
-      var username = (forgotForm.elements.username.value || '').trim();
-      if (!username) return;
+      var username = readIdentifier(forgotForm);
+      if (!username) {
+        if (forgotNote) { forgotNote.textContent = missingIdentifier(forgotForm); forgotNote.hidden = false; }
+        return;
+      }
 
       if (forgotButton) forgotButton.disabled = true;
 

@@ -228,7 +228,7 @@ console.log('\n=== page en anglais ===');
 {
   const { win, doc } = await load({ respond: () => jsonResponse(401, {}), lang: 'en-GB' });
   ok(doc.documentElement.getAttribute('lang') === 'en', 'page basculée en anglais');
-  ok(doc.querySelector('label[for="lg-user"] span').textContent === 'Username', 'libellé traduit');
+  ok(doc.querySelector('label[for="lg-user"] span').textContent === 'Email or username', 'libellé traduit pour le mode e-mail / identifiant');
   doc.querySelector('#lg-user').value = 'principal';
   doc.querySelector('#lg-pwd').value = 'mauvais';
   submit(doc, win, '[data-login-form]');
@@ -248,6 +248,51 @@ console.log('\n=== afficher / masquer le mot de passe ===');
   ok(input.type === 'text' && toggle.getAttribute('aria-pressed') === 'true', 'affiché après clic');
   toggle.dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
   ok(input.type === 'password' && toggle.getAttribute('aria-pressed') === 'false', 'masqué à nouveau');
+  win.close();
+}
+
+console.log('\n=== téléphone avec indicatif fixe ===');
+{
+  const { win, doc, calls } = await load({ respond: () => jsonResponse(200, TOKEN) });
+  doc.addEventListener('bbc:authenticated', e => e.preventDefault());
+  const form = doc.querySelector('[data-login-form]');
+  form.querySelector('[data-identifier-choice="phone"]').click();
+  const phone = doc.querySelector('#lg-phone');
+  ok(!phone.disabled && doc.querySelector('#lg-user').disabled, 'le choix téléphone active uniquement le numéro');
+  ok(phone.inputMode === 'numeric', 'clavier numérique pour les neuf chiffres');
+  ok(phone.previousElementSibling.textContent === '+237' && phone.previousElementSibling.tagName === 'SPAN', 'indicatif fixe non modifiable');
+  doc.querySelector('#lg-pwd').value = 'generated-password';
+  for (const value of ['600000031', '+237 600 000 031', '00237600000031']) {
+    phone.value = value;
+    phone.dispatchEvent(new win.Event('input', { bubbles: true }));
+    ok(phone.value === '600000031', 'le champ ne contient que les chiffres nationaux', value);
+    submit(doc, win, '[data-login-form]');
+    await wait(150);
+    ok(calls.at(-1)?.body.username === '+237600000031', 'un seul indicatif est envoyé', value);
+  }
+  const beforeInvalid = calls.length;
+  for (const value of ['', '60000003', '6000000319', '600000O31']) {
+    phone.value = value;
+    submit(doc, win, '[data-login-form]');
+    await wait(50);
+  }
+  ok(calls.length === beforeInvalid, 'les numéros incomplets ou invalides ne font aucun appel');
+  form.querySelector('[data-identifier-choice="identifier"]').click();
+  doc.querySelector('#lg-user').value = 'legacy.user';
+  submit(doc, win, '[data-login-form]');
+  await wait(150);
+  ok(calls.at(-1)?.body.username === 'legacy.user', 'retour à un identifiant sans ajouter +237');
+  win.close();
+}
+
+console.log('\n=== récupération avec indicatif fixe ===');
+{
+  const { win, doc, calls } = await load({ respond: () => jsonResponse(200, { message: 'OK' }) });
+  doc.querySelector('[data-forgot-form] [data-identifier-choice="phone"]').click();
+  doc.querySelector('#fg-phone').value = '600000031';
+  submit(doc, win, '[data-forgot-form]');
+  await wait(150);
+  ok(calls[0]?.url === '/api/auth/forgot-password' && calls[0]?.body.username === '+237600000031', 'la récupération ajoute également le préfixe');
   win.close();
 }
 

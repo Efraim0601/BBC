@@ -625,6 +625,15 @@ html.anim .ticker__item { position: absolute; inset: 0; }
 
 /* Champ mot de passe + bouton « Afficher » intégré. */
 .field-with-action { position: relative; display: block; }
+.signin-method { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.signin-method button { min-height: 44px; padding: 10px; border: 1px solid var(--line, #CBD5E1); border-radius: 10px; background: white; color: var(--brand-700); font: inherit; font-size: .85rem; font-weight: 700; cursor: pointer; }
+.signin-method button[aria-pressed="true"] { background: var(--brand-50); border-color: var(--brand-600); }
+[data-identifier-fields][hidden] { display: none; }
+.phone-with-prefix { display: flex; min-width: 0; border: 1px solid #CBD5E1; border-radius: 10px; overflow: hidden; background: white; }
+.phone-with-prefix > span { display: flex; align-items: center; flex-shrink: 0; padding: 0 14px; background: #F1F5F9; border-right: 1px solid #CBD5E1; font-weight: 700; color: #475569; user-select: none; }
+.field .phone-with-prefix input { flex: 1; min-width: 0; width: 100%; border: 0; border-radius: 0; }
+.phone-with-prefix:focus-within { outline: 2px solid var(--brand-600); outline-offset: 2px; }
+.field small { color: var(--mute); font-size: .78rem; }
 .field-with-action input { padding-right: 92px; }
 .field-action {
   position: absolute; top: 50%; right: 6px; transform: translateY(-50%);

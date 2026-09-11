@@ -3,6 +3,10 @@ package com.bbc.sms.identity;
 import com.bbc.sms.identity.dto.AuthDtos.LoginRequest;
 import com.bbc.sms.platform.common.ApiException;
 import com.bbc.sms.platform.security.SessionTokenService;
+import com.bbc.sms.staff.Employee;
+import com.bbc.sms.staff.EmployeeRepository;
+import com.bbc.sms.staff.StaffAccountService;
+import com.bbc.sms.staff.dto.StaffDtos.AccountOptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,6 +48,8 @@ class AuthenticationLifecycleIntegrationTest {
     @Autowired AuthService auth;
     @Autowired MockMvc mvc;
     @Autowired SessionTokenService sessions;
+    @Autowired EmployeeRepository employees;
+    @Autowired StaffAccountService staffAccounts;
     private UUID id;
     private String username;
 
@@ -99,6 +105,75 @@ class AuthenticationLifecycleIntegrationTest {
 
     @Test void anonymousSessionEndpointIsUnauthorizedNotNotFound() throws Exception {
         mvc.perform(get("/api/auth/me")).andExpect(status().isUnauthorized());
+    }
+
+    @Test void phoneOnlyStaffCanSignInWithAllSupportedFormatsAndResetPreservesTheirIdentifier() {
+        Employee employee = staffFixture(null, "600000011");
+        var credentials = staffAccounts.provisionOrReset(employee, new AccountOptions(null, false, "phone"));
+        assertThat(credentials.username()).isEqualTo("+237600000011");
+        assertThat(credentials.emailSent()).isFalse();
+        UUID userId = null;
+        for (String identifier : new String[]{"600000011", "+237 600 000 011", "00237 600 000 011", "237600000011"}) {
+            var login = auth.login(new LoginRequest(identifier, credentials.password(), null));
+            assertThat(login.user().role()).isEqualTo("accountant");
+            if (userId != null) assertThat(login.user().id()).isEqualTo(userId);
+            userId = login.user().id();
+        }
+        String hash = jdbc.queryForObject("SELECT password_hash FROM app_user WHERE id=?", String.class, userId);
+        assertThat(hash).isNotEqualTo(credentials.password());
+        assertThat(encoder.matches(credentials.password(), hash)).isTrue();
+        var reset = staffAccounts.provisionOrReset(employee, AccountOptions.manual());
+        assertThat(reset.username()).isEqualTo(credentials.username());
+        assertThatThrownBy(() -> auth.login(new LoginRequest("600000011", credentials.password(), null))).isInstanceOf(ApiException.class);
+        assertThat(auth.login(new LoginRequest("600000011", reset.password(), null)).accessToken()).isNotBlank();
+    }
+
+    @Test void chosenEmailSupportsMixedCaseAndLongAddressesButDoesNotActivateContactPhoneLogin() {
+        String email = "staff." + "a".repeat(60) + "@example.test";
+        Employee employee = staffFixture(email, "600000012");
+        var credentials = staffAccounts.provisionOrReset(employee, new AccountOptions(null, false, "email"));
+        assertThat(credentials.username()).isEqualTo(email);
+        assertThat(auth.login(new LoginRequest(email.toUpperCase(), credentials.password(), null)).accessToken()).isNotBlank();
+        assertThatThrownBy(() -> auth.login(new LoginRequest("600000012", credentials.password(), null))).isInstanceOf(ApiException.class);
+    }
+
+    @Test void duplicatePhoneCannotResetOrReplaceAnotherStaffAccount() {
+        Employee first = staffFixture(null, "600000013");
+        var credentials = staffAccounts.provisionOrReset(first, new AccountOptions(null, false, "phone"));
+        Employee second = staffFixture(null, "+237 600 000 013");
+        assertThatThrownBy(() -> staffAccounts.provisionOrReset(second, new AccountOptions(null, false, "phone")))
+                .isInstanceOf(ApiException.class).hasMessageContaining("déjà utilisé");
+        assertThat(auth.login(new LoginRequest("600000013", credentials.password(), null)).accessToken()).isNotBlank();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM app_user WHERE employee_id=?", Integer.class, second.getId())).isZero();
+    }
+
+    @Test void identicalPhoneAcrossSchoolsRequiresSchoolCodeAndKeepsTenantBoundary() {
+        Employee first = staffFixture(null, "600000014");
+        var one = staffAccounts.provisionOrReset(first, new AccountOptions(null, false, "phone"));
+        UUID otherSchool = UUID.randomUUID();
+        String otherCode = "S" + otherSchool.toString().substring(0,12);
+        jdbc.update("INSERT INTO school(id,code,name) VALUES (?,?,?)", otherSchool, otherCode, "Other phone test school");
+        Employee second = staffFixture(null, "600000014");
+        second.setSchoolId(otherSchool);
+        second = employees.saveAndFlush(second);
+        var two = staffAccounts.provisionOrReset(second, new AccountOptions(null, false, "phone"));
+        assertThatThrownBy(() -> auth.login(new LoginRequest("600000014", one.password(), null)))
+                .isInstanceOfSatisfying(ApiException.class, ex -> assertThat(ex.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST));
+        assertThat(auth.login(new LoginRequest("600000014", two.password(), otherCode)).user().schoolId()).isEqualTo(otherSchool);
+        assertThatThrownBy(() -> auth.login(new LoginRequest("600000014", one.password(), otherCode))).isInstanceOf(ApiException.class);
+    }
+
+    private Employee staffFixture(String email, String phone) {
+        var employee = new Employee();
+        employee.setSchoolId(jdbc.queryForObject("SELECT school_id FROM app_user WHERE id=?", UUID.class, id));
+        employee.setCode("EMP-"+UUID.randomUUID().toString().substring(0,12));
+        employee.setName("Synthetic credential test");
+        employee.setInitials("SC");
+        employee.setType("Permanent");
+        employee.setRoles(java.util.Set.of("accountant"));
+        employee.setEmail(email);
+        employee.setPhone(phone);
+        return employees.saveAndFlush(employee);
     }
 
     private void assertRejected(String access,String refresh) throws Exception {

@@ -3,6 +3,7 @@ package com.bbc.sms.staff.dto;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import jakarta.validation.Valid;
 import com.fasterxml.jackson.annotation.JsonInclude;
 
@@ -49,6 +50,7 @@ public class StaffDtos {
             @NotBlank String name,
             String sex,
             String type,
+            @Size(max = 160, message = "Adresse e-mail : 160 caractères maximum")
             @Pattern(regexp = "^$|^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$", message = "Adresse e-mail invalide") String email,
             @Pattern(regexp = "^$|^[+0-9][0-9\\s().-]{5,24}$", message = "Numéro de téléphone invalide") String phone,
             String formClass,
@@ -85,14 +87,17 @@ public class StaffDtos {
     /** Remplace la totalité des classes d'un enseignant (liste vide = plus aucune). */
     public record SetTeacherClasses(List<UUID> classIds) {}
 
-    /** Email delivery is opt-in; a blank username generates one from the employee's name. */
+    /** Email/phone are explicit login choices; omitted mode preserves legacy username callers. */
     public record AccountOptions(
             @Pattern(regexp = "^$|^[a-zA-Z0-9][a-zA-Z0-9._-]{2,63}$",
                     message = "Identifiant : 3 à 64 lettres, chiffres, points, tirets ou underscores") String username,
-            Boolean sendEmail) {
+            Boolean sendEmail,
+            @Pattern(regexp = "^(email|phone|username)$", message = "Choisissez e-mail ou téléphone") String loginMethod) {
         public AccountOptions {
             username = username == null ? null : username.trim();
+            loginMethod = loginMethod == null ? "username" : loginMethod.trim().toLowerCase(java.util.Locale.ROOT);
         }
+        public AccountOptions(String username, Boolean sendEmail) { this(username, sendEmail, null); }
         public static AccountOptions manual() { return new AccountOptions(null, false); }
     }
 
@@ -162,6 +167,7 @@ public class StaffDtos {
             @NotBlank String name,
             String sex,
             String type,
+            @Size(max = 160, message = "Adresse e-mail : 160 caractères maximum")
             @Pattern(regexp = "^$|^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$", message = "Adresse e-mail invalide") String email,
             @Pattern(regexp = "^$|^[+0-9][0-9\\s().-]{5,24}$", message = "Numéro de téléphone invalide") String phone,
             String formClass,

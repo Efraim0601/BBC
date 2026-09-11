@@ -2,7 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { I18nService } from '../../core/i18n.service';
-import { StaffLoginOptionsComponent, validStaffUsername } from './staff-login-options';
+import { StaffLoginOptionsComponent, validStaffUsername, staffPhoneLogin, staffLoginIdentifier } from './staff-login-options';
 import { staffWhatsappNumber } from './staff-credentials-dialog';
 
 describe('staff credential delivery choices', () => {
@@ -20,12 +20,42 @@ describe('staff credential delivery choices', () => {
     return fixture;
   }
 
-  it('allows username entry without contact details and disables only email delivery', async () => {
+  it('offers email and phone explicitly and asks for the selected contact', async () => {
     const fixture = await render('');
-    expect(fixture.nativeElement.querySelector('input[type=text]').disabled).toBe(false);
+    expect(fixture.nativeElement.querySelectorAll('input[type=radio]').length).toBe(2);
     expect(fixture.nativeElement.querySelector('input[type=checkbox]').disabled).toBe(true);
     expect(fixture.componentInstance.sendEmail()).toBe(false);
-    expect(fixture.nativeElement.textContent).toContain('username and password will appear');
+    expect(fixture.nativeElement.textContent).toContain('generated password will appear');
+    expect(fixture.nativeElement.textContent).toContain('Enter a valid email address');
+  });
+
+  it('phone choice needs no email, previews the actual login and cancels email delivery', async () => {
+    const fixture = await render('qa@example.test');
+    fixture.componentRef.setInput('phone', '600 000 001');
+    fixture.componentInstance.sendEmail.set(true);
+    fixture.detectChanges();
+    fixture.nativeElement.querySelector('input[value=phone]').click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(fixture.componentInstance.loginMethod()).toBe('phone');
+    expect(fixture.componentInstance.sendEmail()).toBe(false);
+    expect(fixture.nativeElement.querySelector('input[type=checkbox]')).toBeNull();
+    expect(fixture.nativeElement.textContent).toContain('+237600000001');
+    fixture.componentRef.setInput('email', '');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('+237600000001');
+  });
+
+  it('normalizes phone formats and validates only the chosen credential', () => {
+    for (const number of ['600000001', '+237 600 000 001', '00237 600 000 001', '237600000001']) {
+      expect(staffPhoneLogin(number)).toBe('+237600000001');
+    }
+    expect(staffPhoneLogin('123')).toBeNull();
+    expect(staffPhoneLogin('phone600000001')).toBeNull();
+    expect(staffPhoneLogin('+000000000')).toBeNull();
+    expect(staffLoginIdentifier('phone', '', '600000001')).toBe('+237600000001');
+    expect(staffLoginIdentifier('email', ' Staff@Example.test ', '')).toBe('staff@example.test');
+    expect(staffLoginIdentifier('email', '', '600000001')).toBeNull();
   });
 
   it('keeps email delivery unchecked even when an email address is available', async () => {
@@ -55,7 +85,7 @@ describe('staff credential delivery choices', () => {
     await fixture.whenStable();
     const username = fixture.nativeElement.querySelector('input[type=text]');
     expect(username.readOnly).toBe(true);
-    expect(username.getAttribute('aria-invalid')).toBe('false');
+    expect(fixture.nativeElement.querySelectorAll('input[type=radio]').length).toBe(0);
     expect(fixture.nativeElement.querySelector('[role=alert]')).toBeNull();
   });
 

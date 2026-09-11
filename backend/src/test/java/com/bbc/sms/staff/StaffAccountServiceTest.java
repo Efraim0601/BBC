@@ -99,6 +99,50 @@ class StaffAccountServiceTest {
         verifyNoInteractions(mail);
     }
 
+    @Test void explicitPhoneChoiceUsesTheNumberAndNeverSendsEmail() {
+        employee.setPhone("600 000 001");
+        employee.setEmail("contact-only@example.test");
+        var result = service.provisionOrReset(employee, new AccountOptions(null, false, "phone"));
+        assertThat(result.username()).isEqualTo("+237600000001");
+        assertThat(result.password()).hasSize(12);
+        assertThat(result.emailRequested()).isFalse();
+        verifyNoInteractions(mail);
+    }
+
+    @Test void explicitEmailChoiceUsesTheEmailNotTheEmployeeName() {
+        employee.setEmail(" Teacher.Test@Example.test ");
+        var result = service.provisionOrReset(employee, new AccountOptions(null, false, "email"));
+        assertThat(result.username()).isEqualTo("teacher.test@example.test");
+        assertThat(result.password()).isNotBlank();
+        verifyNoInteractions(mail);
+    }
+
+    @Test void rejectsMissingContactsConflictingChoicesAndPhoneEmailSendingBeforeWrites() {
+        assertThatThrownBy(() -> service.provisionOrReset(employee, new AccountOptions(null, false, "phone")))
+                .isInstanceOf(ApiException.class).hasMessageContaining("téléphone");
+        assertThatThrownBy(() -> service.provisionOrReset(employee, new AccountOptions(null, false, "email")))
+                .isInstanceOf(ApiException.class).hasMessageContaining("e-mail");
+        employee.setPhone("600000001");
+        employee.setEmail("qa@example.test");
+        assertThatThrownBy(() -> service.provisionOrReset(employee, new AccountOptions(null, true, "phone")))
+                .isInstanceOf(ApiException.class).hasMessageContaining("manuellement");
+        assertThatThrownBy(() -> service.provisionOrReset(employee, new AccountOptions("someone-else", false, "phone")))
+                .isInstanceOf(ApiException.class).hasMessageContaining("fiche");
+        assertThatThrownBy(() -> service.provisionOrReset(employee, new AccountOptions(null, false, "unexpected")))
+                .isInstanceOf(ApiException.class);
+        verify(users, never()).saveAndFlush(any());
+        verifyNoInteractions(mail);
+    }
+
+    @Test void equivalentLegacyPhoneUsernameCannotBeClaimedByAnotherEmployee() {
+        employee.setPhone("+237 600 000 001");
+        when(users.existsBySchoolIdAndUsernameIn(eq(employee.getSchoolId()), anyCollection())).thenReturn(true);
+        assertThatThrownBy(() -> service.provisionOrReset(employee, new AccountOptions(null, false, "phone")))
+                .isInstanceOf(ApiException.class).hasMessageContaining("déjà utilisé");
+        verify(users, never()).saveAndFlush(any());
+        verifyNoInteractions(mail);
+    }
+
     @Test void sendsOnlyWhenRequestedAndReturnsTheSamePasswordForManualSharing() {
         employee.setEmail("qa@example.test");
         when(mail.sendCredentials(eq(employee.getSchoolId()), eq(employee.getName()), eq(employee.getEmail()),

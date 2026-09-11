@@ -81,15 +81,22 @@ public class AuthService {
     }
 
     private AppUser resolveUser(LoginRequest req) {
+        List<String> identifiers = LoginIdentifiers.candidates(req.username());
+        List<AppUser> matches;
         if (req.schoolCode() != null && !req.schoolCode().isBlank()) {
-            School school = schools.findByCode(req.schoolCode())
+            School school = schools.findByCode(req.schoolCode().trim())
                     .orElseThrow(() -> ApiException.notFound("École"));
-            return users.findBySchoolIdAndUsernameAndActiveTrue(school.getId(), req.username())
-                    .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "Identifiants invalides"));
+            matches = users.findBySchoolIdAndUsernameInAndActiveTrue(school.getId(), identifiers);
+        } else {
+            matches = users.findByUsernameInAndActiveTrue(identifiers);
         }
-        List<AppUser> matches = users.findByUsernameAndActiveTrue(req.username());
         if (matches.isEmpty()) throw new ApiException(HttpStatus.UNAUTHORIZED, "Identifiants invalides");
-        if (matches.size() > 1) throw ApiException.badRequest("Plusieurs écoles : précisez le code école");
+        if (matches.size() > 1) {
+            if (matches.stream().map(AppUser::getSchoolId).distinct().count() > 1) {
+                throw ApiException.badRequest("Plusieurs écoles : précisez le code école");
+            }
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "Identifiants invalides");
+        }
         return matches.get(0);
     }
 
