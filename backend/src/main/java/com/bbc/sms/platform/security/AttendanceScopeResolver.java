@@ -100,7 +100,11 @@ public class AttendanceScopeResolver {
                           AND requested.school_class_id=?
                           AND requested.active
                           AND h.status='ACTIVE' AND h.mode='SHARED_BILINGUAL'))
-                   AND a.employee_id=? AND a.role='HOMEROOM' AND a.status='ACTIVE'
+                   AND a.employee_id=? AND a.status='ACTIVE'
+                   AND (a.role='HOMEROOM' OR (a.role='ASSISTANT' AND EXISTS (
+                       SELECT 1 FROM school_class co_class
+                        WHERE co_class.id=a.class_id AND co_class.school_id=a.school_id
+                          AND lower(co_class.level) IN ('primary','maternelle'))))
                    AND a.effective_from<=? AND (a.effective_to IS NULL OR a.effective_to>=?)
                 """, Integer.class, context.schoolId(), context.academicSessionId(), context.classId(),
                 context.schoolId(), context.academicSessionId(), context.classId(), employeeId,

@@ -69,4 +69,18 @@ class StaffManagementBoundaryTest {
         var e=employee("secondary","secondary_teacher");service.resetCredentials(e.getId(),AccountOptions.manual());
         verify(accounts).provisionOrReset(e,AccountOptions.manual());
     }
+    @Test void importCannotBypassCoordinatorLanguageBoundary() {
+        doThrow(ApiException.forbidden("Wrong parcours")).when(scope).assertStaffFormClass("Class 6");
+        var row=new StaffImportRow("Scope check","M","Permanent",null,null,"Class 6","primary",null,null,0L,0,List.of("teacher"));
+        var result=service.importStaff(new StaffImportRequest(false,List.of(row)));
+        assertThat(result.created()).isZero();assertThat(result.failed()).isEqualTo(1);
+        assertThat(result.errors().getFirst().message()).contains("Wrong parcours");
+        verify(employees,never()).save(any());verifyNoInteractions(accounts);
+    }
+    @Test void registrationDraftCannotBypassCoordinatorLanguageBoundary() {
+        doThrow(ApiException.forbidden("Wrong parcours")).when(scope).assertStaffFormClass("Class 6");
+        assertThatThrownBy(()->service.createInactiveDraft(TenantContext.get(),"Scope check","M","Permanent",null,null,"Class 6"))
+                .isInstanceOf(ApiException.class).hasMessageContaining("Wrong parcours");
+        verify(employees,never()).save(any());verifyNoInteractions(accounts);
+    }
 }

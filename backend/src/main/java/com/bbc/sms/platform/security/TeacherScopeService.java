@@ -488,6 +488,60 @@ public class TeacherScopeService {
             throw new ApiException(org.springframework.http.HttpStatus.FORBIDDEN,
                     "Cet employé ne relève pas de votre section");
         }
+        Set<UUID> visible = staffEmployeeIds();
+        if (visible != null && !visible.contains(employeeId)) {
+            throw ApiException.forbidden("Cet employé ne relève pas de votre parcours.");
+        }
+    }
+
+    /** A language-limited coordinator must not inherit cycle-wide HR access. */
+    public ParcoursContext.Scope staffLanguageScope() {
+        AppUserPrincipal actor = principal();
+        ParcoursContext.Scope scope = ParcoursContext.get();
+        if (actor == null || scope == null || !"principal".equals(actor.roleCode())) return null;
+        Integer languages = jdbc.queryForObject("""
+                SELECT count(DISTINCT p.subsystem) FROM app_user_parcours p
+                  JOIN app_user u ON u.id=p.user_id
+                 WHERE u.id=? AND u.school_id=? AND u.parcours_scope_mode='EXPLICIT'
+                   AND p.level=?
+                """, Integer.class, actor.userId(), TenantContext.get(), scope.level());
+        return languages != null && languages == 1 ? scope : null;
+    }
+
+    /** Null means the existing cycle boundary is sufficient; empty is fail-closed. */
+    public Set<UUID> staffEmployeeIds() {
+        ParcoursContext.Scope scope = staffLanguageScope();
+        if (scope == null) return null;
+        return Set.copyOf(jdbc.query("""
+                SELECT e.id FROM employee e
+                 WHERE e.school_id=? AND (e.level IS NULL OR (e.level=? AND (
+                       EXISTS (SELECT 1 FROM app_user u JOIN app_user_parcours p ON p.user_id=u.id
+                                WHERE u.employee_id=e.id AND u.school_id=e.school_id
+                                  AND u.parcours_scope_mode='EXPLICIT' AND p.level=? AND p.subsystem=?)
+                    OR EXISTS (SELECT 1 FROM school_class c
+                                WHERE c.school_id=e.school_id AND c.level=? AND c.subsystem=? AND (
+                                      c.name=e.form_class
+                                   OR EXISTS (SELECT 1 FROM teacher_class tc WHERE tc.employee_id=e.id AND tc.class_id=c.id)
+                                   OR EXISTS (SELECT 1 FROM class_teacher_assignment a JOIN academic_session s ON s.id=a.academic_session_id
+                                               WHERE a.employee_id=e.id AND a.class_id=c.id AND a.school_id=e.school_id
+                                                 AND a.status='ACTIVE' AND s.is_current=true
+                                                 AND a.effective_from<=GREATEST(s.start_date,LEAST(current_date,s.end_date))
+                                                 AND (a.effective_to IS NULL OR a.effective_to>=GREATEST(s.start_date,LEAST(current_date,s.end_date))))))
+                 )))
+                """, (rs,n)->rs.getObject(1,UUID.class),TenantContext.get(),scope.level(),
+                scope.level(),scope.subsystem(),scope.level(),scope.subsystem()));
+    }
+
+    /** New/edited teacher records cannot claim the other coordinator's class. */
+    public void assertStaffFormClass(String className) {
+        ParcoursContext.Scope scope = staffLanguageScope();
+        if (scope == null) return;
+        Integer matches = jdbc.queryForObject("""
+                SELECT count(*) FROM school_class WHERE school_id=? AND level=? AND subsystem=? AND name=?
+                """, Integer.class,TenantContext.get(),scope.level(),scope.subsystem(),className);
+        if (matches == null || matches == 0) {
+            throw ApiException.forbidden("Choisissez une classe du parcours que vous coordonnez pour cette fiche enseignant.");
+        }
     }
 
     /**

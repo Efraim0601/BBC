@@ -165,7 +165,8 @@ public class AcademicAccessPolicyService {
         }
         if (capability == Capability.CLASS_RESULTS_VIEW || capability == Capability.CLASS_REPORT_CARD_VIEW
                 || capability == Capability.COUNCIL_INPUT_VIEW || capability == Capability.COUNCIL_INPUT_EDIT) {
-            TeachingAssignmentResolver.Resolution homeroom = assignments.resolveHomeroom(session.id(), classId, date);
+            TeachingAssignmentResolver.Resolution homeroom = homeroomForEmployee(session.id(), classId, date,
+                    employeeId, resource.level());
             if (employeeId.equals(homeroom.teacherId())
                     && (capability != Capability.COUNCIL_INPUT_EDIT || councilEditDefault(resource.level()))) {
                 return allow(employeeId, "secondary".equalsIgnoreCase(resource.level())
@@ -180,6 +181,7 @@ public class AcademicAccessPolicyService {
         }
         TeachingAssignmentResolver.Resolution assignment = assignments.resolve(
                 session.id(), classId, subjectCode, date);
+        assignment = subjectForEmployee(assignment, session.id(), classId, date, employeeId, resource.level());
         if (assignment.available() && employeeId.equals(assignment.teacherId())) {
             return allow(employeeId, "secondary".equalsIgnoreCase(resource.level())
                             ? "SECONDARY_RESPONSIBLE" : "PRIMARY_HOMEROOM", assignment.assignmentId(),
@@ -272,8 +274,8 @@ public class AcademicAccessPolicyService {
                         "Cette matière ne fait pas partie du curriculum actif de votre classe titulaire.",
                         "This subject is not in the active curriculum of your homeroom class.", effectiveDate);
             }
-            TeachingAssignmentResolver.Resolution homeroom = assignments.resolveHomeroom(
-                    academicSessionId, classId, effectiveDate);
+            TeachingAssignmentResolver.Resolution homeroom = homeroomForEmployee(
+                    academicSessionId, classId, effectiveDate, actor.employeeId(), resource.level());
             if (actor.employeeId().equals(homeroom.teacherId())) {
                 return allow(actor.employeeId(), "TITULAIRE_ANY_SUBJECT",
                         homeroom.assignmentId(), homeroom.assignmentVersion(), null,
@@ -289,8 +291,8 @@ public class AcademicAccessPolicyService {
             // homeroom assignment is the class-access authority even when no
             // timetable, slot or class-subject distribution exists yet.
             if (isHomeroomLevel(resource.level())) {
-                TeachingAssignmentResolver.Resolution homeroom = assignments.resolveHomeroom(
-                        academicSessionId, classId, effectiveDate);
+                TeachingAssignmentResolver.Resolution homeroom = homeroomForEmployee(
+                        academicSessionId, classId, effectiveDate, actor.employeeId(), resource.level());
                 if (actor.employeeId().equals(homeroom.teacherId())) {
                     return allow(actor.employeeId(), "PRIMARY_HOMEROOM",
                             homeroom.assignmentId(), homeroom.assignmentVersion(), null,
@@ -326,8 +328,8 @@ public class AcademicAccessPolicyService {
                 || capability == Capability.GRADE_PACKET_REVIEW;
 
         if (classWide) {
-            TeachingAssignmentResolver.Resolution homeroom = assignments.resolveHomeroom(
-                    academicSessionId, classId, effectiveDate);
+            TeachingAssignmentResolver.Resolution homeroom = homeroomForEmployee(
+                    academicSessionId, classId, effectiveDate, actor.employeeId(), resource.level());
             boolean isTitulaire = actor.employeeId().equals(homeroom.teacherId());
             if (isTitulaire && (capability != Capability.COUNCIL_INPUT_EDIT
                     || councilEditDefault(resource.level()))) {
@@ -350,6 +352,8 @@ public class AcademicAccessPolicyService {
 
         TeachingAssignmentResolver.Resolution subjectAssignment = assignments.resolve(
                 academicSessionId, classId, subjectCode, effectiveDate);
+        subjectAssignment = subjectForEmployee(subjectAssignment, academicSessionId, classId,
+                effectiveDate, actor.employeeId(), resource.level());
         boolean ownsSubject = actor.employeeId().equals(subjectAssignment.teacherId());
         if (ownsSubject && subjectAssignment.available()) {
             return allow(actor.employeeId(), "secondary".equalsIgnoreCase(resource.level())
@@ -721,6 +725,23 @@ public class AcademicAccessPolicyService {
     private static boolean isTeacherRole(String role) {
         return role != null && List.of("teacher", "secondary_teacher", "form_teacher")
                 .contains(role.toLowerCase(Locale.ROOT));
+    }
+
+    private TeachingAssignmentResolver.Resolution homeroomForEmployee(UUID sessionId, UUID classId,
+            LocalDate date, UUID employeeId, String level) {
+        return subjectForEmployee(assignments.resolveHomeroom(sessionId, classId, date),
+                sessionId, classId, date, employeeId, level);
+    }
+
+    private TeachingAssignmentResolver.Resolution subjectForEmployee(TeachingAssignmentResolver.Resolution canonical,
+            UUID sessionId, UUID classId, LocalDate date, UUID employeeId, String level) {
+        if (isHomeroomLevel(level) && canonical != null && canonical.available()
+                && employeeId != null && !employeeId.equals(canonical.teacherId())) {
+            TeachingAssignmentResolver.Resolution coTeacher = assignments.resolvePrimaryCoTeacher(
+                    sessionId, classId, employeeId, date);
+            if (coTeacher != null && coTeacher.available()) return coTeacher;
+        }
+        return canonical;
     }
 
     private static String sourceFor(String level, String source) {

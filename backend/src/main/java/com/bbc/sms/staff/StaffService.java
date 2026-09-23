@@ -147,8 +147,10 @@ public class StaffService {
         for (Department d : departments.findBySchoolIdOrderByName(schoolId)) deptNames.put(d.getId(), d.getName());
         Map<UUID, AppUser> loginAccounts = loginAccounts(schoolId);
         String section = teacherScope.staffLevelScope();
+        Set<UUID> visibleEmployees = teacherScope.staffEmployeeIds();
         return repo.findBySchoolIdAndActiveTrueOrderByNameAsc(schoolId).stream()
                 .filter(e -> inSection(e, section))
+                .filter(e -> visibleEmployees == null || visibleEmployees.contains(e.getId()))
                 .map(e -> toView(e, deptNames.get(e.getDepartmentId()), loginAccounts.get(e.getId()))).toList();
     }
 
@@ -203,6 +205,7 @@ public class StaffService {
         e.setEmail(blankToNull(email));
         e.setPhone(blankToNull(phone));
         e.setFormClass(blankToNull(formClass));
+        teacherScope.assertStaffFormClass(e.getFormClass());
         e.setMonthlySalary(0);
         e.setHourlyRate(0);
         e.setRoles(new HashSet<>(Set.of("teacher")));
@@ -317,6 +320,7 @@ public class StaffService {
                 e.setEmail(email);
                 e.setPhone(phone);
                 e.setFormClass(blankToNull(row.formClass()));
+                teacherScope.assertStaffFormClass(e.getFormClass());
                 // Un compte de direction cloisonné importe dans son cycle : la
                 // colonne « section » du fichier ne peut pas l'en faire sortir.
                 String rowSection = normSection(blankToNull(row.section()));
@@ -470,6 +474,7 @@ public class StaffService {
         e.setEmail(blankToNull(in.email()));
         e.setPhone(blankToNull(in.phone()));
         e.setFormClass(blankToNull(in.formClass()));
+        teacherScope.assertStaffFormClass(e.getFormClass());
         applySection(e, blankToNull(in.section()));
         if (in.departmentId() != null
                 && departments.findByIdAndSchoolId(in.departmentId(), TenantContext.get()).isEmpty()) {

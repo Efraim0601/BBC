@@ -66,6 +66,28 @@ class TeachingAssignmentResolverTest {
         assertThat(twoTeachers.code()).isEqualTo("RESPONSIBLE_ASSIGNMENT_AMBIGUOUS");
     }
 
+    @Test
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    void coTeacherLookupBindsSchoolClassEmployeeDatesAndOnlyPrimaryLevels() throws Exception {
+        TenantContext.set(school);
+        UUID employee = UUID.randomUUID();
+        java.time.LocalDate date = java.time.LocalDate.of(2026, 9, 23);
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        doAnswer(invocation -> {
+            String sql = invocation.getArgument(0, String.class);
+            assertThat(sql).contains("a.school_id=?", "a.academic_session_id=?", "a.class_id=?", "a.employee_id=?",
+                    "lower(c.level) IN ('primary','maternelle')", "a.role='ASSISTANT'", "e.active=true",
+                    "a.status='ACTIVE'", "a.effective_from<=?", "a.effective_to>=?");
+            assertThat(java.util.Arrays.copyOfRange(invocation.getArguments(), 2, invocation.getArguments().length))
+                    .containsExactly(school, session, classId, employee, date, date);
+            RowMapper mapper = invocation.getArgument(1, RowMapper.class);
+            return List.of(mapper.mapRow(row(UUID.randomUUID(), employee, 1L, "ACADEMIC_SETUP"), 0));
+        }).when(jdbc).query(anyString(), any(RowMapper.class), any(Object[].class));
+        var result = new TeachingAssignmentResolver(jdbc).resolvePrimaryCoTeacher(session, classId, employee, date);
+        assertThat(result.available()).isTrue();
+        assertThat(result.teacherId()).isEqualTo(employee);
+    }
+
     @SuppressWarnings({"unchecked", "rawtypes"})
     private TeachingAssignmentResolver resolver(String level, List<ResultSet> rows) throws Exception {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);

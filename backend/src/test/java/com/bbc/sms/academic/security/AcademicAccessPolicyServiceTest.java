@@ -369,6 +369,46 @@ class AcademicAccessPolicyServiceTest {
     }
 
     @Test
+    void primaryCoTeacherHasTheSameClassAndSubjectAccessWithoutReplacingTheTitulaire() {
+        TenantContext.set(school);
+        UUID employeeId = UUID.randomUUID(), sessionId = UUID.randomUUID(), classId = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2026, 9, 1);
+        AppUserPrincipal principal = new AppUserPrincipal(UUID.randomUUID(), school, "co.teacher", "teacher", "Co teacher", "CT");
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        stubScopeQueries(jdbc, employeeId, sessionId, classId, date, "primary");
+        when(jdbc.queryForObject(anyString(), eq(Integer.class), any(Object[].class))).thenReturn(1);
+        TeachingAssignmentResolver assignments = mock(TeachingAssignmentResolver.class);
+        var main = new TeachingAssignmentResolver.Resolution("MATH", UUID.randomUUID(), "Main", "EMP-1",
+                UUID.randomUUID(), 1, "HOMEROOM", "RESOLVED", "ASSIGNMENT_RESOLVED", "", "", true);
+        var co = new TeachingAssignmentResolver.Resolution("", employeeId, "Co", "EMP-2",
+                UUID.randomUUID(), 1, "PRIMARY_CO_TEACHER", "RESOLVED", "ASSIGNMENT_RESOLVED", "", "", true);
+        when(assignments.resolveHomeroom(sessionId, classId, date)).thenReturn(main);
+        when(assignments.resolve(sessionId, classId, "MATH", date)).thenReturn(main);
+        when(assignments.resolvePrimaryCoTeacher(sessionId, classId, employeeId, date)).thenReturn(co);
+        var policy = new AcademicAccessPolicyService(jdbc, mock(PermissionService.class), assignments);
+        for (var capability : new AcademicAccessPolicyService.Capability[] {
+                AcademicAccessPolicyService.Capability.ACADEMIC_ROSTER_VIEW,
+                AcademicAccessPolicyService.Capability.CLASS_RESULTS_VIEW,
+                AcademicAccessPolicyService.Capability.CLASS_REPORT_CARD_VIEW,
+                AcademicAccessPolicyService.Capability.COUNCIL_INPUT_VIEW,
+                AcademicAccessPolicyService.Capability.COUNCIL_INPUT_EDIT,
+                AcademicAccessPolicyService.Capability.SUBJECT_GRADE_VIEW,
+                AcademicAccessPolicyService.Capability.SUBJECT_GRADE_EDIT,
+                AcademicAccessPolicyService.Capability.SUBJECT_GRADE_SUBMIT,
+                AcademicAccessPolicyService.Capability.REPORT_CARD_VALIDATE}) {
+            assertThat(policy.resolveDomain(capability, sessionId, classId, "MATH", null, date).allowed())
+                    .as(capability.name()).isTrue();
+        }
+        when(assignments.resolvePrimaryCoTeacher(sessionId, classId, employeeId, date)).thenReturn(null);
+        assertThat(policy.resolveDomain(AcademicAccessPolicyService.Capability.ACADEMIC_ROSTER_VIEW,
+                sessionId, classId, null, null, date).allowed()).isFalse();
+        assertThat(policy.resolveDomain(AcademicAccessPolicyService.Capability.SUBJECT_GRADE_EDIT,
+                sessionId, classId, "MATH", null, date).allowed()).isFalse();
+    }
+
+    @Test
     void secondaryTitulaireCouncilInputsRemainReadOnly() {
         TenantContext.set(school);
         UUID userId = UUID.randomUUID();

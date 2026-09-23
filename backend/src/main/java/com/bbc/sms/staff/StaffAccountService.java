@@ -18,6 +18,7 @@ import java.text.Normalizer;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -178,6 +179,15 @@ public class StaffAccountService {
                 """, user.getSchoolId(), user.getId(), primaryRole);
 
         String mode = scopeMode(primaryRole);
+        // HR edits and credential resets must not expand a language-scoped
+        // coordinator back to FR + EN. The explicit account envelope remains
+        // authoritative; managementLevels only adds/removes managed cycles.
+        String previousMode = jdbc.queryForObject(
+                "SELECT parcours_scope_mode FROM app_user WHERE id=? AND school_id=?",
+                String.class, user.getId(), user.getSchoolId());
+        List<Map<String, Object>> existingParcours = "EXPLICIT".equals(previousMode)
+                ? jdbc.queryForList("SELECT level, subsystem FROM app_user_parcours WHERE user_id=?", user.getId())
+                : List.of();
         jdbc.update("UPDATE app_user SET parcours_scope_mode=? WHERE id=? AND school_id=?",
                 mode, user.getId(), user.getSchoolId());
         jdbc.update("DELETE FROM app_user_parcours WHERE user_id=?", user.getId());
@@ -185,7 +195,21 @@ public class StaffAccountService {
             Set<String> levels = employee.getManagementLevels() == null
                     ? Set.of() : employee.getManagementLevels();
             for (String level : levels) {
-                for (String subsystem : List.of("FR", "EN")) {
+                Set<String> subsystems = new HashSet<>();
+                if (!"EXPLICIT".equals(previousMode)) {
+                    subsystems.addAll(List.of("FR", "EN"));
+                } else {
+                    // Preserve each existing cycle's restriction. For an added
+                    // cycle retain the account's existing language envelope.
+                    boolean existingLevel = existingParcours.stream()
+                            .anyMatch(row -> level.equals(row.get("level")));
+                    existingParcours.stream()
+                            .filter(row -> !existingLevel || level.equals(row.get("level")))
+                            .map(row -> String.valueOf(row.get("subsystem")))
+                            .filter(subsystem -> Set.of("FR", "EN").contains(subsystem))
+                            .forEach(subsystems::add);
+                }
+                for (String subsystem : subsystems) {
                     jdbc.update("""
                             INSERT INTO app_user_parcours(user_id,level,subsystem)
                             VALUES (?,?,?) ON CONFLICT DO NOTHING

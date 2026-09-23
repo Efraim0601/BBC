@@ -14,6 +14,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -203,5 +204,62 @@ class StaffAccountServiceTest {
         assertThat(result.emailRequested()).isTrue();
         verify(mail).sendCredentials(eq(employee.getSchoolId()), eq(employee.getName()), eq(employee.getEmail()),
                 anyString(), anyString(), isNull());
+    }
+
+    @Test void coordinatorProfileEditsKeepTheirSingleLanguageScope() {
+        var user = existingPrincipal("FR");
+        service.syncAccount(employee);
+        verify(jdbc).update(contains("INSERT INTO app_user_parcours"), eq(user.getId()), eq("primary"), eq("FR"));
+        verify(jdbc, never()).update(contains("INSERT INTO app_user_parcours"), eq(user.getId()), anyString(), eq("EN"));
+    }
+
+    @Test void coordinatorCredentialResetDoesNotGrantTheOtherLanguage() {
+        var user = existingPrincipal("EN");
+        var result = service.provisionOrReset(employee, AccountOptions.manual());
+        assertThat(result.password()).isNotBlank();
+        verify(jdbc).update(contains("INSERT INTO app_user_parcours"), eq(user.getId()), eq("primary"), eq("EN"));
+        verify(jdbc, never()).update(contains("INSERT INTO app_user_parcours"), eq(user.getId()), anyString(), eq("FR"));
+    }
+
+    @Test void newDirectorGetsBothLanguagesWithinOnlyTheirManagedCycle() {
+        employee.setRoles(Set.of("principal"));
+        employee.setManagementLevels(Set.of("primary"));
+        service.provisionOrReset(employee, AccountOptions.manual());
+        verify(jdbc).update(contains("INSERT INTO app_user_parcours"), any(UUID.class), eq("primary"), eq("FR"));
+        verify(jdbc).update(contains("INSERT INTO app_user_parcours"), any(UUID.class), eq("primary"), eq("EN"));
+        verify(jdbc, never()).update(contains("INSERT INTO app_user_parcours"), any(UUID.class), eq("secondary"), anyString());
+    }
+
+    @Test void emptyExplicitEnvelopeStaysFailClosedDuringProfileEdits() {
+        var user = existingPrincipal("FR");
+        when(jdbc.queryForList("SELECT level, subsystem FROM app_user_parcours WHERE user_id=?", user.getId()))
+                .thenReturn(List.of());
+        service.syncAccount(employee);
+        verify(jdbc, never()).update(contains("INSERT INTO app_user_parcours"), any(UUID.class), anyString(), anyString());
+    }
+
+    @Test void addingACycleDoesNotExpandACoordinatorsLanguage() {
+        var user = existingPrincipal("FR");
+        employee.setManagementLevels(Set.of("primary", "secondary"));
+        service.syncAccount(employee);
+        verify(jdbc).update(contains("INSERT INTO app_user_parcours"), eq(user.getId()), eq("secondary"), eq("FR"));
+        verify(jdbc, never()).update(contains("INSERT INTO app_user_parcours"), any(UUID.class), anyString(), eq("EN"));
+    }
+
+    private AppUser existingPrincipal(String subsystem) {
+        employee.setRoles(Set.of("principal"));
+        employee.setManagementLevels(Set.of("primary"));
+        var user = new AppUser();
+        user.setId(UUID.randomUUID());
+        user.setSchoolId(employee.getSchoolId());
+        user.setEmployeeId(employee.getId());
+        user.setRoleCode("principal");
+        user.setUsername("coordinator");
+        when(users.findByEmployeeId(employee.getId())).thenReturn(Optional.of(user));
+        when(jdbc.queryForObject("SELECT parcours_scope_mode FROM app_user WHERE id=? AND school_id=?",
+                String.class, user.getId(), user.getSchoolId())).thenReturn("EXPLICIT");
+        when(jdbc.queryForList("SELECT level, subsystem FROM app_user_parcours WHERE user_id=?", user.getId()))
+                .thenReturn(List.of(Map.of("level", "primary", "subsystem", subsystem)));
+        return user;
     }
 }

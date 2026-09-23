@@ -121,6 +121,30 @@ public class TeachingAssignmentResolver {
                 "Resolved from the class's dated homeroom assignment.");
     }
 
+    /** A dated Primary/Nursery co-teacher has class access without replacing
+     * the single canonical teacher used when publishing the timetable. */
+    public Resolution resolvePrimaryCoTeacher(UUID academicSessionId, UUID classId,
+                                              UUID employeeId, LocalDate effectiveDate) {
+        List<AssignmentRow> rows = jdbc.query("""
+            SELECT a.id,a.employee_id,e.name,e.code,a.version,a.source
+              FROM class_teacher_assignment a
+              JOIN employee e ON e.id=a.employee_id AND e.school_id=a.school_id AND e.active=true
+              JOIN school_class c ON c.id=a.class_id AND c.school_id=a.school_id
+             WHERE a.school_id=? AND a.academic_session_id=? AND a.class_id=? AND a.employee_id=?
+               AND lower(c.level) IN ('primary','maternelle')
+               AND a.role='ASSISTANT' AND a.status='ACTIVE'
+               AND a.effective_from<=? AND (a.effective_to IS NULL OR a.effective_to>=?)
+             ORDER BY a.effective_from DESC,a.created_at DESC
+            """, (rs, n) -> new AssignmentRow(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class),
+                    rs.getString(3), rs.getString(4), rs.getLong(5), rs.getString(6)),
+                TenantContext.get(), academicSessionId, classId, employeeId, effectiveDate, effectiveDate);
+        if (rows.size() != 1) return Resolution.missing("", "PRIMARY_CO_TEACHER_NOT_ASSIGNED",
+                "Aucune affectation unique de co-enseignant à cette date.",
+                "No unique co-teacher assignment is active on this date.");
+        return Resolution.ok("", rows.getFirst(), "PRIMARY_CO_TEACHER",
+                "Co-enseignant de la classe.", "Class co-teacher.");
+    }
+
     public record Resolution(String subjectCode, UUID teacherId, String teacherName, String teacherCode,
                              UUID assignmentId, long assignmentVersion, String source, String status,
                              String code, String messageFr, String messageEn, boolean locked) {
