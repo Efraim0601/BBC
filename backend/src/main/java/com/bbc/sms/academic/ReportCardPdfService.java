@@ -110,51 +110,20 @@ public class ReportCardPdfService {
 
     private float header(PDDocument doc, PDPage page, BulletinSnapshotView b, boolean fr, PDImageXObject photo,
                          boolean secondary, BrandingRenderData branding, PDImageXObject logo) throws Exception {
-        if (secondary) return secondaryHeader(doc, page, b, fr, branding, logo);
-        PDPageContentStream cs = new PDPageContentStream(doc, page);
-        line(cs, LEFT, 775, RIGHT, 775, 1.2f);
-        text(cs, bold(), 10, LEFT, 805, "REPUBLIC OF CAMEROON");
-        text(cs, normal(), 8, LEFT, 793, "Peace-Work-Fatherland");
-        text(cs, bold(), 10, 310, 805, "RÉPUBLIQUE DU CAMEROUN");
-        text(cs, normal(), 8, 310, 793, "Paix-Travail-Patrie");
-        if (logo != null) cs.drawImage(logo, 48, 735, 38, 38);
-        String schoolName = branding == null || branding.schoolName() == null || branding.schoolName().isBlank()
-                ? "BAYO BILINGUAL COMPLEX" : (fr || branding.schoolNameEn() == null || branding.schoolNameEn().isBlank()
-                ? branding.schoolName() : branding.schoolNameEn());
-        text(cs, bold(), 15, 205, 754, clip(schoolName, 34));
-        String location = branding == null ? "Maroua" : blankJoin(
-                blankJoin(branding.address(), blankJoin(branding.city(), branding.country(), ""), ""),
-                "Official academic report card", "Maroua");
-        text(cs, normal(), 9, 238, 740, clip(location, 72));
-        if (branding != null && branding.ministryText() != null && !branding.ministryText().isBlank()) {
-            text(cs, normal(), 7, LEFT, 719, clip(branding.ministryText(), 72));
-        }
-        line(cs, LEFT, 730, RIGHT, 730, 0.8f);
-        text(cs, bold(), 13, 205, 707, (fr ? "BULLETIN SCOLAIRE" : "SCHOOL REPORT CARD") + " · " + safeText(b.reportingPeriodLabel()));
-        text(cs, bold(), 9, LEFT, 683, fr ? "INFORMATIONS DE L'ÉLÈVE" : "STUDENT INFORMATION");
-        box(cs, LEFT, 610, RIGHT, 678);
-        text(cs, bold(), 10, LEFT + 10, 660, safeText(b.studentName()));
-        text(cs, normal(), 9, LEFT + 10, 644, (fr ? "Matricule : " : "Student ID: ") + safeText(b.matricule()));
-        text(cs, normal(), 9, LEFT + 10, 628, (fr ? "Classe : " : "Class: ") + safeText(b.className()));
-        text(cs, normal(), 9, 285, 644, (fr ? "Photo et résultat officiel" : "Photo and official result"));
-        text(cs, normal(), 9, 285, 628, (fr ? "État : " : "State: ") + safeText(b.state()));
-        if (photo != null) cs.drawImage(photo, 472, 620, 62, 62);
-        else { box(cs, 472, 620, 534, 682); text(cs, bold(), 9, 483, 648, initials(b.studentName())); }
-        text(cs, bold(), 8, 285, 612, secondary ? "SECONDARY MODEL: EVALUATIONS / TERMS" : "PRIMARY MODEL: SEQUENCES / TERM COMPONENTS");
-        cs.close();
-        return 592;
+        return officialHeader(doc, page, b, fr, branding, logo, secondary);
     }
 
-    /** Header and identity grid used by the official Francophone/Anglophone secondary forms. */
-    private float secondaryHeader(PDDocument doc, PDPage page, BulletinSnapshotView b, boolean fr,
-                                  BrandingRenderData branding, PDImageXObject logo) throws Exception {
+    /** Header and identity grid shared by official primary and secondary report cards. */
+    private float officialHeader(PDDocument doc, PDPage page, BulletinSnapshotView b, boolean fr,
+                                 BrandingRenderData branding, PDImageXObject logo, boolean secondary) throws Exception {
         StudentRenderData student = studentData(b);
         String schoolName = branding == null || branding.schoolName() == null || branding.schoolName().isBlank()
                 ? "BAYO BILINGUAL COMPLEX" : branding.schoolName();
         String schoolNameEn = branding == null || branding.schoolNameEn() == null || branding.schoolNameEn().isBlank()
                 ? schoolName : branding.schoolNameEn();
         String ministry = branding == null || branding.ministryText() == null || branding.ministryText().isBlank()
-                ? "MINISTERE DES ENSEIGNEMENTS SECONDAIRES" : branding.ministryText();
+                ? (secondary ? "MINISTERE DES ENSEIGNEMENTS SECONDAIRES" : "MINISTERE DE L'EDUCATION DE BASE")
+                : branding.ministryText();
         String delegation = branding == null || branding.delegationText() == null || branding.delegationText().isBlank()
                 ? "DELEGATION REGIONALE / DEPARTEMENTALE" : branding.delegationText();
         try (PDPageContentStream cs = new PDPageContentStream(doc, page)) {
@@ -164,12 +133,11 @@ public class ReportCardPdfService {
             text(cs, normal(), 6, LEFT, 781, clip(delegation, 42));
             text(cs, bold(), 7, 407, 814, "REPUBLIC OF CAMEROON");
             text(cs, normal(), 6, 430, 804, "Peace-Work-Fatherland");
-            text(cs, bold(), 6, 392, 791, "MINISTRY OF SECONDARY EDUCATION");
+            text(cs, bold(), 6, 392, 791, secondary ? "MINISTRY OF SECONDARY EDUCATION" : "MINISTRY OF BASIC EDUCATION");
             text(cs, normal(), 6, 392, 781, "REGIONAL / DIVISIONAL DELEGATION");
             if (logo != null) cs.drawImage(logo, 274, 780, 46, 46);
             text(cs, bold(), 8, 220, 766, clip(fr ? schoolName : schoolNameEn, 34));
-            if (branding != null && branding.motto() != null && !branding.motto().isBlank())
-                text(cs, normal(), 6, 245, 755, clip(branding.motto(), 28));
+            text(cs, normal(), 6, 220, 755, clip(schoolLocation(branding), 48));
             line(cs, LEFT, 744, RIGHT, 744, 1f);
 
             String title = reportTitle(b, fr);
@@ -207,13 +175,11 @@ public class ReportCardPdfService {
             cs.fill();
             cs.setNonStrokingColor(1, 1, 1);
             text(cs, bold(), 8, 48, y - 10, fr ? "MATIERE" : "SUBJECT");
-            text(cs, bold(), 8, 198, y - 10, fr ? "NOTE" : "MARK");
-            text(cs, bold(), 8, 245, y - 10, "COEF");
-            text(cs, bold(), 8, 292, y - 10, "TOTAL");
-            text(cs, bold(), 7, 337, y - 10, fr ? "COMPOSANTES" : "COMPONENTS");
-            text(cs, bold(), 8, 438, y - 10, fr ? "APPRECIATION" : "REMARK");
+            text(cs, bold(), 8, 208, y - 10, fr ? "NOTE" : "MARK");
+            text(cs, bold(), 7, 266, y - 10, fr ? "COMPOSANTES" : "COMPONENTS");
+            text(cs, bold(), 8, 390, y - 10, fr ? "APPRECIATION" : "REMARK");
             cs.setNonStrokingColor(0, 0, 0);
-            for (float x : new float[]{42, 190, 235, 280, 330, 430, 553}) {
+            for (float x : new float[]{42, 200, 250, 380, 553}) {
                 line(cs, x, y + 4, x, y - 18, 0.6f);
             }
             line(cs, LEFT, y - 18, RIGHT, y - 18, 0.8f);
@@ -221,13 +187,12 @@ public class ReportCardPdfService {
         return y - 18;
     }
 
+    /** Primary and kindergarten computed results are an ordinary mean, never weighted. */
     private float computedTableHeader(PDDocument doc, PDPage page, float y, boolean fr,
                                       BulletinSnapshotView bulletin) throws Exception {
         List<String> periods = dependencyCodes(bulletin);
         float subjectRight = 145;
         float currentRight = 145 + Math.max(42, 32 * Math.max(1, periods.size()));
-        float coefficientRight = currentRight + 38;
-        float weightedRight = coefficientRight + 58;
         float appreciationRight = RIGHT;
         float componentWidth = periods.isEmpty() ? 0 : (currentRight - subjectRight) / periods.size();
         try (PDPageContentStream cs = new PDPageContentStream(doc, page, PDPageContentStream.AppendMode.APPEND, true)) {
@@ -239,14 +204,13 @@ public class ReportCardPdfService {
                     subjectRight + i * componentWidth + 4, y - 10, clip(periods.get(i), 7));
             text(cs, bold(), 7, currentRight + 4, y - 10,
                     bulletin.product() != null && bulletin.product().equalsIgnoreCase("ANNUAL") ? (fr ? "ANNUEL" : "ANNUAL") : (fr ? "TERME" : "TERM"));
-            text(cs, bold(), 7, coefficientRight + 4, y - 10, "COEF");
-            text(cs, bold(), 7, weightedRight + 4, y - 10, fr ? "PONDERE" : "WEIGHTED");
-            text(cs, bold(), 7, weightedRight + 62, y - 10, fr ? "APPRECIATION" : "REMARK");
+            text(cs, bold(), 7, currentRight + 42, y - 10, fr ? "APPRECIATION" : "REMARK");
             cs.setNonStrokingColor(0, 0, 0);
             List<Float> boundaries = new java.util.ArrayList<>();
             boundaries.add(LEFT); boundaries.add(subjectRight);
             for (int i = 0; i < periods.size(); i++) boundaries.add(subjectRight + (i + 1) * componentWidth);
-            boundaries.add(coefficientRight); boundaries.add(weightedRight); boundaries.add(appreciationRight);
+            boundaries.add(currentRight);
+            boundaries.add(appreciationRight);
             for (float x : boundaries) line(cs, x, y + 4, x, y - 18, 0.6f);
             line(cs, LEFT, y - 18, RIGHT, y - 18, 0.8f);
         }
@@ -258,8 +222,6 @@ public class ReportCardPdfService {
         List<String> periods = dependencyCodes(bulletin);
         float subjectRight = 145;
         float currentRight = 145 + Math.max(42, 32 * Math.max(1, periods.size()));
-        float coefficientRight = currentRight + 38;
-        float weightedRight = coefficientRight + 58;
         float componentWidth = periods.isEmpty() ? 0 : (currentRight - subjectRight) / periods.size();
         float height = 24;
         String remark = line.teacherRemark() == null ? line.appreciation() : line.teacherRemark();
@@ -273,13 +235,12 @@ public class ReportCardPdfService {
                 text(cs, normal(), 8, subjectRight + i * componentWidth + 4, y - 14, number(mark));
             }
             text(cs, bold(), 8, currentRight + 4, y - 14, number(line.mark()));
-            text(cs, normal(), 8, coefficientRight + 4, y - 14, String.valueOf(line.coefficient()));
-            text(cs, normal(), 8, weightedRight + 4, y - 14, number(line.weighted()));
-            text(cs, normal(), 7, weightedRight + 62, y - 14, clip(remark, 26));
+            text(cs, normal(), 7, currentRight + 42, y - 14, clip(remark, 34));
             List<Float> boundaries = new java.util.ArrayList<>();
             boundaries.add(LEFT); boundaries.add(subjectRight);
             for (int i = 0; i < periods.size(); i++) boundaries.add(subjectRight + (i + 1) * componentWidth);
-            boundaries.add(coefficientRight); boundaries.add(weightedRight); boundaries.add(RIGHT);
+            boundaries.add(currentRight);
+            boundaries.add(RIGHT);
             for (float x : boundaries) line(cs, x, y, x, y - height, 0.35f);
             line(cs, LEFT, y - height, RIGHT, y - height, 0.35f);
         }
@@ -301,17 +262,6 @@ public class ReportCardPdfService {
         if (bulletin.workflowMeta() != null && bulletin.workflowMeta().dependencies() != null)
             return bulletin.workflowMeta().dependencies().stream().map(DependencyReadinessView::code).toList();
         return List.of();
-    }
-
-    private float tableHeaderLegacy(PDDocument doc, PDPage page, float y, boolean fr) throws Exception {
-        try (PDPageContentStream cs = new PDPageContentStream(doc, page, PDPageContentStream.AppendMode.APPEND, true)) {
-            cs.setNonStrokingColor(BLUE, 0.48f, 0.70f); cs.addRect(LEFT, y - 18, RIGHT - LEFT, 22); cs.fill();
-            cs.setNonStrokingColor(1, 1, 1); text(cs, bold(), 8, 48, y - 10, fr ? "MATIÈRE" : "SUBJECT"); text(cs, bold(), 8, 245, y - 10, fr ? "NOTE" : "MARK"); text(cs, bold(), 8, 295, y - 10, "COEF"); text(cs, bold(), 8, 348, y - 10, "TOTAL"); text(cs, bold(), 8, 414, y - 10, fr ? "APPRÉCIATION" : "REMARK");
-            cs.setNonStrokingColor(0, 0, 0);
-            for (float x : new float[]{42, 235, 285, 335, 405, 553}) line(cs, x, y + 4, x, y - 18, 0.6f);
-            line(cs, LEFT, y - 18, RIGHT, y - 18, 0.8f);
-        }
-        return y - 18;
     }
 
     private float secondaryTableHeader(PDDocument doc, PDPage page, float y, boolean fr,
@@ -512,30 +462,14 @@ public class ReportCardPdfService {
             String subject = l.subjectGroupLabel() == null || l.subjectGroupLabel().isBlank()
                     ? l.subjectLabel() : l.subjectGroupLabel() + " / " + l.subjectLabel();
             text(cs, bold(), 8, 48, y - 14, clip(subject, 24));
-            text(cs, normal(), 9, 198, y - 14, number(l.mark()));
-            text(cs, normal(), 9, 247, y - 14, String.valueOf(l.coefficient()));
-            text(cs, normal(), 9, 292, y - 14, number(l.weighted()));
-            text(cs, normal(), 7, 337, y - 14, clip(componentText(l), 22));
+            text(cs, normal(), 9, 208, y - 14, number(l.mark()));
+            text(cs, normal(), 7, 266, y - 14, clip(componentText(l), 22));
             String remark = l.teacherRemark() == null ? l.appreciation() : l.teacherRemark();
             if (l.teacherName() != null && !l.teacherName().isBlank()) remark = "Prof. " + l.teacherName() + " · " + remark;
-            text(cs, normal(), 7, 438, y - 14, clip(remark, 25));
-            for (float x : new float[]{42, 190, 235, 280, 330, 430, 553}) {
+            text(cs, normal(), 7, 390, y - 14, clip(remark, 29));
+            for (float x : new float[]{42, 200, 250, 380, 553}) {
                 line(cs, x, y, x, y - 22, 0.35f);
             }
-            line(cs, LEFT, y - 22, RIGHT, y - 22, 0.35f);
-        }
-    }
-
-    private void rowLegacy(PDDocument doc, PDPage page, float y, BulletinLineView l, boolean fr) throws Exception {
-        try (PDPageContentStream cs = new PDPageContentStream(doc, page, PDPageContentStream.AppendMode.APPEND, true)) {
-            String subject = l.subjectGroupLabel() == null || l.subjectGroupLabel().isBlank()
-                    ? l.subjectLabel() : l.subjectGroupLabel() + " / " + l.subjectLabel();
-            text(cs, bold(), 8, 48, y - 14, clip(subject, 31));
-            text(cs, normal(), 9, 245, y - 14, number(l.mark())); text(cs, normal(), 9, 298, y - 14, String.valueOf(l.coefficient())); text(cs, normal(), 9, 348, y - 14, number(l.weighted()));
-            String remark = l.teacherRemark() == null ? l.appreciation() : l.teacherRemark();
-            if (l.teacherName() != null && !l.teacherName().isBlank()) remark = "Prof. " + l.teacherName() + " · " + remark;
-            text(cs, normal(), 8, 414, y - 14, clip(remark, 30));
-            for (float x : new float[]{42, 235, 285, 335, 405, 553}) line(cs, x, y, x, y - 22, 0.35f);
             line(cs, LEFT, y - 22, RIGHT, y - 22, 0.35f);
         }
     }
@@ -613,11 +547,20 @@ public class ReportCardPdfService {
                     conduct != null && conduct.conductWarning() ? "X" : "-",
                     conduct != null && conduct.conductBlame() ? "X" : "-",
                     conduct == null ? "0" : String.valueOf(conduct.exclusionDays())};
-            String[] workLabels = fr ? new String[]{"Total general","Total coef.","Moyenne","Cote","Decision du conseil","Distinctions"}
-                    : new String[]{"Total score","Total coef.","Average","Grade","Class council decision","Awards"};
-            int totalCoefficient = b.lines().stream().mapToInt(BulletinLineView::coefficient).sum();
-            BigDecimal totalScore = b.lines().stream().map(BulletinLineView::weighted).filter(java.util.Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add);
-            String[] workValues = new String[]{number(totalScore),String.valueOf(totalCoefficient),number(b.average()),grade(b.average()),clip(decision,18),clip(conductText,18)};
+            BigDecimal totalScore = secondary
+                    ? b.lines().stream().map(BulletinLineView::weighted).filter(java.util.Objects::nonNull)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add)
+                    : b.lines().stream().map(BulletinLineView::mark).filter(java.util.Objects::nonNull)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            String[] workLabels = secondary
+                    ? (fr ? new String[]{"Total general","Total coef.","Moyenne","Cote","Decision du conseil","Distinctions"}
+                    : new String[]{"Total score","Total coef.","Average","Grade","Class council decision","Awards"})
+                    : (fr ? new String[]{"Total des notes","Moyenne","Cote","Decision du conseil","Distinctions",""}
+                    : new String[]{"Total marks","Average","Grade","Class council decision","Awards",""});
+            String[] workValues = secondary
+                    ? new String[]{number(totalScore),String.valueOf(b.lines().stream().mapToInt(BulletinLineView::coefficient).sum()),
+                    number(b.average()),grade(b.average()),clip(decision,18),clip(conductText,18)}
+                    : new String[]{number(totalScore),number(b.average()),grade(b.average()),clip(decision,18),clip(conductText,18),""};
             String[] classLabels = fr ? new String[]{"Moyenne generale","Rang","Nombre de moyennes","Taux de reussite","Minimum","Maximum"}
                     : new String[]{"Class average","Rank","Number passed","Success rate","Minimum","Maximum"};
             String[] classValues = new String[]{stats == null ? "-" : number(stats.average()),
@@ -644,7 +587,8 @@ public class ReportCardPdfService {
                     ? (fr ? "CHEF D'ETABLISSEMENT" : "HEAD OF SCHOOL") : branding.principalTitle();
             text(cs, normal(), 7, x1 + 7, top - 13, fr ? "Visa du parent / Tuteur" : "Parent / Guardian signature");
             text(cs, normal(), 7, x2 + 7, top - 13, fr ? "Nom et visa du professeur" : "Class master's signature");
-            text(cs, normal(), 7, x3 + 7, top - 13, fr ? "Fait a MAROUA, le" : "At MAROUA, on");
+            text(cs, normal(), 7, x3 + 7, top - 13,
+                    fr ? "Fait à " + schoolCity(branding) + ", le" : "At " + schoolCity(branding) + ", on");
             text(cs, bold(), 7, x3 + 7, top - 26, clip(headTitle, 22));
             if (stamp != null) cs.drawImage(stamp, x3 + 55, top - 64, 34, 34);
         }
@@ -742,6 +686,38 @@ public class ReportCardPdfService {
                         rs.getBytes("logo_bytes"), rs.getBytes("stamp_bytes"), rs.getString("principal_name"),
                         rs.getString("principal_title"), rs.getString("class_master_title"), rs.getString("council_title")) : null,
                 design.brandingId(), TenantContext.get());
+    }
+
+    /**
+     * New report-card snapshots may intentionally have no frozen branding yet.
+     * In that case use the school's configured address rather than an old sample
+     * location embedded in the renderer.
+     */
+    private String schoolLocation(BrandingRenderData branding) {
+        String configured = blankJoin(branding == null ? null : branding.address(),
+                branding == null ? null : branding.city(), "");
+        if (!configured.isBlank()) return configured;
+        try {
+            List<String> values = jdbc.query("SELECT concat_ws(', ', nullif(address,''), nullif(city,'')) FROM school WHERE id=?",
+                    (rs, n) -> rs.getString(1), TenantContext.get());
+            if (values != null && !values.isEmpty() && values.getFirst() != null && !values.getFirst().isBlank())
+                return values.getFirst();
+        } catch (RuntimeException ignored) {
+            // The PDF remains printable even when a legacy tenant lacks profile data.
+        }
+        return "Maroua II";
+    }
+
+    private String schoolCity(BrandingRenderData branding) {
+        if (branding != null && branding.city() != null && !branding.city().isBlank()) return branding.city();
+        try {
+            List<String> values = jdbc.query("SELECT city FROM school WHERE id=?", (rs, n) -> rs.getString(1), TenantContext.get());
+            if (values != null && !values.isEmpty() && values.getFirst() != null && !values.getFirst().isBlank())
+                return values.getFirst();
+        } catch (RuntimeException ignored) {
+            // The location heading is informational and must never prevent printing.
+        }
+        return "Maroua II";
     }
 
     private static PDImageXObject imageOrNull(PDDocument doc, byte[] bytes, String name) {

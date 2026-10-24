@@ -138,6 +138,45 @@ class ReportCardPdfServiceTest {
         writeQa("secondary-term-fr.pdf", bytes);
     }
 
+    @Test
+    void rendersPrimaryWithoutCoefficientOrWeightedProductFields() throws Exception {
+        UUID snapshotId = UUID.randomUUID();
+        UUID schoolId = UUID.randomUUID();
+        BulletinLineView line = new BulletinLineView(
+                "MATH", "Mathematiques", 8, new BigDecimal("15"), new BigDecimal("120"),
+                "Tres bien", "Tres bien", List.of(),
+                List.of(new PeriodMarkView("S1", new BigDecimal("15"))),
+                "NGONO Aline", null, null);
+        BulletinSnapshotView view = new BulletinSnapshotView(
+                snapshotId, UUID.randomUUID(), UUID.randomUUID(), "T1_RESULT", "Premier trimestre",
+                UUID.randomUUID(), "MBOUENDE Jeanne", "BBC-1003", "primary", "FR", "CE2 A",
+                List.of(line), new BigDecimal("15"), 1, 26, "PUBLISHED", true, List.of(),
+                "primary012345678", "DEFAULT", null, null,
+                new ConductSummaryView(false, false, false, false, false, false, false, 0,
+                        "PROMOTED", "Good work", "APPROVED"), 1,
+                new ClassStatsView(new BigDecimal("13"), new BigDecimal("8"), new BigDecimal("18"), 21,
+                        new BigDecimal("80"), 26), null, null, null, null, null, List.of(), null,
+                "TERM_RESULT", "TERM", null, List.of());
+        when(snapshots.byId(snapshotId)).thenReturn(view);
+        when(photos.findByOwnerTypeAndOwnerIdAndSchoolId("student", view.studentId(), schoolId))
+                .thenReturn(Optional.empty());
+
+        TenantContext.set(schoolId);
+        byte[] bytes;
+        try {
+            bytes = new ReportCardPdfService(snapshots, photos, classes, jdbc).render(snapshotId, true);
+        } finally {
+            TenantContext.clear();
+        }
+
+        try (PDDocument document = PDDocument.load(bytes)) {
+            String text = new PDFTextStripper().getText(document);
+            assertThat(text).contains("BULLETIN SCOLAIRE DU 1er TRIMESTRE", "Moyenne", "Total des notes");
+            assertThat(text).doesNotContain("COEF", "PONDERE", "120");
+        }
+        writeQa("primary-term-fr-no-coefficients.pdf", bytes);
+    }
+
     private BulletinSnapshotView snapshot(UUID snapshotId, BulletinLineView line, String code, String label,
                                           String periodType, String product) {
         return new BulletinSnapshotView(

@@ -776,6 +776,7 @@ public class BulletinSnapshotService {
             if (subject != null) subjectByCode.put(code, subject);
         }
         Map<String, Integer> coefficients = effectiveCoefficients(studentId, period.getAcademicSessionId(), classId);
+        boolean usesCoefficients = usesSubjectCoefficients(profile);
         for (String subjectCode : subjectCodes) {
             List<AcademicCalculationEngine.ChildInput> childInputs = new ArrayList<>();
             List<PeriodMarkView> periodMarks = new ArrayList<>();
@@ -811,7 +812,9 @@ public class BulletinSnapshotService {
             }
             BigDecimal mark = result.exempt() ? null : result.value();
             Subject subject = subjectByCode.get(subjectCode);
-            int coefficient = coefficients.getOrDefault(subjectCode, subject == null ? 1 : subject.getCoef());
+            int coefficient = usesCoefficients
+                    ? coefficients.getOrDefault(subjectCode, subject == null ? 1 : subject.getCoef())
+                    : 1;
             CurriculumMetadata metadata = curriculumMetadata(studentId, period.getAcademicSessionId(), subjectCode, classId);
             lines.add(new BulletinLineView(subjectCode, subjectLabel(subject, subjectCode, profile.subsystem()), coefficient, mark,
                     mark == null ? null : mark.multiply(BigDecimal.valueOf(coefficient)), null, appreciation(mark), uniqueEvidence(evidence),
@@ -935,7 +938,9 @@ public class BulletinSnapshotService {
             result.blockers().forEach(blocker -> addDistinct(blockers, subjectCode + ":" + blocker));
             BigDecimal mark = result.exempt() ? null : result.value();
             Subject subject = subjectForProgramme(subjectCode, profile.subsystem());
-            int coefficient = coefficients.getOrDefault(subjectCode, subject == null ? 1 : subject.getCoef());
+            int coefficient = secondaryClass
+                    ? coefficients.getOrDefault(subjectCode, subject == null ? 1 : subject.getCoef())
+                    : 1;
             SubjectResultComment comment = comments.findBySchoolIdAndStudentIdAndReportingPeriodIdAndProgrammeClassIdAndSubjectCode(
                     TenantContext.get(), studentId, period.getId(), classId, subjectCode).orElse(null);
             CurriculumMetadata metadata = curriculumMetadata(studentId, period.getAcademicSessionId(), subjectCode, classId);
@@ -1711,6 +1716,14 @@ public class BulletinSnapshotService {
         return "EN".equalsIgnoreCase(subsystem)
                 ? labels.getOrDefault("en", labels.getOrDefault("fr", code))
                 : labels.getOrDefault("fr", labels.getOrDefault("en", code));
+    }
+
+    /**
+     * Primary and kindergarten report cards use an ordinary mean: one subject,
+     * one vote.  Coefficients remain a secondary-only rule.
+     */
+    private boolean usesSubjectCoefficients(ClassProfile profile) {
+        return profile != null && "secondary".equalsIgnoreCase(profile.level());
     }
     /**
      * Resolve the effective coefficient for the student's enrolled class.

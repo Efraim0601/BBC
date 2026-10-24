@@ -62,9 +62,9 @@ public class BulletinService {
     }
 
     /**
-     * Effective coefficient of each subject for a given class name: the per-class
-     * override if one exists, otherwise the subject's own default. Built once per
-     * bulletin/PV so all classmates (same class) reuse it.
+     * Effective coefficient of each subject for a given class name. Primary and
+     * kindergarten use an ordinary mean, therefore each of their subjects has a
+     * weight of one; per-class coefficients are a secondary-only rule.
      *
      * <p>Public because the end-of-year promotion computes its annual averages with
      * exactly the same weights as the bulletins — the two must never diverge.
@@ -75,6 +75,10 @@ public class BulletinService {
         if (className == null || className.isBlank()) return byCode;
         SchoolClass cls = classRepo.findBySchoolIdAndName(schoolId, className).orElse(null);
         if (cls == null) return byCode;
+        if (!"secondary".equalsIgnoreCase(cls.getLevel())) {
+            for (Subject subject : subjects) byCode.put(subject.getCode(), 1);
+            return byCode;
+        }
         Map<UUID, String> codeById = new HashMap<>();
         for (Subject s : subjects) codeById.put(s.getId(), s.getCode());
         for (var cc : coefRepo.findBySchoolIdAndClassId(schoolId, cls.getId())) {
