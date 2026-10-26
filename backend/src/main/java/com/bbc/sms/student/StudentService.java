@@ -21,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.text.Normalizer;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Collection;
 import java.util.HashMap;
@@ -269,11 +270,14 @@ public class StudentService {
      *
      * <p>La comparaison des noms se fait sur la clé normalisée de l'import : accents,
      * casse, tirets et espaces doubles ne doivent pas faire passer un doublon pour un
-     * nouvel élève.
+     * nouvel élève. Avec une date de naissance connue, elle reconnaît aussi les mêmes
+     * mots saisis dans un autre découpage Nom/Prénom : les noms de famille composés ne
+     * doivent jamais créer une deuxième fiche.
      */
     private List<DuplicateMatch> findDuplicates(String lastName, String firstName, LocalDate dob,
                                                 String niu, UUID classId, UUID excludeId) {
         String key = nameKey(lastName, firstName);
+        String reorderedKey = reorderedNameKey(lastName, firstName, dob, null);
         boolean hasName = !normalise(lastName).isEmpty();
         String niuKey = blankToNull(niu);
         if (!hasName && niuKey == null) return List.of();
@@ -283,7 +287,9 @@ public class StudentService {
             if (excludeId != null && excludeId.equals(r.getId())) continue;   // la fiche qu'on modifie
             String rowNiu = blankToNull(r.getNiu());
             boolean sameNiu = niuKey != null && rowNiu != null && niuKey.equalsIgnoreCase(rowNiu);
-            boolean sameName = hasName && key.equals(nameKey(r.getLastName(), r.getFirstName()));
+            boolean sameName = hasName && (key.equals(nameKey(r.getLastName(), r.getFirstName()))
+                    || (reorderedKey != null && reorderedKey.equals(
+                            reorderedNameKey(r.getLastName(), r.getFirstName(), r.getDob(), null))));
             if (!sameNiu && !sameName) continue;
             out.add(new DuplicateMatch(r.getId(), r.getMatricule(),
                     displayName(r.getLastName(), r.getFirstName()),
@@ -373,10 +379,13 @@ public class StudentService {
         // Everything the matching needs, read once up front (see the repository note).
         Map<String, Student> byNiu = new HashMap<>();
         Map<String, Student> byName = new HashMap<>();
+        Map<String, Student> byReorderedName = new HashMap<>();
         for (Student s : repo.findBySchoolIdAndClassIdAndActiveTrue(schoolId, cls.getId())) {
             String niu = blankToNull(s.getNiu());
             if (niu != null) byNiu.merge(niu, s, StudentService::mostComplete);
             byName.merge(nameKey(s.getLastName(), s.getFirstName()), s, StudentService::mostComplete);
+            String reorderedKey = reorderedNameKey(s.getLastName(), s.getFirstName(), s.getDob(), s.getSex());
+            if (reorderedKey != null) byReorderedName.merge(reorderedKey, s, StudentService::mostComplete);
         }
         Set<String> schoolNiu = new HashSet<>(repo.findActiveNiusBySchoolId(schoolId));
         Set<String> usedMatricules = new HashSet<>(repo.findMatriculesBySchoolId(schoolId));
@@ -420,10 +429,12 @@ public class StudentService {
                 }
                 String niu = blankToNull(row.niu());
                 String key = nameKey(lastName, firstName);
+                String reorderedKey = reorderedNameKey(lastName, firstName, row.dob(), sex);
 
                 // ---- Already in this class? Complete the record instead of adding one.
                 Student match = niu != null ? byNiu.get(niu) : null;
                 if (match == null) match = byName.get(key);
+                if (match == null && reorderedKey != null) match = byReorderedName.get(reorderedKey);
                 if (match != null) {
                     int filled = fillBlanks(match, row, sex, niu);
                     if (filled > 0) {
@@ -497,6 +508,7 @@ public class StudentService {
                 // Index the newcomer so a second mention of the same child later in
                 // this very batch enriches it rather than adding another record.
                 byName.putIfAbsent(key, s);
+                if (reorderedKey != null) byReorderedName.putIfAbsent(reorderedKey, s);
                 if (niu != null) {
                     byNiu.putIfAbsent(niu, s);
                     schoolNiu.add(niu);
@@ -517,6 +529,23 @@ public class StudentService {
      */
     private static String nameKey(String lastName, String firstName) {
         return normalise(lastName) + '\0' + normalise(firstName);
+    }
+
+    /**
+     * Key for a complete name whose words were split differently between Nom and
+     * Prénom. A birth date is mandatory; sex is added for imports when supplied, so
+     * ordinary homonyms cannot be silently combined just because their words match.
+     */
+    private static String reorderedNameKey(String lastName, String firstName, LocalDate dob, String sex) {
+        if (dob == null) return null;
+        String normalized = normalise((lastName == null ? "" : lastName) + " "
+                + (firstName == null ? "" : firstName));
+        if (normalized.isBlank()) return null;
+        String[] words = normalized.split(" ");
+        Arrays.sort(words);
+        String key = String.join(" ", words) + '\0' + dob;
+        String normalizedSex = normalise(sex);
+        return normalizedSex.isBlank() ? key : key + '\0' + normalizedSex;
     }
 
     private static String normalise(String s) {
@@ -598,10 +627,10 @@ public class StudentService {
     }
 
     /**
-     * Resolve a row's last/first name. Prefer the split fields; otherwise split the
-     * combined "Nom et Prénom" column — official registers write the FAMILY name (in
-     * caps) first, then the given names, sometimes padded with " - -" separators.
-     * First whitespace token → last name, the rest → first name.
+     * Resolve a row's last/first name. Prefer the split fields. A combined
+     * "Nom et Prénom" column has no reliable family-name boundary: compound family
+     * names are common. Keep it intact in the mandatory name field rather than
+     * guessing after the first word and reversing part of a pupil's identity.
      */
     private static String[] resolveName(StudentImportRow row) {
         String last = row.lastName() == null ? "" : row.lastName().trim();
@@ -612,9 +641,7 @@ public class StudentService {
         combined = combined.replaceAll("(\\s+-)+\\s*$", "").trim();   // drop trailing " - -" padding
         combined = combined.replaceAll("\\s+", " ");
         if (combined.isEmpty()) return new String[]{"", ""};
-        int sp = combined.indexOf(' ');
-        if (sp < 0) return new String[]{combined, ""};               // first name is optional, just as in manual creation
-        return new String[]{combined.substring(0, sp).trim(), combined.substring(sp + 1).trim()};
+        return new String[]{combined, ""};    // first name is optional, just as in manual creation
     }
 
     private Student find(UUID id) {

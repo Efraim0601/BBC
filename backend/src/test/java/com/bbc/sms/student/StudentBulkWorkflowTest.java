@@ -96,6 +96,8 @@ class StudentBulkWorkflowTest {
         ArgumentCaptor<Student> saved = ArgumentCaptor.forClass(Student.class);
         verify(students, times(3)).saveAndFlush(saved.capture());
         assertThat(saved.getAllValues()).extracting(Student::getFirstName).containsExactly("", "", "Given");
+        assertThat(saved.getAllValues()).extracting(Student::getLastName)
+                .containsExactly("MONONYM", "SINGLE", "FAMILY");
         verify(enrollments, times(3)).syncCurrent(any());
     }
 
@@ -122,5 +124,79 @@ class StudentBulkWorkflowTest {
         assertThat(result.exists()).isTrue();
         assertThat(result.matches()).hasSize(1);
         assertThat(result.matches().getFirst().sameName()).isTrue();
+    }
+
+    @Test
+    void duplicateLookupRecognizesAReorderedCompoundFamilyNameWhenBirthDateMatches() {
+        TenantContext.set(schoolId);
+        LocalDate dob = LocalDate.of(2021, 9, 16);
+        StudentRepository.DuplicateRow existing = mock(StudentRepository.DuplicateRow.class);
+        when(existing.getId()).thenReturn(UUID.randomUUID());
+        when(existing.getMatricule()).thenReturn("BBC-1683");
+        when(existing.getLastName()).thenReturn("NJOBEH");
+        when(existing.getFirstName()).thenReturn("Fareed Fenyui");
+        when(existing.getDob()).thenReturn(dob);
+        when(students.findProjectedBySchoolIdAndActiveTrue(schoolId)).thenReturn(List.of(existing));
+
+        var result = service.checkDuplicates("FAREED FENYUI", "NJOBEH", dob, null, null, null);
+
+        assertThat(result.exists()).isTrue();
+        assertThat(result.matches()).hasSize(1);
+        assertThat(result.matches().getFirst().sameName()).isTrue();
+        assertThat(result.matches().getFirst().sameDob()).isTrue();
+    }
+
+    @Test
+    void importKeepsAnUnsplitCombinedNameInItsOriginalOrder() {
+        TenantContext.set(schoolId);
+        UUID classId = UUID.randomUUID();
+        SchoolClass schoolClass = new SchoolClass();
+        schoolClass.setId(classId); schoolClass.setSchoolId(schoolId); schoolClass.setName("SIL B");
+        schoolClass.setLevel("primary"); schoolClass.setSubsystem("FR");
+        when(classes.findByIdAndSchoolId(classId, schoolId)).thenReturn(Optional.of(schoolClass));
+        when(students.findBySchoolIdAndClassIdAndActiveTrue(schoolId, classId)).thenReturn(List.of());
+        when(students.findActiveNiusBySchoolId(schoolId)).thenReturn(List.of());
+        when(students.findMatriculesBySchoolId(schoolId)).thenReturn(List.of());
+        when(students.findProjectedBySchoolIdAndActiveTrue(schoolId)).thenReturn(List.of());
+        when(students.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+        StudentImportRow row = mapper.convertValue(Map.of("name", "FAREED FENYUI NJOBEH"), StudentImportRow.class);
+
+        StudentImportResult result = service.importForClass(new StudentImportRequest(classId, null, List.of(row)));
+
+        assertThat(result.created()).isEqualTo(1);
+        ArgumentCaptor<Student> saved = ArgumentCaptor.forClass(Student.class);
+        verify(students).saveAndFlush(saved.capture());
+        assertThat(saved.getValue().getLastName()).isEqualTo("FAREED FENYUI NJOBEH");
+        assertThat(saved.getValue().getFirstName()).isEmpty();
+    }
+
+    @Test
+    void importDoesNotCreateAnotherStudentWhenOnlyTheNameSplitWasReordered() {
+        TenantContext.set(schoolId);
+        UUID classId = UUID.randomUUID();
+        LocalDate dob = LocalDate.of(2021, 9, 16);
+        SchoolClass schoolClass = new SchoolClass();
+        schoolClass.setId(classId); schoolClass.setSchoolId(schoolId); schoolClass.setName("SIL B");
+        schoolClass.setLevel("primary"); schoolClass.setSubsystem("FR");
+        when(classes.findByIdAndSchoolId(classId, schoolId)).thenReturn(Optional.of(schoolClass));
+
+        Student existing = new Student();
+        existing.setId(UUID.randomUUID()); existing.setSchoolId(schoolId); existing.setActive(true);
+        existing.setClassId(classId); existing.setLastName("NJOBEH"); existing.setFirstName("Fareed Fenyui");
+        existing.setDob(dob); existing.setSex("M");
+        when(students.findBySchoolIdAndClassIdAndActiveTrue(schoolId, classId)).thenReturn(List.of(existing));
+        when(students.findActiveNiusBySchoolId(schoolId)).thenReturn(List.of());
+        when(students.findMatriculesBySchoolId(schoolId)).thenReturn(List.of());
+        when(students.findProjectedBySchoolIdAndActiveTrue(schoolId)).thenReturn(List.of());
+        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+        StudentImportRow row = mapper.convertValue(Map.of(
+                "name", "FAREED FENYUI NJOBEH", "sex", "M", "dob", dob.toString()), StudentImportRow.class);
+
+        StudentImportResult result = service.importForClass(new StudentImportRequest(classId, null, List.of(row)));
+
+        assertThat(result.created()).isZero();
+        assertThat(result.unchanged()).isEqualTo(1);
+        verify(students, never()).saveAndFlush(any());
     }
 }
