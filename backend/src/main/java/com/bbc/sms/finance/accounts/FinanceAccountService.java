@@ -134,7 +134,7 @@ public class FinanceAccountService {
         String sql = """
                 WITH current_students AS (
                     SELECT e.school_id,s.id student_id,
-                           trim(concat_ws(' ',NULLIF(s.first_name,''),NULLIF(s.last_name,''))) student_name,
+                           trim(concat_ws(' ',NULLIF(s.last_name,''),NULLIF(s.first_name,''))) student_name,
                            s.matricule,e.id enrollment_id,e.academic_session_id,
                            COALESCE((
                                SELECT string_agg(programme_class.name,' / '
@@ -271,7 +271,7 @@ public class FinanceAccountService {
     private StudentAccountView account(UUID studentId) {
         UUID schoolId = TenantContext.get();
         StudentIdentity identity = jdbc.query("""
-                SELECT s.id,trim(concat_ws(' ',NULLIF(s.first_name,''),NULLIF(s.last_name,''))),
+                SELECT s.id,trim(concat_ws(' ',NULLIF(s.last_name,''),NULLIF(s.first_name,''))),
                         s.matricule,COALESCE((
                             SELECT string_agg(programme_class.name,' / '
                                               ORDER BY programme.display_order,programme_class.name)

@@ -2009,8 +2009,8 @@ export class StudentsComponent {
     });
     // A header must carry at least one recognisable name column.
     if (idx.name < 0 && idx.lastName < 0) return null;
-    // A lone "Nom" column (no "Prénom" beside it) holds the full name — treat it as
-    // combined so "DUPONT Jean" is split, instead of importing a pupil with no first name.
+    // A lone "Nom" column (no "Prénom" beside it) holds the complete name — send it
+    // as combined so its recorded order is kept intact rather than guessed from a space.
     if (idx.name < 0 && idx.firstName < 0) { idx.name = idx.lastName; idx.lastName = -1; }
     return idx;
   }

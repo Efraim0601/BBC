@@ -141,7 +141,7 @@ public class FinanceReportingService {
                      WHERE school_id=? AND posted_at::date <= ?
                      GROUP BY payment_id
                 )
-                SELECT p.id, p.student_id, CONCAT_WS(' ', st.first_name, st.last_name) student_name,
+                SELECT p.id, p.student_id, CONCAT_WS(' ', st.last_name, st.first_name) student_name,
                        ses.code session_code, COALESCE(p.channel_code_snapshot,'UNKNOWN') channel,
                        p.status, p.payment_date, p.reference, p.receipt_no, p.amount_minor,
                        COALESCE(a.allocated,0) allocated, COALESCE(r.refunded,0) refunded,
@@ -488,7 +488,7 @@ public class FinanceReportingService {
 
     private List<ReceivableRow> receivableRows(Context c) {
         StringBuilder sql = new StringBuilder("""
-                SELECT snapshot.id, snapshot.student_id, CONCAT_WS(' ', st.first_name, st.last_name) student_name,
+                SELECT snapshot.id, snapshot.student_id, CONCAT_WS(' ', st.last_name, st.first_name) student_name,
                        snapshot.fee_type_code, snapshot.class_name_snapshot, snapshot.level_snapshot, s.code session_code,
                        snapshot.charge_date, snapshot.adjusted_amount_minor, snapshot.report_paid_minor paid_minor,
                        snapshot.report_waived_minor waived_minor,

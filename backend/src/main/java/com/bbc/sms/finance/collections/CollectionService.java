@@ -602,7 +602,7 @@ public class CollectionService {
     }
 
     private static String studentName(Student student) {
-        return student == null ? "Élève" : (firstNonBlank(student.getFirstName(), "") + " " + firstNonBlank(student.getLastName(), "")).trim();
+        return student == null ? "Élève" : (firstNonBlank(student.getLastName(), "") + " " + firstNonBlank(student.getFirstName(), "")).trim();
     }
 
     private static String firstNonBlank(String... values) {

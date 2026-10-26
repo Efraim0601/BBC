@@ -403,7 +403,7 @@ public class ChargeGenerationPreviewService {
 
     private String safePolicy(String value) { return value == null || value.isBlank() ? "NONE" : normalizePolicy(value); }
     private String safe(String value) { return value == null ? "" : value; }
-    private String studentName(Student student) { return student == null ? "Étudiant introuvable" : (student.getFirstName() + " " + student.getLastName()).trim(); }
+    private String studentName(Student student) { return student == null ? "Étudiant introuvable" : (student.getLastName() + " " + student.getFirstName()).trim(); }
     private LocalDate max(LocalDate a, LocalDate b) { return a.isAfter(b) ? a : b; }
     private LocalDate min(LocalDate a, LocalDate b) { return a.isBefore(b) ? a : b; }
 

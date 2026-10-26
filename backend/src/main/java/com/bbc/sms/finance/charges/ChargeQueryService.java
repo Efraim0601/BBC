@@ -204,7 +204,7 @@ public class ChargeQueryService {
     }
 
     private String studentName(UUID id) { return students.findByIdAndSchoolId(id, TenantContext.get()).map(this::studentName).orElse("Étudiant introuvable"); }
-    private String studentName(Student s) { return s == null ? "Étudiant introuvable" : (s.getFirstName() + " " + s.getLastName()).trim(); }
+    private String studentName(Student s) { return s == null ? "Étudiant introuvable" : (s.getLastName() + " " + s.getFirstName()).trim(); }
     private String studentMatricule(UUID id) { return students.findByIdAndSchoolId(id, TenantContext.get()).map(Student::getMatricule).orElse(null); }
 
     public record StudentContextOption(UUID enrollmentId, UUID studentId, String studentName, String matricule,

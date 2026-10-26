@@ -488,7 +488,7 @@ public class AttendanceWorkflowService {
                    CASE WHEN g.normalized_email IS NOT NULL THEN 'EMAIL'
                         WHEN g.normalized_phone IS NOT NULL THEN 'SMS' ELSE 'IN_APP' END,
                    coalesce(g.normalized_email, g.normalized_phone),
-                   'Information de présence - ' || st.first_name || ' ' || st.last_name,
+                   'Information de présence - ' || st.last_name || ' ' || st.first_name,
                    CASE WHEN m.status='ABSENT' THEN 'Absence enregistrée'
                         WHEN m.status='LATE' THEN 'Retard de ' || m.late_minutes || ' minute(s) enregistré'
                         ELSE 'Présence excusée enregistrée' END

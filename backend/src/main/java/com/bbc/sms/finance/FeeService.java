@@ -301,7 +301,7 @@ public class FeeService {
         String status = totals.adjustedAmountMinor() > 0 && balance == 0 ? "paid"
                 : totals.paidMinor() > 0 ? "partial" : "unpaid";
         return new StudentFeeStatementView(
-                s.getId(), s.getFirstName() + " " + s.getLastName(), s.getMatricule(), s.getClassName(),
+                s.getId(), s.getLastName() + " " + s.getFirstName(), s.getMatricule(), s.getClassName(),
                 totals.gridSource(), totals.adjustedAmountMinor(), totals.paidMinor(), balance, progress,
                 status, tranches, payments, false);
     }
@@ -350,7 +350,7 @@ public class FeeService {
                 .toList();
 
         return new StudentFeeStatementView(
-                s.getId(), s.getFirstName() + " " + s.getLastName(), s.getMatricule(), s.getClassName(),
+                s.getId(), s.getLastName() + " " + s.getFirstName(), s.getMatricule(), s.getClassName(),
                 grid == null ? null : (grid.getClassId() != null ? "class" : "level"),
                 total, paid, balance, progress, status,
                 trancheStatuses(grid, paid), lines);
@@ -579,7 +579,7 @@ public class FeeService {
     }
 
     private SituationView toSituation(StudentFee sf, FinanceStudent student) {
-        String name = student == null ? null : (student.firstName() + " " + student.lastName());
+        String name = student == null ? null : (student.lastName() + " " + student.firstName());
         String className = student == null ? null : student.className();
         int progressPct = sf.getTotal() > 0
                 ? (int) Math.round(sf.getPaid() * 100.0 / sf.getTotal())
