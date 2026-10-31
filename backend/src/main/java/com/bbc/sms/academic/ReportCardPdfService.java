@@ -381,7 +381,7 @@ public class ReportCardPdfService {
                 for (int i = 0; i < labels.length; i++) textCentered(cs, bold(), 6, col[i + 1], col[i + 2], y - 10, labels[i]);
                 textFitted(cs, bold(), 6, col[9] + 6, y - 10, fr ? "APPRÉCIATION / VISA" : "REMARK / SIGNATURE", col[10] - col[9] - 10);
             } else {
-                textFitted(cs, bold(), 6, col[1] + 6, y - 10, fr ? "COMPÉTENCES ÉVALUÉES" : "COMPETENCIES EVALUATED", col[2] - col[1] - 10);
+                textCentered(cs, bold(), 6, col[1], col[2], y - 10, fr ? "COMPÉTENCES ÉVALUÉES" : "COMPETENCIES EVALUATED");
                 String[] labels = {"N/20", "M/20", "COEF", fr ? "PROD" : "PRODUCT", fr ? "COTE" : "GRADE", "MIN-MAX"};
                 for (int i = 0; i < labels.length; i++) textCentered(cs, bold(), i == 5 ? 5.5f : 6, col[i + 2], col[i + 3], y - 10, labels[i]);
                 textFitted(cs, bold(), 6, col[8] + 5, y - 10, fr ? "APPRÉCIATION" : "REMARK", col[9] - col[8] - 9);
@@ -421,7 +421,7 @@ public class ReportCardPdfService {
             }
         }
         if (competencies.isEmpty()) {
-            competencies.add(layoutCell(normal(), 6, 6, col[2] - col[1] - 10, componentText(l), 3, Float.MAX_VALUE));
+            competencies.add(layoutCell(normal(), 6, 6, col[2] - col[1] - 10, componentSummary(l), 3, Float.MAX_VALUE));
             marks.add(number(l.mark()));
         }
         CellLayout teacherCell = teacher.isEmpty() ? null
@@ -447,7 +447,7 @@ public class ReportCardPdfService {
             float at = y - (height - cells.competencyHeight()) / 2f;
             for (int i = 0; i < cells.competencies().size(); i++) {
                 CellLayout competency = cells.competencies().get(i);
-                drawCell(cs, col[1] + 6, at, competency.height(), competency, null);
+                drawCellCentered(cs, col[1], col[2], at, competency.height(), competency);
                 textCentered(cs, normal(), 6, col[2], col[3], at - 0.92f * competency.size(), cells.marks().get(i));
                 at -= competency.height();
             }
@@ -627,6 +627,12 @@ public class ReportCardPdfService {
             }
             line(cs, LEFT, y - 22, RIGHT, y - 22, 0.35f);
         }
+    }
+
+    /** Component marks of a row without competency evidence; a single component needs no code. */
+    private String componentSummary(BulletinLineView line) {
+        String text = componentText(line);
+        return text.contains("/") ? text : text.substring(text.indexOf('=') + 1);
     }
 
     private String componentText(BulletinLineView line) {
@@ -1051,6 +1057,16 @@ public class ReportCardPdfService {
                     at + main.size() * LEADING - 0.92f * main.size(), muted.lines().get(0), main.width() - used);
         }
         cs.setNonStrokingColor(0, 0, 0);
+    }
+
+    /** Draw a laid-out cell vertically centred, each line centred between {@code left} and {@code right}. */
+    private static void drawCellCentered(PDPageContentStream cs, float left, float right, float top, float height,
+                                         CellLayout cell) throws Exception {
+        float at = top - (height - cell.height()) / 2f;
+        for (String line : cell.lines()) {
+            textCentered(cs, cell.font(), cell.size(), left, right, at - 0.92f * cell.size(), line);
+            at -= cell.size() * LEADING;
+        }
     }
 
     private static float textWidth(PDFont font, float size, String value) throws Exception {

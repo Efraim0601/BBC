@@ -309,8 +309,8 @@ class ReportCardPdfServiceTest {
             assertThat(document.getNumberOfPages()).isEqualTo(1);
             String text = flatText(document);
             assertThat(text).contains("Agriculture and Animal Husbandry", "Literature in English", "Satisfactory work",
-                    "COMPETENCIES EVALUATED", "Class council decision", "Promoted / Good work");
-            assertThat(text).doesNotContain("...");
+                    "COMPETENCIES EVALUATED", "Class council decision", "Promoted / Good work", "12.7");
+            assertThat(text).doesNotContain("...", "S1=");
         }
         writeQa("secondary-sequence-en-17-subjects.pdf", bytes);
     }
