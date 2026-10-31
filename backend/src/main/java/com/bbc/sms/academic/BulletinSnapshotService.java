@@ -1,6 +1,7 @@
 package com.bbc.sms.academic;
 
 import com.bbc.sms.academic.calculation.AcademicCalculationEngine;
+import com.bbc.sms.academic.competence.PrimaryCompetenceService;
 import com.bbc.sms.academic.dto.AcademicDtos.*;
 import com.bbc.sms.academic.security.AcademicAccessPolicyService;
 import com.bbc.sms.foundation.enrollment.StudentEnrollment;
@@ -136,6 +137,20 @@ public class BulletinSnapshotService {
                 enrollment == null ? null : enrollment.getClassNameSnapshot(),
                 enrollment == null ? null : enrollment.getLevelSnapshot(),
                 enrollment == null ? null : enrollment.getSubsystemSnapshot());
+    }
+
+    /**
+     * Whether the class is graded by primary competence grid in this session: sub-competence
+     * subjects weighted by their points, five sequences, and the CNA/ECA/A/A+ grade scale.
+     */
+    private boolean usesCompetences(UUID sessionId, UUID classId, CalculationContext context) {
+        if (sessionId == null || classId == null) return false;
+        return context.competenceClasses.computeIfAbsent(sessionId + ":" + classId, ignored -> {
+            Integer count = jdbc.queryForObject(
+                    "SELECT count(*) FROM primary_competence_class WHERE school_id=? AND academic_session_id=? AND class_id=?",
+                    Integer.class, TenantContext.get(), sessionId, classId);
+            return count != null && count > 0;
+        });
     }
 
     private BulletinVersion latestOfficial(UUID studentId, UUID periodId) {
@@ -728,6 +743,13 @@ public class BulletinSnapshotService {
 
     private Calculation calculateComputed(UUID studentId, AcademicReportingPeriod period, CalculationContext context) {
         List<DependencyRow> dependencies = dependencies(period, context);
+        UUID competenceClassId = calculationClassId(studentId, period, context);
+        boolean competences = usesCompetences(period.getAcademicSessionId(), competenceClassId, context);
+        // Primary pupils sit five sequences, so the third term rests on its first sequence alone.
+        if (competences) dependencies = dependencies.stream()
+                .filter(d -> !("SEQUENCE".equals(d.childPeriodType())
+                        && PrimaryCompetenceService.UNUSED_SEQUENCE.equalsIgnoreCase(d.childCode())))
+                .toList();
         if (dependencies.isEmpty()) {
             return finishWith(List.of(), List.of("DEPENDENCY_MISSING"), List.of(issue("DEPENDENCY_MISSING", "ERROR",
                     period.getCode(), null, "Aucune periode enfant n'est configuree pour " + period.getCode() + ".",
@@ -776,8 +798,11 @@ public class BulletinSnapshotService {
             if (subject != null) subjectByCode.put(code, subject);
         }
         Map<String, Integer> coefficients = effectiveCoefficients(studentId, period.getAcademicSessionId(), classId);
-        boolean usesCoefficients = usesSubjectCoefficients(profile);
+        boolean usesCoefficients = usesSubjectCoefficients(profile) || competences;
         for (String subjectCode : subjectCodes) {
+            // A pupil follows one sport sub-competence of an alternative pair; the other has no result anywhere.
+            if (competences && children.values().stream().noneMatch(child -> child.lines().stream()
+                    .anyMatch(line -> line.subjectCode().equalsIgnoreCase(subjectCode)))) continue;
             List<AcademicCalculationEngine.ChildInput> childInputs = new ArrayList<>();
             List<PeriodMarkView> periodMarks = new ArrayList<>();
             List<AssessmentEvidenceView> evidence = new ArrayList<>();
@@ -817,7 +842,8 @@ public class BulletinSnapshotService {
                     : 1;
             CurriculumMetadata metadata = curriculumMetadata(studentId, period.getAcademicSessionId(), subjectCode, classId);
             lines.add(new BulletinLineView(subjectCode, subjectLabel(subject, subjectCode, profile.subsystem()), coefficient, mark,
-                    mark == null ? null : mark.multiply(BigDecimal.valueOf(coefficient)), null, appreciation(mark), uniqueEvidence(evidence),
+                    mark == null ? null : mark.multiply(BigDecimal.valueOf(coefficient)), null,
+                    competences ? PrimaryCompetenceService.cote(mark) : appreciation(mark), uniqueEvidence(evidence),
                     periodMarks, metadata.teacherName(), metadata.groupCode(), metadata.groupLabel()));
         }
         if (lines.isEmpty()) addDistinct(blockers, "NO_SUBJECT_RESULT");
@@ -882,6 +908,7 @@ public class BulletinSnapshotService {
         List<String> blockers = new ArrayList<>();
         Map<String, Integer> coefficients = effectiveCoefficients(studentId, period.getAcademicSessionId(), classId);
         boolean secondaryClass = "secondary".equalsIgnoreCase(profile.level());
+        boolean competences = usesCompetences(period.getAcademicSessionId(), classId, context);
         String competencyLocale = "EN".equalsIgnoreCase(profile.subsystem()) ? "en" : "fr";
         for (String subjectCode : subjectCodes) {
             List<AcademicAssessment> applicable = definition.stream()
@@ -933,12 +960,15 @@ public class BulletinSnapshotService {
                     inputs.add(new AcademicCalculationEngine.AssessmentInput(grade == null ? null : grade.getMark(),
                             assessment.getMaxScore(), assessment.getWeight(), engineStatus));
             }
+            // An alternative sport sub-competence the pupil does not follow has no marks at all: no row.
+            if (competences && !applicable.isEmpty() && evidence.isEmpty()
+                    && applicable.stream().noneMatch(AcademicAssessment::isMandatory)) continue;
             if (applicable.isEmpty() && secondaryEvidence.isEmpty()) addDistinct(blockers, subjectCode + ":ASSESSMENT_NOT_CONFIGURED");
             AcademicCalculationEngine.Result result = AcademicCalculationEngine.sequence(inputs);
             result.blockers().forEach(blocker -> addDistinct(blockers, subjectCode + ":" + blocker));
             BigDecimal mark = result.exempt() ? null : result.value();
             Subject subject = subjectForProgramme(subjectCode, profile.subsystem());
-            int coefficient = secondaryClass
+            int coefficient = secondaryClass || competences
                     ? coefficients.getOrDefault(subjectCode, subject == null ? 1 : subject.getCoef())
                     : 1;
             SubjectResultComment comment = comments.findBySchoolIdAndStudentIdAndReportingPeriodIdAndProgrammeClassIdAndSubjectCode(
@@ -950,7 +980,8 @@ public class BulletinSnapshotService {
             }
             lines.add(new BulletinLineView(subjectCode, subjectLabel(subject, subjectCode, profile.subsystem()), coefficient, mark,
                     mark == null ? null : mark.multiply(BigDecimal.valueOf(coefficient)), teacherRemark,
-                    appreciation(mark), evidence, List.of(new PeriodMarkView(period.getCode(), mark)),
+                    competences ? PrimaryCompetenceService.cote(mark) : appreciation(mark), evidence,
+                    List.of(new PeriodMarkView(period.getCode(), mark)),
                     metadata.teacherName(), metadata.groupCode(), metadata.groupLabel()));
         }
         if (definition.isEmpty() && !secondaryClass) blockers.add("ASSESSMENT_DEFINITIONS_MISSING");
@@ -1013,6 +1044,7 @@ public class BulletinSnapshotService {
         BigDecimal weighted = BigDecimal.ZERO, coefs = BigDecimal.ZERO;
         for (BulletinLineView l : lines) {
             if (l.mark() == null || l.weighted() == null) continue;
+            if (PrimaryCompetenceService.NOT_COUNTED_GROUP.equalsIgnoreCase(l.subjectGroupCode())) continue;
             weighted = weighted.add(l.weighted());
             coefs = coefs.add(BigDecimal.valueOf(l.coefficient()));
         }
@@ -1432,6 +1464,7 @@ public class BulletinSnapshotService {
         private final Map<UUID, List<DependencyRow>> dependencies = new HashMap<>();
         private final Map<String, PacketReadiness> packetReadiness = new HashMap<>();
         private final Map<UUID, ClassProfile> classProfiles = new HashMap<>();
+        private final Map<String, Boolean> competenceClasses = new HashMap<>();
     }
 
     private record ClassProfile(UUID id, String name, String level, String subsystem) {}
@@ -1759,8 +1792,12 @@ public class BulletinSnapshotService {
 
     private CurriculumMetadata curriculumMetadata(UUID studentId, UUID sessionId, String subjectCode, UUID classId) {
         if (classId == null) return new CurriculumMetadata(null, null, false, null);
-        CurriculumMetadata base = jdbc.query("SELECT g.code, COALESCE(g.label->>'fr',g.label->>'en',g.code), c.remark_required "
+        // The group label follows the class language, so an English report card gets English titles.
+        CurriculumMetadata base = jdbc.query("SELECT g.code, CASE WHEN upper(cl.subsystem)='EN' "
+                        + "THEN COALESCE(g.label->>'en',g.label->>'fr',g.code) ELSE COALESCE(g.label->>'fr',g.label->>'en',g.code) END, "
+                        + "c.remark_required "
                         + "FROM academic_curriculum_subject c JOIN subject s ON s.id=c.subject_id "
+                        + "JOIN school_class cl ON cl.id=c.class_id "
                         + "LEFT JOIN academic_subject_group g ON g.id=c.group_id "
                         + "WHERE c.school_id=? AND c.academic_session_id=? AND c.class_id=? AND s.code=?",
                 rs -> rs.next() ? new CurriculumMetadata(rs.getString(1), rs.getString(2), rs.getBoolean(3), null) : new CurriculumMetadata(null, null, false, null),

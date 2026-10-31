@@ -13,6 +13,7 @@ import { AcademicApi, AcademicReadinessView, AcademicAccessDelegation, AcademicA
 import { AssessmentDefaultsComponent } from './assessment-defaults/assessment-defaults';
 import { CurriculumCopyComponent } from './curriculum-copy';
 import { BilingualGroupsComponent } from './bilingual-groups';
+import { PrimaryCompetenceGridComponent } from './primary-competence-grid';
 import { defaultSubjects } from './subject-defaults';
 import { forkJoin } from 'rxjs';
 import { IconComponent, CardComponent, TabsComponent, EmptyComponent, ListPaginationComponent, paginateRows } from '../../core/ui';
@@ -27,7 +28,7 @@ import { downloadCsv } from '../../core/csv';
   selector: 'bbc-academic-setup',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, IconComponent, CardComponent, TabsComponent, EmptyComponent, ListPaginationComponent, AssessmentDefaultsComponent, CurriculumCopyComponent, BilingualGroupsComponent],
+  imports: [FormsModule, IconComponent, CardComponent, TabsComponent, EmptyComponent, ListPaginationComponent, AssessmentDefaultsComponent, CurriculumCopyComponent, BilingualGroupsComponent, PrimaryCompetenceGridComponent],
   template: `
     <bbc-tabs [tabs]="displayedSubTabs()" [value]="sub()" (change)="switchTo($any($event))" />
 
@@ -288,6 +289,14 @@ import { downloadCsv } from '../../core/csv';
         <bbc-card [title]="fr() ? 'Associer des classes bilingues' : 'Link bilingual classes'"
           [subtitle]="fr() ? 'Associez deux classes qui contiennent les mêmes élèves.' : 'Link two classes that contain the same students.'">
           <bbc-bilingual-groups />
+        </bbc-card>
+      }
+
+      <!-- ===================== PRIMARY COMPETENCE GRIDS ===================== -->
+      @case ('primary-grid') {
+        <bbc-card [title]="fr() ? 'Compétences primaire' : 'Primary competences'"
+          [subtitle]="fr() ? 'Grilles de points par niveau et application aux classes.' : 'Points grids per level and their application to classes.'">
+          <bbc-primary-competence-grid />
         </bbc-card>
       }
 
@@ -946,6 +955,7 @@ export class AcademicSetupComponent {
       subjects: 'SUBJECT_MANAGE',
       'class-subjects': 'CURRICULUM_CLASS_MANAGE',
       'bilingual-groups': 'CLASS_MANAGE',
+      'primary-grid': 'CURRICULUM_CATALOG_MANAGE',
       'access-exceptions': 'ACADEMIC_ACCESS_DELEGATE',
       assessments: 'ACADEMIC_ASSESSMENT_MANAGE',
       competencies: 'ACADEMIC_ASSESSMENT_MANAGE',
@@ -980,7 +990,7 @@ export class AcademicSetupComponent {
       : `Active parcours: ${lvl} · ${sub}. Other parcours data is hidden — switch from the top bar.`;
   });
 
-  protected sub = signal<'sections' | 'classes' | 'subjects' | 'class-subjects' | 'bilingual-groups' | 'access-exceptions' | 'assessments' | 'competencies' | 'design'>('sections');
+  protected sub = signal<'sections' | 'classes' | 'subjects' | 'class-subjects' | 'bilingual-groups' | 'primary-grid' | 'access-exceptions' | 'assessments' | 'competencies' | 'design'>('sections');
   protected sections = signal<SectionView[]>([]);
   protected classes = signal<ClassView[]>([]);
   protected subjects = signal<SubjectView[]>([]);
@@ -1018,6 +1028,7 @@ export class AcademicSetupComponent {
     { id: 'bilingual-groups', label: this.fr() ? 'Associer classes bilingues' : 'Link bilingual classes' },
     { id: 'access-exceptions', label: this.fr() ? 'Exceptions d’accès' : 'Access exceptions' },
     { id: 'competencies', label: this.fr() ? 'Compétences secondaire' : 'Secondary competencies' },
+    { id: 'primary-grid', label: this.fr() ? 'Compétences primaire' : 'Primary competences' },
     { id: 'design', label: this.fr() ? 'Modèles / marque' : 'Templates / branding' },
   ]);
   protected displayedSubTabs = computed(() => this.subTabs().map((tab) =>
@@ -1195,7 +1206,7 @@ export class AcademicSetupComponent {
     const params = this.route.snapshot.queryParamMap;
     const requestedSubtab = params.get('subtab');
     if (requestedSubtab === 'sections' || requestedSubtab === 'classes' || requestedSubtab === 'subjects'
-      || requestedSubtab === 'class-subjects' || requestedSubtab === 'bilingual-groups' || requestedSubtab === 'access-exceptions' || requestedSubtab === 'assessments' || requestedSubtab === 'competencies' || requestedSubtab === 'design') {
+      || requestedSubtab === 'class-subjects' || requestedSubtab === 'bilingual-groups' || requestedSubtab === 'primary-grid' || requestedSubtab === 'access-exceptions' || requestedSubtab === 'assessments' || requestedSubtab === 'competencies' || requestedSubtab === 'design') {
       this.sub.set(requestedSubtab === 'competencies' ? 'assessments' : requestedSubtab);
     }
     const requestedSessionId = params.get('sessionId');
@@ -1504,7 +1515,7 @@ export class AcademicSetupComponent {
     return out;
   }
 
-  protected switchTo(t: 'sections' | 'classes' | 'subjects' | 'class-subjects' | 'bilingual-groups' | 'access-exceptions' | 'assessments' | 'competencies' | 'design'): void {
+  protected switchTo(t: 'sections' | 'classes' | 'subjects' | 'class-subjects' | 'bilingual-groups' | 'primary-grid' | 'access-exceptions' | 'assessments' | 'competencies' | 'design'): void {
     this.sub.set(t === 'competencies' ? 'assessments' : t);
     this.secForm.set(false); this.clsForm.set(false); this.subjForm.set(false);
     this.assignmentNotice.set(null);

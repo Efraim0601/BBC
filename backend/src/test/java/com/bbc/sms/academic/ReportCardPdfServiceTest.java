@@ -70,7 +70,7 @@ class ReportCardPdfServiceTest {
             assertThat(document.getNumberOfPages()).isGreaterThanOrEqualTo(1);
             assertThat(document.getPage(0).getMediaBox().getWidth()).isCloseTo(595.27563f, org.assertj.core.data.Offset.offset(0.01f));
             String text = new PDFTextStripper().getText(document);
-            assertThat(text).contains("BULLETIN DE NOTES DE LA SEQUENCE 1", "COMPÉTENCES ÉVALUÉES", "N/20", "M/20", "TOTAL", "Moyenne");
+            assertThat(text).contains("BULLETIN DE NOTES DE LA SÉQUENCE 1", "COMPÉTENCES ÉVALUÉES", "N/20", "M/20", "TOTAL", "Moyenne");
             int images = 0;
             for (COSName name : document.getPage(0).getResources().getXObjectNames()) {
                 if (document.getPage(0).getResources().getXObject(name) instanceof PDImageXObject) images++;
@@ -337,6 +337,106 @@ class ReportCardPdfServiceTest {
         try (PDDocument document = PDDocument.load(renderCard(lines, "secondary", "EN", false,
                 "S1", "Sequence 1", "SEQUENCE", "SEQUENCE"))) {
             assertThat(document.getNumberOfPages()).isGreaterThanOrEqualTo(2);
+        }
+    }
+
+    @Test
+    void frenchCompetenceSequenceCardGroupsSubCompetencesByCompetenceOnOnePage() throws Exception {
+        byte[] bytes = renderCompetence("FR", 2, "S1", "Séquence 1", "SEQUENCE", "SEQUENCE", List.of("S1"));
+        try (PDDocument document = PDDocument.load(bytes)) {
+            assertThat(document.getNumberOfPages()).isEqualTo(1);
+            String text = flatText(document);
+            assertThat(text).contains("COMPÉTENCE 1", "COMPÉTENCE 6", "1A Communiquer en français", "Oral", "Écrit",
+                    "Pratique", "Savoir-être", "TOTAL GÉNÉRAL", "/ 300", "Moyenne ", "CNA : compétence non acquise",
+                    "Avis du conseil des maîtres", "Visa de l'enseignant(e)", "DIRECTEUR / DIRECTRICE");
+            assertThat(text).doesNotContain("...", "6A2 ");
+        }
+        writeQa("primary-competence-fr-sequence.pdf", bytes);
+    }
+
+    @Test
+    void englishCompetenceTermCardShowsEachSequenceAndReligionOutsideTheTotal() throws Exception {
+        byte[] bytes = renderCompetence("EN", 2, "T1_RESULT", "Term 1", "TERM_RESULT", "TERM", List.of("S1", "S2"));
+        try (PDDocument document = PDDocument.load(bytes)) {
+            assertThat(document.getNumberOfPages()).isEqualTo(1);
+            String text = flatText(document);
+            assertThat(text).contains("FIRST TERM PROGRESS RECORD", "COMPETENCE 2", "S1", "S2", "Religion",
+                    "Not counted in the total", "/ 360", "Average ", "C: skill not acquired");
+            assertThat(text).doesNotContain("...");
+        }
+        writeQa("primary-competence-en-term.pdf", bytes);
+    }
+
+    @Test
+    void frenchCompetenceAnnualCardShowsTheThreeTerms() throws Exception {
+        byte[] bytes = renderCompetence("FR", 1, "ANNUAL", "Résultat annuel", "ANNUAL_RESULT", "ANNUAL", List.of("T1_RESULT", "T2_RESULT", "T3_RESULT"));
+        try (PDDocument document = PDDocument.load(bytes)) {
+            assertThat(document.getNumberOfPages()).isEqualTo(1);
+            String text = flatText(document);
+            assertThat(text).contains("BULLETIN SCOLAIRE ANNUEL", "T1", "T2", "T3", "/ 280", "COMPÉTENCE 4");
+            assertThat(text).doesNotContain("...", "Oral");
+        }
+        writeQa("primary-competence-fr-annual.pdf", bytes);
+    }
+
+    /**
+     * A snapshot shaped like the calculation's output for a competence class: one line per
+     * sub-competence (coefficient = its points), evaluation-type evidence per sequence, and the
+     * pupil following 6A1 rather than 6A2.
+     */
+    private byte[] renderCompetence(String subsystem, int level, String code, String label, String periodType,
+                                    String product, List<String> children) {
+        List<BulletinLineView> lines = new java.util.ArrayList<>();
+        BigDecimal pointsTotal = BigDecimal.ZERO, obtainedTotal = BigDecimal.ZERO;
+        int index = 0;
+        for (var item : com.bbc.sms.academic.competence.PrimaryCompetenceDefaults.grid(subsystem, level)) {
+            if ("6A2".equals(item.code())) continue;
+            BigDecimal mark = BigDecimal.valueOf(9 + (index++ % 10));
+            List<AssessmentEvidenceView> evidence = new java.util.ArrayList<>();
+            boolean sequences = children.stream().allMatch(c -> c.startsWith("S"));
+            for (String child : sequences ? children : List.<String>of()) {
+                BigDecimal[] parts = {item.oral(), item.written(), item.practical(), item.attitude()};
+                String[] suffixes = {"O", "E", "P", "S"};
+                for (int i = 0; i < 4; i++) {
+                    if (parts[i] == null) continue;
+                    BigDecimal got = parts[i].multiply(mark).divide(BigDecimal.valueOf(20), 0, java.math.RoundingMode.HALF_UP);
+                    evidence.add(new AssessmentEvidenceView(child + "_APC_" + item.code() + "_" + suffixes[i], suffixes[i], got,
+                            parts[i], parts[i], "SCORED"));
+                }
+            }
+            int coefficient = item.points().intValue();
+            String group = "APC_" + item.competenceCode();
+            String groupLabel = com.bbc.sms.academic.competence.PrimaryCompetenceDefaults.COMPETENCES.get(item.competenceCode())
+                    .get("FR".equals(subsystem) ? "fr" : "en");
+            lines.add(new BulletinLineView("APC_" + item.code(), item.label().get("FR".equals(subsystem) ? "fr" : "en"),
+                    coefficient, mark, mark.multiply(BigDecimal.valueOf(coefficient)), null, "ECA", evidence,
+                    children.stream().map(child -> new PeriodMarkView(child, mark)).toList(), null, group, groupLabel));
+            if (!"CX".equals(item.competenceCode())) {
+                pointsTotal = pointsTotal.add(item.points());
+                obtainedTotal = obtainedTotal.add(mark.multiply(item.points()));
+            }
+        }
+        BigDecimal average = obtainedTotal.divide(pointsTotal, 4, java.math.RoundingMode.HALF_UP);
+        UUID snapshotId = UUID.randomUUID();
+        UUID schoolId = UUID.randomUUID();
+        BulletinSnapshotView base = snapshot(snapshotId, lines, code, label, periodType, product, "primary", subsystem);
+        BulletinSnapshotView view = new BulletinSnapshotView(base.id(), base.academicSessionId(), base.reportingPeriodId(),
+                base.reportingPeriodCode(), base.reportingPeriodLabel(), base.studentId(), base.studentName(), base.matricule(),
+                base.educationalLevel(), base.subsystem(), "FR".equals(subsystem) ? "CE1 A" : "Class 3 A", base.lines(), average,
+                base.rank(), base.classSize(), base.state(), base.complete(), base.blockers(), base.snapshotHash(),
+                base.calculationPolicy(), base.generalAppreciation(), base.attendance(), base.conduct(), base.version(),
+                base.classStats(), base.supersedesId(), base.correctsBulletinVersionId(), base.correctionReason(),
+                base.correctionRequestedBy(), base.correctionRequestedAt(), base.groupStats(), base.evidence(),
+                base.reportingPeriodType(), base.product(), base.workflowMeta(), base.issues(),
+                base.programmeClassId(), base.classMasterName());
+        when(snapshots.byId(snapshotId)).thenReturn(view);
+        when(photos.findByOwnerTypeAndOwnerIdAndSchoolId("student", view.studentId(), schoolId))
+                .thenReturn(Optional.empty());
+        TenantContext.set(schoolId);
+        try {
+            return new ReportCardPdfService(snapshots, photos, classes, jdbc).render(snapshotId, "FR".equals(subsystem));
+        } finally {
+            TenantContext.clear();
         }
     }
 

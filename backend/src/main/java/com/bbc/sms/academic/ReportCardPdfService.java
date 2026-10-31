@@ -1,5 +1,7 @@
 package com.bbc.sms.academic;
 
+import com.bbc.sms.academic.competence.PrimaryCompetenceService;
+import com.bbc.sms.academic.competence.PrimaryCompetenceService.EvaluationType;
 import com.bbc.sms.academic.dto.AcademicDtos.*;
 import com.bbc.sms.media.ProfilePhoto;
 import com.bbc.sms.media.ProfilePhotoRepository;
@@ -94,6 +96,21 @@ public class ReportCardPdfService {
                 if (logo == null) logo = bundledBbcLogo(doc);
                 PDImageXObject stamp = imageOrNull(doc, branding == null ? null : branding.stampBytes(), "school-stamp");
                 float y = header(doc, page, b, reportFrench, image, secondary, branding, logo);
+                if (!secondary && competenceCard(b)) {
+                    PDPage[] current = {page};
+                    y = competenceTable(doc, current, y, b, reportFrench, image, secondary, branding, logo);
+                    page = current[0];
+                    if (y < SUMMARY_HEIGHT + BLOCK_GAP + SIGN_MIN + SIGN_BOTTOM) {
+                        footer(doc, page, reportFrench, false); page = new PDPage(PDRectangle.A4); doc.addPage(page);
+                        y = header(doc, page, b, reportFrench, image, secondary, branding, logo) - 10;
+                    }
+                    summary(doc, page, y, b, reportFrench, false, true);
+                    signatureBoxes(doc, page, y - SUMMARY_HEIGHT - BLOCK_GAP, reportFrench, branding, stamp, true);
+                    boolean qr = drawQr(doc, page, b, RIGHT - 44, 5, 44);
+                    footer(doc, page, reportFrench, qr);
+                    doc.save(out);
+                    return out.toByteArray();
+                }
                 // A card is a single sheet whenever it can be: row heights are derived
                 // from the subject count so table, totals, summary and signatures all fit.
                 // Cards with too many subjects fall back to the paginated layout.
@@ -134,7 +151,7 @@ public class ReportCardPdfService {
                     footer(doc, page, reportFrench, false); page = new PDPage(PDRectangle.A4); doc.addPage(page);
                     y = header(doc, page, b, reportFrench, image, secondary, branding, logo) - 10;
                 }
-                summary(doc, page, y, b, reportFrench, secondary);
+                summary(doc, page, y, b, reportFrench, secondary, false);
                 signatureBoxes(doc, page, y - SUMMARY_HEIGHT - BLOCK_GAP, reportFrench, branding, stamp);
                 // The verification mark lives in the footer band so it never
                 // obscures the result table, conduct block, or signatures.
@@ -670,7 +687,8 @@ public class ReportCardPdfService {
         return clip(normalized, 8);
     }
 
-    private void summary(PDDocument doc, PDPage page, float y, BulletinSnapshotView b, boolean fr, boolean secondary) throws Exception {
+    private void summary(PDDocument doc, PDPage page, float y, BulletinSnapshotView b, boolean fr, boolean secondary,
+                         boolean competence) throws Exception {
         ClassStatsView stats = b.classStats();
         String groupText = b.groupStats() == null || b.groupStats().isEmpty()
                 ? "-"
@@ -723,6 +741,13 @@ public class ReportCardPdfService {
                     ? new String[]{number(totalScore),String.valueOf(b.lines().stream().mapToInt(BulletinLineView::coefficient).sum()),
                     number(b.average()),grade(b.average()),decision,conductText}
                     : new String[]{number(totalScore),number(b.average()),grade(b.average()),decision,conductText,""};
+            if (competence) {
+                CompetencePoints points = competencePoints(b.lines(), null);
+                workLabels = fr ? new String[]{"Total des points","Moyenne sur 20","Cote","Avis du conseil des maîtres","Distinctions",""}
+                        : new String[]{"Total marks","Average out of 20","Grade","Teachers' council decision","Awards",""};
+                workValues = new String[]{pointsText(points.obtained()) + " / " + pointsText(points.max()), number(b.average()),
+                        coteLabel(PrimaryCompetenceService.cote(b.average()), fr), decision, conductText, ""};
+            }
             String[] classLabels = fr ? new String[]{"Moyenne de la classe","Rang","Nombre de moyennes","Taux de réussite","Minimum","Maximum"}
                     : new String[]{"Class average","Rank","Number passed","Success rate","Minimum","Maximum"};
             String[] classValues = new String[]{stats == null ? "—" : number(stats.average()),
@@ -754,6 +779,12 @@ public class ReportCardPdfService {
 
     private void signatureBoxes(PDDocument doc, PDPage page, float top, boolean fr,
                                 BrandingRenderData branding, PDImageXObject stamp) throws Exception {
+        signatureBoxes(doc, page, top, fr, branding, stamp, false);
+    }
+
+    /** {@code primary} uses the primary school wording: teacher, parents and head teacher. */
+    private void signatureBoxes(PDDocument doc, PDPage page, float top, boolean fr,
+                                BrandingRenderData branding, PDImageXObject stamp, boolean primary) throws Exception {
         float x1 = 225, x2 = 335, x3 = 445;
         // Fill the free space down to the footer band, within sensible bounds.
         float height = Math.max(SIGN_MIN, Math.min(SIGN_MAX, top - SIGN_BOTTOM));
@@ -762,22 +793,271 @@ public class ReportCardPdfService {
             line(cs, x1, top - height, x1, top, .5f); line(cs, x2, top - height, x2, top, .5f); line(cs, x3, top - height, x3, top, .5f);
             fill(cs, NAVY);
             textShrunk(cs, bold(), 6.5f, 5.5f, LEFT + 6, top - 12,
-                    fr ? "APPRÉCIATION DU TRAVAIL DE L'ÉLÈVE" : "REMARKS ON STUDENT PERFORMANCE", x1 - LEFT - 12);
+                    primary ? (fr ? "OBSERVATIONS DE L'ENSEIGNANT(E)" : "TEACHER'S OBSERVATIONS")
+                            : fr ? "APPRÉCIATION DU TRAVAIL DE L'ÉLÈVE" : "REMARKS ON STUDENT PERFORMANCE", x1 - LEFT - 12);
             textShrunk(cs, bold(), 6.5f, 5.5f, x1 + 7, top - 12,
-                    fr ? "Visa du parent / tuteur" : "Parent / Guardian signature", x2 - x1 - 14);
+                    fr ? (primary ? "Visa des parents" : "Visa du parent / tuteur") : "Parent / Guardian signature", x2 - x1 - 14);
             textShrunk(cs, bold(), 6.5f, 5.5f, x2 + 7, top - 12,
-                    fr ? "Nom et visa du professeur" : "Class master's signature", x3 - x2 - 14);
+                    primary ? (fr ? "Visa de l'enseignant(e)" : "Teacher's signature")
+                            : fr ? "Nom et visa du professeur" : "Class master's signature", x3 - x2 - 14);
             textShrunk(cs, bold(), 6.5f, 5.5f, x3 + 7, top - 12,
                     fr ? "Fait à " + schoolCity(branding) + ", le" : "At " + schoolCity(branding) + ", on", RIGHT - x3 - 14);
             // The head-of-school title sits at the foot of its cell, under the date line;
             // a stamp needs reserved space, otherwise the title may use the full width.
             String headTitle = branding == null || branding.principalTitle() == null || branding.principalTitle().isBlank()
-                    ? (fr ? "CHEF D'ÉTABLISSEMENT" : "HEAD OF SCHOOL") : branding.principalTitle();
+                    ? (primary ? (fr ? "DIRECTEUR / DIRECTRICE" : "HEAD TEACHER") : fr ? "CHEF D'ÉTABLISSEMENT" : "HEAD OF SCHOOL")
+                    : branding.principalTitle();
             float headTitleWidth = stamp == null ? RIGHT - x3 - 14 : 46;
             textShrunk(cs, bold(), 6.5f, 5.5f, x3 + 7, top - height + 8, headTitle, headTitleWidth);
             cs.setNonStrokingColor(0, 0, 0);
             if (stamp != null) cs.drawImage(stamp, x3 + 55, top - height + 6, 34, 34);
         }
+    }
+
+    // ------------------------------------------------------------ primary competence card
+
+    /** Report cards of classes graded by competence grid: their subjects sit in APC_ competence groups. */
+    private static boolean competenceCard(BulletinSnapshotView b) {
+        return b.lines() != null && b.lines().stream().anyMatch(l -> l.subjectGroupCode() != null
+                && l.subjectGroupCode().toUpperCase(Locale.ROOT).startsWith(PrimaryCompetenceService.CODE_PREFIX));
+    }
+
+    private record CompetencePoints(BigDecimal obtained, BigDecimal max) {}
+
+    /**
+     * Points obtained over points available. A subject's coefficient is its points, so its result
+     * out of 20 converts back to points. {@code groupCode == null} sums every counted subject.
+     */
+    private static CompetencePoints competencePoints(List<BulletinLineView> lines, String groupCode) {
+        BigDecimal obtained = BigDecimal.ZERO, max = BigDecimal.ZERO;
+        for (BulletinLineView line : lines) {
+            boolean inScope = groupCode == null
+                    ? !PrimaryCompetenceService.NOT_COUNTED_GROUP.equalsIgnoreCase(line.subjectGroupCode())
+                    : groupCode.equalsIgnoreCase(line.subjectGroupCode());
+            if (!inScope || line.mark() == null) continue;
+            max = max.add(BigDecimal.valueOf(line.coefficient()));
+            obtained = obtained.add(points(line.mark(), line.coefficient()));
+        }
+        return new CompetencePoints(obtained, max);
+    }
+
+    private static BigDecimal points(BigDecimal outOfTwenty, int max) {
+        return outOfTwenty == null ? null : outOfTwenty.multiply(BigDecimal.valueOf(max))
+                .divide(BigDecimal.valueOf(20), 2, java.math.RoundingMode.HALF_UP);
+    }
+
+    /** Points read better with at most one decimal: 256 / 360, 13.5 / 30. */
+    private static String pointsText(BigDecimal value) {
+        return value == null ? "—" : value.setScale(1, java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString();
+    }
+
+    private static String coteLabel(String cote, boolean fr) {
+        if (cote == null) return "—";
+        if (fr) return cote;
+        return switch (cote) { case "CNA" -> "C"; case "ECA" -> "B"; default -> cote; };
+    }
+
+    private static String coteMeaning(String cote, boolean fr) {
+        if (cote == null) return "—";
+        return switch (cote) {
+            case "CNA" -> fr ? "Compétence non acquise" : "Skill not acquired";
+            case "ECA" -> fr ? "En cours d'acquisition" : "Skill partially acquired";
+            case "A" -> fr ? "Compétence acquise" : "Skill acquired";
+            default -> fr ? "Expert" : "Expert";
+        };
+    }
+
+    /**
+     * Column plan of a competence card. Sequence: evaluation types, total, /20. Term: evaluation
+     * types (mean over the term's sequences), one column per sequence, total. Annual: one column
+     * per term, total, /20. Every card ends with grade and remark.
+     */
+    private record CompetenceColumns(float[] x, List<String> headers, boolean components, List<String> periods,
+                                     boolean outOfTwenty) {
+        float subjectRight() { return x[1]; }
+    }
+
+    private CompetenceColumns competenceColumns(BulletinSnapshotView b, boolean fr) {
+        boolean annual = annual(b);
+        boolean term = !annual && computed(b);
+        List<String> periods = term || annual ? dependencyCodes(b) : List.of();
+        List<Float> widths = new java.util.ArrayList<>();
+        List<String> headers = new java.util.ArrayList<>();
+        headers.add(fr ? "COMPÉTENCES / SOUS-COMPÉTENCES" : "COMPETENCES / SUB-COMPETENCES");
+        if (!annual) {
+            for (EvaluationType type : EvaluationType.values()) {
+                headers.add(fr ? type.fr : type.en);
+                widths.add(type == EvaluationType.ATTITUDE ? 40f : 32f);
+            }
+        }
+        for (String period : periods) { headers.add(displayPeriodCode(period)); widths.add(annual ? 40f : 34f); }
+        headers.add("TOTAL"); widths.add(52f);
+        if (!term) { headers.add("/20"); widths.add(30f); }
+        headers.add(fr ? "COTE" : "GRADE"); widths.add(30f);
+        headers.add(fr ? "APPRÉCIATION" : "REMARK"); widths.add(72f);
+        float fixed = 0; for (float w : widths) fixed += w;
+        float[] x = new float[widths.size() + 2];
+        x[0] = LEFT; x[1] = RIGHT - fixed;
+        for (int i = 0; i < widths.size(); i++) x[i + 2] = x[i + 1] + widths.get(i);
+        return new CompetenceColumns(x, headers, !annual, periods, !term);
+    }
+
+    private float competenceTableHeader(PDDocument doc, PDPage page, float y, CompetenceColumns c) throws Exception {
+        try (PDPageContentStream cs = new PDPageContentStream(doc, page, PDPageContentStream.AppendMode.APPEND, true)) {
+            fill(cs, NAVY);
+            cs.addRect(LEFT, y - 18, RIGHT - LEFT, 22); cs.fill();
+            cs.setNonStrokingColor(1f, 1f, 1f);
+            textFitted(cs, bold(), 6.5f, LEFT + 6, y - 10, c.headers().get(0), c.subjectRight() - LEFT - 10);
+            for (int i = 1; i < c.headers().size(); i++) {
+                float left = c.x()[i], right = c.x()[i + 1];
+                String header = c.headers().get(i);
+                textCentered(cs, bold(), fittedSize(bold(), 6, 5, header, right - left - 4), left, right, y - 10, header);
+            }
+            cs.setNonStrokingColor(0, 0, 0);
+        }
+        return y - 18;
+    }
+
+    /** One competence band: its title and the competence subtotal in the total column. */
+    private float competenceBand(PDDocument doc, PDPage page, float y, float height, CompetenceColumns c,
+                                 BulletinLineView first, List<BulletinLineView> lines, boolean fr) throws Exception {
+        String code = first.subjectGroupCode().toUpperCase(Locale.ROOT).substring(PrimaryCompetenceService.CODE_PREFIX.length());
+        String label = safeText(first.subjectGroupLabel() == null ? code : first.subjectGroupLabel());
+        String title = code.matches("C[0-9]+") ? (fr ? "COMPÉTENCE " : "COMPETENCE ") + code.substring(1) + " — " + label : label;
+        CompetencePoints subtotal = competencePoints(lines, first.subjectGroupCode());
+        boolean counted = !PrimaryCompetenceService.NOT_COUNTED_GROUP.equalsIgnoreCase(first.subjectGroupCode());
+        int totalColumn = c.headers().indexOf("TOTAL");
+        try (PDPageContentStream cs = new PDPageContentStream(doc, page, PDPageContentStream.AppendMode.APPEND, true)) {
+            fill(cs, TINT); cs.addRect(LEFT, y - height, RIGHT - LEFT, height); cs.fill();
+            fill(cs, NAVY);
+            CellLayout cell = layoutCell(bold(), 7, 5.5f, c.x()[totalColumn] - LEFT - 12, title, 2, height - CELL_PAD);
+            drawCell(cs, LEFT + 6, y, height, cell, null);
+            float mid = y - height / 2f - 2.5f;
+            if (subtotal.max().signum() > 0) textCentered(cs, bold(), 7, c.x()[totalColumn], c.x()[totalColumn + 1], mid,
+                    pointsText(subtotal.obtained()) + " / " + pointsText(subtotal.max()));
+            if (!counted) {
+                fill(cs, MUTED);
+                textFitted(cs, normal(), 6, c.x()[totalColumn + 1] + 4, mid, fr ? "Non compté dans le total" : "Not counted in the total",
+                        RIGHT - c.x()[totalColumn + 1] - 8);
+            }
+            cs.setNonStrokingColor(0, 0, 0);
+            hairline(cs, LEFT, y - height, RIGHT, y - height);
+        }
+        return height;
+    }
+
+    private float competenceRow(PDDocument doc, PDPage page, float y, float height, CompetenceColumns c,
+                                BulletinLineView line, boolean fr, boolean shade) throws Exception {
+        float mid = y - height / 2f - 2.5f;
+        String code = line.subjectCode().toUpperCase(Locale.ROOT).replace(PrimaryCompetenceService.CODE_PREFIX, "");
+        String cote = PrimaryCompetenceService.cote(line.mark());
+        String remark = line.teacherRemark() != null && !line.teacherRemark().isBlank() ? line.teacherRemark() : coteMeaning(cote, fr);
+        try (PDPageContentStream cs = new PDPageContentStream(doc, page, PDPageContentStream.AppendMode.APPEND, true)) {
+            if (shade) { fill(cs, ZEBRA); cs.addRect(LEFT, y - height, RIGHT - LEFT, height); cs.fill(); cs.setNonStrokingColor(0, 0, 0); }
+            drawCell(cs, LEFT + 6, y, height,
+                    layoutCell(bold(), 7, 5.5f, c.subjectRight() - LEFT - 12, code + "  " + safeText(line.subjectLabel()), 2, height - CELL_PAD), null);
+            int column = 1;
+            if (c.components()) {
+                for (EvaluationType type : EvaluationType.values()) {
+                    textCentered(cs, normal(), 7, c.x()[column], c.x()[column + 1], mid, componentCell(line, type));
+                    column++;
+                }
+            }
+            for (String period : c.periods()) {
+                BigDecimal mark = line.periodMarks() == null ? null : line.periodMarks().stream()
+                        .filter(m -> period.equals(m.periodCode())).map(PeriodMarkView::mark).findFirst().orElse(null);
+                textCentered(cs, normal(), 7, c.x()[column], c.x()[column + 1], mid, pointsText(points(mark, line.coefficient())));
+                column++;
+            }
+            textCentered(cs, bold(), 7, c.x()[column], c.x()[column + 1], mid,
+                    pointsText(points(line.mark(), line.coefficient())) + " / " + line.coefficient());
+            column++;
+            if (c.outOfTwenty()) { textCentered(cs, normal(), 7, c.x()[column], c.x()[column + 1], mid, number(line.mark())); column++; }
+            textCentered(cs, bold(), 7, c.x()[column], c.x()[column + 1], mid, coteLabel(cote, fr));
+            column++;
+            drawCell(cs, c.x()[column] + 4, y, height,
+                    layoutCell(normal(), 6.5f, 5.5f, RIGHT - c.x()[column] - 8, remark, 2, height - CELL_PAD), null);
+            for (float x : c.x()) hairline(cs, x, y, x, y - height);
+            hairline(cs, LEFT, y - height, RIGHT, y - height);
+        }
+        return height;
+    }
+
+    /**
+     * Points of one evaluation type: the mark of the card's sequence, or the mean over the term's
+     * sequences, over its maximum. "—" when the sub-competence does not assess that type.
+     */
+    private static String componentCell(BulletinLineView line, EvaluationType type) {
+        List<AssessmentEvidenceView> evidence = line.assessments() == null ? List.of() : line.assessments().stream()
+                .filter(a -> type == EvaluationType.fromAssessmentCode(a.code())).toList();
+        if (evidence.isEmpty()) return "—";
+        BigDecimal max = evidence.get(0).maxScore();
+        List<BigDecimal> marks = evidence.stream().map(AssessmentEvidenceView::mark).filter(java.util.Objects::nonNull).toList();
+        if (marks.isEmpty()) return "· / " + pointsText(max);
+        BigDecimal mean = marks.stream().reduce(BigDecimal.ZERO, BigDecimal::add)
+                .divide(BigDecimal.valueOf(marks.size()), 2, java.math.RoundingMode.HALF_UP);
+        return pointsText(mean) + " / " + pointsText(max);
+    }
+
+    private float competenceTotals(PDDocument doc, PDPage page, float y, CompetenceColumns c, BulletinSnapshotView b,
+                                   boolean fr) throws Exception {
+        CompetencePoints total = competencePoints(b.lines(), null);
+        int totalColumn = c.headers().indexOf("TOTAL");
+        float height = 18;
+        try (PDPageContentStream cs = new PDPageContentStream(doc, page, PDPageContentStream.AppendMode.APPEND, true)) {
+            fill(cs, TINT); cs.addRect(LEFT, y - height, RIGHT - LEFT, height); cs.fill();
+            cs.setNonStrokingColor(0, 0, 0); box(cs, LEFT, y - height, RIGHT, y);
+            text(cs, bold(), 8, LEFT + 6, y - 12, fr ? "TOTAL GÉNÉRAL" : "GRAND TOTAL");
+            String grand = pointsText(total.obtained()) + " / " + pointsText(total.max());
+            textCentered(cs, bold(), fittedSize(bold(), 8, 6.5f, grand, c.x()[totalColumn + 1] - c.x()[totalColumn] - 4),
+                    c.x()[totalColumn], c.x()[totalColumn + 1], y - 12, grand);
+            String average = (fr ? "Moyenne " : "Average ") + number(b.average()) + "/20  ·  "
+                    + coteLabel(PrimaryCompetenceService.cote(b.average()), fr);
+            textCentered(cs, bold(), fittedSize(bold(), 7.5f, 5.5f, average, RIGHT - c.x()[totalColumn + 1] - 6),
+                    c.x()[totalColumn + 1], RIGHT, y - 12, average);
+            fill(cs, MUTED);
+            String legend = fr
+                    ? "CNA : compétence non acquise (0 à 10)   ·   ECA : en cours d'acquisition (11 à 14)   ·   A : acquise (15 à 17)   ·   A+ : expert (18 à 20)"
+                    : "C: skill not acquired (0-10)   ·   B: skill partially acquired (11-14)   ·   A: skill acquired (15-17)   ·   A+: expert (18-20)";
+            textCentered(cs, normal(), 6, LEFT, RIGHT, y - height - 9, legend);
+            cs.setNonStrokingColor(0, 0, 0);
+        }
+        return height + 12;
+    }
+
+    /** Lay the competence table out: bands and rows share one sheet when they fit, otherwise continue on new pages. */
+    private float competenceTable(PDDocument doc, PDPage[] page, float y, BulletinSnapshotView b, boolean fr,
+                                  PDImageXObject image, boolean secondary, BrandingRenderData branding,
+                                  PDImageXObject logo) throws Exception {
+        CompetenceColumns c = competenceColumns(b, fr);
+        List<List<BulletinLineView>> groups = new java.util.ArrayList<>();
+        String current = null;
+        for (BulletinLineView line : b.lines()) {
+            String group = line.subjectGroupCode() == null ? "" : line.subjectGroupCode();
+            if (!group.equalsIgnoreCase(current)) { groups.add(new java.util.ArrayList<>()); current = group; }
+            groups.get(groups.size() - 1).add(line);
+        }
+        y = competenceTableHeader(doc, page[0], y, c);
+        int rows = b.lines().size() + groups.size();
+        float reserved = 5 + 30 + 6 + SUMMARY_HEIGHT + BLOCK_GAP + SIGN_MIN + SIGN_BOTTOM;
+        float rowHeight = Math.min(SHEET_ROW_MAX, (y - reserved - 1) / Math.max(1, rows));
+        if (rowHeight < SHEET_ROW_MIN) rowHeight = 18;
+        int index = 0;
+        for (List<BulletinLineView> group : groups) {
+            for (int i = -1; i < group.size(); i++) {
+                if (y - rowHeight < 78) {
+                    footer(doc, page[0], fr, false);
+                    page[0] = new PDPage(PDRectangle.A4); doc.addPage(page[0]);
+                    y = header(doc, page[0], b, fr, image, secondary, branding, logo);
+                    y = competenceTableHeader(doc, page[0], y, c);
+                }
+                y -= i < 0 ? competenceBand(doc, page[0], y, rowHeight, c, group.get(0), group, fr)
+                        : competenceRow(doc, page[0], y, rowHeight, c, group.get(i), fr, index++ % 2 == 1);
+            }
+        }
+        y -= 5;
+        y -= competenceTotals(doc, page[0], y, c, b, fr);
+        return y - 6;
     }
 
     private String reportTitle(BulletinSnapshotView bulletin, boolean fr) {
@@ -787,7 +1067,7 @@ public class ReportCardPdfService {
                 || "TERM".equalsIgnoreCase(bulletin.product()))
             return fr ? "BULLETIN SCOLAIRE DU " + (number == 1 ? "1er" : number + "e") + " TRIMESTRE"
                     : switch (number) { case 1 -> "FIRST TERM PROGRESS RECORD"; case 2 -> "SECOND TERM PROGRESS RECORD"; default -> "THIRD TERM PROGRESS RECORD"; };
-        return fr ? "BULLETIN DE NOTES DE LA SEQUENCE " + number : "SEQUENCE " + number + " PROGRESS RECORD";
+        return fr ? "BULLETIN DE NOTES DE LA SÉQUENCE " + number : "SEQUENCE " + number + " PROGRESS RECORD";
     }
 
     private StudentRenderData studentData(BulletinSnapshotView bulletin) {
@@ -1182,6 +1462,8 @@ public class ReportCardPdfService {
     private static String number(java.math.BigDecimal n) { return n == null ? "—" : n.setScale(2, java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString(); }
     private static String clip(String v, int n) { String s = safeText(v); return s.length() <= n ? s : s.substring(0, Math.max(0, n - 1)) + "."; }
     private static String initials(String v) { String[] p = safeText(v).split("\\s+"); return p.length < 2 ? clip(v, 3).toUpperCase(Locale.ROOT) : (p[0].substring(0, 1) + p[1].substring(0, 1)).toUpperCase(Locale.ROOT); }
+    private static final java.util.regex.Pattern NOT_A_NUMBER = java.util.regex.Pattern.compile("(?i)(?<![\\p{L}\\p{N}])nan(?![\\p{L}\\p{N}])");
+
     private static String safeText(String v) {
         if (v == null) return "";
         String normalized = v
@@ -1236,7 +1518,8 @@ public class ReportCardPdfService {
         StringBuilder out = new StringBuilder(normalized.length());
         normalized.codePoints().filter(cp -> !Character.isISOControl(cp) && cp != 0xfffd)
                 .forEach(out::appendCodePoint);
-        return out.toString().replace("NaN", "-").replace("nan", "-");
+        // Only a stray "NaN" value is blanked; words such as "enseignant" keep their letters.
+        return NOT_A_NUMBER.matcher(out.toString()).replaceAll("-");
     }
     private static boolean looksLikeMojibake(String value) {
         return value.indexOf('\u00c3') >= 0 || value.indexOf('\u00c2') >= 0

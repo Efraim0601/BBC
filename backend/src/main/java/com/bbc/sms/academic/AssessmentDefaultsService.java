@@ -1,5 +1,6 @@
 package com.bbc.sms.academic;
 
+import com.bbc.sms.academic.competence.PrimaryCompetenceService;
 import com.bbc.sms.academic.dto.AcademicDtos.*;
 import com.bbc.sms.academic.security.AcademicAccessPolicyService;
 import com.bbc.sms.foundation.audit.AuditService;
@@ -161,8 +162,13 @@ public class AssessmentDefaultsService {
         CurriculumQueryService.Scope scope = curriculum.scope(request.academicSessionId(), request.classId());
         List<AcademicReportingPeriod> sessionPeriods = periods.findBySchoolIdAndAcademicSessionIdOrderByDisplayOrder(
                 TenantContext.get(), request.academicSessionId());
+        // Classes graded by competence grid get their evaluations from the grid, over five sequences.
+        boolean competences = Optional.ofNullable(jdbc.queryForObject(
+                "SELECT count(*) FROM primary_competence_class WHERE school_id=? AND academic_session_id=? AND class_id=?",
+                Integer.class, TenantContext.get(), request.academicSessionId(), request.classId())).orElse(0) > 0;
         List<AcademicReportingPeriod> selected = sessionPeriods.stream()
                 .filter(AcademicPeriodRules::isSequence)
+                .filter(p -> !competences || !PrimaryCompetenceService.UNUSED_SEQUENCE.equalsIgnoreCase(p.getCode()))
                 .filter(p -> ALL_SEQUENCES.equals(mode) || p.getId().equals(request.reportingPeriodId()))
                 .toList();
         if (selected.isEmpty()) {
