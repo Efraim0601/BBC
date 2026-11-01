@@ -84,8 +84,11 @@ public class ReportCardInputService {
         SchoolClass schoolClass = schoolClass(classId);
         accessPolicy.require(AcademicAccessPolicyService.Capability.COUNCIL_INPUT_VIEW,
                 period.getAcademicSessionId(), classId, null, null, period.getStartDate());
+        // Use the same current active roster as grade entry and bulletin
+        // generation. A learner displayed in the sheet must not disappear from
+        // the council form merely because they enrolled after the period start.
         List<UUID> rosterIds = cohorts == null ? null
-                : cohorts.rosterStudentIds(period.getAcademicSessionId(), classId, "ACTIVE", period.getStartDate());
+                : cohorts.rosterStudentIds(period.getAcademicSessionId(), classId, "ACTIVE");
         String rosterFilter = rosterIds == null
                 ? "e.school_class_id=?"
                 : "e.student_id IN (" + String.join(",", Collections.nCopies(Math.max(1, rosterIds.size()), "?")) + ")";
@@ -99,11 +102,10 @@ public class ReportCardInputService {
         List<Object> rosterArgs = new ArrayList<>(List.of(TenantContext.get(), period.getAcademicSessionId()));
         if (rosterIds == null) rosterArgs.add(classId);
         else rosterArgs.addAll(rosterIds);
-        rosterArgs.add(period.getStartDate()); rosterArgs.add(period.getStartDate());
         String rosterSql = "SELECT e.student_id, s.matricule, upper(s.last_name) || ' ' || s.first_name AS student_name "
                 + "FROM student_enrollment e JOIN student s ON s.id=e.student_id AND s.active "
                 + "WHERE e.school_id=? AND e.academic_session_id=? AND " + rosterFilter
-                + " AND e.status='ACTIVE' AND e.enrolled_on<=? AND (e.exited_on IS NULL OR e.exited_on>=?) "
+                + " AND e.status='ACTIVE' "
                 + "ORDER BY s.last_name, s.first_name";
         List<ReportCardInputRow> rows = jdbc.query(rosterSql, (rs, n) -> {
                     UUID studentId = rs.getObject("student_id", UUID.class);
@@ -164,8 +166,12 @@ public class ReportCardInputService {
     @Transactional
     public ReportCardInputsView save(ReportCardInputUpsert in) {
         AcademicReportingPeriod period = period(in.reportingPeriodId());
+        // Permission first; assertRoster then confirms the active class/cohort membership. Do not pass
+        // the learner through the generic date-bound enrollment check again:
+        // it would reject pupils visible in this council sheet solely because
+        // they enrolled after the reporting period began.
         accessPolicy.require(AcademicAccessPolicyService.Capability.COUNCIL_INPUT_EDIT,
-                period.getAcademicSessionId(), in.classId(), null, in.studentId(), period.getStartDate());
+                period.getAcademicSessionId(), in.classId(), null, null, period.getStartDate());
         assertRoster(period, in.classId(), in.studentId());
         windows.assertOpen(period.getId(), AcademicWindowPolicyService.Action.REVIEW);
         BigDecimal justified = nonNegative(in.justifiedAbsenceHours(), "Les heures justifiées");
@@ -186,7 +192,7 @@ public class ReportCardInputService {
     public ReportCardInputsView submit(UUID periodId, UUID classId, UUID studentId) {
         AcademicReportingPeriod period = period(periodId);
         accessPolicy.require(AcademicAccessPolicyService.Capability.COUNCIL_INPUT_EDIT,
-                period.getAcademicSessionId(), classId, null, studentId, period.getStartDate());
+                period.getAcademicSessionId(), classId, null, null, period.getStartDate());
         assertRoster(period, classId, studentId);
         windows.assertOpen(periodId, AcademicWindowPolicyService.Action.REVIEW);
         int attendance = jdbc.update("""
@@ -213,9 +219,9 @@ public class ReportCardInputService {
         // Management reviews without editing; a teacher needs explicit council-edit
         // delegation as well as packet-review authority, not just titular oversight.
         accessPolicy.require(councilReviewInputCapability(currentRole()),
-                period.getAcademicSessionId(), classId, null, studentId, period.getStartDate());
+                period.getAcademicSessionId(), classId, null, null, period.getStartDate());
         accessPolicy.require(AcademicAccessPolicyService.Capability.GRADE_PACKET_REVIEW,
-                period.getAcademicSessionId(), classId, null, studentId, period.getStartDate());
+                period.getAcademicSessionId(), classId, null, null, period.getStartDate());
         assertRoster(period, classId, studentId);
         windows.assertOpen(periodId, AcademicWindowPolicyService.Action.REVIEW);
         String action = in.action().trim().toUpperCase(Locale.ROOT);
@@ -409,10 +415,8 @@ public class ReportCardInputService {
         enrollments.findFirstBySchoolIdAndStudentIdAndAcademicSessionIdAndStatus(
                 TenantContext.get(), studentId, period.getAcademicSessionId(), "ACTIVE")
                 .filter(e -> (cohorts != null
-                        ? cohorts.studentBelongsToClass(period.getAcademicSessionId(), classId, studentId, "ACTIVE", period.getStartDate())
-                        : classId.equals(e.getSchoolClassId()))
-                        && !e.getEnrolledOn().isAfter(period.getStartDate())
-                        && (e.getExitedOn() == null || !e.getExitedOn().isBefore(period.getStartDate())))
+                        ? cohorts.studentBelongsToClass(period.getAcademicSessionId(), classId, studentId, "ACTIVE")
+                        : classId.equals(e.getSchoolClassId())))
                 .orElseThrow(() -> ApiException.badRequest("L'élève n'est pas inscrit dans cette classe pour la session"));
     }
 

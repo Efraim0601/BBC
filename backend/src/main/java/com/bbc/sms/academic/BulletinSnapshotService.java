@@ -77,8 +77,6 @@ public class BulletinSnapshotService {
     private StudentEnrollment enrollment(UUID studentId, AcademicReportingPeriod period) {
         return enrollments.findFirstBySchoolIdAndStudentIdAndAcademicSessionIdAndStatus(
                 TenantContext.get(), studentId, period.getAcademicSessionId(), "ACTIVE")
-                .filter(e -> !e.getEnrolledOn().isAfter(period.getStartDate())
-                        && (e.getExitedOn() == null || !e.getExitedOn().isBefore(period.getStartDate())))
                 .orElse(null);
     }
 
@@ -88,8 +86,12 @@ public class BulletinSnapshotService {
         if (requestedClassId == null) return fallback;
         classes.findByIdAndSchoolId(requestedClassId, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Classe"));
+        // Keep the selected report-card stream aligned with grade entry and
+        // council input: both operate on the current active cohort roster.
+        // Applying the reporting-period start date here rejects learners that
+        // are visible and graded in the sheet but enrolled after that date.
         if (!cohorts.studentBelongsToClass(period.getAcademicSessionId(), requestedClassId,
-                studentId, "ACTIVE", period.getStartDate())) {
+                studentId, "ACTIVE")) {
             throw ApiException.conflict("Cet élève n'appartient pas à cette classe ou à ce groupe bilingue pour la période sélectionnée.");
         }
         return requestedClassId;
@@ -109,8 +111,14 @@ public class BulletinSnapshotService {
                     "ENROLLMENT_SCOPE_MISMATCH",
                     "Aucune classe de programme active ne correspond à cet élève et cette période.");
         }
+        // resolveProgrammeClass has already established the learner's active
+        // membership of the selected programme class (including a bilingual
+        // cohort). Pass no student to the generic policy evaluator so it does
+        // not reapply a historical enrolment-date test that conflicts with the
+        // active roster used by grade entry and council input. The class and
+        // dated staff-scope checks remain enforced here.
         accessPolicy.require(capability, period.getAcademicSessionId(), effectiveClassId,
-                null, studentId, period.getStartDate());
+                null, null, period.getStartDate());
         return effectiveClassId;
     }
 
@@ -659,7 +667,7 @@ public class BulletinSnapshotService {
                 period.getAcademicSessionId(), classId, null, null, period.getStartDate());
         SchoolClass schoolClass = classes.findByIdAndSchoolId(classId, TenantContext.get())
                 .orElseThrow(() -> ApiException.notFound("Classe"));
-        List<UUID> roster = cohorts.rosterStudentIds(period.getAcademicSessionId(), classId, "ACTIVE", period.getStartDate());
+        List<UUID> roster = cohorts.rosterStudentIds(period.getAcademicSessionId(), classId, "ACTIVE");
         Map<UUID, String> names = new HashMap<>();
         for (UUID studentId : roster) {
             students.findByIdAndSchoolId(studentId, TenantContext.get())
@@ -1075,7 +1083,11 @@ public class BulletinSnapshotService {
         StudentEnrollment enrollment = enrollment(studentId, period);
         UUID classId = calculationClassId(studentId, period, context);
         ClassProfile profile = classProfile(classId, enrollment, context);
-        int classSize = classId == null ? 0 : cohorts.rosterStudentIds(period.getAcademicSessionId(), classId, "ACTIVE", period.getStartDate()).size();
+        // Report-card lines are built from the active cohort roster. Use that
+        // same roster for the class size so an enrolled learner is never
+        // rendered with an empty class simply because they joined after the
+        // reporting period's opening date.
+        int classSize = classId == null ? 0 : cohorts.rosterStudentIds(period.getAcademicSessionId(), classId, "ACTIVE").size();
         int rank = 1;
         return new Calculation(lines, blockers, average, rank, classSize,
                 profile.level(), profile.subsystem(), profile.name(), null);
@@ -1339,7 +1351,10 @@ public class BulletinSnapshotService {
         StudentEnrollment enrollment = enrollment(studentId, period);
         UUID classId = calculationClassId(studentId, period, context);
         if (enrollment == null || classId == null) return own;
-        List<UUID> roster = cohorts.rosterStudentIds(period.getAcademicSessionId(), classId, "ACTIVE", period.getStartDate());
+        // Keep the statistics population consistent with grade entry, council
+        // input, and bulletin calculation: all use the active class/cohort
+        // roster rather than an unrelated historical cutoff.
+        List<UUID> roster = cohorts.rosterStudentIds(period.getAcademicSessionId(), classId, "ACTIVE");
         List<Calculation> eligible = new ArrayList<>();
         for (UUID peerId : roster) {
             Calculation c = calculateCurrent(peerId, period, context);

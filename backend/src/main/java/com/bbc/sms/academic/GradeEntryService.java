@@ -445,8 +445,13 @@ public class GradeEntryService {
     UUID resolveEnrollmentId(UUID sessionId, UUID classId, UUID studentId,
                              java.time.LocalDate effectiveDate) {
         if (cohorts != null) {
+            // Grade-entry displays the current active class/cohort roster (without
+            // an historical effective-date filter). Resolve the enrollment from
+            // that same roster. Otherwise a learner shown in the sheet can be
+            // rejected during save merely because they enrolled after the
+            // reporting period started.
             UUID enrollmentId = cohorts.enrollmentIdForClass(
-                    sessionId, classId, studentId, "ACTIVE", effectiveDate);
+                    sessionId, classId, studentId, "ACTIVE", null);
             if (enrollmentId != null) return enrollmentId;
             throw ApiException.badRequest("Inscription active introuvable pour l'élève");
         }

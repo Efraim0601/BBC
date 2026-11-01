@@ -126,12 +126,12 @@ class GradeEntryServiceWorkflowTest {
     }
 
     @Test
-    void pairedProgrammeGradeUsesTheSharedCohortEnrollment() {
+    void pairedProgrammeGradeUsesTheSharedCohortEnrollmentFromTheDisplayedActiveRoster() {
         TenantContext.set(schoolId);
         UUID studentId = UUID.randomUUID();
         UUID enrollmentId = UUID.randomUUID();
         AcademicCohortResolver cohorts = mock(AcademicCohortResolver.class);
-        when(cohorts.enrollmentIdForClass(sessionId, classId, studentId, "ACTIVE", periodStart))
+        when(cohorts.enrollmentIdForClass(sessionId, classId, studentId, "ACTIVE", null))
                 .thenReturn(enrollmentId);
 
         GradeEntryService service = new GradeEntryService(
