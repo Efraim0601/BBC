@@ -104,9 +104,9 @@ public class TimetableVersionService {
             jdbc.update("""
                 INSERT INTO timetable_slot
                     (id,school_id,class_id,academic_session_id,day_idx,slot_idx,subject_code,teacher_id,room,
-                     assignment_id,assignment_version,timetable_version_id)
+                     display_label,assignment_id,assignment_version,timetable_version_id)
                 SELECT gen_random_uuid(),school_id,class_id,?,day_idx,slot_idx,subject_code,
-                       teacher_id,room,assignment_id,assignment_version,?
+                       teacher_id,room,display_label,assignment_id,assignment_version,?
                   FROM timetable_slot WHERE school_id=? AND timetable_version_id=?
                 """, in.academicSessionId(), id, school, source);
         }
@@ -132,6 +132,7 @@ public class TimetableVersionService {
         Map<String, Object> current = jdbc.queryForMap("SELECT * FROM timetable_version WHERE id=? AND school_id=? FOR UPDATE", id, school);
         assertActionVersion(in.version(), ((Number) current.get("version")).longValue(), "publier");
         if (!"DRAFT".equals(current.get("status"))) throw ApiException.conflict("Seul un brouillon de planning peut être publié");
+        assertBellScheduleSlots(school, id, null);
         LocalDate effectiveDate = localDate(current.get("effective_from"));
         List<Map<String, Object>> assignmentConflicts = new ArrayList<>();
         Map<UUID, UUID> canonicalHomerooms = new LinkedHashMap<>();
@@ -171,20 +172,8 @@ public class TimetableVersionService {
         List<Map<String, Object>> resourceConflicts = resourceBlockers(sessionId, id);
         if (!resourceConflicts.isEmpty()) throw ApiException.conflict("TIMETABLE_RESOURCES_BLOCKED",
                 "Le planning contient des ressources indisponibles ou des salles trop petites.", resourceConflicts);
-        Integer teacherConflicts = jdbc.queryForObject("""
-            SELECT count(*) FROM (
-                SELECT day_idx,slot_idx,teacher_id FROM timetable_slot
-                 WHERE school_id=? AND timetable_version_id=? AND teacher_id IS NOT NULL
-                 GROUP BY day_idx,slot_idx,teacher_id HAVING count(*)>1
-            ) x
-            """, Integer.class, school, id);
-        Integer roomConflicts = jdbc.queryForObject("""
-            SELECT count(*) FROM (
-                SELECT day_idx,slot_idx,lower(btrim(room)) room FROM timetable_slot
-                 WHERE school_id=? AND timetable_version_id=? AND room IS NOT NULL AND btrim(room)<>''
-                 GROUP BY day_idx,slot_idx,lower(btrim(room)) HAVING count(*)>1
-            ) x
-            """, Integer.class, school, id);
+        Integer teacherConflicts = timedResourceConflictCount(school, id, true);
+        Integer roomConflicts = timedResourceConflictCount(school, id, false);
         List<String> conflictBlockers = new ArrayList<>();
         if (teacherConflicts != null && teacherConflicts > 0) conflictBlockers.add("TEACHER_DOUBLE_BOOKED");
         if (roomConflicts != null && roomConflicts > 0) conflictBlockers.add("ROOM_DOUBLE_BOOKED");
@@ -254,19 +243,20 @@ public class TimetableVersionService {
                 draftId, school, sessionId);
         LocalDate effectiveDate = localDate(current.get("effective_from"));
         List<Map<String, Object>> slots = jdbc.queryForList("""
-                SELECT id,class_id,subject_code,day_idx,slot_idx
+                SELECT id,class_id,subject_code,day_idx,slot_idx,teacher_id
                   FROM timetable_slot
                  WHERE school_id=? AND timetable_version_id=? AND class_id=?
                  ORDER BY day_idx,slot_idx
                 """, school, draftId, classId);
         if (slots.isEmpty()) throw ApiException.badRequest("Ajoutez au moins un cours avant de publier l'emploi du temps de cette classe.");
+        assertBellScheduleSlots(school, draftId, classId);
 
         List<Map<String, Object>> assignmentConflicts = new ArrayList<>();
         UUID canonicalHomeroom = null;
         for (Map<String, Object> slot : slots) {
             String subjectCode = (String) slot.get("subject_code");
-            TeachingAssignmentResolver.Resolution resolved = assignments.resolve(sessionId, classId,
-                    subjectCode, effectiveDate);
+            TeachingAssignmentResolver.Resolution resolved = assignments.resolveForTimetable(sessionId, classId,
+                    subjectCode, (UUID) slot.get("teacher_id"), effectiveDate);
             if (!resolved.available()) {
                 Map<String, Object> conflict = new LinkedHashMap<>();
                 conflict.put("resourceType", "ASSIGNMENT");
@@ -390,9 +380,9 @@ public class TimetableVersionService {
         jdbc.update("""
                 INSERT INTO timetable_slot
                     (id,school_id,class_id,academic_session_id,day_idx,slot_idx,subject_code,teacher_id,room,
-                     assignment_id,assignment_version,timetable_version_id)
+                     display_label,assignment_id,assignment_version,timetable_version_id)
                 SELECT gen_random_uuid(),s.school_id,s.class_id,s.academic_session_id,s.day_idx,s.slot_idx,
-                       s.subject_code,coalesce(s.published_teacher_id,s.teacher_id),s.room,
+                       s.subject_code,coalesce(s.published_teacher_id,s.teacher_id),s.room,s.display_label,
                        coalesce(s.published_assignment_id,s.assignment_id),
                        coalesce(s.published_assignment_version,s.assignment_version),?
                   FROM timetable_slot s
@@ -596,7 +586,7 @@ public class TimetableVersionService {
     public List<RoomAvailabilityView> roomAvailability(UUID roomId) {
         policy.require("TIMETABLE_ROOM_VIEW", schoolContext());
         ensureRoom(roomId);
-        return jdbc.query("SELECT id,room_id,day_idx,slot_idx,available,reason FROM timetable_room_availability WHERE school_id=? AND room_id=? ORDER BY day_idx,slot_idx",
+        return jdbc.query("SELECT id,room_id,day_idx,slot_idx,available,reason FROM timetable_room_availability WHERE school_id=? AND room_id=? AND period_profile='PRIMARY' ORDER BY day_idx,slot_idx",
                 (rs,n) -> new RoomAvailabilityView(rs.getObject("id",UUID.class), rs.getObject("room_id",UUID.class),
                         rs.getInt("day_idx"), rs.getInt("slot_idx"), rs.getBoolean("available"), rs.getString("reason")),
                 TenantContext.get(), roomId);
@@ -610,12 +600,12 @@ public class TimetableVersionService {
             throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST, "ROOM_SLOT_INVALID",
                     "Le jour ou la période de disponibilité est invalide.", "slotIdx", "Choose a valid school day and bell period.");
         }
-        UUID id = jdbc.query("SELECT id FROM timetable_room_availability WHERE school_id=? AND room_id=? AND day_idx=? AND slot_idx=?",
+        UUID id = jdbc.query("SELECT id FROM timetable_room_availability WHERE school_id=? AND room_id=? AND period_profile='PRIMARY' AND day_idx=? AND slot_idx=?",
                 rs -> rs.next() ? rs.getObject(1,UUID.class) : null, TenantContext.get(), roomId, in.dayIdx(), in.slotIdx());
         if (id == null) {
             id = UUID.randomUUID();
-            jdbc.update("INSERT INTO timetable_room_availability(id,school_id,room_id,day_idx,slot_idx,available,reason) VALUES (?,?,?,?,?,?,?)",
-                    id, TenantContext.get(), roomId, in.dayIdx(), in.slotIdx(), in.available(), cleanReason(in.reason()));
+            jdbc.update("INSERT INTO timetable_room_availability(id,school_id,room_id,period_profile,day_idx,slot_idx,available,reason) VALUES (?,?,?,?,?,?,?,?)",
+                    id, TenantContext.get(), roomId, TimetablePeriodProfile.PRIMARY, in.dayIdx(), in.slotIdx(), in.available(), cleanReason(in.reason()));
         } else {
             jdbc.update("UPDATE timetable_room_availability SET available=?,reason=? WHERE id=? AND school_id=?",
                     in.available(), cleanReason(in.reason()), id, TenantContext.get());
@@ -628,7 +618,7 @@ public class TimetableVersionService {
     public List<TeacherAvailabilityView> teacherAvailability(UUID teacherId) {
         policy.require("TIMETABLE_RESOURCE_VIEW", schoolContext());
         ensureTeacher(teacherId);
-        return jdbc.query("SELECT id,employee_id,day_idx,slot_idx,available,reason FROM timetable_teacher_availability WHERE school_id=? AND employee_id=? ORDER BY day_idx,slot_idx",
+        return jdbc.query("SELECT id,employee_id,day_idx,slot_idx,available,reason FROM timetable_teacher_availability WHERE school_id=? AND employee_id=? AND period_profile='PRIMARY' ORDER BY day_idx,slot_idx",
                 (rs, n) -> new TeacherAvailabilityView(rs.getObject("id", UUID.class),
                         rs.getObject("employee_id", UUID.class), rs.getInt("day_idx"), rs.getInt("slot_idx"),
                         rs.getBoolean("available"), rs.getString("reason")), TenantContext.get(), teacherId);
@@ -640,12 +630,12 @@ public class TimetableVersionService {
         ensureTeacher(teacherId);
         validateAvailabilitySlot(in.dayIdx(), in.slotIdx());
         UUID school = TenantContext.get();
-        UUID id = jdbc.query("SELECT id FROM timetable_teacher_availability WHERE school_id=? AND employee_id=? AND day_idx=? AND slot_idx=?",
+        UUID id = jdbc.query("SELECT id FROM timetable_teacher_availability WHERE school_id=? AND employee_id=? AND period_profile='PRIMARY' AND day_idx=? AND slot_idx=?",
                 rs -> rs.next() ? rs.getObject(1, UUID.class) : null, school, teacherId, in.dayIdx(), in.slotIdx());
         if (id == null) {
             id = UUID.randomUUID();
-            jdbc.update("INSERT INTO timetable_teacher_availability(id,school_id,employee_id,day_idx,slot_idx,available,reason) VALUES (?,?,?,?,?,?,?)",
-                    id, school, teacherId, in.dayIdx(), in.slotIdx(), in.available(), cleanReason(in.reason()));
+            jdbc.update("INSERT INTO timetable_teacher_availability(id,school_id,employee_id,period_profile,day_idx,slot_idx,available,reason) VALUES (?,?,?,?,?,?,?,?)",
+                    id, school, teacherId, TimetablePeriodProfile.PRIMARY, in.dayIdx(), in.slotIdx(), in.available(), cleanReason(in.reason()));
         } else {
             jdbc.update("UPDATE timetable_teacher_availability SET available=?,reason=? WHERE id=? AND school_id=?",
                     in.available(), cleanReason(in.reason()), id, school);
@@ -914,11 +904,11 @@ public class TimetableVersionService {
                 rs -> { Map<String,String> map = new HashMap<>(); while (rs.next()) map.put(rs.getString(1),rs.getString(2)); return map; }, school);
         Map<String,String> subjects = jdbc.query("SELECT code,coalesce(label->>'fr',label->>'en',code) FROM subject WHERE school_id=?",
                 rs -> { Map<String,String> map = new HashMap<>(); while (rs.next()) map.put(rs.getString(1),rs.getString(2)); return map; }, school);
-        Map<Integer,String> times = jdbc.query("SELECT slot_idx,to_char(start_time,'HH24:MI')||' - '||to_char(end_time,'HH24:MI') FROM timetable_period WHERE school_id=?",
-                rs -> { Map<Integer,String> map = new HashMap<>(); while (rs.next()) map.put(rs.getInt(1),rs.getString(2)); return map; }, school);
+        Map<String,String> times = jdbc.query("SELECT period_profile,slot_idx,to_char(start_time,'HH24:MI')||' - '||to_char(end_time,'HH24:MI') FROM timetable_period WHERE school_id=?",
+                rs -> { Map<String,String> map = new HashMap<>(); while (rs.next()) map.put(rs.getString(1)+":"+rs.getInt(2),rs.getString(3)); return map; }, school);
         List<String> days = List.of("Lun / Mon", "Mar / Tue", "Mer / Wed", "Jeu / Thu", "Ven / Fri", "Sam / Sat", "Dim / Sun");
         var display = rows.stream().map(row -> new TimetablePdfRenderer.Row(row.className(),
-                days.get(row.dayIdx()), times.getOrDefault(row.slotIdx(), "P" + (row.slotIdx()+1)),
+                days.get(row.dayIdx()), times.getOrDefault(TimetablePeriodProfile.forLevel(row.level())+":"+row.slotIdx(), "P" + (row.slotIdx()+1)),
                 subjects.getOrDefault(row.subjectCode(), row.subjectCode()),
                 teachers.getOrDefault(row.teacherId(), "Non affecté / Unassigned"), row.room())).toList();
         var date = java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy");
@@ -945,7 +935,9 @@ public class TimetableVersionService {
             SELECT c.id::text AS class_id,c.name,s.subject_code,s.day_idx,s.slot_idx,p.start_time,p.end_time,
                    coalesce(s.published_teacher_id,s.teacher_id)::text teacher_id
               FROM timetable_slot s JOIN school_class c ON c.id=s.class_id
-              JOIN timetable_period p ON p.school_id=s.school_id AND p.slot_idx=s.slot_idx
+              JOIN timetable_period p ON p.school_id=s.school_id
+               AND p.period_profile=CASE WHEN lower(c.level)='secondary' THEN 'SECONDARY' ELSE 'PRIMARY' END
+               AND p.slot_idx=s.slot_idx
              WHERE s.school_id=? AND s.timetable_version_id=?
                AND (CAST(? AS varchar) IS NULL OR lower(c.level)=lower(?))
                AND (CAST(? AS varchar) IS NULL OR upper(c.subsystem)=upper(?))
@@ -1013,9 +1005,9 @@ public class TimetableVersionService {
         jdbc.update("""
                 INSERT INTO timetable_slot
                     (id,school_id,class_id,academic_session_id,day_idx,slot_idx,subject_code,teacher_id,room,
-                     assignment_id,assignment_version,timetable_version_id)
+                     display_label,assignment_id,assignment_version,timetable_version_id)
                 SELECT gen_random_uuid(),school_id,class_id,academic_session_id,day_idx,slot_idx,subject_code,
-                       teacher_id,room,assignment_id,assignment_version,?
+                       teacher_id,room,display_label,assignment_id,assignment_version,?
                   FROM timetable_slot
                  WHERE school_id=? AND timetable_version_id=?
                 """, id, school, sourceId);
@@ -1023,20 +1015,8 @@ public class TimetableVersionService {
     }
 
     private void assertNoVersionConflicts(UUID school, UUID versionId) {
-        Integer teacherConflicts = jdbc.queryForObject("""
-                SELECT count(*) FROM (
-                    SELECT day_idx,slot_idx,teacher_id FROM timetable_slot
-                     WHERE school_id=? AND timetable_version_id=? AND teacher_id IS NOT NULL
-                     GROUP BY day_idx,slot_idx,teacher_id HAVING count(*)>1
-                ) x
-                """, Integer.class, school, versionId);
-        Integer roomConflicts = jdbc.queryForObject("""
-                SELECT count(*) FROM (
-                    SELECT day_idx,slot_idx,lower(btrim(room)) room FROM timetable_slot
-                     WHERE school_id=? AND timetable_version_id=? AND room IS NOT NULL AND btrim(room)<>''
-                     GROUP BY day_idx,slot_idx,lower(btrim(room)) HAVING count(*)>1
-                ) x
-                """, Integer.class, school, versionId);
+        Integer teacherConflicts = timedResourceConflictCount(school, versionId, true);
+        Integer roomConflicts = timedResourceConflictCount(school, versionId, false);
         List<String> blockers = new ArrayList<>();
         if (teacherConflicts != null && teacherConflicts > 0) blockers.add("TEACHER_DOUBLE_BOOKED");
         if (roomConflicts != null && roomConflicts > 0) blockers.add("ROOM_DOUBLE_BOOKED");
@@ -1044,6 +1024,77 @@ public class TimetableVersionService {
             throw ApiException.blockers("TIMETABLE_CONFLICTS",
                     "Le planning de cette classe entre en conflit avec un planning déjà publié.", blockers);
         }
+    }
+
+    /**
+     * A timetable slot is meaningful only within its class's bell profile.
+     * This makes old eight-slot secondary drafts fail visibly after the school
+     * moves to the seven-period secondary day, instead of disappearing from
+     * the grid or being published with an undefined attendance period.
+     */
+    private void assertBellScheduleSlots(UUID school, UUID versionId, UUID classId) {
+        List<Map<String, Object>> invalidSlots = jdbc.queryForList("""
+                SELECT s.id,c.id AS class_id,c.name,c.level,s.day_idx,s.slot_idx,s.subject_code
+                  FROM timetable_slot s
+                  JOIN school_class c ON c.id=s.class_id AND c.school_id=s.school_id
+                  LEFT JOIN timetable_period p ON p.school_id=s.school_id
+                   AND p.period_profile=CASE WHEN lower(c.level)='secondary' THEN 'SECONDARY' ELSE 'PRIMARY' END
+                   AND p.slot_idx=s.slot_idx AND p.active
+                 WHERE s.school_id=? AND s.timetable_version_id=?
+                   AND (CAST(? AS uuid) IS NULL OR s.class_id=?)
+                   AND p.id IS NULL
+                 ORDER BY c.name,s.day_idx,s.slot_idx
+                """, school, versionId, classId, classId);
+        if (invalidSlots.isEmpty()) return;
+        List<Map<String, Object>> blockers = invalidSlots.stream().map(row -> {
+            Map<String, Object> blocker = new LinkedHashMap<>();
+            blocker.put("resourceType", "BELL_SCHEDULE");
+            blocker.put("slotId", row.get("id"));
+            blocker.put("classId", row.get("class_id"));
+            blocker.put("class", row.get("name"));
+            blocker.put("level", row.get("level"));
+            blocker.put("subjectCode", row.get("subject_code"));
+            blocker.put("dayIdx", row.get("day_idx"));
+            blocker.put("slotIdx", row.get("slot_idx"));
+            blocker.put("code", "SLOT_OUTSIDE_BELL_SCHEDULE");
+            blocker.put("repair", "Move or remove this course: it is outside the active bell schedule for this level.");
+            return blocker;
+        }).toList();
+        throw ApiException.conflict("TIMETABLE_BELL_SCHEDULE_BLOCKED",
+                "Le planning contient des cours en dehors des périodes actives de ce cycle.", blockers);
+    }
+
+    /**
+     * Timetable slot indices are profile-local: primary P1 is 07:30–08:00,
+     * while secondary P1 is 07:30–08:30.  Resource safety must therefore use
+     * real clock intervals, not equality of an index shared by two profiles.
+     */
+    private Integer timedResourceConflictCount(UUID school, UUID versionId, boolean teacher) {
+        String sharedLesson = "a.teacher_id IS NOT NULL AND a.teacher_id=b.teacher_id "
+                + "AND upper(coalesce(a.subject_code,''))=upper(coalesce(b.subject_code,'')) "
+                + "AND pa.period_profile=pb.period_profile "
+                + "AND pa.start_time=pb.start_time AND pa.end_time=pb.end_time";
+        String sameResource = teacher
+                ? "a.teacher_id IS NOT NULL AND a.teacher_id=b.teacher_id AND NOT (" + sharedLesson + ")"
+                : "a.room IS NOT NULL AND b.room IS NOT NULL AND btrim(a.room)<>'' AND btrim(b.room)<>'' "
+                + "AND lower(btrim(a.room))=lower(btrim(b.room)) AND NOT (" + sharedLesson + ")";
+        return jdbc.queryForObject("""
+                SELECT count(*)
+                  FROM timetable_slot a
+                  JOIN school_class ca ON ca.id=a.class_id AND ca.school_id=a.school_id
+                  JOIN timetable_period pa ON pa.school_id=a.school_id
+                   AND pa.period_profile=CASE WHEN lower(ca.level)='secondary' THEN 'SECONDARY' ELSE 'PRIMARY' END
+                   AND pa.slot_idx=a.slot_idx AND pa.active
+                  JOIN timetable_slot b ON b.school_id=a.school_id AND b.timetable_version_id=a.timetable_version_id
+                   AND b.day_idx=a.day_idx AND b.id::text>a.id::text
+                  JOIN school_class cb ON cb.id=b.class_id AND cb.school_id=b.school_id
+                  JOIN timetable_period pb ON pb.school_id=b.school_id
+                   AND pb.period_profile=CASE WHEN lower(cb.level)='secondary' THEN 'SECONDARY' ELSE 'PRIMARY' END
+                   AND pb.slot_idx=b.slot_idx AND pb.active
+                 WHERE a.school_id=? AND a.timetable_version_id=?
+                   """ + "AND " + sameResource + """
+                   AND pa.start_time < pb.end_time AND pa.end_time > pb.start_time
+                """, Integer.class, school, versionId);
     }
 
     /** One shared student cohort cannot receive two programme lessons at once. */
@@ -1120,10 +1171,11 @@ public class TimetableVersionService {
     /** Validate resources before a draft slot is written. */
     @Transactional(readOnly = true)
     public void assertSlotResourcesAvailable(UUID sessionId, UUID versionId, UUID classId, UUID teacherId,
-                                              int dayIdx, int slotIdx, String room) {
+                                              String classLevel, int dayIdx, int slotIdx, String room) {
         UUID school = TenantContext.get();
-        Integer teacherBlocked = jdbc.queryForObject("SELECT count(*) FROM timetable_teacher_availability WHERE school_id=? AND employee_id=? AND day_idx=? AND slot_idx=? AND available=false",
-                Integer.class, school, teacherId, dayIdx, slotIdx);
+        String periodProfile=TimetablePeriodProfile.forLevel(classLevel);
+        Integer teacherBlocked = jdbc.queryForObject("SELECT count(*) FROM timetable_teacher_availability WHERE school_id=? AND employee_id=? AND period_profile=? AND day_idx=? AND slot_idx=? AND available=false",
+                Integer.class, school, teacherId, periodProfile, dayIdx, slotIdx);
         if (teacherBlocked != null && teacherBlocked > 0) {
             throw ApiException.conflict("TIMETABLE_TEACHER_UNAVAILABLE",
                     "L'enseignant canonique n'est pas disponible sur cette période.",
@@ -1135,7 +1187,7 @@ public class TimetableVersionService {
         Map<String, Object> roomRow = jdbc.query("""
                 SELECT r.id,r.active,r.capacity,coalesce(count(e.student_id),0) AS student_count,
                        exists(SELECT 1 FROM timetable_room_availability a
-                               WHERE a.room_id=r.id AND a.day_idx=? AND a.slot_idx=? AND a.available=false) AS unavailable
+                               WHERE a.room_id=r.id AND a.period_profile=? AND a.day_idx=? AND a.slot_idx=? AND a.available=false) AS unavailable
                   FROM timetable_room r
                   LEFT JOIN student_enrollment e ON e.school_id=r.school_id AND e.academic_session_id=?
                    AND e.school_class_id=? AND e.status='ACTIVE'
@@ -1149,7 +1201,7 @@ public class TimetableVersionService {
                     value.put("unavailable", rs.getBoolean("unavailable"));
                     return value;
                 },
-                dayIdx, slotIdx, sessionId, classId, school, room);
+                periodProfile, dayIdx, slotIdx, sessionId, classId, school, room);
         if (roomRow == null) return;
         if (!Boolean.TRUE.equals(roomRow.get("active")) || Boolean.TRUE.equals(roomRow.get("unavailable"))) {
             throw ApiException.conflict("TIMETABLE_ROOM_UNAVAILABLE",
@@ -1176,17 +1228,36 @@ public class TimetableVersionService {
         List<Map<String, Object>> result = new ArrayList<>();
         jdbc.query("""
                 SELECT s.id,c.id AS class_id,c.name,s.subject_code,s.day_idx,s.slot_idx,btrim(s.room) AS room,
-                       r.active,a.id AS unavailable_id,r.capacity,count(DISTINCT e.student_id) AS student_count
+                       r.active,a.id AS unavailable_id,r.capacity,
+                       coalesce((
+                           SELECT count(DISTINCT enrollment.student_id)
+                             FROM timetable_slot peer
+                             JOIN school_class peer_class ON peer_class.id=peer.class_id
+                             JOIN timetable_period peer_period ON peer_period.school_id=peer.school_id
+                              AND peer_period.period_profile=CASE WHEN lower(peer_class.level)='secondary' THEN 'SECONDARY' ELSE 'PRIMARY' END
+                              AND peer_period.slot_idx=peer.slot_idx AND peer_period.active
+                             JOIN student_enrollment enrollment ON enrollment.school_id=peer.school_id
+                              AND enrollment.academic_session_id=? AND enrollment.school_class_id=peer.class_id
+                              AND enrollment.status='ACTIVE'
+                            WHERE peer.school_id=s.school_id AND peer.timetable_version_id=s.timetable_version_id
+                              AND peer.day_idx=s.day_idx AND lower(btrim(peer.room))=lower(btrim(s.room))
+                              AND peer.teacher_id=s.teacher_id
+                              AND upper(coalesce(peer.subject_code,''))=upper(coalesce(s.subject_code,''))
+                              AND peer_period.period_profile=period.period_profile
+                              AND peer_period.start_time=period.start_time AND peer_period.end_time=period.end_time
+                       ),0) AS student_count
                   FROM timetable_slot s
                   JOIN school_class c ON c.id=s.class_id
+                  JOIN timetable_period period ON period.school_id=s.school_id
+                   AND period.period_profile=CASE WHEN lower(c.level)='secondary' THEN 'SECONDARY' ELSE 'PRIMARY' END
+                   AND period.slot_idx=s.slot_idx AND period.active
                   LEFT JOIN timetable_room r ON r.school_id=s.school_id AND lower(btrim(r.code))=lower(btrim(s.room))
-                  LEFT JOIN timetable_room_availability a ON a.room_id=r.id AND a.day_idx=s.day_idx AND a.slot_idx=s.slot_idx AND a.available=false
-                  LEFT JOIN student_enrollment e ON e.school_id=s.school_id AND e.academic_session_id=?
-                   AND e.school_class_id=s.class_id AND e.status='ACTIVE'
+                  LEFT JOIN timetable_room_availability a ON a.room_id=r.id
+                   AND a.period_profile=period.period_profile
+                   AND a.day_idx=s.day_idx AND a.slot_idx=s.slot_idx AND a.available=false
                  WHERE s.school_id=? AND s.timetable_version_id=?
                    AND (CAST(? AS uuid) IS NULL OR s.class_id=?)
                    AND s.room IS NOT NULL AND btrim(s.room)<>''
-                 GROUP BY s.id,c.id,c.name,s.subject_code,s.day_idx,s.slot_idx,s.room,r.id,r.active,a.id,r.capacity
                 """, rs -> {
             UUID roomId = rs.getObject("id", UUID.class);
             boolean roomKnown = rs.getObject("active") != null;
@@ -1209,6 +1280,7 @@ public class TimetableVersionService {
                   FROM timetable_slot s
                   JOIN school_class c ON c.id=s.class_id
                   JOIN timetable_teacher_availability a ON a.school_id=s.school_id AND a.employee_id=s.teacher_id
+                   AND a.period_profile=CASE WHEN lower(c.level)='secondary' THEN 'SECONDARY' ELSE 'PRIMARY' END
                    AND a.day_idx=s.day_idx AND a.slot_idx=s.slot_idx AND a.available=false
                   LEFT JOIN employee e ON e.id=s.teacher_id
                  WHERE s.school_id=? AND s.timetable_version_id=?
@@ -1223,9 +1295,15 @@ public class TimetableVersionService {
             result.add(blocker);
         }, school, versionId, classId, classId);
         jdbc.query("""
-                SELECT s.teacher_id,e.name,s.day_idx,w.max_slots_per_day,count(*) AS slot_count
+                SELECT s.teacher_id,e.name,s.day_idx,w.max_slots_per_day,
+                       count(DISTINCT concat_ws('|',p.period_profile,to_char(p.start_time,'HH24:MI:SS'),
+                                                 to_char(p.end_time,'HH24:MI:SS'),upper(coalesce(s.subject_code,'')))) AS slot_count
                   FROM timetable_slot s
                   JOIN timetable_version v ON v.id=s.timetable_version_id AND v.school_id=s.school_id
+                  JOIN school_class c ON c.id=s.class_id AND c.school_id=s.school_id
+                  JOIN timetable_period p ON p.school_id=s.school_id
+                   AND p.period_profile=CASE WHEN lower(c.level)='secondary' THEN 'SECONDARY' ELSE 'PRIMARY' END
+                   AND p.slot_idx=s.slot_idx AND p.active
                   JOIN employee e ON e.id=s.teacher_id
                   JOIN LATERAL (SELECT x.max_slots_per_day
                                   FROM timetable_teacher_workload_policy x
@@ -1235,7 +1313,8 @@ public class TimetableVersionService {
                                  ORDER BY x.effective_from DESC LIMIT 1) w ON w.max_slots_per_day IS NOT NULL
                  WHERE s.school_id=? AND s.timetable_version_id=?
                  GROUP BY s.teacher_id,e.name,s.day_idx,w.max_slots_per_day
-                HAVING count(*)>w.max_slots_per_day
+                HAVING count(DISTINCT concat_ws('|',p.period_profile,to_char(p.start_time,'HH24:MI:SS'),
+                                                  to_char(p.end_time,'HH24:MI:SS'),upper(coalesce(s.subject_code,''))))>w.max_slots_per_day
                 """, rs -> {
             Map<String, Object> blocker = new LinkedHashMap<>();
             blocker.put("resourceType", "TEACHER_WORKLOAD"); blocker.put("teacherId", rs.getObject(1, UUID.class));
@@ -1245,9 +1324,15 @@ public class TimetableVersionService {
             result.add(blocker);
         }, school, versionId);
         jdbc.query("""
-                SELECT s.teacher_id,e.name,w.max_slots_per_week,count(*) AS slot_count
+                SELECT s.teacher_id,e.name,w.max_slots_per_week,
+                       count(DISTINCT concat_ws('|',s.day_idx,p.period_profile,to_char(p.start_time,'HH24:MI:SS'),
+                                                 to_char(p.end_time,'HH24:MI:SS'),upper(coalesce(s.subject_code,'')))) AS slot_count
                   FROM timetable_slot s
                   JOIN timetable_version v ON v.id=s.timetable_version_id AND v.school_id=s.school_id
+                  JOIN school_class c ON c.id=s.class_id AND c.school_id=s.school_id
+                  JOIN timetable_period p ON p.school_id=s.school_id
+                   AND p.period_profile=CASE WHEN lower(c.level)='secondary' THEN 'SECONDARY' ELSE 'PRIMARY' END
+                   AND p.slot_idx=s.slot_idx AND p.active
                   JOIN employee e ON e.id=s.teacher_id
                   JOIN LATERAL (SELECT x.max_slots_per_week
                                   FROM timetable_teacher_workload_policy x
@@ -1257,7 +1342,8 @@ public class TimetableVersionService {
                                  ORDER BY x.effective_from DESC LIMIT 1) w ON w.max_slots_per_week IS NOT NULL
                  WHERE s.school_id=? AND s.timetable_version_id=?
                  GROUP BY s.teacher_id,e.name,w.max_slots_per_week
-                HAVING count(*)>w.max_slots_per_week
+                HAVING count(DISTINCT concat_ws('|',s.day_idx,p.period_profile,to_char(p.start_time,'HH24:MI:SS'),
+                                                  to_char(p.end_time,'HH24:MI:SS'),upper(coalesce(s.subject_code,''))))>w.max_slots_per_week
                 """, rs -> {
             Map<String, Object> blocker = new LinkedHashMap<>();
             blocker.put("resourceType", "TEACHER_WORKLOAD"); blocker.put("teacherId", rs.getObject(1, UUID.class));
@@ -1299,14 +1385,14 @@ public class TimetableVersionService {
     private List<TimetableExportRow> exportRows(UUID versionId) {
         String level = scopeLevel(), subsystem = scopeSubsystem();
         return jdbc.query("""
-                SELECT c.name,s.day_idx,s.slot_idx,s.subject_code,coalesce(s.published_teacher_id,s.teacher_id)::text,coalesce(s.room,'')
+                SELECT c.name,c.level,s.day_idx,s.slot_idx,s.subject_code,coalesce(s.published_teacher_id,s.teacher_id)::text,coalesce(s.room,'')
                   FROM timetable_slot s JOIN school_class c ON c.id=s.class_id
                  WHERE s.school_id=? AND s.timetable_version_id=?
                    AND (CAST(? AS varchar) IS NULL OR lower(c.level)=lower(?))
                    AND (CAST(? AS varchar) IS NULL OR upper(c.subsystem)=upper(?))
                  ORDER BY c.name,s.day_idx,s.slot_idx
-                """, (rs, n) -> new TimetableExportRow(rs.getString(1), rs.getInt(2), rs.getInt(3),
-                        rs.getString(4), rs.getString(5), rs.getString(6)), TenantContext.get(), versionId,
+                """, (rs, n) -> new TimetableExportRow(rs.getString(1), rs.getString(2), rs.getInt(3), rs.getInt(4),
+                        rs.getString(5), rs.getString(6), rs.getString(7)), TenantContext.get(), versionId,
                 level, level, subsystem, subsystem);
     }
 
@@ -1323,7 +1409,7 @@ public class TimetableVersionService {
     private static String columnName(int value) { StringBuilder result = new StringBuilder(); while (value > 0) { int rem = (value - 1) % 26; result.insert(0, (char) ('A' + rem)); value = (value - 1) / 26; } return result.toString(); }
     private static String xml(String value) { return value == null ? "" : value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&apos;"); }
     private static void zipEntry(java.util.zip.ZipOutputStream zip, String name, String value) throws Exception { java.util.zip.ZipEntry entry = new java.util.zip.ZipEntry(name); entry.setTime(0); zip.putNextEntry(entry); zip.write(value.getBytes(StandardCharsets.UTF_8)); zip.closeEntry(); }
-    private record TimetableExportRow(String className, int dayIdx, int slotIdx, String subjectCode, String teacherId, String room) {}
+    private record TimetableExportRow(String className, String level, int dayIdx, int slotIdx, String subjectCode, String teacherId, String room) {}
 
     /** Minimal row used for policy filtering before substitution DTOs are materialized. */
     private record SubstitutionScopeRow(UUID id, UUID academicSessionId, UUID timetableVersionId,

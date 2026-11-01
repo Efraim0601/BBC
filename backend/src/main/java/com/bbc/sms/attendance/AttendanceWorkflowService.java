@@ -13,6 +13,7 @@ import com.bbc.sms.platform.tenant.ParcoursContext;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.timetable.SchoolClass;
 import com.bbc.sms.timetable.SchoolClassRepository;
+import com.bbc.sms.timetable.TimetablePeriodProfile;
 import com.bbc.sms.timetable.TimetableSlot;
 import com.bbc.sms.timetable.TimetableSlotRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -129,7 +130,7 @@ public class AttendanceWorkflowService {
                 : LocalDate.now().isAfter(currentSession.getEndDate()) ? currentSession.getEndDate() : LocalDate.now();
         Set<UUID> allowed = currentSessionId == null
                 ? teacherScope.allowedClassIds()
-                : teacherScope.allowedClassIds(currentSessionId, scopeDate);
+                : attendanceAllowedClassIds(currentSessionId, scopeDate);
         Map<UUID, Integer> enrollmentCounts = currentSessionId == null ? Map.of() : jdbc.query("""
             SELECT school_class_id, count(*) FROM student_enrollment
              WHERE school_id=? AND academic_session_id=? AND status='ACTIVE'
@@ -521,7 +522,7 @@ public class AttendanceWorkflowService {
     private UUID ensureSession(AcademicSession academic, SchoolClass schoolClass, LocalDate date,
                                String model, SessionKey key, boolean initializeMarks) {
         String sourceVersion = academic.getId() + ":" + model;
-        int durationMinutes = durationMinutes(academic, date, model, key);
+        int durationMinutes = durationMinutes(academic, date, model, key, schoolClass.getLevel());
         UUID expectedId = jdbc.queryForObject("""
             INSERT INTO expected_school_session(school_id, academic_session_id, school_class_id,
                 session_date, model, period_key, source, source_version)
@@ -556,7 +557,7 @@ public class AttendanceWorkflowService {
     }
 
     /** Duration used for analytics: daily school hours or the timetable period length. */
-    private int durationMinutes(AcademicSession academic, LocalDate date, String model, SessionKey key) {
+    private int durationMinutes(AcademicSession academic, LocalDate date, String model, SessionKey key, String level) {
         Integer duration = jdbc.query("SELECT EXTRACT(EPOCH FROM (end_time - start_time))/60 FROM school_calendar_day WHERE school_id=? AND academic_session_id=? AND day_of_week=? AND teaching_day",
                 rs -> rs.next() && rs.getObject(1) != null ? rs.getInt(1) : null,
                 TenantContext.get(), academic.getId(), date.getDayOfWeek().getValue());
@@ -564,9 +565,9 @@ public class AttendanceWorkflowService {
             try {
                 int slot = Integer.parseInt(key.periodKey().substring(1)) - 1;
                 int fallback = duration == null ? 0 : duration;
-                duration = jdbc.query("SELECT EXTRACT(EPOCH FROM (end_time - start_time))/60 FROM timetable_period WHERE school_id=? AND slot_idx=? AND active",
+                duration = jdbc.query("SELECT EXTRACT(EPOCH FROM (end_time - start_time))/60 FROM timetable_period WHERE school_id=? AND period_profile=? AND slot_idx=? AND active",
                         rs -> rs.next() && rs.getObject(1) != null ? rs.getInt(1) : fallback,
-                        TenantContext.get(), slot);
+                        TenantContext.get(), TimetablePeriodProfile.forLevel(level), slot);
             } catch (NumberFormatException ignored) { /* keep daily fallback */ }
         }
         return duration == null ? 0 : Math.max(0, duration);
@@ -767,10 +768,44 @@ public class AttendanceWorkflowService {
             teacherScope.assertClass(sessionId, classId, date);
             return;
         }
-        Set<UUID> allowed = teacherScope.allowedClassIds(sessionId, date);
+        Set<UUID> allowed = attendanceAllowedClassIds(sessionId, date);
         if (allowed == null || allowed.contains(classId)) return;
         if (sharedAllowed(schoolClass, sessionId, allowed)) return;
         teacherScope.assertClass(sessionId, classId, date);
+    }
+
+    /**
+     * Attendance has a narrower secondary-teacher rule than academic roster
+     * access.  A subject co-teacher may be the published instructor for one
+     * timetable period (for example, French reading) without being the
+     * responsible teacher for grades or the full student directory.  Include
+     * those published classes in attendance discovery only; every selected
+     * session is still checked against its exact published occurrence by the
+     * attendance policy.
+     */
+    private Set<UUID> attendanceAllowedClassIds(UUID sessionId, LocalDate date) {
+        Set<UUID> academic = teacherScope.allowedClassIds(sessionId, date);
+        if (academic == null) return null; // unrestricted roles keep whole-school access
+        UUID employeeId = teacherScope.employeeId();
+        if (employeeId == null) return academic;
+        Set<UUID> allowed = new HashSet<>(academic);
+        allowed.addAll(jdbc.query("""
+            SELECT DISTINCT s.class_id
+              FROM timetable_slot s
+              JOIN timetable_version v ON v.id=s.timetable_version_id
+               AND v.school_id=s.school_id AND v.academic_session_id=s.academic_session_id
+               AND v.status='PUBLISHED' AND v.effective_from<=?
+               AND (v.effective_to IS NULL OR v.effective_to>=?)
+              JOIN timetable_class_config cfg ON cfg.school_id=s.school_id
+               AND cfg.academic_session_id=s.academic_session_id AND cfg.class_id=s.class_id
+               AND cfg.status='PUBLISHED'
+              JOIN school_class c ON c.id=s.class_id AND c.school_id=s.school_id
+             WHERE s.school_id=? AND s.academic_session_id=?
+               AND lower(c.level)='secondary'
+               AND coalesce(s.published_teacher_id,s.teacher_id)=?
+            """, (rs, n) -> rs.getObject(1, UUID.class), date, date,
+                TenantContext.get(), sessionId, employeeId));
+        return Set.copyOf(allowed);
     }
 
     /**
@@ -903,7 +938,9 @@ public class AttendanceWorkflowService {
                    AND v.school_id=s.school_id AND v.academic_session_id=s.academic_session_id
                    AND v.status='PUBLISHED' AND v.effective_from<=?
                    AND (v.effective_to IS NULL OR v.effective_to>=?)
+                  JOIN school_class c ON c.id=s.class_id AND c.school_id=s.school_id
                   LEFT JOIN timetable_period p ON p.school_id=s.school_id
+                   AND p.period_profile=CASE WHEN lower(c.level)='secondary' THEN 'SECONDARY' ELSE 'PRIMARY' END
                    AND p.slot_idx=s.slot_idx AND p.active
                  WHERE s.school_id=? AND s.academic_session_id=? AND s.class_id=? AND s.day_idx=?
                    AND upper(coalesce(s.subject_code,''))=upper(?)

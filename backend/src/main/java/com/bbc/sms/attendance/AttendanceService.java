@@ -129,6 +129,7 @@ public class AttendanceService {
                           AND tv.effective_from<=s.session_date
                           AND (tv.effective_to IS NULL OR tv.effective_to>=s.session_date)
                          LEFT JOIN timetable_period tp ON tp.school_id=ts.school_id
+                          AND tp.period_profile=CASE WHEN lower(c.level)='secondary' THEN 'SECONDARY' ELSE 'PRIMARY' END
                           AND tp.slot_idx=ts.slot_idx AND tp.active
                         WHERE ts.school_id=s.school_id
                           AND ts.academic_session_id=s.academic_session_id

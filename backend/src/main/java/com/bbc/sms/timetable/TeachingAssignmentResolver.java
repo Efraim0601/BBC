@@ -96,6 +96,52 @@ public class TeachingAssignmentResolver {
                 "Inherited from the responsible teacher assigned in Class subjects.");
     }
 
+    /**
+     * Resolves the instructor for one timetable occurrence.  The responsible
+     * class-subject teacher remains the canonical academic owner (and keeps
+     * grade-entry rights).  A dated ASSISTANT assignment is allowed only as a
+     * period-specific co-teacher, for example French reading taught by a
+     * colleague while the responsible French teacher still owns the subject.
+     */
+    public Resolution resolveForTimetable(UUID academicSessionId, UUID classId, String subjectCode,
+                                          UUID requestedTeacherId, LocalDate effectiveDate) {
+        Resolution responsible = resolve(academicSessionId, classId, subjectCode, effectiveDate);
+        if (!responsible.available() || requestedTeacherId == null
+                || requestedTeacherId.equals(responsible.teacherId())) {
+            return responsible;
+        }
+
+        UUID schoolId = TenantContext.get();
+        String code = subjectCode == null ? "" : subjectCode.trim().toUpperCase(Locale.ROOT);
+        List<AssignmentRow> rows = jdbc.query("""
+            SELECT ast.id,ast.employee_id,e.name,e.code,ast.version,ast.source
+              FROM academic_class_subject_teacher ast
+              JOIN subject s ON s.id=ast.subject_id
+              JOIN employee e ON e.id=ast.employee_id
+             WHERE ast.school_id=? AND ast.academic_session_id=? AND ast.class_id=?
+               AND upper(s.code)=upper(?) AND ast.role='ASSISTANT' AND ast.active=true
+               AND ast.employee_id=? AND e.active=true
+               AND (ast.effective_from IS NULL OR ast.effective_from<=?)
+               AND (ast.effective_to IS NULL OR ast.effective_to>=?)
+             ORDER BY ast.effective_from DESC NULLS LAST,ast.created_at DESC
+            """, (rs, n) -> new AssignmentRow(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class),
+                    rs.getString(3), rs.getString(4), rs.getLong(5), rs.getString(6)),
+                schoolId, academicSessionId, classId, code, requestedTeacherId, effectiveDate, effectiveDate);
+        if (rows.size() == 1) {
+            return Resolution.ok(code, rows.getFirst(), "ASSISTANT",
+                    "Co-enseignant affecté à cette matière pour un créneau du planning.",
+                    "Co-teacher assigned to this subject for a timetable period.");
+        }
+        if (rows.size() > 1) {
+            return Resolution.ambiguous(code, "TIMETABLE_ASSISTANT_ASSIGNMENT_AMBIGUOUS",
+                    "Plusieurs co-enseignants actifs correspondent à ce créneau.",
+                    "Several active co-teachers match this timetable period.");
+        }
+        return Resolution.missing(code, "TIMETABLE_ASSISTANT_NOT_ASSIGNED",
+                "Cet enseignant doit d'abord être affecté comme co-enseignant de la matière dans Matières de classe.",
+                "This teacher must first be assigned as the subject co-teacher in Class subjects.");
+    }
+
     /** Resolve the dated class titulaire without requiring a curriculum subject. */
     public Resolution resolveHomeroom(UUID academicSessionId, UUID classId, LocalDate effectiveDate) {
         UUID schoolId = TenantContext.get();

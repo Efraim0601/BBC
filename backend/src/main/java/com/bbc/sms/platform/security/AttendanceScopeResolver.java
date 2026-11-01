@@ -132,7 +132,9 @@ public class AttendanceScopeResolver {
                    AND (v.effective_to IS NULL OR v.effective_to>=?)
                   JOIN school_class c ON c.id=s.class_id AND c.school_id=s.school_id
                   LEFT JOIN timetable_period p
-                    ON p.school_id=s.school_id AND p.slot_idx=s.slot_idx AND p.active
+                    ON p.school_id=s.school_id
+                   AND p.period_profile=CASE WHEN lower(c.level)='secondary' THEN 'SECONDARY' ELSE 'PRIMARY' END
+                   AND p.slot_idx=s.slot_idx AND p.active
                   LEFT JOIN timetable_substitution sub
                     ON sub.school_id=s.school_id
                    AND sub.academic_session_id=s.academic_session_id

@@ -543,6 +543,7 @@ class SharedFoundationIntegrationTest {
                 unrelatedClassId, schoolId, sectionId);
         jdbc.update("INSERT INTO timetable_class_config(id,school_id,academic_session_id,class_id,model,status) VALUES (?,?,?,?,'HOMEROOM','DRAFT')",
                 UUID.randomUUID(), schoolId, academicId, unrelatedClassId);
+        primaryBellSchedule(schoolId);
         jdbc.update("INSERT INTO timetable_version(id,school_id,academic_session_id,version_no,status,effective_from,effective_to) VALUES (?,?,?,1,'DRAFT','2026-09-01','2027-07-31')",
                 versionId, schoolId, academicId);
         jdbc.update("INSERT INTO timetable_slot(id,school_id,class_id,academic_session_id,day_idx,slot_idx,subject_code,timetable_version_id) VALUES (?,?,?,?,0,0,'EN',?)",
@@ -591,6 +592,7 @@ class SharedFoundationIntegrationTest {
                 UUID.randomUUID(), schoolId, academicId, ce1Id);
         jdbc.update("INSERT INTO timetable_class_config(id,school_id,academic_session_id,class_id,model,status) VALUES (?,?,?,?,'HOMEROOM','DRAFT')",
                 UUID.randomUUID(), schoolId, academicId, incompleteClassId);
+        primaryBellSchedule(schoolId);
         jdbc.update("INSERT INTO timetable_version(id,school_id,academic_session_id,version_no,status,effective_from,effective_to) VALUES (?,?,?,1,'DRAFT','2026-09-01','2027-07-31')",
                 versionId, schoolId, academicId);
         String subjectCode = jdbc.queryForObject("SELECT code FROM subject WHERE id=?", String.class, subjectId);
@@ -897,5 +899,14 @@ class SharedFoundationIntegrationTest {
             pool.shutdownNow();
         }
         assertThat(jdbc.queryForObject("SELECT count(*) FROM promotion_register WHERE school_id=? AND batch_id=?", Integer.class, schoolId, batchId)).isEqualTo(1);
+    }
+
+    /** Publication only accepts courses inside the level's bell schedule: give the school a primary one. */
+    private void primaryBellSchedule(UUID schoolId) {
+        jdbc.update("""
+                INSERT INTO timetable_period(school_id,period_profile,slot_idx,label,start_time,end_time)
+                VALUES (?,'PRIMARY',0,'P1','07:30','08:30'), (?,'PRIMARY',1,'P2','08:30','09:30')
+                ON CONFLICT DO NOTHING
+                """, schoolId, schoolId);
     }
 }

@@ -185,7 +185,7 @@ public class TimetableController {
 
     @GetMapping("/periods")
     @PreAuthorize("@policy.canAction('TIMETABLE_MASTER_VIEW')")
-    public List<PeriodView> periods() { return service.periods(); }
+    public List<PeriodView> periods(@RequestParam(required = false) String level) { return service.periods(level); }
 
     @PutMapping("/periods/{slotIdx}")
     @PreAuthorize("@policy.canAction('TIMETABLE_DRAFT')")

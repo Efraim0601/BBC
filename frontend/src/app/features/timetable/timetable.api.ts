@@ -12,13 +12,13 @@ export interface SubjectTeacherView { subjectCode:string; teacherId:string|null;
   teacherCode:string|null; source:string|null; locked:boolean; message:string|null;
   status?:'RESOLVED'|'MISSING'|'AMBIGUOUS'; errorCode?:string|null; assignmentId?:string|null; assignmentVersion?:number;
   classId:string|null; className:string|null; subsystem:string|null; }
-export interface PeriodView { id:string; slotIdx:number; label:string; startTime:string; endTime:string; active:boolean; }
+export interface PeriodView { id:string; periodProfile:'PRIMARY'|'SECONDARY'; slotIdx:number; label:string; startTime:string; endTime:string; active:boolean; }
 export interface SlotView { id:string; dayIdx:number; slotIdx:number; subjectCode:string|null;
-  teacherId:string|null; room:string|null; className:string|null; subjectName?:string|null; }
+  teacherId:string|null; room:string|null; className:string|null; subjectName?:string|null; displayLabel?:string|null; }
 export interface ConflictSlot { classId:string; className:string|null; subjectCode:string|null; room:string|null; }
 export interface TeacherConflict { dayIdx:number; slotIdx:number; teacherId:string; teacherName:string|null; slots:ConflictSlot[]; }
 export interface TeacherSchedule { teacherId:string; teacherName:string; sessionLabel:string; periods?:PeriodView[]; slots:SlotView[]; }
-export interface SlotSaveBody { className:string; dayIdx:number; slotIdx:number; subjectCode?:string; teacherId?:string; room?:string; }
+export interface SlotSaveBody { className:string; dayIdx:number; slotIdx:number; subjectCode?:string; teacherId?:string; room?:string; displayLabel?:string; }
 export interface TimetableVersionView { id:string; academicSessionId:string; versionNo:number; status:'DRAFT'|'PUBLISHED'|'ARCHIVED'; effectiveFrom:string; effectiveTo:string|null; timezone:string; copiedFromVersionId:string|null; slotCount:number; classCount:number; version:number; }
 export interface TimetableVersionDiff { fromVersionId:string; toVersionId:string; added:number; removed:number; changed:number; changes:string[]; }
 export interface TimetableDriftView { slotId:string; classId:string; className:string; subjectCode:string|null; dayIdx:number; slotIdx:number;
@@ -42,8 +42,8 @@ export class TimetableApi {
   private http=inject(HttpClient); private base=`${environment.apiUrl}/timetable`;
   classes():Observable<ClassRef[]>{return this.http.get<ClassRef[]>(`${this.base}/classes`);}
   subjectTeachers(classId:string):Observable<SubjectTeacherView[]>{return this.http.get<SubjectTeacherView[]>(`${this.base}/classes/${classId}/subject-teachers`);}
-  periods():Observable<PeriodView[]>{return this.http.get<PeriodView[]>(`${this.base}/periods`);}
-  updatePeriod(p:PeriodView):Observable<PeriodView>{return this.http.put<PeriodView>(`${this.base}/periods/${p.slotIdx}`,{label:p.label,startTime:p.startTime,endTime:p.endTime,active:p.active});}
+  periods(level?:string):Observable<PeriodView[]>{return this.http.get<PeriodView[]>(`${this.base}/periods`,{params:level?{level}:{}});}
+  updatePeriod(p:PeriodView):Observable<PeriodView>{return this.http.put<PeriodView>(`${this.base}/periods/${p.slotIdx}`,{label:p.label,startTime:p.startTime,endTime:p.endTime,active:p.active,periodProfile:p.periodProfile});}
   rooms():Observable<string[]>{return this.http.get<string[]>(`${this.base}/rooms`);}
   grid(className:string,versionId?:string|null):Observable<SlotView[]>{return this.http.get<SlotView[]>(`${this.base}?className=${encodeURIComponent(className)}${versionId?`&versionId=${encodeURIComponent(versionId)}`:''}`);}
   conflicts():Observable<TeacherConflict[]>{return this.http.get<TeacherConflict[]>(`${this.base}/conflicts`);}

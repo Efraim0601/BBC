@@ -49,26 +49,41 @@ public class TimetableDtos {
         }
     }
 
-    public record PeriodView(UUID id, int slotIdx, String label, String startTime,
+    public record PeriodView(UUID id, String periodProfile, int slotIdx, String label, String startTime,
                              String endTime, boolean active) {}
     public record PeriodRequest(@NotBlank String label, @NotBlank String startTime,
-                                @NotBlank String endTime, boolean active) {}
+                                @NotBlank String endTime, boolean active, String periodProfile) {
+        public PeriodRequest(String label, String startTime, String endTime, boolean active) {
+            this(label, startTime, endTime, active, null);
+        }
+    }
 
     public record ClassConfigRequest(UUID homeroomTeacherId, long version) {}
     public record TeacherAssignmentRequest(List<String> subjectCodes) {}
     public record PlanActionRequest(long version, String reason) {}
 
     public record SlotView(UUID id, int dayIdx, int slotIdx, String subjectCode,
-                           UUID teacherId, String room, String className, String subjectName) {
+                           UUID teacherId, String room, String className, String subjectName,
+                           String displayLabel) {
         public SlotView(UUID id, int dayIdx, int slotIdx, String subjectCode,
                         UUID teacherId, String room, String className) {
-            this(id, dayIdx, slotIdx, subjectCode, teacherId, room, className, null);
+            this(id, dayIdx, slotIdx, subjectCode, teacherId, room, className, null, null);
+        }
+
+        public SlotView(UUID id, int dayIdx, int slotIdx, String subjectCode,
+                        UUID teacherId, String room, String className, String subjectName) {
+            this(id, dayIdx, slotIdx, subjectCode, teacherId, room, className, subjectName, null);
         }
     }
 
     public record SlotUpsert(@NotBlank String className, @Min(0) int dayIdx,
                              @Min(0) int slotIdx, String subjectCode,
-                             UUID teacherId, String room) {}
+                             UUID teacherId, String room, String displayLabel) {
+        public SlotUpsert(String className, int dayIdx, int slotIdx, String subjectCode,
+                          UUID teacherId, String room) {
+            this(className, dayIdx, slotIdx, subjectCode, teacherId, room, null);
+        }
+    }
 
     public record ConflictSlot(UUID classId, String className, String subjectCode, String room) {}
     public record TeacherConflict(int dayIdx, int slotIdx, UUID teacherId,

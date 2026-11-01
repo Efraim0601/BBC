@@ -37,6 +37,9 @@ public class TimetableSlot {
     @Column(name = "subject_code")
     private String subjectCode;
 
+    @Column(name = "display_label")
+    private String displayLabel;
+
     @Column(name = "teacher_id")
     private UUID teacherId;
 
