@@ -24,6 +24,15 @@ class PrimaryCompetenceServiceTest {
     }
 
     @Test
+    void defaultGridsListBothSportLinesAndNoUncountedSubjects() {
+        for (String subsystem : List.of("FR", "EN")) for (int level = 1; level <= 3; level++) {
+            List<String> codes = items(subsystem, level).stream().map(GridItem::code).toList();
+            assertThat(codes).as(subsystem + level).containsSubsequence("6A1", "6A2").doesNotContain("REL");
+            assertThat(items(subsystem, level)).as(subsystem + level).allMatch(GridItem::countsInTotal);
+        }
+    }
+
+    @Test
     void aSplitThatDoesNotAddUpIsRefused() {
         GridItem broken = new GridItem("C2", Map.of(), "2B", Map.of("fr", "Sciences"), BigDecimal.valueOf(20),
                 BigDecimal.valueOf(5), BigDecimal.valueOf(5), BigDecimal.valueOf(15), BigDecimal.valueOf(5), null, true);

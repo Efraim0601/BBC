@@ -800,9 +800,14 @@ public class BulletinSnapshotService {
         Map<String, Integer> coefficients = effectiveCoefficients(studentId, period.getAcademicSessionId(), classId);
         boolean usesCoefficients = usesSubjectCoefficients(profile) || competences;
         for (String subjectCode : subjectCodes) {
-            // A pupil follows one sport sub-competence of an alternative pair; the other has no result anywhere.
+            // A pupil follows one sport sub-competence of an alternative pair; the other has no evidence anywhere.
             if (competences && children.values().stream().noneMatch(child -> child.lines().stream()
-                    .anyMatch(line -> line.subjectCode().equalsIgnoreCase(subjectCode)))) continue;
+                    .anyMatch(line -> line.subjectCode().equalsIgnoreCase(subjectCode)
+                            && line.assessments() != null && !line.assessments().isEmpty()))) {
+                lines.add(unfollowedLine(subjectCode, profile, studentId, period.getAcademicSessionId(), classId, coefficients,
+                        dependencies.stream().map(d -> new PeriodMarkView(d.childCode(), null)).toList()));
+                continue;
+            }
             List<AcademicCalculationEngine.ChildInput> childInputs = new ArrayList<>();
             List<PeriodMarkView> periodMarks = new ArrayList<>();
             List<AssessmentEvidenceView> evidence = new ArrayList<>();
@@ -960,9 +965,13 @@ public class BulletinSnapshotService {
                     inputs.add(new AcademicCalculationEngine.AssessmentInput(grade == null ? null : grade.getMark(),
                             assessment.getMaxScore(), assessment.getWeight(), engineStatus));
             }
-            // An alternative sport sub-competence the pupil does not follow has no marks at all: no row.
+            // An alternative sport sub-competence the pupil does not follow has no marks at all: an empty row.
             if (competences && !applicable.isEmpty() && evidence.isEmpty()
-                    && applicable.stream().noneMatch(AcademicAssessment::isMandatory)) continue;
+                    && applicable.stream().noneMatch(AcademicAssessment::isMandatory)) {
+                lines.add(unfollowedLine(subjectCode, profile, studentId, period.getAcademicSessionId(), classId, coefficients,
+                        List.of(new PeriodMarkView(period.getCode(), null))));
+                continue;
+            }
             if (applicable.isEmpty() && secondaryEvidence.isEmpty()) addDistinct(blockers, subjectCode + ":ASSESSMENT_NOT_CONFIGURED");
             AcademicCalculationEngine.Result result = AcademicCalculationEngine.sequence(inputs);
             result.blockers().forEach(blocker -> addDistinct(blockers, subjectCode + ":" + blocker));
@@ -1037,6 +1046,19 @@ public class BulletinSnapshotService {
             unique.putIfAbsent((value.code() == null ? "" : value.code()).toUpperCase(Locale.ROOT), value);
         }
         return List.copyOf(unique.values());
+    }
+
+    /**
+     * The sport sub-competence of an alternative pair that the pupil does not follow: printed so the
+     * card keeps the grid's rows, without a mark, so it never counts in a total or an average.
+     */
+    private BulletinLineView unfollowedLine(String subjectCode, ClassProfile profile, UUID studentId, UUID sessionId,
+                                            UUID classId, Map<String, Integer> coefficients, List<PeriodMarkView> periodMarks) {
+        Subject subject = subjectForProgramme(subjectCode, profile.subsystem());
+        CurriculumMetadata metadata = curriculumMetadata(studentId, sessionId, subjectCode, classId);
+        return new BulletinLineView(subjectCode, subjectLabel(subject, subjectCode, profile.subsystem()),
+                coefficients.getOrDefault(subjectCode, subject == null ? 1 : subject.getCoef()), null, null, null, null,
+                List.of(), periodMarks, metadata.teacherName(), metadata.groupCode(), metadata.groupLabel());
     }
 
     private Calculation finish(List<BulletinLineView> lines, List<String> blockers, UUID studentId,

@@ -349,20 +349,26 @@ class ReportCardPdfServiceTest {
             assertThat(text).contains("COMPÉTENCE 1", "COMPÉTENCE 6", "1A Communiquer en français", "Oral", "Écrit",
                     "Pratique", "Savoir-être", "TOTAL GÉNÉRAL", "/ 300", "Moyenne ", "CNA : compétence non acquise",
                     "Avis du conseil des maîtres", "Visa de l'enseignant(e)", "DIRECTEUR / DIRECTRICE");
-            assertThat(text).doesNotContain("...", "6A2 ");
+            assertThat(text).contains("6A1 Activités physiques et sportives (apprenants aptes)",
+                    "6A2 Activités physiques et sportives (apprenants inaptes)");
+            assertThat(text).doesNotContain("...");
         }
         writeQa("primary-competence-fr-sequence.pdf", bytes);
     }
 
     @Test
-    void englishCompetenceTermCardShowsEachSequenceAndReligionOutsideTheTotal() throws Exception {
+    void englishCompetenceTermCardShowsEachSequenceAndBothSportLines() throws Exception {
         byte[] bytes = renderCompetence("EN", 2, "T1_RESULT", "Term 1", "TERM_RESULT", "TERM", List.of("S1", "S2"));
         try (PDDocument document = PDDocument.load(bytes)) {
             assertThat(document.getNumberOfPages()).isEqualTo(1);
             String text = flatText(document);
-            assertThat(text).contains("FIRST TERM PROGRESS RECORD", "COMPETENCE 2", "S1", "S2", "Religion",
-                    "Not counted in the total", "/ 360", "Average ", "C: skill not acquired");
-            assertThat(text).doesNotContain("...");
+            assertThat(text).contains("FIRST TERM PROGRESS RECORD", "COMPETENCE 2", "S1", "S2",
+                    "6A1 Physical and sports activities for normal pupils",
+                    "6A2 Physical and sports activities for physically challenged",
+                    "/ 360", "Average ", "C: skill not acquired", "PUPIL'S PERFORMANCE");
+            assertThat(text).doesNotContain("...", "Religion", "Other activities", "Not counted in the total",
+                    "STUDENT PERFORMANCE");
+            assertThat(text.indexOf("6A1 ")).isLessThan(text.indexOf("6A2 "));
         }
         writeQa("primary-competence-en-term.pdf", bytes);
     }
@@ -382,7 +388,7 @@ class ReportCardPdfServiceTest {
     /**
      * A snapshot shaped like the calculation's output for a competence class: one line per
      * sub-competence (coefficient = its points), evaluation-type evidence per sequence, and the
-     * pupil following 6A1 rather than 6A2.
+     * pupil following 6A1, so 6A2 comes as an empty line.
      */
     private byte[] renderCompetence(String subsystem, int level, String code, String label, String periodType,
                                     String product, List<String> children) {
@@ -390,7 +396,16 @@ class ReportCardPdfServiceTest {
         BigDecimal pointsTotal = BigDecimal.ZERO, obtainedTotal = BigDecimal.ZERO;
         int index = 0;
         for (var item : com.bbc.sms.academic.competence.PrimaryCompetenceDefaults.grid(subsystem, level)) {
-            if ("6A2".equals(item.code())) continue;
+            int coefficient = item.points().intValue();
+            String group = "APC_" + item.competenceCode();
+            String groupLabel = com.bbc.sms.academic.competence.PrimaryCompetenceDefaults.COMPETENCES.get(item.competenceCode())
+                    .get("FR".equals(subsystem) ? "fr" : "en");
+            String itemLabel = item.label().get("FR".equals(subsystem) ? "fr" : "en");
+            if ("6A2".equals(item.code())) {
+                lines.add(new BulletinLineView("APC_6A2", itemLabel, coefficient, null, null, null, null, List.of(),
+                        children.stream().map(child -> new PeriodMarkView(child, null)).toList(), null, group, groupLabel));
+                continue;
+            }
             BigDecimal mark = BigDecimal.valueOf(9 + (index++ % 10));
             List<AssessmentEvidenceView> evidence = new java.util.ArrayList<>();
             boolean sequences = children.stream().allMatch(c -> c.startsWith("S"));
@@ -404,11 +419,7 @@ class ReportCardPdfServiceTest {
                             parts[i], parts[i], "SCORED"));
                 }
             }
-            int coefficient = item.points().intValue();
-            String group = "APC_" + item.competenceCode();
-            String groupLabel = com.bbc.sms.academic.competence.PrimaryCompetenceDefaults.COMPETENCES.get(item.competenceCode())
-                    .get("FR".equals(subsystem) ? "fr" : "en");
-            lines.add(new BulletinLineView("APC_" + item.code(), item.label().get("FR".equals(subsystem) ? "fr" : "en"),
+            lines.add(new BulletinLineView("APC_" + item.code(), itemLabel,
                     coefficient, mark, mark.multiply(BigDecimal.valueOf(coefficient)), null, "ECA", evidence,
                     children.stream().map(child -> new PeriodMarkView(child, mark)).toList(), null, group, groupLabel));
             if (!"CX".equals(item.competenceCode())) {

@@ -88,7 +88,6 @@ public final class PrimaryCompetenceDefaults {
         items.add(item("C5", "5", ICT, 20, 3, 4, 10, 3));
         items.addAll(sport(20, new int[]{3, 4, 10, 3}, new Integer[]{12, null, null, 8}));
         items.add(item("C6", "6B", ARTS, 20, 3, 4, 10, 3));
-        items.add(religion());
         return items;
     }
 
@@ -106,7 +105,6 @@ public final class PrimaryCompetenceDefaults {
         items.add(item("C5", "5", ICT, 40, 5, 10, 20, 5));
         items.addAll(sport(20, new int[]{3, 4, 10, 3}, new Integer[]{12, null, null, 8}));
         items.add(levelThree ? item("C6", "6B", ARTS, 20, 4, 2, 10, 4) : item("C6", "6B", ARTS, 20, 2, 8, 8, 2));
-        items.add(religion());
         return items;
     }
 
@@ -116,10 +114,6 @@ public final class PrimaryCompetenceDefaults {
                         value(able[2]), value(able[3]), "6A", true),
                 new Item("C6", "6A2", SPORT_CHALLENGED, BigDecimal.valueOf(points), value(challenged[0]),
                         value(challenged[1]), value(challenged[2]), value(challenged[3]), "6A", true));
-    }
-
-    private static Item religion() {
-        return new Item("CX", "REL", RELIGION, BigDecimal.valueOf(20), value(4), value(2), value(10), value(4), null, false);
     }
 
     private static Item item(String competence, String code, Map<String, String> label, int points,
@@ -151,9 +145,8 @@ public final class PrimaryCompetenceDefaults {
     private static final Map<String, String> ICT = label("Utiliser les concepts de base et les outils des TIC",
             "Use basic concepts and tools of ICT");
     private static final Map<String, String> SPORT_ABLE = label("Activités physiques et sportives (apprenants aptes)",
-            "Physical and sports activities");
+            "Physical and sports activities for normal pupils");
     private static final Map<String, String> SPORT_CHALLENGED = label("Activités physiques et sportives (apprenants inaptes)",
-            "Physical and sports activities for the physically challenged");
+            "Physical and sports activities for physically challenged");
     private static final Map<String, String> ARTS = label("Pratiquer les activités artistiques", "Practise artistic activities");
-    private static final Map<String, String> RELIGION = label("Religion", "Religion");
 }

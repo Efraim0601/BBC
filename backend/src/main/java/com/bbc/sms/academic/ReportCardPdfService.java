@@ -312,7 +312,7 @@ public class ReportCardPdfService {
             for (int i = 0; i < periods.size(); i++) {
                 String periodCode = periods.get(i);
                 BigDecimal mark = line.periodMarks() == null ? null : line.periodMarks().stream()
-                        .filter(value -> periodCode.equals(value.periodCode())).map(PeriodMarkView::mark).findFirst().orElse(null);
+                        .filter(value -> periodCode.equals(value.periodCode())).findFirst().map(PeriodMarkView::mark).orElse(null);
                 textCentered(cs, normal(), 8, c.periodLeft(i), c.periodLeft(i + 1), base, number(mark));
             }
             textCentered(cs, bold(), 8, c.currentRight(), c.remarkLeft(), base, number(line.mark()));
@@ -344,7 +344,7 @@ public class ReportCardPdfService {
                 BigDecimal sum = BigDecimal.ZERO; int count = 0;
                 for (BulletinLineView line : bulletin.lines()) {
                     BigDecimal mark = line.periodMarks() == null ? null : line.periodMarks().stream()
-                            .filter(value -> code.equals(value.periodCode())).map(PeriodMarkView::mark).findFirst().orElse(null);
+                            .filter(value -> code.equals(value.periodCode())).findFirst().map(PeriodMarkView::mark).orElse(null);
                     if (mark != null) { sum = sum.add(mark); count++; }
                 }
                 textCentered(cs, normal(), 8, c.periodLeft(i), c.periodLeft(i + 1), y - 12,
@@ -616,7 +616,7 @@ public class ReportCardPdfService {
         BigDecimal total = BigDecimal.ZERO; int coefficients = 0;
         for (BulletinLineView line : bulletin.lines()) {
             BigDecimal mark = line.periodMarks() == null ? null : line.periodMarks().stream()
-                    .filter(value -> code.equals(value.periodCode())).map(PeriodMarkView::mark).findFirst().orElse(null);
+                    .filter(value -> code.equals(value.periodCode())).findFirst().map(PeriodMarkView::mark).orElse(null);
             if (mark != null) { total = total.add(mark.multiply(BigDecimal.valueOf(line.coefficient()))); coefficients += line.coefficient(); }
         }
         return coefficients == 0 ? null : total.divide(BigDecimal.valueOf(coefficients), 2, java.math.RoundingMode.HALF_UP);
@@ -714,7 +714,7 @@ public class ReportCardPdfService {
             for (int row = 0; row <= 5; row++) hairline(cs, LEFT, headerBottom - row * rowHeight, RIGHT, headerBottom - row * rowHeight);
             fill(cs, NAVY);
             textCentered(cs, bold(), 7.5f, LEFT, x1, y - 11, fr ? "DISCIPLINE" : "DISCIPLINE");
-            textCentered(cs, bold(), 7.5f, x1, x2, y - 11, fr ? "TRAVAIL DE L'ÉLÈVE" : "STUDENT PERFORMANCE");
+            textCentered(cs, bold(), 7.5f, x1, x2, y - 11, fr ? "TRAVAIL DE L'ÉLÈVE" : secondary ? "STUDENT PERFORMANCE" : "PUPIL'S PERFORMANCE");
             textCentered(cs, bold(), 7.5f, x2, RIGHT, y - 11, fr ? "PROFIL DE LA CLASSE" : "CLASS PROFILE");
             cs.setNonStrokingColor(0, 0, 0);
 
@@ -965,7 +965,7 @@ public class ReportCardPdfService {
             }
             for (String period : c.periods()) {
                 BigDecimal mark = line.periodMarks() == null ? null : line.periodMarks().stream()
-                        .filter(m -> period.equals(m.periodCode())).map(PeriodMarkView::mark).findFirst().orElse(null);
+                        .filter(m -> period.equals(m.periodCode())).findFirst().map(PeriodMarkView::mark).orElse(null);
                 textCentered(cs, normal(), 7, c.x()[column], c.x()[column + 1], mid, pointsText(points(mark, line.coefficient())));
                 column++;
             }
