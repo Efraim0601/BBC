@@ -367,6 +367,41 @@ class AuthorizationPolicyServiceTest {
                 financePrincipal, List.of(), List.of("accountant"), 1)).isNull();
     }
 
+    @Test
+    void directorWhoTeachesInheritsOnlyAssignmentBoundTeacherRules() {
+        AttendanceScopeResolver attendance = mock(AttendanceScopeResolver.class);
+        AuthorizationPolicyService service = new AuthorizationPolicyService(mock(JdbcTemplate.class),
+                new ObjectMapper(), mock(AcademicScopeResolver.class), mock(ParcoursAccessService.class),
+                mock(GuardianAccessService.class), attendance);
+        AppUserPrincipal director = new AppUserPrincipal(userId, schoolId, "director", "principal",
+                "Director", "DR");
+        PolicyResourceContext lesson = new PolicyResourceContext(schoolId, UUID.randomUUID(),
+                LocalDate.of(2026, 9, 7), null, UUID.randomUUID(), "MATH", null,
+                null, null, null, "P2", "secondary");
+        AuthorizationPolicyService.Action mark = new AuthorizationPolicyService.Action(
+                "ATTENDANCE_MARK", "presence", "TIMETABLE_OCCURRENCE", "write");
+        List<AuthorizationPolicyService.Rule> teacherRules = List.of(
+                new AuthorizationPolicyService.Rule("ROLE:secondary_teacher", "ALLOW",
+                        "TIMETABLE_OCCURRENCES_ASSIGNED", null, null, null));
+
+        when(attendance.hasRequiredContext(lesson)).thenReturn(true);
+        when(attendance.allowsTeacher(director, lesson, "TIMETABLE_OCCURRENCES_ASSIGNED")).thenReturn(true);
+        PolicyDecision ownLesson = service.teachingAssignmentDecision(mark, lesson, director, employeeId,
+                teacherRules, 1);
+        assertThat(ownLesson).isNotNull();
+        assertThat(ownLesson.allowed()).isTrue();
+        assertThat(ownLesson.winningRuleSource()).isEqualTo("TEACHING_ASSIGNMENT:secondary_teacher");
+
+        when(attendance.allowsTeacher(director, lesson, "TIMETABLE_OCCURRENCES_ASSIGNED")).thenReturn(false);
+        assertThat(service.teachingAssignmentDecision(mark, lesson, director, employeeId, teacherRules, 1))
+                .as("another teacher's lesson").isNull();
+        assertThat(service.teachingAssignmentDecision(mark, lesson, director, null, teacherRules, 1))
+                .as("no employee record").isNull();
+        assertThat(service.teachingAssignmentDecision(mark, lesson, director, employeeId, List.of(
+                new AuthorizationPolicyService.Rule("ROLE:secondary_teacher", "ALLOW", "SCHOOL_ALL", null, null, null)),
+                1)).as("a broad teacher rule is never inherited").isNull();
+    }
+
     private AuthorizationPolicyService service(JdbcTemplate jdbc) {
         return new AuthorizationPolicyService(jdbc, new ObjectMapper(),
                 mock(AcademicScopeResolver.class), mock(ParcoursAccessService.class),

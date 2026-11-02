@@ -263,7 +263,9 @@ public class AcademicAccessPolicyService {
                     classId, subjectCode, "ACADEMIC_ACCESS_ALLOWED", effectiveDate);
         }
 
-        if (!actor.teacherRole()) {
+        // A non-teaching role (a director who also teaches) acts as a teacher only
+        // through the dated assignments of its linked employee, checked below.
+        if (!actor.teacherRole() && actor.employeeId() == null) {
             return deny(denialCode(capability), denialFr(capability), denialEn(capability), effectiveDate);
         }
 

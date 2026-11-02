@@ -40,6 +40,11 @@ public class AuthorizationPolicyService {
     record Rule(String source, String effect, String scopeMode, String scopePayload,
                 LocalDate effectiveFrom, LocalDate effectiveTo) {}
 
+    /** Teacher roles whose assignment-bound rules a teaching member of staff inherits. */
+    static final List<String> TEACHER_ROLES = List.of("form_teacher", "secondary_teacher", "teacher");
+    private static final Set<String> ASSIGNMENT_SCOPES = Set.of("ASSIGNED_CLASS_SUBJECTS",
+            "ASSIGNED_CLASSES", "TITULAIRE_CLASSES", "TIMETABLE_OCCURRENCES_ASSIGNED");
+
     private record Rollout(String mode, boolean enforcementEnabled, String compatibilityRole) {}
 
     private final JdbcTemplate jdbc;
@@ -176,6 +181,17 @@ public class AuthorizationPolicyService {
         // narrowed to the visible legacy compatibility profile.
         PolicyDecision roleDecision = evaluateRules(action, context, principal, roleRules, activeRoles, version);
         if (roleDecision != null) return roleDecision;
+        // Staff who also teach (a director giving mathematics in a few classes)
+        // keep their own role everywhere else and act as a teacher on exactly
+        // the classes, subjects and lessons their employee record is assigned to.
+        if (!isTeacher(activeRoles)) {
+            UUID employee = employeeId(principal, tenant);
+            List<Rule> teacherRules = employee == null ? List.of()
+                    : roleRules(tenant, TEACHER_ROLES, action.code(), effectiveDate(context));
+            PolicyDecision teaching = teachingAssignmentDecision(action, context, principal,
+                    employee, teacherRules, version);
+            if (teaching != null) return teaching;
+        }
 
         return deny(actionCode, "POLICY_RULE_MISSING",
                 "Aucune règle active n'autorise cette action dans ce périmètre.",
@@ -505,6 +521,29 @@ public class AuthorizationPolicyService {
                  WHERE id=? AND school_id=? AND active=true
                 """, Integer.class, principal.userId(), schoolId);
         return count != null && count > 0;
+    }
+
+    /**
+     * Teacher rights of a non-teaching role whose employee record holds a teaching
+     * assignment. Only the teacher roles' assignment-bound allow rules apply, and each
+     * is still checked against the employee's own dated assignment or published lesson,
+     * so a broad teacher rule never becomes broad access.
+     */
+    PolicyDecision teachingAssignmentDecision(Action action, PolicyResourceContext context,
+                                              AppUserPrincipal principal, UUID employeeId,
+                                              List<Rule> teacherRules, long version) {
+        if (employeeId == null) return null;
+        List<Rule> assignmentRules = teacherRules.stream()
+                .filter(rule -> "ALLOW".equals(rule.effect()) && rule.scopeMode() != null
+                        && ASSIGNMENT_SCOPES.contains(rule.scopeMode().toUpperCase(Locale.ROOT)))
+                .map(rule -> new Rule(rule.source().replaceFirst("^ROLE:", "TEACHING_ASSIGNMENT:"),
+                        rule.effect(), rule.scopeMode(), rule.scopePayload(),
+                        rule.effectiveFrom(), rule.effectiveTo()))
+                .toList();
+        if (assignmentRules.isEmpty()) return null;
+        PolicyDecision decision = evaluateRules(action, context, principal, assignmentRules,
+                TEACHER_ROLES, version);
+        return decision != null && decision.allowed() ? decision : null;
     }
 
     private UUID employeeId(AppUserPrincipal principal, UUID schoolId) {

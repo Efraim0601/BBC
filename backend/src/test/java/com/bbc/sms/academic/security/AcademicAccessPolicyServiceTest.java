@@ -191,6 +191,39 @@ class AcademicAccessPolicyServiceTest {
     }
 
     @Test
+    void directorWhoTeachesCanEditOnlyTheSubjectAssignedToHisEmployeeRecord() {
+        TenantContext.set(school);
+        UUID employeeId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        UUID classId = UUID.randomUUID();
+        LocalDate date = LocalDate.of(2026, 9, 1);
+        AppUserPrincipal principal = new AppUserPrincipal(UUID.randomUUID(), school, "principal", "principal",
+                "Director", "DR");
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        PermissionService permissions = mock(PermissionService.class);
+        when(permissions.canAction(anyString())).thenReturn(false);
+        stubScopeQueries(jdbc, employeeId, sessionId, classId, date);
+        when(jdbc.queryForObject(anyString(), eq(Integer.class), any(Object[].class))).thenReturn(1);
+        TeachingAssignmentResolver assignments = mock(TeachingAssignmentResolver.class);
+        when(assignments.resolve(eq(sessionId), eq(classId), eq("MATH"), eq(date)))
+                .thenReturn(new TeachingAssignmentResolver.Resolution("MATH", employeeId, "Director", "EMP-1",
+                        UUID.randomUUID(), 1L, "RESPONSIBLE", "RESOLVED", "ASSIGNMENT_RESOLVED",
+                        "Assigned", "Assigned", true));
+        when(assignments.resolve(eq(sessionId), eq(classId), eq("PHYS"), eq(date)))
+                .thenReturn(new TeachingAssignmentResolver.Resolution("PHYS", UUID.randomUUID(), "Other", "EMP-2",
+                        UUID.randomUUID(), 1L, "RESPONSIBLE", "RESOLVED", "ASSIGNMENT_RESOLVED",
+                        "Assigned", "Assigned", true));
+        AcademicAccessPolicyService policy = new AcademicAccessPolicyService(jdbc, permissions, assignments);
+
+        assertThat(policy.resolveDomain(AcademicAccessPolicyService.Capability.SUBJECT_GRADE_EDIT,
+                sessionId, classId, "MATH", null, date).allowed()).isTrue();
+        assertThat(policy.resolveDomain(AcademicAccessPolicyService.Capability.SUBJECT_GRADE_EDIT,
+                sessionId, classId, "PHYS", null, date).allowed()).isFalse();
+    }
+
+    @Test
     void titulaireAnySubjectEditRequiresDatedHomeroomAndActiveCurriculum() {
         TenantContext.set(school);
         UUID userId = UUID.randomUUID();
