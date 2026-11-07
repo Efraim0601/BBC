@@ -20,9 +20,11 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -124,6 +126,70 @@ class ProductionBootstrapIntegrationTest {
                         .header("Authorization", "Bearer " + token)
                         .header("X-Parcours", "primary:FR"))
                 .andExpect(status().isOk());
+
+        // A scoped Director can manage curriculum data only in the selected
+        // parcours. Catalogue deletion and shared catalogue operations remain
+        // unavailable even though the class curriculum operation is allowed.
+        mockMvc.perform(post("/api/access/me/decision")
+                        .header("Authorization", "Bearer " + token)
+                        .header("X-Parcours", "primary:FR")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"actionCode":"SUBJECT_CATALOG_WRITE","parcours":"primary:FR"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.allowed").value(true));
+
+        mockMvc.perform(post("/api/access/me/decision")
+                        .header("Authorization", "Bearer " + token)
+                        .header("X-Parcours", "primary:FR")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"actionCode":"CURRICULUM_MANAGE","parcours":"primary:FR",
+                                 "classId":"00000000-0000-0000-0000-000000000001","subjectCode":"MATH"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.allowed").value(true));
+
+        mockMvc.perform(post("/api/access/me/decision")
+                        .header("Authorization", "Bearer " + token)
+                        .header("X-Parcours", "primary:FR")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"actionCode":"SUBJECT_MANAGE","parcours":"primary:FR"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.allowed").value(false));
+
+        mockMvc.perform(post("/api/access/me/decision")
+                        .header("Authorization", "Bearer " + token)
+                        .header("X-Parcours", "primary:FR")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"actionCode":"CURRICULUM_CATALOG_MANAGE","parcours":"primary:FR"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.allowed").value(false));
+
+        String directorSubjectCode = ("DIR" + principalId.toString().replace("-", "").substring(0, 12))
+                .toUpperCase(java.util.Locale.ROOT);
+        mockMvc.perform(post("/api/setup/subjects")
+                        .header("Authorization", "Bearer " + token)
+                        .header("X-Parcours", "primary:FR")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"code":"%s","subsystem":"FR",
+                                 "label":{"fr":"Matière directeur","en":"Director subject"},"coef":1}
+                                """.formatted(directorSubjectCode)))
+                .andExpect(status().isCreated());
+
+        UUID directorSubjectId = jdbc.queryForObject("""
+                SELECT id FROM subject WHERE school_id=? AND code=?
+                """, UUID.class, schoolId, directorSubjectCode);
+        mockMvc.perform(delete("/api/setup/subjects/{id}", directorSubjectId)
+                        .header("Authorization", "Bearer " + token)
+                        .header("X-Parcours", "primary:FR"))
+                .andExpect(status().isForbidden());
     }
 
     @Test
@@ -203,7 +269,7 @@ class ProductionBootstrapIntegrationTest {
 
         assertThat(bootstrapActions).contains(
                 "CALENDAR_MANAGE", "CLASS_MANAGE", "CURRICULUM_CATALOG_MANAGE",
-                "CURRICULUM_CLASS_MANAGE", "CURRICULUM_MANAGE", "DISCIPLINE_CATALOG_MANAGE",
+                "CURRICULUM_CLASS_MANAGE", "CURRICULUM_MANAGE", "SUBJECT_CATALOG_WRITE", "DISCIPLINE_CATALOG_MANAGE",
                 "MAIL_CONFIG_MANAGE", "ROLE_MANAGE", "SCHOOL_PROFILE_MANAGE",
                 "SESSION_MANAGE", "SESSION_VIEW", "SUBJECT_MANAGE", "TEACHING_ASSIGNMENT_MANAGE",
                 "TEACHING_CLASS_ASSIGNMENT_MANAGE", "ACADEMIC_ASSESSMENT_VIEW",
@@ -219,7 +285,7 @@ class ProductionBootstrapIntegrationTest {
                  WHERE role_code='principal'
                    AND action_code IN (
                        'CALENDAR_MANAGE', 'CLASS_MANAGE', 'CURRICULUM_CATALOG_MANAGE',
-                       'CURRICULUM_CLASS_MANAGE', 'CURRICULUM_MANAGE',
+                       'CURRICULUM_CLASS_MANAGE', 'CURRICULUM_MANAGE', 'SUBJECT_CATALOG_WRITE',
                        'DISCIPLINE_CATALOG_MANAGE', 'MAIL_CONFIG_MANAGE', 'ROLE_MANAGE',
                        'SCHOOL_PROFILE_MANAGE', 'SESSION_MANAGE', 'SUBJECT_MANAGE',
                        'TEACHING_ASSIGNMENT_MANAGE', 'TEACHING_CLASS_ASSIGNMENT_MANAGE',
@@ -227,7 +293,7 @@ class ProductionBootstrapIntegrationTest {
                    AND effect='ALLOW'
                 """, Integer.class);
 
-        assertThat(ordinaryPrincipalSetupWrites).isZero();
+        assertThat(ordinaryPrincipalSetupWrites).isEqualTo(3);
 
         Integer ordinaryPrincipalStudentSetupWrites = jdbc.queryForObject("""
                 SELECT count(*)
@@ -384,16 +450,28 @@ class ProductionBootstrapIntegrationTest {
                 """, Integer.class);
         assertThat(v2Actions).isEqualTo(3);
 
-        Integer setupWrites = jdbc.queryForObject("""
+        Integer parcoursScopedCurriculumWrites = jdbc.queryForObject("""
                 SELECT count(*)
                   FROM permission_role_action
                  WHERE role_code='principal'
-                   AND action_code IN ('CURRICULUM_CLASS_MANAGE',
-                                       'CURRICULUM_CATALOG_MANAGE',
+                   AND action_code IN ('SUBJECT_CATALOG_WRITE',
+                                       'CURRICULUM_MANAGE',
+                                       'CURRICULUM_CLASS_MANAGE')
+                   AND effect='ALLOW'
+                   AND scope_mode='PARCOURS_ALLOWED'
+                """, Integer.class);
+        assertThat(parcoursScopedCurriculumWrites).isEqualTo(3);
+
+        Integer administratorOnlyCurriculumWrites = jdbc.queryForObject("""
+                SELECT count(*)
+                  FROM permission_role_action
+                 WHERE role_code='principal'
+                   AND action_code IN ('SUBJECT_MANAGE', 'CURRICULUM_CATALOG_MANAGE',
+                                       'TEACHING_ASSIGNMENT_MANAGE',
                                        'TEACHING_CLASS_ASSIGNMENT_MANAGE')
                    AND effect='ALLOW'
                 """, Integer.class);
-        assertThat(setupWrites).isZero();
+        assertThat(administratorOnlyCurriculumWrites).isZero();
     }
 
     @Test

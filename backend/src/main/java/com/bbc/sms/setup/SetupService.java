@@ -405,7 +405,7 @@ public class SetupService {
 
     @Transactional
     public SubjectView createSubject(SubjectUpsert in) {
-        requireSchool("SUBJECT_MANAGE");
+        requireSubjectCatalogWrite(in.subsystem());
         UUID schoolId = TenantContext.get();
         String code = in.code().trim().toUpperCase();
         String subsystem = normSubsystem(in.subsystem());
@@ -427,10 +427,13 @@ public class SetupService {
 
     @Transactional
     public SubjectView updateSubject(UUID id, SubjectUpsert in) {
-        requireSchool("SUBJECT_MANAGE");
+        requireSubjectCatalogWrite(in.subsystem());
         UUID schoolId = TenantContext.get();
         Subject s = subjects.findByIdAndSchoolId(id, schoolId)
                 .orElseThrow(() -> ApiException.notFound("Matière"));
+        // A parcours director cannot turn a shared or another-parcours subject
+        // into a local subject in order to take ownership of it.
+        assertSubjectWithinManagedParcours(s.getSubsystem());
         s.setSubsystem(normSubsystem(in.subsystem()));
         s.setLabel(in.label());
         s.setCoef(Math.max(1, in.coef()));
@@ -1148,6 +1151,31 @@ public class SetupService {
 
     private void requireSchool(String action) {
         policy.require(action, PolicyResourceContext.empty().forSchool(TenantContext.get()));
+    }
+
+    /**
+     * School administrators manage the global catalogue. A director may add or
+     * edit only catalogue entries belonging to the actively selected parcours;
+     * deletion deliberately remains SUBJECT_MANAGE (administrator-only).
+     */
+    private void requireSubjectCatalogWrite(String requestedSubsystem) {
+        requireSchool("SUBJECT_CATALOG_WRITE");
+        assertSubjectWithinManagedParcours(requestedSubsystem);
+    }
+
+    private void assertSubjectWithinManagedParcours(String subsystem) {
+        boolean managesWholeSchoolCatalogue = policy.decide("SUBJECT_MANAGE",
+                PolicyResourceContext.empty().forSchool(TenantContext.get())).allowed();
+        if (managesWholeSchoolCatalogue) return;
+
+        Scope active = ParcoursContext.get();
+        if (active == null) {
+            throw ApiException.forbidden("Choisissez d'abord un parcours pour gérer ses matières");
+        }
+        String normalized = normSubsystem(subsystem);
+        if (normalized == null || !normalized.equalsIgnoreCase(active.subsystem())) {
+            throw ApiException.forbidden("Cette matière doit appartenir au parcours actif");
+        }
     }
 
     private void requireClass(String action, UUID classId) {

@@ -92,6 +92,7 @@ public final class PermissionActions {
             Map.entry("ACADEMIC_STRUCTURE_VIEW", new Requirement("settings", "read")),
             Map.entry("CLASS_MANAGE", new Requirement("settings", "write")),
             Map.entry("SUBJECT_MANAGE", new Requirement("settings", "write")),
+            Map.entry("SUBJECT_CATALOG_WRITE", new Requirement("settings", "write")),
             Map.entry("CURRICULUM_MANAGE", new Requirement("settings", "write")),
             Map.entry("CURRICULUM_CLASS_MANAGE", new Requirement("settings", "write")),
             Map.entry("CURRICULUM_CATALOG_MANAGE", new Requirement("settings", "write")),

@@ -841,6 +841,7 @@ export class SettingsComponent {
   protected canViewAcademicSetup = computed(() => [
     'CLASS_MANAGE',
     'SUBJECT_MANAGE',
+    'SUBJECT_CATALOG_WRITE',
     'CURRICULUM_MANAGE',
     'CURRICULUM_CLASS_MANAGE',
     'ACADEMIC_ACCESS_DELEGATE',

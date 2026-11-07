@@ -404,7 +404,7 @@ import { downloadCsv } from '../../core/csv';
                 @for (session of academicSessions(); track session.id) { <option [value]="session.id">{{ session.label }}{{ session.current ? ' · current' : '' }}</option> }
               </select>
             </label>
-            @if (canWrite) {
+            @if (canManageCurriculumCatalog) {
               <label class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50 cursor-pointer"
                 [title]="fr() ? 'Optionnel : import en masse depuis un fichier officiel' : 'Optional: bulk import from an official file'">
                 <bbc-icon name="download" [s]="16" /> {{ fr() ? 'Import en masse (optionnel)' : 'Bulk import (optional)' }}
@@ -420,7 +420,7 @@ import { downloadCsv } from '../../core/csv';
             </div>
           }
 
-          <bbc-curriculum-copy [targetSessionId]="curriculumSessionId()" [sessions]="academicSessions()" [classId]="assignmentClassId()" [canWrite]="canWrite" (applied)="refreshCurriculum()" />
+          <bbc-curriculum-copy [targetSessionId]="curriculumSessionId()" [sessions]="academicSessions()" [classId]="assignmentClassId()" [canWrite]="canManageCurriculumCatalog" (applied)="refreshCurriculum()" />
 
           <div class="mb-5 rounded-xl border border-brand-100 bg-brand-50/40 p-4">
             <div class="mb-3">
@@ -439,7 +439,7 @@ import { downloadCsv } from '../../core/csv';
               <label class="block">
                 <span class="text-xs font-semibold text-ink">{{ fr() ? 'Matière à ajouter' : 'Subject to add' }} *</span>
                 <select [ngModel]="assignmentSubjectId()" (ngModelChange)="selectAssignmentSubject($event)"
-                  [disabled]="!assignmentClassId() || !availableAssignmentSubjects().length"
+                  [disabled]="!canManageClassCurriculum || !assignmentClassId() || !availableAssignmentSubjects().length"
                   class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-300 bg-white focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 disabled:bg-slate-100">
                   <option value="">{{ availableAssignmentSubjects().length ? (fr() ? 'Choisir une matière' : 'Choose a subject') : (fr() ? 'Toutes les matières sont affectées' : 'All subjects are assigned') }}</option>
                   @for (s of availableAssignmentSubjects(); track s.id) { <option [value]="s.id">{{ subjectLabel(s) }} · {{ s.code }}</option> }
@@ -448,13 +448,13 @@ import { downloadCsv } from '../../core/csv';
               <label class="block">
                 <span class="text-xs font-semibold text-ink">{{ fr() ? 'Coefficient pour cette classe' : 'Coefficient for this class' }} *</span>
                 <input type="number" min="1" step="1" [ngModel]="assignmentCoef()" (ngModelChange)="assignmentCoef.set(+$event)"
-                  [disabled]="!assignmentSubjectId()"
+                  [disabled]="!canManageClassCurriculum || !assignmentSubjectId()"
                   class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-300 bg-white focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 disabled:bg-slate-100" />
                 @if (selectedAssignmentSubject(); as subject) {
                   <span class="text-[11px] text-mute mt-1 block">{{ fr() ? 'Défaut matière :' : 'Subject default:' }} {{ subject.coef }}</span>
                 }
               </label>
-              <button type="button" (click)="addAssignment()" [disabled]="!canWrite || !assignmentClassId() || !assignmentSubjectId() || assignmentCoef() < 1"
+              <button type="button" (click)="addAssignment()" [disabled]="!canManageClassCurriculum || !assignmentClassId() || !assignmentSubjectId() || assignmentCoef() < 1"
                 class="h-10 px-4 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-semibold inline-flex items-center justify-center gap-2">
                 <bbc-icon name="plus" [s]="16" /> {{ fr() ? 'Ajouter à la classe' : 'Add to class' }}
               </button>
@@ -470,18 +470,18 @@ import { downloadCsv } from '../../core/csv';
                 </div>
               </div>
               <div class="grid grid-cols-1 md:grid-cols-5 gap-2 items-end">
-                <label><span class="meta">Code *</span><input [(ngModel)]="groupCode" class="field" placeholder="SCIENCES" /></label>
-                <label><span class="meta">{{ fr() ? 'Libellé FR' : 'French label' }} *</span><input [(ngModel)]="groupFr" class="field" placeholder="Sciences" /></label>
-                <label><span class="meta">{{ fr() ? 'Libellé EN' : 'English label' }}</span><input [(ngModel)]="groupEn" class="field" placeholder="Science" /></label>
-                <label><span class="meta">{{ fr() ? 'Ordre' : 'Order' }} *</span><input type="number" min="1" [(ngModel)]="groupOrder" class="field" /></label>
-                <button type="button" (click)="createGroup()" [disabled]="!canWrite" class="h-10 rounded-lg bg-brand-600 text-white text-sm font-semibold disabled:opacity-50">{{ fr() ? 'Créer le groupe' : 'Create group' }}</button>
+                <label><span class="meta">Code *</span><input [(ngModel)]="groupCode" [disabled]="!canManageCurriculumCatalog" class="field" placeholder="SCIENCES" /></label>
+                <label><span class="meta">{{ fr() ? 'Libellé FR' : 'French label' }} *</span><input [(ngModel)]="groupFr" [disabled]="!canManageCurriculumCatalog" class="field" placeholder="Sciences" /></label>
+                <label><span class="meta">{{ fr() ? 'Libellé EN' : 'English label' }}</span><input [(ngModel)]="groupEn" [disabled]="!canManageCurriculumCatalog" class="field" placeholder="Science" /></label>
+                <label><span class="meta">{{ fr() ? 'Ordre' : 'Order' }} *</span><input type="number" min="1" [(ngModel)]="groupOrder" [disabled]="!canManageCurriculumCatalog" class="field" /></label>
+                <button type="button" (click)="createGroup()" [disabled]="!canManageCurriculumCatalog" class="h-10 rounded-lg bg-brand-600 text-white text-sm font-semibold disabled:opacity-50">{{ fr() ? 'Créer le groupe' : 'Create group' }}</button>
               </div>
               @if (curriculum()?.groups?.length) {
                 <div class="flex flex-wrap gap-2 mt-3">
                   @for (group of (curriculum()?.groups ?? []); track group.id) {
                     <span class="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
                       {{ group.displayOrder }} · {{ groupLabel(group) }}
-                      @if (canWrite) {
+                      @if (canManageCurriculumCatalog) {
                         @if (pendingGroupRemoval() === group.id) { <button type="button" (click)="removeGroup(group)" class="text-rose-700 font-bold">{{ fr() ? 'Confirmer' : 'Confirm' }}</button><button type="button" (click)="pendingGroupRemoval.set(null)" class="text-slate-500">×</button> }
                         @else { <button type="button" (click)="askRemoveGroup(group)" class="text-slate-400 hover:text-rose-600">×</button> }
                       }
@@ -520,11 +520,11 @@ import { downloadCsv } from '../../core/csv';
                         <td class="px-3 py-2 text-center text-mute">{{ row.defaultCoef }}</td>
                         <td class="px-3 py-2 text-center">
                           <input type="number" min="1" step="1" [ngModel]="draftCoefficient(row)" (ngModelChange)="setDraftCoefficient(row, $event)"
-                            [name]="'class-coef-' + row.subjectId" [disabled]="!canWrite"
+                            [name]="'class-coef-' + row.subjectId" [disabled]="!canManageClassCurriculum"
                             class="w-24 h-9 px-2 text-center rounded-lg border border-slate-300 bg-white focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 disabled:bg-slate-100" />
                         </td>
                         <td class="px-3 py-2 text-right whitespace-nowrap">
-                          @if (canWrite) {
+                          @if (canManageClassCurriculum) {
                             <button type="button" (click)="saveAssignment(row)" class="h-8 px-2.5 rounded-lg text-xs font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100">{{ fr() ? 'Enregistrer' : 'Save' }}</button>
                             @if (pendingCoefficientRemoval() === assignmentKey(row)) {
                               <button type="button" (click)="removeAssignment(row)" class="h-8 px-2.5 rounded-lg text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 ml-1">{{ fr() ? 'Confirmer' : 'Confirm' }}</button>
@@ -555,7 +555,7 @@ import { downloadCsv } from '../../core/csv';
                 <div class="font-semibold text-ink">{{ fr() ? 'Titulaire de classe' : 'Homeroom teacher' }} <b class="text-rose-600">*</b></div>
                 <div class="text-xs text-mute mt-1 mb-3">{{ selectedAssignmentClass()?.level === 'secondary' ? (fr() ? 'Le titulaire supervise toute la classe et ses élèves. Il ne remplace pas les enseignants RESPONSIBLE affectés matière par matière.' : 'The homeroom teacher oversees the whole class and its students. This does not replace the RESPONSIBLE teacher assigned to each subject.') : (fr() ? 'Une classe primaire utilise un seul titulaire daté. Toutes les matières héritent automatiquement de cette affectation.' : 'A primary class uses one dated homeroom assignment. Every subject inherits this authority automatically.') }}</div>
                 <div class="flex flex-col md:flex-row md:items-end gap-3">
-                    <label class="block flex-1"><span class="meta">{{ fr() ? 'Enseignant titulaire' : 'Homeroom teacher' }} <b class="text-rose-600">*</b></span><select class="field" [class.invalid]="!curriculum()?.homeroomTeacher" [ngModel]="curriculum()?.homeroomTeacher?.employeeId ?? ''" (ngModelChange)="prepareHomeroom($event)" [disabled]="!canWrite"><option value="">{{ fr() ? 'Choisir un titulaire' : 'Choose a homeroom teacher' }}</option>@for (teacher of allTeachers(); track teacher.id) { <option [value]="teacher.id">{{ teacher.name }} · {{ teacher.code }} · {{ teacher.accountUsername || (fr() ? 'sans compte' : 'no account') }}{{ teacher.accountRole ? ' · ' + teacher.accountRole : '' }}</option> }</select></label>
+                    <label class="block flex-1"><span class="meta">{{ fr() ? 'Enseignant titulaire' : 'Homeroom teacher' }} <b class="text-rose-600">*</b></span><select class="field" [class.invalid]="!curriculum()?.homeroomTeacher" [ngModel]="curriculum()?.homeroomTeacher?.employeeId ?? ''" (ngModelChange)="prepareHomeroom($event)" [disabled]="!canManageTeachingAssignments"><option value="">{{ fr() ? 'Choisir un titulaire' : 'Choose a homeroom teacher' }}</option>@for (teacher of allTeachers(); track teacher.id) { <option [value]="teacher.id">{{ teacher.name }} · {{ teacher.code }} · {{ teacher.accountUsername || (fr() ? 'sans compte' : 'no account') }}{{ teacher.accountRole ? ' · ' + teacher.accountRole : '' }}</option> }</select></label>
                   <div class="text-xs text-slate-600 md:max-w-sm">{{ selectedAssignmentClass()?.level === 'secondary' ? (fr() ? 'Le titulaire obtient la lecture et la revue de la classe; les notes restent saisies par matière.' : 'The homeroom teacher receives class read/review access; marks remain entered per subject.') : (fr() ? 'Le planning et la saisie des notes sont verrouillés tant que cette affectation est absente.' : 'Timetable and grade entry remain blocked while this assignment is missing.') }}</div>
                 </div>
                 @if (!curriculum()?.homeroomTeacher) { <div class="mt-2 text-xs text-rose-700">{{ fr() ? 'Affectation titulaire manquante — action requise.' : 'Homeroom assignment missing — repair required.' }}</div> }
@@ -569,13 +569,13 @@ import { downloadCsv } from '../../core/csv';
                   @for (row of assignmentRows(); track row.subjectId) {
                     <div class="grid grid-cols-1 md:grid-cols-8 gap-2 items-center rounded-lg bg-white border p-2" [class.border-rose-300]="assignmentFocusCode() === row.subjectCode.toUpperCase()" [class.border-slate-200]="assignmentFocusCode() !== row.subjectCode.toUpperCase()">
                     <div class="font-semibold text-sm md:col-span-2">{{ row.subjectCode }} · {{ assignmentSubjectLabel(row) }}</div>
-                    <label><span class="meta">{{ fr() ? 'Groupe' : 'Group' }}</span><select [ngModel]="row.groupId ?? ''" (ngModelChange)="setSubjectGroup(row, $event)" class="field"><option value="">{{ fr() ? 'Aucun' : 'None' }}</option>@for (group of (curriculum()?.groups ?? []); track group.id) { <option [value]="group.id">{{ groupLabel(group) }}</option> }</select></label>
-                    <label><span class="meta">{{ fr() ? 'Barème' : 'Max score' }}</span><input type="number" min="1" [ngModel]="row.maxScore" (ngModelChange)="row.maxScore = +$event" class="field" /></label>
-                    <label><span class="meta">{{ fr() ? 'Seuil indicatif' : 'Subject reference threshold' }}</span><input type="number" min="0" [ngModel]="row.passThreshold" (ngModelChange)="row.passThreshold = +$event" class="field" /><span class="text-[11px] text-mute">{{ fr() ? 'Référence matière, pas le seuil de passage.' : 'Subject reference; not the promotion threshold.' }}</span></label>
-                    <label class="flex items-start gap-2 text-xs font-semibold pt-2"><input type="checkbox" [ngModel]="row.mandatory" (ngModelChange)="row.mandatory = $event" /> <span>{{ fr() ? 'Obligatoire pour compléter le résultat' : 'Required for result completeness' }}</span></label>
-                    <label class="flex items-center gap-2 text-xs font-semibold pt-4"><input type="checkbox" [ngModel]="row.remarkRequired" (ngModelChange)="row.remarkRequired = $event" /> {{ fr() ? 'Remarque' : 'Remark' }}</label>
+                    <label><span class="meta">{{ fr() ? 'Groupe' : 'Group' }}</span><select [ngModel]="row.groupId ?? ''" (ngModelChange)="setSubjectGroup(row, $event)" [disabled]="!canManageClassCurriculum" class="field"><option value="">{{ fr() ? 'Aucun' : 'None' }}</option>@for (group of (curriculum()?.groups ?? []); track group.id) { <option [value]="group.id">{{ groupLabel(group) }}</option> }</select></label>
+                    <label><span class="meta">{{ fr() ? 'Barème' : 'Max score' }}</span><input type="number" min="1" [ngModel]="row.maxScore" (ngModelChange)="row.maxScore = +$event" [disabled]="!canManageClassCurriculum" class="field" /></label>
+                    <label><span class="meta">{{ fr() ? 'Seuil indicatif' : 'Subject reference threshold' }}</span><input type="number" min="0" [ngModel]="row.passThreshold" (ngModelChange)="row.passThreshold = +$event" [disabled]="!canManageClassCurriculum" class="field" /><span class="text-[11px] text-mute">{{ fr() ? 'Référence matière, pas le seuil de passage.' : 'Subject reference; not the promotion threshold.' }}</span></label>
+                    <label class="flex items-start gap-2 text-xs font-semibold pt-2"><input type="checkbox" [ngModel]="row.mandatory" (ngModelChange)="row.mandatory = $event" [disabled]="!canManageClassCurriculum" /> <span>{{ fr() ? 'Obligatoire pour compléter le résultat' : 'Required for result completeness' }}</span></label>
+                    <label class="flex items-center gap-2 text-xs font-semibold pt-4"><input type="checkbox" [ngModel]="row.remarkRequired" (ngModelChange)="row.remarkRequired = $event" [disabled]="!canManageClassCurriculum" /> {{ fr() ? 'Remarque' : 'Remark' }}</label>
                     @if (selectedAssignmentClass()?.level === 'secondary') {
-                      <div class="flex items-end gap-1"><select [ngModel]="row.responsibleTeacher?.employeeId ?? ''" (ngModelChange)="prepareSubjectTeacher(row, $event)" class="field" [class.invalid]="!row.responsibleTeacher" [disabled]="!canWrite"><option value="">{{ fr() ? 'Enseignant RESPONSIBLE' : 'RESPONSIBLE teacher' }}</option>@for (teacher of allTeachers(); track teacher.id) { <option [value]="teacher.id">{{ teacher.name }} · {{ teacher.code }} · {{ teacher.accountUsername || (fr() ? 'sans compte' : 'no account') }}{{ teacher.accountRole ? ' · ' + teacher.accountRole : '' }}</option> }</select><button type="button" (click)="saveAssignment(row)" [disabled]="!canWrite" class="h-10 px-2 rounded-lg bg-brand-50 text-brand-700 text-xs font-bold">{{ fr() ? 'Sauver' : 'Save' }}</button></div>
+                      <div class="flex items-end gap-1"><select [ngModel]="row.responsibleTeacher?.employeeId ?? ''" (ngModelChange)="prepareSubjectTeacher(row, $event)" class="field" [class.invalid]="!row.responsibleTeacher" [disabled]="!canManageTeachingAssignments"><option value="">{{ fr() ? 'Enseignant RESPONSIBLE' : 'RESPONSIBLE teacher' }}</option>@for (teacher of allTeachers(); track teacher.id) { <option [value]="teacher.id">{{ teacher.name }} · {{ teacher.code }} · {{ teacher.accountUsername || (fr() ? 'sans compte' : 'no account') }}{{ teacher.accountRole ? ' · ' + teacher.accountRole : '' }}</option> }</select><button type="button" (click)="saveAssignment(row)" [disabled]="!canManageClassCurriculum" class="h-10 px-2 rounded-lg bg-brand-50 text-brand-700 text-xs font-bold">{{ fr() ? 'Sauver' : 'Save' }}</button></div>
                     } @else {
                       <div><span class="meta">{{ fr() ? 'Enseignant hérité' : 'Inherited teacher' }}</span><div class="field bg-slate-100 text-slate-600 cursor-not-allowed">{{ curriculum()?.homeroomTeacher?.employeeName ?? (fr() ? 'Affectation manquante' : 'Assignment missing') }}</div><div class="text-[11px] text-slate-500 mt-1">{{ fr() ? 'Hérité du titulaire de classe — non modifiable ici.' : 'Inherited from homeroom — not editable here.' }}</div></div>
                     }
@@ -602,7 +602,7 @@ import { downloadCsv } from '../../core/csv';
         <bbc-card [title]="fr() ? 'Matières & coefficients' : 'Subjects & coefficients'"
           [subtitle]="fr() ? 'Listes distinctes par sous-système, avec coefficient pour les moyennes pondérées' : 'Distinct lists per subsystem, with coefficient for weighted averages'">
           <div action class="flex items-center gap-2">
-            @if (canWrite && (subjFilter() === 'FR' || subjFilter() === 'EN')) {
+            @if (canWrite && canManageCurriculumCatalog && (subjFilter() === 'FR' || subjFilter() === 'EN')) {
               <button (click)="importDefaults()" [disabled]="!missingDefaultsCount()"
                 class="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-semibold rounded-lg bg-white border border-slate-200 text-ink hover:bg-slate-50 disabled:opacity-50"
                 [title]="fr() ? 'Depuis la liste officielle MATIÈRE EXCEL' : 'From the official MATIERE EXCEL master list'">
@@ -621,7 +621,7 @@ import { downloadCsv } from '../../core/csv';
 
           <!-- Subsystem filter -->
           <div class="flex items-center gap-1.5 mb-4 flex-wrap">
-            @for (f of subjFilters; track f.value) {
+            @for (f of visibleSubjectFilters(); track f.value) {
               <button (click)="setSubjectSubsystem(f.value)"
                 class="px-3 py-1.5 rounded-full text-xs font-semibold transition"
                 [class]="subjFilter() === f.value ? 'bg-brand-600 text-white' : 'bg-white text-mute border border-slate-200 hover:border-brand-300'">
@@ -658,7 +658,7 @@ import { downloadCsv } from '../../core/csv';
               </label>
               <label class="block">
                 <span class="text-xs font-semibold text-ink">{{ fr() ? 'Sous-système' : 'Subsystem' }}</span>
-                <select [(ngModel)]="subjSub" name="ssub" class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400">
+                <select [(ngModel)]="subjSub" name="ssub" [disabled]="!!subjectParcoursLock()" class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400 disabled:bg-slate-100">
                   <option value="FR">{{ fr() ? 'Francophone' : 'Francophone' }}</option>
                   <option value="EN">{{ fr() ? 'Anglophone' : 'Anglophone' }}</option>
                   <option value="">{{ fr() ? 'Commune (FR + EN)' : 'Common (FR + EN)' }}</option>
@@ -712,8 +712,10 @@ import { downloadCsv } from '../../core/csv';
                     </td>
                     <td class="py-2 px-3 text-center font-semibold">{{ s.coef }}</td>
                     <td class="py-2 pl-3 text-right whitespace-nowrap">
-                      @if (canWrite) {
+                      @if (canEditSubject(s)) {
                         <button (click)="editSubject(s)" class="text-mute hover:text-brand-600 px-1.5"><bbc-icon name="edit" [s]="15" /></button>
+                      }
+                      @if (canDeleteSubjects) {
                         <button (click)="deleteSubject(s)" class="text-mute hover:text-rose-600 px-1.5"><bbc-icon name="trash" [s]="15" /></button>
                       }
                     </td>
@@ -727,7 +729,7 @@ import { downloadCsv } from '../../core/csv';
           } @else {
             <div class="py-8 text-center">
               <bbc-empty icon="book" [label]="fr() ? 'Aucune matière dans cette liste.' : 'No subject in this list.'" />
-              @if (canWrite && subjFilter() !== 'ALL') {
+              @if (canWrite && canManageCurriculumCatalog && subjFilter() !== 'ALL') {
                 <button (click)="importDefaults()" class="mt-3 inline-flex items-center gap-2 h-9 px-4 text-sm font-semibold rounded-lg bg-gold-400 hover:bg-gold-500 text-brand-800">
                   <bbc-icon name="plus" [s]="16" />
                   {{ fr() ? 'Importer les matières standard ' + subjFilter() : 'Import standard ' + subjFilter() + ' subjects' }}
@@ -952,7 +954,7 @@ export class AcademicSetupComponent {
     const action = {
       sections: 'CLASS_MANAGE',
       classes: 'CLASS_MANAGE',
-      subjects: 'SUBJECT_MANAGE',
+      subjects: 'SUBJECT_CATALOG_WRITE',
       'class-subjects': 'CURRICULUM_CLASS_MANAGE',
       'bilingual-groups': 'CLASS_MANAGE',
       'primary-grid': 'CURRICULUM_CATALOG_MANAGE',
@@ -973,6 +975,28 @@ export class AcademicSetupComponent {
       : this.sub() === 'assessments' || this.sub() === 'access-exceptions' || this.sub() === 'competencies';
   }
   protected activeScope = computed(() => this.scopeSvc.scope());
+
+  /** Directors can work only with subjects belonging to their selected FR/EN parcours. */
+  protected subjectParcoursLock = computed<'FR' | 'EN' | null>(() =>
+    this.canDeleteSubjects ? null : (this.activeScope()?.subsystem ?? null),
+  );
+
+  /** Deleting a catalogue entry stays an administrator-only operation. */
+  protected get canDeleteSubjects(): boolean { return this.auth.canAction('SUBJECT_MANAGE'); }
+
+  /** Shared session-wide subject groups and bulk catalogue imports remain administrative. */
+  protected get canManageCurriculumCatalog(): boolean { return this.auth.canAction('CURRICULUM_CATALOG_MANAGE'); }
+
+  /** A director may change class curriculum details after selecting an in-scope class. */
+  protected get canManageClassCurriculum(): boolean {
+    return this.sub() === 'class-subjects' && this.canWrite;
+  }
+
+  /** Staff assignments are deliberately separate from class-subject management. */
+  protected get canManageTeachingAssignments(): boolean {
+    const state = this.auth.actionState('TEACHING_ASSIGNMENT_MANAGE');
+    return state === 'ALLOW' || (state === 'CONTEXT_REQUIRED' && !!this.assignmentClassId());
+  }
 
   protected scopeBanner = computed(() => {
     const s = this.activeScope();
@@ -1065,11 +1089,17 @@ export class AcademicSetupComponent {
     { value: 'EN', fr: 'Anglophone', en: 'Anglophone' },
     { value: 'ALL', fr: 'Toutes', en: 'All' },
   ];
+  protected visibleSubjectFilters = computed(() => {
+    const locked = this.subjectParcoursLock();
+    return locked ? this.subjFilters.filter((filter) => filter.value === locked) : this.subjFilters;
+  });
 
   protected filteredSubjects = computed(() => {
     const f = this.subjFilter();
     const q = this.subjectQuery().trim().toLowerCase();
     let all = this.subjects();
+    const locked = this.subjectParcoursLock();
+    if (locked) all = all.filter((s) => s.subsystem === locked || !s.subsystem);
     if (f !== 'ALL') {
       // FR/EN lists include subjects common to both (subsystem null).
       all = all.filter((s) => s.subsystem === f || !s.subsystem);
@@ -1082,7 +1112,10 @@ export class AcademicSetupComponent {
   protected pagedSubjects = computed(() => paginateRows(this.filteredSubjects(), this.subjectPage(), this.subjectPageSize()));
 
   protected countFor(f: 'FR' | 'EN' | 'ALL'): number {
-    const all = this.subjects();
+    const locked = this.subjectParcoursLock();
+    const all = locked
+      ? this.subjects().filter((s) => s.subsystem === locked || !s.subsystem)
+      : this.subjects();
     if (f === 'ALL') return all.length;
     return all.filter((s) => s.subsystem === f || !s.subsystem).length;
   }
@@ -1099,7 +1132,7 @@ export class AcademicSetupComponent {
   }
 
   protected setSubjectSubsystem(value: 'FR' | 'EN' | 'ALL'): void {
-    this.subjFilter.set(value);
+    this.subjFilter.set(this.subjectParcoursLock() ?? value);
     this.subjectPage.set(1);
   }
   protected setSubjectQuery(value: string): void { this.subjectQuery.set(value); this.subjectPage.set(1); }
@@ -1310,6 +1343,7 @@ export class AcademicSetupComponent {
   }
 
   protected addAssignment(): void {
+    if (!this.canManageClassCurriculum) return;
     const classId = this.assignmentClassId();
     const subjectId = this.assignmentSubjectId();
     const coef = Number(this.assignmentCoef());
@@ -1332,6 +1366,7 @@ export class AcademicSetupComponent {
   }
 
   protected saveAssignment(row: CurriculumSubjectView): void {
+    if (!this.canManageClassCurriculum) return;
     const coef = Number(this.draftCoefficient(row));
     if (!Number.isInteger(coef) || coef < 1) {
       this.setAssignmentNotice(false, this.fr() ? 'Le coefficient doit être un entier supérieur ou égal à 1.' : 'The coefficient must be a whole number of at least 1.');
@@ -1347,11 +1382,13 @@ export class AcademicSetupComponent {
   }
 
   protected askRemoveAssignment(row: CurriculumSubjectView): void {
+    if (!this.canManageClassCurriculum) return;
     this.pendingCoefficientRemoval.set(this.assignmentKey(row));
     this.assignmentNotice.set(null);
   }
 
   protected removeAssignment(row: CurriculumSubjectView): void {
+    if (!this.canManageClassCurriculum) return;
     this.api.deleteCurriculumSubject(this.curriculumSessionId(), this.assignmentClassId(), row.subjectId).subscribe({
       next: () => {
         this.curriculum.update((current) => current ? { ...current, subjects: current.subjects.filter((currentRow) => currentRow.subjectId !== row.subjectId) } : current);
@@ -1369,12 +1406,13 @@ export class AcademicSetupComponent {
   }
 
   protected setSubjectGroup(row: CurriculumSubjectView, groupId: string): void {
+    if (!this.canManageClassCurriculum) return;
     const group = this.curriculum()?.groups.find((g) => g.id === groupId);
     this.curriculum.update((current) => current ? { ...current, subjects: current.subjects.map((x) => x.subjectId === row.subjectId ? { ...x, groupId: groupId || null, groupCode: group?.code ?? null } : x) } : current);
   }
 
   protected prepareSubjectTeacher(row: CurriculumSubjectView, employeeId: string): void {
-    if (!employeeId || !this.canWrite) return;
+    if (!employeeId || !this.canManageTeachingAssignments) return;
     this.assignmentBusy.set(true);
     this.api.assignmentImpactPreview({
       academicSessionId: this.curriculumSessionId(), classId: this.assignmentClassId(), subjectId: row.subjectId,
@@ -1386,7 +1424,7 @@ export class AcademicSetupComponent {
   }
 
   protected prepareHomeroom(employeeId: string): void {
-    if (!employeeId || !this.canWrite) return;
+    if (!employeeId || !this.canManageTeachingAssignments) return;
     this.assignmentBusy.set(true);
     this.api.assignmentImpactPreview({
       academicSessionId: this.curriculumSessionId(), classId: this.assignmentClassId(), employeeId, role: 'HOMEROOM',
@@ -1411,7 +1449,7 @@ export class AcademicSetupComponent {
   }
 
   protected saveSubjectTeacher(row: CurriculumSubjectView, employeeId: string): void {
-    if (!employeeId) return;
+    if (!employeeId || !this.canManageTeachingAssignments) return;
     this.api.upsertCurriculumTeacher({ academicSessionId: this.curriculumSessionId(), classId: this.assignmentClassId(), subjectId: row.subjectId, employeeId, role: 'RESPONSIBLE', source: 'MANUAL' }).subscribe({
       next: (teacher) => { this.curriculum.update((current) => current ? { ...current, subjects: current.subjects.map((x) => x.subjectId === row.subjectId ? { ...x, responsibleTeacher: teacher } : x) } : current); this.assignmentBusy.set(false); this.cancelAssignmentImpact(); this.returnToGradeEntryIfRequested(); },
       error: (e) => { this.assignmentBusy.set(false); this.assignmentError(e); },
@@ -1419,7 +1457,7 @@ export class AcademicSetupComponent {
   }
 
   protected saveHomeroom(employeeId: string): void {
-    if (!employeeId || !this.canWrite) return;
+    if (!employeeId || !this.canManageTeachingAssignments) return;
     this.api.upsertHomeroom({
       academicSessionId: this.curriculumSessionId(),
       classId: this.assignmentClassId(),
@@ -1439,6 +1477,7 @@ export class AcademicSetupComponent {
   }
 
   protected createGroup(): void {
+    if (!this.canManageCurriculumCatalog) return;
     const sessionId = this.curriculumSessionId();
     if (!sessionId || !this.groupCode.trim() || !this.groupFr.trim() || this.groupOrder < 1) {
       this.groupNotice.set({ ok: false, text: this.fr() ? 'Code, libellé et ordre du groupe sont obligatoires.' : 'Group code, label, and order are required.' }); return;
@@ -1449,13 +1488,18 @@ export class AcademicSetupComponent {
     });
   }
 
-  protected askRemoveGroup(group: SubjectGroupView): void { this.pendingGroupRemoval.set(group.id); }
+  protected askRemoveGroup(group: SubjectGroupView): void {
+    if (!this.canManageCurriculumCatalog) return;
+    this.pendingGroupRemoval.set(group.id);
+  }
   protected removeGroup(group: SubjectGroupView): void {
+    if (!this.canManageCurriculumCatalog) return;
     this.api.deleteCurriculumGroup(group.id).subscribe({ next: () => { this.curriculum.update((current) => current ? { ...current, groups: current.groups.filter((x) => x.id !== group.id), subjects: current.subjects.map((x) => x.groupId === group.id ? { ...x, groupId: null, groupCode: null } : x) } : current); this.pendingGroupRemoval.set(null); }, error: (e) => this.groupNotice.set({ ok: false, text: e?.error?.message ?? (this.fr() ? 'Suppression impossible.' : 'Could not delete group.') }) });
   }
 
   /** Read an Excel/CSV coefficient file (long format) and import it. */
   protected onCoefFile(ev: Event): void {
+    if (!this.canManageCurriculumCatalog) return;
     const input = ev.target as HTMLInputElement;
     const file = input.files?.[0];
     if (!file) return;
@@ -1896,19 +1940,26 @@ export class AcademicSetupComponent {
   }
 
   // ---- Subjects ----
+  protected canEditSubject(subject: SubjectView): boolean {
+    const locked = this.subjectParcoursLock();
+    return this.canWrite && (!locked || subject.subsystem === locked);
+  }
+
   protected newSubject(): void {
     this.subjEditId.set(null);
     this.subjCode = ''; this.subjFr = ''; this.subjEn = ''; this.subjCoef = 1;
     // Default the new subject's subsystem to whichever list is being viewed.
-    this.subjSub = this.subjFilter() === 'EN' ? 'EN' : 'FR';
+    this.subjSub = this.subjectParcoursLock() ?? (this.subjFilter() === 'EN' ? 'EN' : 'FR');
     this.subjForm.set(true);
   }
   protected editSubject(s: SubjectView): void {
+    if (!this.canEditSubject(s)) return;
     this.subjEditId.set(s.id); this.subjCode = s.code;
     this.subjSub = s.subsystem ?? '';
     this.subjFr = s.label?.['fr'] ?? ''; this.subjEn = s.label?.['en'] ?? ''; this.subjCoef = s.coef; this.subjForm.set(true);
   }
   protected saveSubject(): void {
+    if (!this.canWrite) return;
     this.err.set(null);
     const body: SubjectUpsert = {
       code: this.subjCode,
@@ -1921,6 +1972,7 @@ export class AcademicSetupComponent {
     req.subscribe({ next: () => { this.subjForm.set(false); this.loadSubjects(); }, error: this.fail });
   }
   protected deleteSubject(s: SubjectView): void {
+    if (!this.canDeleteSubjects) return;
     if (!confirm(this.fr() ? `Supprimer la matière « ${s.code} » ?` : `Delete subject "${s.code}"?`)) return;
     this.err.set(null);
     this.api.deleteSubject(s.id).subscribe({ next: () => this.loadSubjects(), error: this.fail });
@@ -1928,6 +1980,7 @@ export class AcademicSetupComponent {
 
   /** Bulk-create the standard subject list for the active subsystem (skips existing codes). */
   protected importDefaults(): void {
+    if (!this.canManageCurriculumCatalog) return;
     const sub = this.subjFilter();
     if (sub !== 'FR' && sub !== 'EN') return;
     this.err.set(null);
