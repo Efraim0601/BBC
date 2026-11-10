@@ -285,6 +285,9 @@ public class ProductionBootstrap implements ApplicationRunner {
      */
     private void seedPrincipalAcademicWorkflowLegacyAuthorities(UUID schoolId) {
         for (String action : new String[]{
+                "ACADEMIC_SUBJECT_GRADE_VIEW",
+                "ACADEMIC_SUBJECT_GRADE_EDIT",
+                "GRADE_SUBMIT",
                 "ACADEMIC_GRADE_PACKET_REVIEW",
                 "ACADEMIC_REPORT_CARD_VALIDATE",
                 "ACADEMIC_REPORT_CARD_PUBLISH"}) {

@@ -1152,7 +1152,16 @@ export class AcademicComponent {
       ? this.classOverviewIds().includes(selected)
       : this.classOverviewIds().length > 0;
   });
-  protected canWrite = this.auth.can('academic', 'write');
+  /**
+   * Principals keep the academic module at read level in the legacy matrix,
+   * while the server grants grade entry per selected class and parcours.  Show
+   * the save controls when that contextual grade-edit capability exists; each
+   * save remains checked against the actual class and subject by the API.
+   */
+  protected get canWrite(): boolean {
+    return this.auth.can('academic', 'write')
+      || ['ALLOW', 'CONTEXT_REQUIRED'].includes(this.auth.actionState('ACADEMIC_SUBJECT_GRADE_EDIT'));
+  }
   protected canValidateReportCards = computed(() => this.canUseClassOverview() && ['ALLOW', 'CONTEXT_REQUIRED'].includes(
     this.auth.actionState('ACADEMIC_REPORT_CARD_VALIDATE')));
   protected canPublishReportCards = computed(() => this.canUseClassOverview() && ['ALLOW', 'CONTEXT_REQUIRED'].includes(

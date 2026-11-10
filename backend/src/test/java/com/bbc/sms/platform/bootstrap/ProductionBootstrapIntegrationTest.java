@@ -107,6 +107,27 @@ class ProductionBootstrapIntegrationTest {
         String token = jwt.issueAccess(new AppUserPrincipal(
                 principalId, schoolId, "scoped-principal", "principal",
                 "Scoped Principal", "SP"));
+        Integer operationalControllerGates = jdbc.queryForObject("""
+                SELECT count(*) FROM permission_action_grant
+                 WHERE school_id=? AND role_code='principal' AND allowed=true
+                   AND action_code IN ('ACADEMIC_SUBJECT_GRADE_EDIT', 'GRADE_SUBMIT', 'ATTENDANCE_MARK')
+                """, Integer.class, schoolId);
+        assertThat(operationalControllerGates).isEqualTo(3);
+        UUID currentSessionId = jdbc.queryForObject(
+                "SELECT id FROM academic_session WHERE school_id=? AND is_current", UUID.class, schoolId);
+        java.time.LocalDate currentSessionStart = jdbc.queryForObject(
+                "SELECT start_date FROM academic_session WHERE id=?", java.time.LocalDate.class, currentSessionId);
+        String primarySectionId = "tst-pri-" + principalId.toString().substring(0, 8);
+        jdbc.update("""
+                INSERT INTO section (id,school_id,label,subsystem,level)
+                VALUES (?,?,'Primary FR test','FR','primary')
+                """, primarySectionId, schoolId);
+        UUID primaryClassId = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO school_class (id,school_id,section_id,name,subsystem,level)
+                VALUES (?,?,?,?,'FR','primary')
+                """, primaryClassId, schoolId, primarySectionId,
+                "Principal scope " + principalId.toString().substring(0, 8));
 
         mockMvc.perform(get("/api/access/catalog")
                         .header("Authorization", "Bearer " + token)
@@ -145,6 +166,27 @@ class ProductionBootstrapIntegrationTest {
                         .header("X-Parcours", "primary:FR")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
+                                {"actionCode":"GRADE_SUBMIT","parcours":"primary:FR",
+                                 "classId":"%s","subjectCode":"MATH"}
+                                """.formatted(primaryClassId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.allowed").value(true));
+
+        // This is the actual Attendance class selector used by the page.  It
+        // confirms that a Principal sees every class in the active parcours,
+        // not only a class they teach or are assigned as titulaire.
+        mockMvc.perform(get("/api/attendance/classes")
+                        .header("Authorization", "Bearer " + token)
+                        .header("X-Parcours", "primary:FR")
+                        .param("date", currentSessionStart.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.id == '%s')]", primaryClassId).exists());
+
+        mockMvc.perform(post("/api/access/me/decision")
+                        .header("Authorization", "Bearer " + token)
+                        .header("X-Parcours", "primary:FR")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
                                 {"actionCode":"CURRICULUM_MANAGE","parcours":"primary:FR",
                                  "classId":"00000000-0000-0000-0000-000000000001","subjectCode":"MATH"}
                                 """))
@@ -156,7 +198,58 @@ class ProductionBootstrapIntegrationTest {
                         .header("X-Parcours", "primary:FR")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
+                                {"actionCode":"ATTENDANCE_FINALIZE","parcours":"primary:FR",
+                                 "academicSessionId":"%s","effectiveDate":"%s",
+                                 "classId":"%s","periodKey":"DAILY",
+                                 "level":"primary"}
+                                """.formatted(currentSessionId, currentSessionStart, primaryClassId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.allowed").value(true));
+
+        mockMvc.perform(post("/api/access/me/decision")
+                        .header("Authorization", "Bearer " + token)
+                        .header("X-Parcours", "primary:FR")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
                                 {"actionCode":"SUBJECT_MANAGE","parcours":"primary:FR"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.allowed").value(false));
+
+        // A Principal is an operational academic lead inside the assigned
+        // parcours: grades and attendance are available for any class there,
+        // but the same actions remain closed in another parcours.
+        mockMvc.perform(post("/api/access/me/decision")
+                        .header("Authorization", "Bearer " + token)
+                        .header("X-Parcours", "primary:FR")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"actionCode":"ACADEMIC_SUBJECT_GRADE_EDIT","parcours":"primary:FR",
+                                 "classId":"%s","subjectCode":"MATH"}
+                                """.formatted(primaryClassId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.allowed").value(true));
+
+        mockMvc.perform(post("/api/access/me/decision")
+                        .header("Authorization", "Bearer " + token)
+                        .header("X-Parcours", "primary:FR")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"actionCode":"ATTENDANCE_MARK","parcours":"primary:FR",
+                                 "academicSessionId":"%s","effectiveDate":"%s",
+                                 "classId":"%s","periodKey":"DAILY",
+                                 "level":"primary"}
+                                """.formatted(currentSessionId, currentSessionStart, primaryClassId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.allowed").value(true));
+
+        mockMvc.perform(post("/api/access/me/decision")
+                        .header("Authorization", "Bearer " + token)
+                        .header("X-Parcours", "primary:FR")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"actionCode":"ACADEMIC_SUBJECT_GRADE_EDIT","parcours":"secondary:FR",
+                                 "classId":"00000000-0000-0000-0000-000000000002","subjectCode":"MATH"}
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.allowed").value(false));

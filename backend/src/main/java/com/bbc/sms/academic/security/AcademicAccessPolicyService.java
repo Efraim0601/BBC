@@ -534,7 +534,11 @@ public class AcademicAccessPolicyService {
     private boolean managementAllowed(Actor actor, Capability capability, boolean centralAllowed) {
         if (actor.teacherRole()) return false;
         if (capability == Capability.TITULAIRE_ANY_SUBJECT_GRADE_EDIT) return false;
-        if (centralAllowed) return true;
+        // Once the V2 policy service is available it is the only management
+        // authority.  PermissionService is retained solely for focused legacy
+        // unit tests where that service is intentionally absent: its coarse
+        // action grants cannot express a Principal's parcours boundary.
+        if (centralPolicy != null) return centralAllowed;
         String action = switch (capability) {
             case CLASS_RESULTS_VIEW -> "ACADEMIC_CLASS_RESULTS_VIEW";
             case CLASS_REPORT_CARD_VIEW -> "ACADEMIC_REPORT_CARD_VIEW";
