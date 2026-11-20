@@ -461,7 +461,7 @@ interface HeaderMap {
                   <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <label class="block">
                       <span class="text-xs font-semibold text-ink">{{ fr() ? 'Classe' : 'Class' }}</span>
-                      <select [(ngModel)]="draft.classId" name="classId" (ngModelChange)="onIdentityChange()"
+                      <select [(ngModel)]="draft.classId" name="classId" (ngModelChange)="onIdentityChange()" [disabled]="classAssignmentLocked()"
                         class="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-brand-400">
                         <option [ngValue]="null">{{ fr() ? '— Non affecté —' : '— Unassigned —' }}</option>
                         @for (c of classes(); track c.id) {
@@ -469,7 +469,9 @@ interface HeaderMap {
                         }
                       </select>
                       <span class="text-[11px] text-mute mt-1 block">
-                        {{ fr() ? 'Sous-système et niveau sont déduits de la classe.' : 'Subsystem and level are derived from the class.' }}
+                        {{ classAssignmentLocked()
+                          ? (fr() ? 'La classe est gérée par la direction.' : 'Class assignment is managed by school administration.')
+                          : (fr() ? 'Sous-système et niveau sont déduits de la classe.' : 'Subsystem and level are derived from the class.') }}
                       </span>
                     </label>
                   </div>
@@ -1031,6 +1033,8 @@ export class StudentsComponent {
   protected get canCreateStudent(): boolean { return this.actionAvailable('STUDENT_PROFILE_CREATE'); }
   protected get canImportStudents(): boolean { return this.actionAvailable('STUDENT_IMPORT'); }
   protected get canEditStudents(): boolean { return this.actionAvailable('STUDENT_PROFILE_EDIT'); }
+  protected classAssignmentLocked = (): boolean =>
+    ['teacher', 'secondary_teacher', 'form_teacher'].includes(this.auth.user()?.role ?? '');
   protected get canDeactivateStudents(): boolean { return this.actionAvailable('STUDENT_PROFILE_DEACTIVATE'); }
   protected get canManageGuardians(): boolean { return this.actionAvailable('GUARDIAN_LINK_MANAGE'); }
   protected draft: StudentUpsert = this.blank();

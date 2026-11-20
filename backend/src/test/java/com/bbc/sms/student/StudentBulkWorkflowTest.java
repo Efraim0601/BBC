@@ -73,6 +73,27 @@ class StudentBulkWorkflowTest {
     }
 
     @Test
+    void teacherProfileEditCanNeverMoveOrUnassignAStudent() {
+        TenantContext.set(schoolId);
+        UUID currentClass = UUID.randomUUID();
+        Student student = new Student();
+        student.setId(UUID.randomUUID()); student.setSchoolId(schoolId); student.setActive(true);
+        student.setLastName("NDOE"); student.setFirstName("Ada"); student.setClassId(currentClass);
+        when(students.findByIdAndSchoolId(student.getId(), schoolId)).thenReturn(Optional.of(student));
+        when(teacherScope.teachingPersona()).thenReturn(true);
+
+        StudentUpsert changeClass = new StudentUpsert("Ada", "NDOE", null, "F", null, null,
+                false, UUID.randomUUID(), null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null, false);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.update(student.getId(), changeClass))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("ne peut pas changer leur classe");
+        verify(students, never()).saveAndFlush(any());
+        verify(enrollments, never()).syncCurrent(any());
+    }
+
+    @Test
     void importAcceptsOptionalFirstNamesWithoutInventingADashAndRejectsBlankNames() {
         TenantContext.set(schoolId);
         UUID classId = UUID.randomUUID();

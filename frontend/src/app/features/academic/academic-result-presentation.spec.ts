@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { academicBulletinTitle, canReviewGradePacket, canReturnGradePacket, computedPeriodCodes, formatAcademicMark, isReadOnlyGradeOversight, isReadOnlyGradeSheet } from './academic';
+import { academicBulletinTitle, canOpenGradeEntry, canReviewGradePacket, canReturnGradePacket, computedPeriodCodes, formatAcademicMark, isReadOnlyGradeOversight, isReadOnlyGradeSheet } from './academic';
 
 describe('computed bulletin presentation', () => {
   it('marks locked sheets read-only even for their assigned teacher', () => {
@@ -59,5 +59,10 @@ describe('computed bulletin presentation', () => {
       capabilities: { canEditDraft: false, canSubmit: false, canReview: false, restrictedTeacher: true, oversightOnly: false },
     })).toBe(false);
     expect(isReadOnlyGradeOversight(null)).toBe(false);
+  });
+
+  it('does not expose grade entry to a read-only academic user', () => {
+    expect(canOpenGradeEntry(() => 'DENY')).toBe(false);
+    expect(canOpenGradeEntry((code) => code === 'ACADEMIC_SUBJECT_GRADE_VIEW' ? 'CONTEXT_REQUIRED' : 'DENY')).toBe(true);
   });
 });

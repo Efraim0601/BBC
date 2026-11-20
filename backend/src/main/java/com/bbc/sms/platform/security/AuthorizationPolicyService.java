@@ -670,6 +670,18 @@ public class AuthorizationPolicyService {
                 .anyMatch(role -> Set.of("principal", "administrator", "admin", "school_admin",
                         "registrar", "student_manager", "enrollment_manager").contains(role));
         if (managementRole) return true;
+        // A teacher may correct the administrative details of a pupil only
+        // when the role rule is explicitly bound to a dated homeroom class.
+        // This is deliberately limited to profile editing: it does not grant
+        // registration, withdrawal, transfer, guardian administration, or
+        // deactivation.  `matches` has already verified TITULAIRE_CLASSES
+        // against CLASS_RESULTS_VIEW, which means a Secondary subject teacher
+        // cannot obtain this authority merely because they teach one subject
+        // in the class.
+        if ("STUDENT_PROFILE_EDIT".equals(action.code())
+                && "ALLOW".equals(rule.effect())
+                && "TITULAIRE_CLASSES".equalsIgnoreCase(rule.scopeMode())
+                && isTeacher(roles)) return true;
         // A user exception is intentionally time-bounded for student writes;
         // the Access Control service also requires a reason and applies the
         // high-risk confirmation rules before persisting it.

@@ -267,6 +267,34 @@ class AuthorizationPolicyServiceTest {
     }
 
     @Test
+    void titulaireTeacherMayEditAStudentProfileButOnlyAfterHomeroomScopeMatches() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        AcademicScopeResolver academic = mock(AcademicScopeResolver.class);
+        AuthorizationPolicyService service = new AuthorizationPolicyService(jdbc, new ObjectMapper(),
+                academic, mock(ParcoursAccessService.class), mock(GuardianAccessService.class),
+                mock(AttendanceScopeResolver.class));
+        UUID classId = UUID.randomUUID();
+        PolicyResourceContext context = new PolicyResourceContext(schoolId, UUID.randomUUID(),
+                LocalDate.of(2026, 9, 1), null, classId, null, UUID.randomUUID(), null, null, null, null, "secondary");
+        AuthorizationPolicyService.Action action = new AuthorizationPolicyService.Action(
+                "STUDENT_PROFILE_EDIT", "students", "STUDENT", "write");
+        AuthorizationPolicyService.Rule titulaire = new AuthorizationPolicyService.Rule(
+                "ROLE:secondary_teacher", "ALLOW", "TITULAIRE_CLASSES", null, null, null);
+
+        when(academic.can("ACADEMIC_CLASS_RESULTS_VIEW", context)).thenReturn(true);
+        when(academic.can("ACADEMIC_ROSTER_VIEW", context)).thenReturn(true);
+
+        PolicyDecision allowed = service.evaluateRules(action, context, principal(), List.of(titulaire),
+                List.of("secondary_teacher"), 1);
+        assertThat(allowed.allowed()).isTrue();
+        assertThat(allowed.matchedScope()).isEqualTo("TITULAIRE_CLASSES");
+
+        when(academic.can("ACADEMIC_CLASS_RESULTS_VIEW", context)).thenReturn(false);
+        assertThat(service.evaluateRules(action, context, principal(), List.of(titulaire),
+                List.of("secondary_teacher"), 1)).isNull();
+    }
+
+    @Test
     void datedExactStudentMutationOverrideIsAllowedOnlyInsideTeacherScope() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         AcademicScopeResolver academic = mock(AcademicScopeResolver.class);

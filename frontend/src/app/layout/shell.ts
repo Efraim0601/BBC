@@ -173,7 +173,7 @@ export class ShellComponent implements OnDestroy {
       teacher: ['students', 'presence', 'academic', 'timetable'],
       secondary_teacher: ['students', 'presence', 'academic', 'timetable'],
       form_teacher: ['students', 'presence', 'academic', 'timetable'],
-      accountant: ['finance', 'students', 'finance-treasury', 'reports'],
+      accountant: ['finance', 'students', 'academic', 'finance-treasury'],
       econome: ['finance', 'students', 'finance-treasury', 'reports'],
       finance_collector: ['finance', 'students', 'finance-collections', 'finance-treasury'],
       principal: ['students', 'academic', 'presence', 'timetable'],

@@ -105,6 +105,11 @@ export const isReadOnlyGradeSheet = (
 ): boolean => !!entry && (['SUBMITTED', 'ACCEPTED', 'LOCKED'].includes(entry.packetStatus)
   || entry.capabilities?.canEditDraft === false || isReadOnlyGradeOversight(entry));
 
+/** The grade-entry workspace is never a generic academic-read screen. */
+export const canOpenGradeEntry = (actionState: (code: string) => string): boolean =>
+  ['ACADEMIC_SUBJECT_GRADE_VIEW', 'ACADEMIC_SUBJECT_GRADE_EDIT', 'ACADEMIC_GRADE_PACKET_REVIEW']
+    .some((code) => ['ALLOW', 'CONTEXT_REQUIRED'].includes(actionState(code)));
+
 export const computedPeriodCodes = (lines: BulletinView['lines']): string[] => {
   const seen = new Set<string>();
   for (const line of lines) for (const mark of line.periodMarks ?? []) if (mark.periodCode) seen.add(mark.periodCode);
@@ -1169,6 +1174,8 @@ export class AcademicComponent {
   protected canGenerateReportCards = computed(() => this.canUseClassOverview() && ['ALLOW', 'CONTEXT_REQUIRED'].includes(
     this.auth.actionState('DOCUMENT_GENERATE')));
   protected canManageAttendanceWindow = computed(() => this.auth.canAction('SESSION_MANAGE') && this.auth.schoolWide());
+  /** Accountants can consult academic records, never open a grade-entry sheet. */
+  protected canUseGradeEntry = computed(() => canOpenGradeEntry((code) => this.auth.actionState(code)));
 
   /**
    * Maternelle et primaire s'évaluent par compétences, le secondaire par matières.
@@ -1272,7 +1279,9 @@ export class AcademicComponent {
     ...(this.canUseClassOverview()
       ? [{ id: 'bulletin', label: this.fr() ? 'Bulletin' : 'Report card' }]
       : []),
-    { id: 'grade-entry', label: this.fr() ? 'Saisie des notes' : 'Grade entry' },
+    ...(this.canUseGradeEntry()
+      ? [{ id: 'grade-entry', label: this.fr() ? 'Saisie des notes' : 'Grade entry' }]
+      : []),
     ...(this.canUseClassOverview()
       ? [
           { id: 'inputs', label: this.fr() ? 'Assiduité & conseil' : 'Attendance & council' },
@@ -1330,13 +1339,13 @@ export class AcademicComponent {
           // asynchronous scope response proves that no class overview is
           // available. Keep the active mode aligned with the only visible tab
           // so the grade-entry empty state (and its setup guidance) is shown.
-          if (!this.canUseClassOverview() && this.mode() !== 'grade-entry') this.setMode('grade-entry');
+          if (!this.canUseClassOverview() && this.canUseGradeEntry() && this.mode() !== 'grade-entry') this.setMode('grade-entry');
           afterLoad?.();
         },
         error: () => {
           this.classes.set([]);
           this.classOverviewIds.set([]);
-          if (this.mode() !== 'grade-entry') this.setMode('grade-entry');
+          if (this.canUseGradeEntry() && this.mode() !== 'grade-entry') this.setMode('grade-entry');
           afterLoad?.();
         },
       });
@@ -1413,7 +1422,10 @@ export class AcademicComponent {
   }
 
   protected setMode(m: Mode): void {
-    if (!this.canUseClassOverview() && m !== 'grade-entry') m = 'grade-entry';
+    if (m === 'grade-entry' && !this.canUseGradeEntry()) {
+      m = this.canUseClassOverview() ? 'bulletin' : (this.tabs()[0]?.id as Mode ?? 'bulletin');
+    }
+    if (!this.canUseClassOverview() && this.canUseGradeEntry() && m !== 'grade-entry') m = 'grade-entry';
     if (m === 'grade-entry' && this.reportingPeriods().find((p) => p.id === this.selectedReportingPeriodId())?.periodType !== 'SEQUENCE') {
       const firstSequence = this.sequenceReportingPeriods()[0];
       if (firstSequence) this.selectedReportingPeriodId.set(firstSequence.id);
@@ -1433,7 +1445,7 @@ export class AcademicComponent {
     this.gradeEntryError.set(null);
     this.selectedClass.set(name);
     this.selectedClassId.set(this.classes().find((c) => c.name === name)?.id ?? '');
-    if (!this.canUseClassOverview() && this.mode() !== 'grade-entry') this.mode.set('grade-entry');
+    if (!this.canUseClassOverview() && this.canUseGradeEntry() && this.mode() !== 'grade-entry') this.mode.set('grade-entry');
     this.selectedStudentId.set('');
     this.clearBulletinState();
     this.pv.set(null);
@@ -1651,6 +1663,7 @@ export class AcademicComponent {
   }
 
   protected loadGradeEntry(subjectCode?: string): void {
+    if (!this.canUseGradeEntry()) { this.gradeEntry.set(null); return; }
     const classId = this.selectedClassId(); const periodId = this.selectedReportingPeriodId();
     if (!classId || !periodId) { this.gradeEntry.set(null); return; }
     const requestId = ++this.gradeEntryRequestId;

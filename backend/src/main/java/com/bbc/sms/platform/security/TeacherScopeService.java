@@ -85,6 +85,18 @@ public class TeacherScopeService {
     }
 
     /**
+     * Whether this session is operating as a teaching account rather than as
+     * a management account that also happens to hold a teaching assignment.
+     * Student profile editing uses this distinction to keep the existing
+     * transfer behavior for directors/administrators while refusing a class
+     * move made from a teacher session.
+     */
+    public boolean teachingPersona() {
+        AppUserPrincipal p = principal();
+        return p != null && RESTRICTED_ROLES.contains(normalize(p.roleCode()));
+    }
+
+    /**
      * Section de l'utilisateur courant (maternelle|primary|secondary), null s'il
      * n'est cloisonné à aucun cycle.
      *

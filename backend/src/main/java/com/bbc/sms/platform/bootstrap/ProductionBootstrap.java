@@ -133,6 +133,11 @@ public class ProductionBootstrap implements ApplicationRunner {
         grants(schoolId, "prefect", "read", "dashboard", "students", "academic", "reports", "coursebook", "health", "classkit", "library");
         grants(schoolId, "econome", "write", "finance");
         grants(schoolId, "econome", "read", "dashboard", "students", "reports", "alerts", "library");
+        // Accountants may consult academic records, but their policy template
+        // deliberately omits every grade-entry and academic mutation action.
+        // Keep a newly-created school aligned with V190, whose school-scoped
+        // backfill only affects schools that already existed when it runs.
+        grant(schoolId, "accountant", "academic", "read");
         grants(schoolId, "form_teacher", "write", "academic", "discipline", "coursebook", "messages", "classkit");
         grants(schoolId, "form_teacher", "read", "dashboard", "presence", "students", "timetable", "events", "journey", "promotion", "alerts", "health", "documents", "library");
         grants(schoolId, "teacher", "write", "academic", "coursebook");

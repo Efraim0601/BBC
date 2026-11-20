@@ -418,6 +418,14 @@ class ProductionBootstrapIntegrationTest {
 
     @Test
     void forwardMigrationRepairsOnlyTheBootstrapException() {
+        Integer accountantAcademicGrant = jdbc.queryForObject("""
+                SELECT count(*)
+                  FROM permission_grant
+                 WHERE school_id=(SELECT school_id FROM app_user WHERE username='admin')
+                   AND role_code='accountant' AND module='academic' AND level='read'
+                """, Integer.class);
+        assertThat(accountantAcademicGrant).isEqualTo(1);
+
         Integer migrated = jdbc.queryForObject(
                 "SELECT version FROM flyway_schema_history WHERE version='124' AND success=true",
                 Integer.class);

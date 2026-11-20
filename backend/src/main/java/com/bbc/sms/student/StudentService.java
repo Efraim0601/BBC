@@ -16,6 +16,7 @@ import com.bbc.sms.timetable.SchoolClass;
 import com.bbc.sms.timetable.SchoolClassRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.http.HttpStatus;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.text.Normalizer;
@@ -208,6 +209,14 @@ public class StudentService {
     @Transactional
     public StudentView update(UUID id, StudentUpsert in) {
         Student s = requireAction(id, "STUDENT_PROFILE_EDIT");
+        // A homeroom teacher can keep their own pupils' identity and contact
+        // details accurate, but moving a pupil is an enrollment/administrative
+        // decision.  Do this server-side (not merely by hiding the selector)
+        // so a crafted request cannot transfer or unassign a pupil.
+        if (teacherScope.teachingPersona() && !Objects.equals(s.getClassId(), in.classId())) {
+            throw ApiException.coded(HttpStatus.FORBIDDEN, "TEACHER_CLASS_REASSIGNMENT_DENIED",
+                    "Un enseignant peut mettre à jour la fiche de ses élèves, mais ne peut pas changer leur classe.");
+        }
         // Une fiche dont on ne touche ni le nom, ni le NIU, ni la classe ne crée
         // aucun doublon nouveau : la contrôler redemanderait une confirmation à
         // chaque correction d'un numéro de téléphone, pour un homonyme déjà assumé.
