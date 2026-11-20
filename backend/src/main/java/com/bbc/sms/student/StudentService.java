@@ -774,7 +774,7 @@ public class StudentService {
                                              String subsystem, String level) {
         String name = s.getLastName().toUpperCase() + " " + s.getFirstName();
         return new StudentTeacherView(s.getId(), s.getMatricule(), s.getNiu(), s.getFirstName(),
-                s.getLastName(), name, s.getSex(), s.getDob(), s.isRepeats(), classId,
+                s.getLastName(), name, s.getSex(), s.getDob(), s.getBirthplace(), s.isRepeats(), classId,
                 className, subsystem, level, s.getPhotoHue());
     }
 

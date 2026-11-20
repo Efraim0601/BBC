@@ -20,6 +20,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.time.LocalDate;
+import java.lang.reflect.Method;
 import jakarta.validation.Validation;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -91,6 +92,27 @@ class StudentBulkWorkflowTest {
                 .hasMessageContaining("ne peut pas changer leur classe");
         verify(students, never()).saveAndFlush(any());
         verify(enrollments, never()).syncCurrent(any());
+    }
+
+    @Test
+    void teacherStudentProjectionRetainsBirthplaceAfterProfileReload() throws Exception {
+        Student student = new Student();
+        student.setId(UUID.randomUUID());
+        student.setMatricule("BBC-1234");
+        student.setNiu("NIU-1234");
+        student.setLastName("NDOE");
+        student.setFirstName("Ada");
+        student.setSex("F");
+        student.setDob(LocalDate.of(2013, 10, 24));
+        student.setBirthplace("Maroua");
+
+        Method projection = StudentService.class.getDeclaredMethod("toTeacherView", Student.class,
+                UUID.class, String.class, String.class, String.class);
+        projection.setAccessible(true);
+        StudentTeacherView view = (StudentTeacherView) projection.invoke(service, student,
+                UUID.randomUUID(), "CE1 A", "FR", "primary");
+
+        assertThat(view.birthplace()).isEqualTo("Maroua");
     }
 
     @Test

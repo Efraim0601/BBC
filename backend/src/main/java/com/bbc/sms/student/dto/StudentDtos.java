@@ -55,6 +55,7 @@ public class StudentDtos {
             String name,
             String sex,
             LocalDate dob,
+            String birthplace,
             boolean repeats,
             UUID classId,
             String className,
