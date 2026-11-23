@@ -191,6 +191,10 @@ export class StudentApi {
   listClassOptions(): Observable<ClassView[]> {
     return this.http.get<ClassView[]>(`${this.base}/class-options`);
   }
+  /** Classes in which the current user may register a new student. */
+  listRegistrationClassOptions(): Observable<ClassView[]> {
+    return this.http.get<ClassView[]>(`${this.base}/registration-class-options`);
+  }
   listRoster(sessionId: string, classId: string): Observable<Student[]> {
     return this.http.get<Student[]>(`${this.base}/roster`, { params: { sessionId, classId } });
   }

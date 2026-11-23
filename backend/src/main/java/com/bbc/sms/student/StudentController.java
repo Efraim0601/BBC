@@ -86,6 +86,18 @@ public class StudentController {
         return service.classOptions();
     }
 
+    /**
+     * Class choices for the registration wizard.  This differs from the
+     * directory filter: a titulaire may register a child only in their own
+     * homeroom class, whereas a secondary subject teacher may still browse a
+     * class they teach.
+     */
+    @GetMapping("/registration-class-options")
+    @PreAuthorize("@perm.staffOnly()")
+    public List<ClassView> registrationClassOptions() {
+        return service.registrationClassOptions();
+    }
+
     /** Active roster for one class in one academic session. */
     @GetMapping("/roster")
     @PreAuthorize("@perm.staffOnly()")
@@ -119,7 +131,10 @@ public class StudentController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("@policy.canAction('STUDENT_PROFILE_CREATE') and @perm.staffOnly()")
+    // The selected class is part of the request and is resolved in
+    // StudentService.  A context-free action check here would reject a valid
+    // titulaire before the service can prove that it is their own class.
+    @PreAuthorize("@perm.staffOnly()")
     public StudentView create(@Valid @RequestBody StudentUpsert in) {
         return service.create(in);
     }

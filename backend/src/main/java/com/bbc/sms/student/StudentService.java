@@ -98,6 +98,20 @@ public class StudentService {
     }
 
     /**
+     * Registration is deliberately narrower than directory access.  Teachers
+     * can see pupils in subject classes, but may create a pupil only in a
+     * class where they are the dated titulaire; management roles retain their
+     * existing school/parcours scope.
+     */
+    @Transactional(readOnly = true)
+    public List<ClassView> registrationClassOptions() {
+        return classOptions().stream()
+                .filter(option -> policy.decide("STUDENT_PROFILE_CREATE",
+                        registrationPolicyContext(option.id(), option.level())).allowed())
+                .toList();
+    }
+
+    /**
      * Academic screens use the active enrollment in the requested session and
      * class as their roster. Student.className/classId is only a current legacy
      * projection and must not decide who appears in a historical or future
@@ -193,8 +207,15 @@ public class StudentService {
 
     @Transactional
     public StudentView create(StudentUpsert in) {
-        policy.require("STUDENT_PROFILE_CREATE", PolicyResourceContext.empty().forSchool(TenantContext.get()));
         UUID schoolId = TenantContext.get();
+        if (in.classId() == null) throw ApiException.badRequest("Classe cible obligatoire");
+        SchoolClass targetClass = classes.findByIdAndSchoolId(in.classId(), schoolId)
+                .orElseThrow(() -> ApiException.badRequest("Classe inconnue"));
+        // Creation is class-scoped.  This is the server-side boundary that
+        // prevents a teacher from registering a pupil into a colleague's
+        // class, even if they forge a request outside the registration UI.
+        policy.require("STUDENT_PROFILE_CREATE",
+                registrationPolicyContext(targetClass.getId(), targetClass.getLevel()));
         assertNoDuplicate(in, null);
         Student s = new Student();
         s.setSchoolId(schoolId);
@@ -932,6 +953,14 @@ public class StudentService {
         UUID resolvedClass = classId != null ? classId : activeEnrollmentClass(student.getId(), resolvedSession, date);
         return new PolicyResourceContext(schoolId, resolvedSession, date, ParcoursContext.get(), resolvedClass,
                 null, student.getId(), null, null, null, null, student.getLevel());
+    }
+
+    /** Build a server-resolved class context before a new student exists. */
+    private PolicyResourceContext registrationPolicyContext(UUID classId, String level) {
+        UUID schoolId = TenantContext.get();
+        UUID sessionId = currentSessionId(schoolId);
+        return new PolicyResourceContext(schoolId, sessionId, effectiveDate(sessionId), ParcoursContext.get(),
+                classId, null, null, null, null, null, null, level);
     }
 
     private UUID currentSessionId(UUID schoolId) {

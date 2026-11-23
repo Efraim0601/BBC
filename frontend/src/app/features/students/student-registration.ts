@@ -120,7 +120,7 @@ export class StudentRegistrationComponent {
   protected dobText=''; protected dobTouched=signal(false);
   protected guardians:GuardianInput[]=[this.blankGuardian()]; protected queries:string[]=['']; protected searchResults:GuardianSearchView[][]=[[]];
 
-  constructor(){this.api.listClassOptions().subscribe({next:c=>{this.classes.set(c);this.classOptionsUnavailable.set(false)},error:()=>{this.classes.set([]);this.classOptionsUnavailable.set(true)}});}
+  constructor(){this.api.listRegistrationClassOptions().subscribe({next:c=>{this.classes.set(c);this.classOptionsUnavailable.set(false)},error:()=>{this.classes.set([]);this.classOptionsUnavailable.set(true)}});}
   protected attemptedCurrent(){return this.attemptedStep()===this.step();}
   protected next(){this.attemptedStep.set(this.step());if(this.step()===2)this.normalizePortalModes();if(!this.validStep())return;this.attemptedStep.set(null);this.step.update(value=>value+1);}
   protected previous(){this.attemptedStep.set(null);this.error.set(null);this.step.update(value=>Math.max(0,value-1));}

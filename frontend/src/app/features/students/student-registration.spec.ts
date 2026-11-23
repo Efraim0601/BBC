@@ -14,7 +14,7 @@ describe('StudentRegistrationComponent parent access', () => {
     TestBed.configureTestingModule({
       imports: [StudentRegistrationComponent],
       providers: [
-        { provide: StudentApi, useValue: { listClassOptions: vi.fn(() => of([])) } },
+        { provide: StudentApi, useValue: { listRegistrationClassOptions: vi.fn(() => of([])) } },
         { provide: I18nService, useValue: { lang: signal('en') } },
         { provide: Router, useValue: {} },
       ],

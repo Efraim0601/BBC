@@ -77,13 +77,13 @@ public class GuardianService {
 
     /**
      * Create the initial family link as part of the atomic student-registration
-     * transaction.  This deliberately uses the student-create authority rather
-     * than granting the caller ongoing family-management rights on every record.
+     * transaction.  StudentService has already verified the selected class
+     * against STUDENT_PROFILE_CREATE immediately before this method is reached;
+     * do not re-check it without the class context here.  That would turn a
+     * titulaire's valid class-bound registration into a false school-wide deny.
      */
     @Transactional
     public GuardianRelationshipView addForRegistration(UUID studentId, GuardianInput in) {
-        policy.require("STUDENT_PROFILE_CREATE",
-                PolicyResourceContext.empty().forSchool(TenantContext.get()));
         return addAuthorized(studentId, in);
     }
 

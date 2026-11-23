@@ -66,6 +66,15 @@ describe('StudentApi family management', () => {
     http.verify();
   });
 
+  it('loads registration class options through the class-scoped create path', () => {
+    const { api, http } = setup();
+    api.listRegistrationClassOptions().subscribe();
+    const request = http.expectOne(`${environment.apiUrl}/students/registration-class-options`);
+    expect(request.request.method).toBe('GET');
+    request.flush([]);
+    http.verify();
+  });
+
   it('keeps import preview and commit as separate calls', () => {
     const { api, http } = setup();
     api.familyImportDryRun([], 'families.csv').subscribe();
