@@ -11,7 +11,7 @@ describe('registrar student class-option boundary', () => {
 
   it('contains a denied class-option lookup without an unhandled UI error', () => {
     const api = {
-      listClassOptions: vi.fn(() => throwError(() => new Error('403 FORBIDDEN'))),
+      listRegistrationClassOptions: vi.fn(() => throwError(() => new Error('403 FORBIDDEN'))),
     } as unknown as StudentApi;
 
     TestBed.configureTestingModule({
@@ -26,7 +26,7 @@ describe('registrar student class-option boundary', () => {
     const fixture: ComponentFixture<StudentRegistrationComponent> = TestBed.createComponent(StudentRegistrationComponent);
     fixture.detectChanges();
 
-    expect(api.listClassOptions).toHaveBeenCalledTimes(1);
+    expect(api.listRegistrationClassOptions).toHaveBeenCalledTimes(1);
     expect((fixture.componentInstance as any).classes()).toEqual([]);
     expect((fixture.componentInstance as any).classOptionsUnavailable()).toBe(true);
   });

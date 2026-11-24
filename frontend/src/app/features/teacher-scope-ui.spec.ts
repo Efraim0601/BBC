@@ -32,7 +32,13 @@ describe('teacher-scoped UI data loading', () => {
       })),
     } as unknown as AcademicApi;
     const setupApi = { listClasses: vi.fn(() => of([])) } as unknown as SetupApi;
-    const auth = { user: signal({ role: 'form_teacher' }), can: vi.fn(() => false) };
+    const auth = {
+      user: signal({ role: 'form_teacher' }),
+      can: vi.fn(() => false),
+      canAction: vi.fn(() => false),
+      actionState: vi.fn(() => 'DENY'),
+      schoolWide: vi.fn(() => false),
+    };
 
     TestBed.configureTestingModule({
       imports: [AcademicComponent],

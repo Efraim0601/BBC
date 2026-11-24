@@ -1,12 +1,17 @@
 package com.bbc.sms.academic;
 
+import com.bbc.sms.academic.dto.AcademicDtos.GradeEntryCellUpsert;
 import com.bbc.sms.academic.dto.AcademicDtos.GradeEntryReviewRequest;
+import com.bbc.sms.academic.dto.AcademicDtos.GradeEntrySaveRequest;
+import com.bbc.sms.academic.dto.AcademicDtos.GradeEntryStudentUpsert;
 import com.bbc.sms.academic.security.AcademicAccessPolicyService;
 import com.bbc.sms.foundation.cohort.AcademicCohortResolver;
+import com.bbc.sms.foundation.enrollment.StudentEnrollment;
 import com.bbc.sms.foundation.enrollment.StudentEnrollmentRepository;
 import com.bbc.sms.foundation.session.AcademicReportingPeriod;
 import com.bbc.sms.foundation.session.AcademicReportingPeriodRepository;
 import com.bbc.sms.foundation.session.AcademicWindowPolicyService;
+import com.bbc.sms.platform.security.AppUserPrincipal;
 import com.bbc.sms.platform.tenant.TenantContext;
 import com.bbc.sms.timetable.SchoolClass;
 import com.bbc.sms.timetable.SchoolClassRepository;
@@ -16,7 +21,11 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.mockito.ArgumentCaptor;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -38,6 +47,7 @@ class GradeEntryServiceWorkflowTest {
     @AfterEach
     void clearTenant() {
         TenantContext.clear();
+        SecurityContextHolder.clearContext();
     }
 
     @Test
@@ -123,6 +133,121 @@ class GradeEntryServiceWorkflowTest {
         GradeEntryService.requireEditablePacket("DRAFT");
         GradeEntryService.requireEditablePacket("RETURNED");
         GradeEntryService.requireEditablePacket(null);
+    }
+
+    @Test
+    void saveMakesThePacketAndItsMarksImmediatelyReadyForReportCards() throws Exception {
+        TenantContext.set(schoolId);
+        UUID authorId = UUID.randomUUID();
+        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
+                new AppUserPrincipal(authorId, schoolId, "teacher", "teacher", "Teacher", "TT"), null));
+
+        AcademicReportingPeriod period = new AcademicReportingPeriod();
+        period.setId(periodId);
+        period.setAcademicSessionId(sessionId);
+        period.setPeriodType("SEQUENCE");
+        period.setStartDate(periodStart);
+        when(periods().findByIdAndSchoolId(periodId, schoolId)).thenReturn(Optional.of(period));
+
+        SchoolClass schoolClass = new SchoolClass();
+        schoolClass.setId(classId);
+        schoolClass.setName("6ème A");
+        schoolClass.setLevel("secondary");
+        when(classes().findByIdAndSchoolId(classId, schoolId)).thenReturn(Optional.of(schoolClass));
+
+        UUID assessmentId = UUID.randomUUID();
+        AcademicAssessment assessment = new AcademicAssessment();
+        assessment.setId(assessmentId);
+        assessment.setCode("E1");
+        assessment.setLabel("Évaluation 1");
+        assessment.setMaxScore(BigDecimal.valueOf(20));
+        assessment.setWeight(BigDecimal.ONE);
+        assessment.setMandatory(true);
+        AcademicAssessmentRepository assessmentRepository = mock(AcademicAssessmentRepository.class);
+        when(assessmentRepository.findApplicable(schoolId, periodId, classId, "MATH"))
+                .thenReturn(List.of(assessment));
+        AcademicGradeRepository gradeRepository = mock(AcademicGradeRepository.class);
+        SubjectResultCommentRepository commentRepository = mock(SubjectResultCommentRepository.class);
+        when(gradeRepository.findBySchoolIdAndStudentIdAndAssessmentIdAndSubjectCode(any(), any(), any(), any()))
+                .thenReturn(Optional.empty());
+        when(commentRepository.findBySchoolIdAndStudentIdAndReportingPeriodIdAndProgrammeClassIdAndSubjectCode(
+                any(), any(), any(), any(), any())).thenReturn(Optional.empty());
+
+        UUID studentId = UUID.randomUUID();
+        UUID enrollmentId = UUID.randomUUID();
+        StudentEnrollment enrollment = new StudentEnrollment();
+        enrollment.setId(enrollmentId);
+        enrollment.setSchoolClassId(classId);
+        StudentEnrollmentRepository enrollmentRepository = mock(StudentEnrollmentRepository.class);
+        when(enrollmentRepository.findFirstBySchoolIdAndStudentIdAndAcademicSessionIdAndStatus(
+                schoolId, studentId, sessionId, "ACTIVE")).thenReturn(Optional.of(enrollment));
+
+        AcademicGradePacket packet = new AcademicGradePacket();
+        packet.setId(UUID.randomUUID());
+        packet.setStatus("DRAFT");
+        when(packets().findForUpdate(schoolId, periodId, classId, "MATH")).thenReturn(Optional.of(packet));
+
+        TeachingAssignmentResolver assignments = mock(TeachingAssignmentResolver.class);
+        when(assignments.resolve(sessionId, classId, "MATH", periodStart)).thenReturn(
+                new TeachingAssignmentResolver.Resolution("MATH", subjectTeacherId, "Math teacher", "T-1",
+                        UUID.randomUUID(), 1L, "RESPONSIBLE", "RESOLVED", "ASSIGNMENT_RESOLVED",
+                        "Assigned", "Assigned", true));
+
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        when(jdbc.queryForObject(anyString(), eq(Integer.class), any(Object[].class))).thenReturn(0);
+        doAnswer(invocation -> {
+            String sql = invocation.getArgument(0);
+            RowMapper<?> mapper = invocation.getArgument(1);
+            var row = mock(java.sql.ResultSet.class);
+            if (sql.contains("academic_curriculum_subject")) {
+                when(row.getString(1)).thenReturn("MATH");
+                when(row.getString(2)).thenReturn("Mathematics");
+                when(row.getInt(3)).thenReturn(1);
+                when(row.getBoolean(4)).thenReturn(false);
+                return List.of(mapper.mapRow(row, 0));
+            }
+            if (sql.contains("FROM student_enrollment")) {
+                when(row.getObject(1, UUID.class)).thenReturn(studentId);
+                when(row.getString(2)).thenReturn("BBC-001");
+                when(row.getString(3)).thenReturn("Student One");
+                return List.of(mapper.mapRow(row, 0));
+            }
+            return List.of();
+        }).when(jdbc).query(anyString(), any(RowMapper.class), any(Object[].class));
+
+        AcademicAccessPolicyService access = mock(AcademicAccessPolicyService.class);
+        when(access.can(any(AcademicAccessPolicyService.Capability.class), eq(sessionId), eq(classId),
+                eq("MATH"), isNull(), eq(periodStart))).thenReturn(true);
+        GradeEntryService raw = new GradeEntryService(periods(), assessmentRepository, gradeRepository,
+                commentRepository, packets(), enrollmentRepository, mock(StudentRepository.class),
+                mock(SubjectRepository.class), classes(), mock(AcademicWindowPolicyService.class), access,
+                assignments, jdbc);
+        GradeEntryService service = spy(raw);
+        // The assertions below concern persistence. The separately tested view mapper is
+        // deliberately bypassed so this test is not coupled to its read-only queries.
+        doReturn(null).when(service).view(periodId, classId, "MATH");
+
+        service.save(new GradeEntrySaveRequest(periodId, classId, "math", List.of(
+                new GradeEntryStudentUpsert(studentId, List.of(
+                        new GradeEntryCellUpsert(assessmentId, BigDecimal.valueOf(14), "SCORED", null)), "Good work")),
+                null));
+
+        assertThat(packet.getStatus()).isEqualTo("ACCEPTED");
+        assertThat(packet.getSubmittedBy()).isEqualTo(authorId);
+        assertThat(packet.getReviewReason()).isNull();
+        verify(packets()).saveAndFlush(packet);
+        ArgumentCaptor<AcademicGrade> savedGrade = ArgumentCaptor.forClass(AcademicGrade.class);
+        verify(gradeRepository).save(savedGrade.capture());
+        assertThat(savedGrade.getValue().getWorkflowStatus()).isEqualTo("ACCEPTED");
+        ArgumentCaptor<SubjectResultComment> savedComment = ArgumentCaptor.forClass(SubjectResultComment.class);
+        verify(commentRepository).save(savedComment.capture());
+        assertThat(savedComment.getValue().getWorkflowStatus()).isEqualTo("ACCEPTED");
+        verify(gradeRepository).flush();
+        verify(commentRepository).flush();
+        verify(jdbc).update(contains("UPDATE academic_grade g SET workflow_status=?"), eq("ACCEPTED"),
+                eq(schoolId), eq(periodId), eq("MATH"), eq(classId));
+        verify(jdbc).update(contains("UPDATE subject_result_comment SET workflow_status=?"), eq("ACCEPTED"),
+                eq(schoolId), eq(periodId), eq(classId), eq("MATH"));
     }
 
     @Test

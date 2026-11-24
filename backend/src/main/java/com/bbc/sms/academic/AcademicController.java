@@ -265,9 +265,9 @@ public class AcademicController {
     }
 
     @PostMapping("/grade-entry/workflow")
-    // This endpoint carries both teacher SUBMIT and management ACCEPT/RETURN
-    // transitions. The service remains the resource-aware final authority for
-    // the selected branch; the controller must admit either stable action.
+    // The normal teacher action is now POST /grade-entry/save, which makes a
+    // sheet immediately ready for report cards. This endpoint is retained for
+    // legacy clients and the authorized management RETURN correction action.
     @PreAuthorize("@perm.staffOnly() and (@perm.canAction('GRADE_SUBMIT') or @perm.canAction('ACADEMIC_GRADE_PACKET_REVIEW'))")
     public GradeEntryView gradeEntryWorkflow(@Valid @RequestBody GradeEntryReviewRequest request) {
         return gradeEntryService.submit(request);

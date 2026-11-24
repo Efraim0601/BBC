@@ -130,12 +130,15 @@ public class GradeEntryService {
         }).toList();
         List<String> blockers = blockers(definition, rows, subject.remarkRequired());
         List<GradeEntryBlockerView> completionBlockers = completionBlockers(blockers, subjectCode);
+        // Saving a teacher's sheet is now the final academic action: it makes
+        // the packet immediately available to report-card calculations. Keep
+        // completion detail for guidance, but do not maintain a second queue.
         List<GradeEntryBlockerView> submissionBlockers = new ArrayList<>(completionBlockers);
         TeacherAssignmentReadinessView readiness = subject.assignmentReadiness();
         if (!subjectReady(subject)) submissionBlockers.add(new GradeEntryBlockerView(
                 subject.errorCode() == null ? "ASSIGNMENT_MISSING" : subject.errorCode(), subject.code(), null,
-                subject.message() == null ? "A responsible teacher assignment is required before submission." : subject.message(),
-                subject.message() == null ? "A responsible teacher assignment is required before submission." : subject.message(),
+                subject.message() == null ? "A responsible teacher assignment is required before saving grades." : subject.message(),
+                subject.message() == null ? "A responsible teacher assignment is required before saving grades." : subject.message(),
                 "class-subjects", "BLOCKER"));
         boolean restricted = restrictedTeacher();
         boolean editableStatus = packet == null || Set.of("DRAFT", "RETURNED").contains(packet.getStatus());
@@ -144,24 +147,10 @@ public class GradeEntryService {
                 && (!restricted || subjectReady(subject) || delegatedAccess(period, classId, subjectCode,
                 AcademicAccessPolicyService.Capability.SUBJECT_GRADE_EDIT));
         boolean canEdit = editableStatus && editScope;
-        boolean submissionWindowOpen = false;
-        AcademicWindowPolicyService.WindowView submissionWindow = null;
-        boolean submitScope = subjectReady(subject) || delegatedAccess(period, classId, subjectCode,
-                AcademicAccessPolicyService.Capability.SUBJECT_GRADE_SUBMIT);
-        if (submitScope) {
-            submissionWindow = windows.effective(period.getId(), AcademicWindowPolicyService.Action.TEACHER_SUBMISSION);
-            submissionWindowOpen = submissionWindow.open();
-            if (!submissionWindowOpen) {
-                String code = Set.of("SCHEDULED", "CLOSED").contains(submissionWindow.state())
-                        ? "WINDOW_CLOSED" : "WINDOW_NOT_CONFIGURED";
-                submissionBlockers.add(new GradeEntryBlockerView(code, subject.code(), null,
-                        "La fenêtre de soumission des enseignants n'est pas ouverte.",
-                        "The teacher-submission window is not open.", "academic-sessions", "BLOCKER"));
-            }
-        }
-        boolean canSubmit = canEdit && accessPolicy.can(AcademicAccessPolicyService.Capability.SUBJECT_GRADE_SUBMIT,
-                period.getAcademicSessionId(), classId, subjectCode, null, period.getStartDate())
-                && submissionWindowOpen && submissionBlockers.isEmpty();
+        // Kept in the API response only for older clients. New clients have no
+        // submit-for-approval action; the normal grade-entry window protects
+        // the direct save below.
+        boolean canSubmit = false;
         boolean canReview = accessPolicy.can(AcademicAccessPolicyService.Capability.GRADE_PACKET_REVIEW,
                 period.getAcademicSessionId(), classId, subjectCode, null, period.getStartDate())
                 // Four-eyes workflow: the person who submitted a packet can
@@ -178,7 +167,7 @@ public class GradeEntryService {
                         restricted && !editScope,
                         restricted && !subjectReady(subject) && !delegatedAccess(period, classId, subjectCode,
                                 AcademicAccessPolicyService.Capability.SUBJECT_GRADE_EDIT)
-                                ? "Repair the responsible teacher assignment or create a dated delegation before editing or submitting." : null));
+                                ? "Repair the responsible teacher assignment or create a dated delegation before editing or saving." : null));
     }
 
     @Transactional
@@ -223,7 +212,11 @@ public class GradeEntryService {
                 grade.setSchoolId(TenantContext.get()); grade.setAcademicSessionId(period.getAcademicSessionId()); grade.setReportingPeriodId(period.getId());
                 grade.setAssessmentId(assessment.getId()); grade.setStudentId(row.studentId()); grade.setEnrollmentId(enrollmentId);
                 grade.setSubjectCode(subjectCode); grade.setMark("SCORED".equals(status) ? cell.mark() : null);
-                grade.setValueStatus(status); grade.setWorkflowStatus("DRAFT"); grade.setEnteredBy(currentUserId()); grade.setTeacherId(subject.teacherId());
+                // A normal save is final for this subject sheet.  Persist the
+                // row in its report-card-ready state as well as promoting any
+                // older rows below; otherwise a new row can miss the JDBC
+                // bulk update before JPA flushes it at transaction commit.
+                grade.setValueStatus(status); grade.setWorkflowStatus("ACCEPTED"); grade.setEnteredBy(currentUserId()); grade.setTeacherId(subject.teacherId());
                 grades.save(grade);
             }
             SubjectResultComment comment = comments.findBySchoolIdAndStudentIdAndReportingPeriodIdAndProgrammeClassIdAndSubjectCode(
@@ -231,11 +224,22 @@ public class GradeEntryService {
             if (row.comment() != null && row.comment().length() > 500) throw ApiException.badRequest("La remarque ne peut pas dépasser 500 caractères");
             comment.setSchoolId(TenantContext.get()); comment.setAcademicSessionId(period.getAcademicSessionId()); comment.setReportingPeriodId(period.getId());
             comment.setStudentId(row.studentId()); comment.setEnrollmentId(enrollmentId); comment.setProgrammeClassId(in.classId()); comment.setSubjectCode(subjectCode);
-            comment.setComment(row.comment() == null ? null : row.comment().trim()); comment.setWorkflowStatus("DRAFT"); comment.setTeacherId(subject.teacherId());
+            comment.setComment(row.comment() == null ? null : row.comment().trim()); comment.setWorkflowStatus("ACCEPTED"); comment.setTeacherId(subject.teacherId());
             comments.save(comment);
         }
-        packet.setStatus("DRAFT"); packet.setLastSavedBy(currentUserId()); packet.setLastSavedAt(Instant.now()); packets.saveAndFlush(packet);
-        recordPacketTransition(packet, previousPacketStatus, "DRAFT", "Correction draft saved");
+        // Direct-save workflow: the saved sheet is ready for report cards.
+        // submittedBy retains its author so that a teacher who is also a
+        // titulaire/reviewer cannot reopen their own sheet.
+        packet.setStatus("ACCEPTED");
+        packet.setSubmittedBy(currentUserId()); packet.setSubmittedAt(Instant.now());
+        packet.setReviewReason(null);
+        // Flush rows first so the bulk promotion also includes any existing
+        // draft/returned rows that were not in this particular save payload.
+        grades.flush();
+        comments.flush();
+        updateWorkflow(period.getId(), in.classId(), subjectCode, "ACCEPTED");
+        packet.setLastSavedBy(currentUserId()); packet.setLastSavedAt(Instant.now()); packets.saveAndFlush(packet);
+        recordPacketTransition(packet, previousPacketStatus, "ACCEPTED", "Saved and made ready for report cards");
         return view(period.getId(), in.classId(), subjectCode);
     }
 
@@ -277,7 +281,7 @@ public class GradeEntryService {
         GradeEntrySubjectView subject = availableSubjects(period.getAcademicSessionId(), in.classId(), schoolClass.getName(), period.getStartDate()).stream().filter(x -> x.code().equalsIgnoreCase(subjectCode)).findFirst().orElseThrow(() -> ApiException.badRequest("La matière n'est pas affectée à cette classe"));
         String action = in.action() == null ? "" : in.action().trim().toUpperCase(Locale.ROOT);
         if (!Set.of("SUBMIT", "ACCEPT", "RETURN").contains(action)) {
-            throw ApiException.badRequest("Action de workflow invalide : utilisez SUBMIT, ACCEPT ou RETURN");
+            throw ApiException.badRequest("Action de workflow invalide : utilisez RETURN (SUBMIT et ACCEPT restent réservés aux anciens clients)");
         }
         if ("SUBMIT".equals(action)) {
             assertSubjectAccess(in.classId(), schoolClass.getName(), period.getAcademicSessionId(), period.getStartDate(), subjectCode);
@@ -291,23 +295,25 @@ public class GradeEntryService {
         if ("SUBMIT".equals(action)) {
             accessPolicy.require(AcademicAccessPolicyService.Capability.SUBJECT_GRADE_SUBMIT,
                     period.getAcademicSessionId(), in.classId(), subjectCode, null, period.getStartDate());
+            // A browser holding the previous UI may still call SUBMIT after a
+            // save. Preserve compatibility, but never recreate a pending
+            // approval state. New clients reach this result through save().
+            if ("ACCEPTED".equals(previousPacketStatus)) return view(period.getId(), in.classId(), subjectCode);
             if (!Set.of("DRAFT", "RETURNED").contains(previousPacketStatus)) {
-                throw ApiException.conflict("Cette feuille doit être en brouillon ou retournée avant une nouvelle soumission.");
+                throw ApiException.conflict("Cette feuille est déjà verrouillée ou doit être rouverte pour correction.");
             }
-            windows.assertOpen(period.getId(), AcademicWindowPolicyService.Action.TEACHER_SUBMISSION);
-            GradeEntryView current = view(period.getId(), in.classId(), subjectCode);
-            if (!current.submissionBlockers().isEmpty()) throw ApiException.conflict(
-                    "La saisie ne peut pas être soumise tant que les éléments requis ne sont pas corrigés.");
+            windows.assertOpen(period.getId(), AcademicWindowPolicyService.Action.GRADE_ENTRY);
             adoptAssignment(packet, subject);
-            packet.setStatus("SUBMITTED"); packet.setSubmittedBy(currentUserId()); packet.setSubmittedAt(Instant.now());
-            updateWorkflow(period.getId(), in.classId(), subjectCode, "SUBMITTED");
+            packet.setStatus("ACCEPTED"); packet.setSubmittedBy(currentUserId()); packet.setSubmittedAt(Instant.now());
+            packet.setReviewReason(null);
+            updateWorkflow(period.getId(), in.classId(), subjectCode, "ACCEPTED");
         } else {
             requireIndependentReviewer(packet.getSubmittedBy(), currentUserId());
             boolean reopening = "RETURN".equals(action) && Set.of("ACCEPTED", "LOCKED").contains(previousPacketStatus);
             windows.assertOpen(period.getId(), reopening ? AcademicWindowPolicyService.Action.CORRECTION : AcademicWindowPolicyService.Action.REVIEW);
             if (reopening) invalidateValidatedBulletins(period.getId(), period.getAcademicSessionId(), in.classId());
             if (!"SUBMITTED".equals(previousPacketStatus) && !reopening) {
-                throw ApiException.conflict("Seule une feuille soumise peut être acceptée ou retournée.");
+                throw ApiException.conflict("Seule une feuille prête pour bulletin peut être rouverte pour correction.");
             }
             if ("RETURN".equals(action) && (in.reason() == null || in.reason().isBlank())) {
                 throw ApiException.field(org.springframework.http.HttpStatus.BAD_REQUEST, "RETURN_REASON_REQUIRED",
