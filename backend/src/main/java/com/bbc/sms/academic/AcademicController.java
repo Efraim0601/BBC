@@ -264,6 +264,12 @@ public class AcademicController {
         return gradeEntryService.save(request);
     }
 
+    @PostMapping("/grade-entry/reopen")
+    @PreAuthorize("@perm.canAction('ACADEMIC_SUBJECT_GRADE_EDIT') and @perm.staffOnly()")
+    public GradeEntryView reopenOwnGradeEntry(@Valid @RequestBody GradeEntryReopenRequest request) {
+        return gradeEntryService.reopenOwn(request);
+    }
+
     @PostMapping("/grade-entry/workflow")
     // The normal teacher action is now POST /grade-entry/save, which makes a
     // sheet immediately ready for report cards. This endpoint is retained for

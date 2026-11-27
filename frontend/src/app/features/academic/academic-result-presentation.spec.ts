@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { academicBulletinTitle, canOpenGradeEntry, canReviewGradePacket, canReturnGradePacket, computedPeriodCodes, formatAcademicMark, isReadOnlyGradeOversight, isReadOnlyGradeSheet } from './academic';
+import { academicBulletinTitle, canOpenGradeEntry, canReopenOwnGradePacket, canReviewGradePacket, canReturnGradePacket, computedPeriodCodes, formatAcademicMark, isReadOnlyGradeOversight, isReadOnlyGradeSheet } from './academic';
 
 describe('computed bulletin presentation', () => {
   it('marks locked sheets read-only even for their assigned teacher', () => {
@@ -15,6 +15,13 @@ describe('computed bulletin presentation', () => {
     expect(canReturnGradePacket({packetStatus:'ACCEPTED',capabilities:{canReview:false} as any})).toBe(false);
     expect(canReviewGradePacket({packetStatus:'ACCEPTED',capabilities:{canReview:true} as any})).toBe(true);
     expect(canReturnGradePacket({packetStatus:'DRAFT',capabilities:{canReview:true} as any})).toBe(false);
+  });
+
+  it('allows a teacher to reopen only their own saved sheet', () => {
+    expect(canReopenOwnGradePacket({packetStatus:'ACCEPTED',capabilities:{canReopenOwn:true} as any})).toBe(true);
+    expect(canReopenOwnGradePacket({packetStatus:'SUBMITTED',capabilities:{canReopenOwn:true} as any})).toBe(true);
+    expect(canReopenOwnGradePacket({packetStatus:'LOCKED',capabilities:{canReopenOwn:true} as any})).toBe(false);
+    expect(canReopenOwnGradePacket({packetStatus:'ACCEPTED',capabilities:{canReopenOwn:false} as any})).toBe(false);
   });
   it('keeps missing current marks visible instead of rendering zero', () => {
     expect(formatAcademicMark(null)).toBe('—');

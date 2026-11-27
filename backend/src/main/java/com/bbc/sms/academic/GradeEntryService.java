@@ -157,13 +157,20 @@ public class GradeEntryService {
                 // never accept or return that same packet, even when they are
                 // also the class titulaire.
                 && (packet == null || !sameReviewer(packet.getSubmittedBy(), currentUserId()));
+        // A teacher may correct only the sheet they personally saved. This is
+        // deliberately separate from management review: it never lets them
+        // reopen a colleague's sheet or a locked one.
+        boolean canReopenOwn = packet != null
+                && Set.of("SUBMITTED", "ACCEPTED").contains(packet.getStatus())
+                && sameReviewer(packet.getSubmittedBy(), currentUserId())
+                && editScope;
         int completed = (int) rows.stream().filter(r -> rowComplete(definition, r, subject.remarkRequired())).count();
         return new GradeEntryView(period.getAcademicSessionId(), periodId, classId, schoolClass.getName(),
                 subject.code(), subject.label(), subject.coefficient(), subject.teacherId(), subject.teacherName(),
                 packet == null ? "DRAFT" : packet.getStatus(), packet == null ? 0 : packet.getVersion(),
                 definition, rows, rows.size(), completed, blockers, available, completionBlockers,
                 submissionBlockers, List.of(), readiness,
-                new GradeEntryCapabilitiesView(canEdit, canSubmit, canReview, restricted,
+                new GradeEntryCapabilitiesView(canEdit, canSubmit, canReview, canReopenOwn, restricted,
                         restricted && !editScope,
                         restricted && !subjectReady(subject) && !delegatedAccess(period, classId, subjectCode,
                                 AcademicAccessPolicyService.Capability.SUBJECT_GRADE_EDIT)
@@ -228,8 +235,9 @@ public class GradeEntryService {
             comments.save(comment);
         }
         // Direct-save workflow: the saved sheet is ready for report cards.
-        // submittedBy retains its author so that a teacher who is also a
-        // titulaire/reviewer cannot reopen their own sheet.
+        // submittedBy retains its author: it keeps the independent management
+        // review rule intact and identifies who may use the narrow self-reopen
+        // correction path.
         packet.setStatus("ACCEPTED");
         packet.setSubmittedBy(currentUserId()); packet.setSubmittedAt(Instant.now());
         packet.setReviewReason(null);
@@ -240,6 +248,60 @@ public class GradeEntryService {
         updateWorkflow(period.getId(), in.classId(), subjectCode, "ACCEPTED");
         packet.setLastSavedBy(currentUserId()); packet.setLastSavedAt(Instant.now()); packets.saveAndFlush(packet);
         recordPacketTransition(packet, previousPacketStatus, "ACCEPTED", "Saved and made ready for report cards");
+        return view(period.getId(), in.classId(), subjectCode);
+    }
+
+    /**
+     * A direct save makes a sheet report-card ready immediately. Its author
+     * may reopen that same sheet during the ordinary grade-entry window to
+     * correct an error, then save it again. Management retains the broader
+     * independent RETURN workflow for a colleague's sheet or a locked sheet.
+     */
+    @Transactional
+    public GradeEntryView reopenOwn(GradeEntryReopenRequest in) {
+        AcademicReportingPeriod period = period(in.reportingPeriodId());
+        AcademicPeriodRules.assertRawGradePeriod(period);
+        SchoolClass schoolClass = schoolClass(in.classId());
+        String subjectCode = in.subjectCode().trim().toUpperCase(Locale.ROOT);
+        GradeEntrySubjectView subject = availableSubjects(period.getAcademicSessionId(), in.classId(),
+                schoolClass.getName(), period.getStartDate()).stream()
+                .filter(x -> x.code().equalsIgnoreCase(subjectCode)).findFirst()
+                .orElseThrow(() -> ApiException.badRequest("La matière n'est pas affectée à cette classe"));
+        assertSubjectAccess(in.classId(), schoolClass.getName(), period.getAcademicSessionId(),
+                period.getStartDate(), subjectCode);
+        accessPolicy.require(AcademicAccessPolicyService.Capability.SUBJECT_GRADE_EDIT,
+                period.getAcademicSessionId(), in.classId(), subjectCode, null, period.getStartDate());
+
+        AcademicGradePacket packet = packets.findForUpdate(TenantContext.get(), period.getId(),
+                        in.classId(), subjectCode)
+                .orElseThrow(() -> ApiException.conflict("Cette feuille n'a pas encore été enregistrée."));
+        if (in.packetVersion() != null && in.packetVersion() != packet.getVersion()) {
+            throw ApiException.conflict("La feuille de saisie a été modifiée entre-temps. Rechargez-la.");
+        }
+        if (!Set.of("SUBMITTED", "ACCEPTED").contains(packet.getStatus())) {
+            throw ApiException.conflict("Seule une feuille enregistrée peut être rouverte par son enseignant.");
+        }
+        if (!sameReviewer(packet.getSubmittedBy(), currentUserId())) {
+            throw ApiException.coded(org.springframework.http.HttpStatus.FORBIDDEN,
+                    "GRADE_PACKET_REOPEN_DENIED",
+                    "Seul l'enseignant qui a enregistré cette feuille peut la rouvrir. Contactez la direction pour une correction.");
+        }
+
+        // A teacher correction is permitted only while normal entry is open.
+        // If an official bulletin exists, this also enforces its correction
+        // window before the data becomes editable again.
+        windows.assertOpen(period.getId(), AcademicWindowPolicyService.Action.GRADE_ENTRY);
+        invalidateValidatedBulletins(period.getId(), period.getAcademicSessionId(), in.classId());
+        String previousPacketStatus = packet.getStatus();
+        packet.setStatus("RETURNED");
+        packet.setReviewReason(null);
+        packet.setReviewedBy(null);
+        packet.setReviewedAt(null);
+        updateWorkflow(period.getId(), in.classId(), subjectCode, "RETURNED");
+        packet.setLastSavedBy(currentUserId());
+        packet.setLastSavedAt(Instant.now());
+        packets.saveAndFlush(packet);
+        recordPacketTransition(packet, previousPacketStatus, "RETURNED", "Reopened by the teacher for correction");
         return view(period.getId(), in.classId(), subjectCode);
     }
 

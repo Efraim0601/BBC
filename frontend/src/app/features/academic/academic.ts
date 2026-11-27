@@ -93,6 +93,12 @@ export const canReturnGradePacket = (
 ): boolean => ['SUBMITTED', 'ACCEPTED', 'LOCKED'].includes(entry.packetStatus)
   && entry.capabilities?.canReview === true;
 
+/** A teacher may reopen only the sheet they personally saved. */
+export const canReopenOwnGradePacket = (
+  entry: Pick<GradeEntryView, 'packetStatus' | 'capabilities'>,
+): boolean => ['SUBMITTED', 'ACCEPTED'].includes(entry.packetStatus)
+  && entry.capabilities?.canReopenOwn === true;
+
 /**
  * A Secondary homeroom teacher may inspect a colleague's subject sheet for
  * class oversight. The server remains the source of truth for that distinction.
@@ -322,7 +328,7 @@ const appreciation = (avg: number, fr: boolean): string => {
                 @if (gradeOversight()) {
                   <strong>{{ fr() ? 'Votre rôle :' : 'Your role:' }}</strong> {{ fr() ? 'vérifiez les notes de votre collègue en lecture seule. Demandez-lui une correction ou contactez la direction si nécessaire.' : 'review your colleague’s marks in read-only mode. Ask that teacher for a correction or contact management when needed.' }}
                 } @else if (entry.packetStatus === 'SUBMITTED' || entry.packetStatus === 'ACCEPTED' || entry.packetStatus === 'LOCKED' || entry.capabilities?.canEditDraft === false) {
-                  <strong>{{ fr() ? 'Lecture seule :' : 'Read-only:' }}</strong> {{ fr() ? 'cette feuille ne peut pas être modifiée. Consultez son statut ci-dessus et contactez la direction si une correction est nécessaire.' : 'this sheet cannot be edited. Check its status above and contact management if a correction is needed.' }}
+                  <strong>{{ fr() ? 'Lecture seule :' : 'Read-only:' }}</strong> {{ canReopenOwnGradePacket(entry) ? (fr() ? 'utilisez « Rouvrir pour modifier » pour corriger votre propre feuille, puis enregistrez-la de nouveau.' : 'use “Reopen for editing” to correct your own sheet, then save it again.') : (fr() ? 'cette feuille ne peut pas être modifiée. Consultez son statut ci-dessus et contactez la direction si une correction est nécessaire.' : 'this sheet cannot be edited. Check its status above and contact management if a correction is needed.') }}
                 } @else {
                   <strong>{{ fr() ? 'Votre tâche :' : 'Your task:' }}</strong> {{ fr() ? 'saisissez la note prévue pour chaque élève, puis enregistrez. Les notes seront immédiatement prêtes pour le bulletin.' : 'enter the required mark for each student, then save. The grades are immediately ready for the report card.' }}
                 }
@@ -354,7 +360,7 @@ const appreciation = (avg: number, fr: boolean): string => {
                 @if (gradeOversight()) {
                   <div class="mt-4 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-800">{{ fr() ? 'La feuille de votre collègue est complète. Elle reste disponible uniquement pour vérification en lecture seule.' : 'Your colleague’s sheet is complete. It remains available for read-only review only.' }}</div>
                 } @else if (entry.packetStatus === 'SUBMITTED' || entry.packetStatus === 'ACCEPTED' || entry.packetStatus === 'LOCKED' || entry.capabilities?.canEditDraft === false) {
-                  <div class="mt-4 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-800">{{ fr() ? 'Toutes les notes obligatoires sont renseignées. La feuille est en lecture seule.' : 'All required marks are entered. The sheet is read-only.' }}</div>
+                  <div class="mt-4 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-800">{{ canReopenOwnGradePacket(entry) ? (fr() ? 'Les notes sont prêtes pour les bulletins. Vous pouvez rouvrir votre propre feuille si une correction est nécessaire.' : 'Grades are ready for report cards. You may reopen your own sheet if a correction is needed.') : (fr() ? 'Toutes les notes obligatoires sont renseignées. La feuille est en lecture seule.' : 'All required marks are entered. The sheet is read-only.') }}</div>
                 } @else {
                   <div class="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">{{ fr() ? 'Toutes les notes obligatoires sont renseignées. Enregistrez pour les rendre prêtes pour le bulletin.' : 'All required marks are entered. Save to make them ready for the report card.' }}</div>
                 }
@@ -474,12 +480,15 @@ const appreciation = (avg: number, fr: boolean): string => {
                 <div class="mx-5 mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-950">{{ fr() ? 'La saisie ne peut pas commencer tant qu’une évaluation n’est pas configurée pour cette matière.' : 'Mark entry cannot start until an assessment is configured for this subject.' }}</div>
               }
               <div class="flex flex-wrap gap-2 items-center mt-5 pt-4 border-t border-slate-100 print:hidden">
-                <div class="flex-1 min-w-0 sm:min-w-[260px] text-xs text-mute">{{ gradeOversight() ? (fr() ? 'Lecture seule : vous pouvez rouvrir cette feuille avec un motif si une correction est nécessaire.' : 'Read-only: you may reopen this sheet with a reason if a correction is needed.') : entry.packetStatus === 'RETURNED' ? (fr() ? 'Une correction a été demandée. Enregistrez vos modifications pour remettre immédiatement la feuille à disposition des bulletins.' : 'A correction was requested. Save your changes to make the sheet immediately available to report cards again.') : entry.packetStatus === 'ACCEPTED' ? (fr() ? 'Enregistrée et prête pour les bulletins. La direction peut la rouvrir avec un motif si une correction est nécessaire.' : 'Saved and ready for report cards. Management can reopen it with a reason if a correction is needed.') : (fr() ? 'Enregistrer rend immédiatement les notes disponibles pour les bulletins.' : 'Saving immediately makes grades available to report cards.') }}</div>
+                <div class="flex-1 min-w-0 sm:min-w-[260px] text-xs text-mute">{{ gradeOversight() ? (fr() ? 'Lecture seule : vous pouvez rouvrir cette feuille avec un motif si une correction est nécessaire.' : 'Read-only: you may reopen this sheet with a reason if a correction is needed.') : entry.packetStatus === 'RETURNED' ? (fr() ? 'Une correction a été demandée. Enregistrez vos modifications pour remettre immédiatement la feuille à disposition des bulletins.' : 'A correction was requested. Save your changes to make the sheet immediately available to report cards again.') : canReopenOwnGradePacket(entry) ? (fr() ? 'Enregistrée et prête pour les bulletins. Vous pouvez la rouvrir pour corriger vos propres notes.' : 'Saved and ready for report cards. You may reopen it to correct your own grades.') : entry.packetStatus === 'ACCEPTED' ? (fr() ? 'Enregistrée et prête pour les bulletins. La direction peut la rouvrir avec un motif si une correction est nécessaire.' : 'Saved and ready for report cards. Management can reopen it with a reason if a correction is needed.') : (fr() ? 'Enregistrer rend immédiatement les notes disponibles pour les bulletins.' : 'Saving immediately makes grades available to report cards.') }}</div>
                 @if (canWrite && (entry.packetStatus === 'DRAFT' || entry.packetStatus === 'RETURNED')) {
                   <button type="button" (click)="saveGradeEntry()" [disabled]="gradeBusy() || entry.capabilities?.canEditDraft === false" class="h-10 px-4 rounded-lg bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700 disabled:opacity-50">{{ gradeBusy() ? '…' : (fr() ? 'Enregistrer les notes' : 'Save grades') }}</button>
                 }
                 @if (canReturnGradePacket(entry)) {
                   <button type="button" (click)="reviewGradeEntry()" [disabled]="gradeBusy()" class="h-10 px-4 rounded-lg border border-rose-200 text-rose-700 text-sm font-semibold hover:bg-rose-50 disabled:opacity-50">{{ fr() ? 'Rouvrir pour correction' : 'Reopen for correction' }}</button>
+                }
+                @if (canReopenOwnGradePacket(entry)) {
+                  <button type="button" (click)="reopenOwnGradeEntry()" [disabled]="gradeBusy()" class="h-10 px-4 rounded-lg border border-brand-300 text-brand-800 text-sm font-semibold hover:bg-brand-50 disabled:opacity-50">{{ fr() ? 'Rouvrir pour modifier' : 'Reopen for editing' }}</button>
                 }
               </div>
             </bbc-card>
@@ -1111,10 +1120,10 @@ const appreciation = (avg: number, fr: boolean): string => {
       @if (gradeReviewDialog()) {
         <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/55" (click)="cancelGradeReview()">
           <section class="max-h-[calc(100dvh-2rem)] overflow-y-auto bg-white rounded-xl2 shadow-pop w-full max-w-md p-6" (click)="$event.stopPropagation()" role="dialog" aria-modal="true">
-            <h3 class="text-lg font-bold text-ink">{{ fr() ? 'Rouvrir cette feuille pour correction ?' : 'Reopen this grade sheet for correction?' }}</h3>
-            <p class="text-sm text-mute mt-2">{{ fr() ? 'L’enseignant pourra modifier la feuille. Après son enregistrement, les notes redeviendront immédiatement disponibles pour les bulletins.' : 'The assigned teacher will be able to edit the sheet. After saving, the grades will immediately be available to report cards again.' }}</p>
-            <label class="block mt-4"><span class="text-xs font-semibold">{{ fr() ? 'Motif de la correction (obligatoire)' : 'Correction reason (required)' }}</span><textarea [(ngModel)]="gradeReviewReason" rows="3" maxlength="500" class="w-full mt-1.5 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-brand-500" [placeholder]="fr() ? 'Ex. Vérifier la note de l’évaluation de mathématiques.' : 'E.g. Check the mathematics assessment mark.'"></textarea></label>
-            <div class="flex justify-end gap-2 mt-5"><button (click)="cancelGradeReview()" class="h-9 px-3 rounded-lg border border-slate-200 text-sm font-semibold">{{ fr() ? 'Annuler' : 'Cancel' }}</button><button (click)="confirmGradeReview()" [disabled]="gradeBusy() || !gradeReviewReason.trim()" class="h-9 px-3 rounded-lg bg-rose-600 text-white text-sm font-semibold disabled:opacity-50">{{ fr() ? 'Rouvrir la feuille' : 'Reopen sheet' }}</button></div>
+            <h3 class="text-lg font-bold text-ink">{{ gradeReviewDialog() === 'SELF_REOPEN' ? (fr() ? 'Rouvrir votre feuille pour la modifier ?' : 'Reopen your grade sheet for editing?') : (fr() ? 'Rouvrir cette feuille pour correction ?' : 'Reopen this grade sheet for correction?') }}</h3>
+            <p class="text-sm text-mute mt-2">{{ gradeReviewDialog() === 'SELF_REOPEN' ? (fr() ? 'Vous pourrez modifier vos notes, puis les enregistrer à nouveau. Elles redeviendront immédiatement disponibles pour les bulletins.' : 'You will be able to edit your marks, then save them again. They will immediately be ready for report cards.') : (fr() ? 'L’enseignant pourra modifier la feuille. Après son enregistrement, les notes redeviendront immédiatement disponibles pour les bulletins.' : 'The assigned teacher will be able to edit the sheet. After saving, the grades will immediately be available to report cards again.') }}</p>
+            @if (gradeReviewDialog() !== 'SELF_REOPEN') { <label class="block mt-4"><span class="text-xs font-semibold">{{ fr() ? 'Motif de la correction (obligatoire)' : 'Correction reason (required)' }}</span><textarea [(ngModel)]="gradeReviewReason" rows="3" maxlength="500" class="w-full mt-1.5 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-brand-500" [placeholder]="fr() ? 'Ex. Vérifier la note de l’évaluation de mathématiques.' : 'E.g. Check the mathematics assessment mark.'"></textarea></label> }
+            <div class="flex justify-end gap-2 mt-5"><button (click)="cancelGradeReview()" class="h-9 px-3 rounded-lg border border-slate-200 text-sm font-semibold">{{ fr() ? 'Annuler' : 'Cancel' }}</button><button (click)="confirmGradeReview()" [disabled]="gradeBusy() || (gradeReviewDialog() !== 'SELF_REOPEN' && !gradeReviewReason.trim())" class="h-9 px-3 rounded-lg bg-rose-600 text-white text-sm font-semibold disabled:opacity-50">{{ fr() ? 'Rouvrir la feuille' : 'Reopen sheet' }}</button></div>
           </section>
         </div>
       }
@@ -1249,7 +1258,7 @@ export class AcademicComponent {
   protected bulletinBusy = signal(false);
   protected officialDocumentBusy = signal(false);
   protected officialDocument = signal<GeneratedDocumentView | null>(null);
-  protected gradeReviewDialog = signal<'RETURN' | null>(null);
+  protected gradeReviewDialog = signal<'RETURN' | 'SELF_REOPEN' | null>(null);
   protected gradeReviewReason = '';
   protected inputReviewTarget = signal<{ row: ReportCardInputRow; action: 'APPROVE' | 'RETURN' | 'REJECT' } | null>(null);
   protected inputReviewReason = '';
@@ -1288,6 +1297,7 @@ export class AcademicComponent {
 
   protected canReview = computed(() => ['admin', 'principal', 'dean_of_studies', 'censor'].includes(this.auth.user()?.role ?? ''));
   protected readonly canReturnGradePacket = canReturnGradePacket;
+  protected readonly canReopenOwnGradePacket = canReopenOwnGradePacket;
 
   protected filteredClassStudents = computed(() => {
     const q = this.studentQuery().trim().toLowerCase();
@@ -1897,13 +1907,22 @@ export class AcademicComponent {
     this.gradeReviewDialog.set('RETURN');
   }
 
+  protected reopenOwnGradeEntry(): void {
+    if (!this.gradeEntry()) return;
+    this.gradeReviewReason = '';
+    this.gradeReviewDialog.set('SELF_REOPEN');
+  }
+
   protected cancelGradeReview(): void { this.gradeReviewDialog.set(null); this.gradeReviewReason = ''; }
 
   protected confirmGradeReview(): void {
     const entry = this.gradeEntry(); const action = this.gradeReviewDialog(); if (!entry || !action) return;
-    if (!this.gradeReviewReason.trim()) return;
+    if (action !== 'SELF_REOPEN' && !this.gradeReviewReason.trim()) return;
     this.gradeBusy.set(true);
-    this.api.gradeEntryWorkflow(entry.reportingPeriodId, entry.classId, entry.subjectCode, action, this.gradeReviewReason.trim(), entry.packetVersion).subscribe({
+    const request = action === 'SELF_REOPEN'
+      ? this.api.reopenOwnGradeEntry(entry.reportingPeriodId, entry.classId, entry.subjectCode, entry.packetVersion)
+      : this.api.gradeEntryWorkflow(entry.reportingPeriodId, entry.classId, entry.subjectCode, action, this.gradeReviewReason.trim(), entry.packetVersion);
+    request.subscribe({
       next: (updated) => { this.gradeEntry.set(updated); this.gradeBusy.set(false); this.cancelGradeReview(); this.notice.set({ ok: true, text: this.fr() ? 'Feuille rouverte pour correction.' : 'Grade sheet reopened for correction.' }); },
       error: (e) => { this.gradeBusy.set(false); this.fail(e); },
     });

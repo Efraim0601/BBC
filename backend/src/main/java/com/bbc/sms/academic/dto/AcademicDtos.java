@@ -341,7 +341,8 @@ public class AcademicDtos {
                                         String repairTarget, String severity) {}
 
     public record GradeEntryCapabilitiesView(boolean canEditDraft, boolean canSubmit,
-                                             boolean canReview, boolean restrictedTeacher,
+                                             boolean canReview, boolean canReopenOwn,
+                                             boolean restrictedTeacher,
                                              boolean oversightOnly,
                                              String explanation) {}
 
@@ -415,7 +416,7 @@ public class AcademicDtos {
                     availableSubjects.stream().filter(x -> subjectCode.equalsIgnoreCase(x.code()))
                             .findFirst().map(GradeEntrySubjectView::assignmentReadiness).orElse(null),
                     new GradeEntryCapabilitiesView(true, teacherId != null && blockers.isEmpty(), false,
-                            false, false, null));
+                            false, false, false, null));
         }
     }
 
@@ -430,6 +431,9 @@ public class AcademicDtos {
                                         @NotBlank String subjectCode,
                                         @NotNull List<GradeEntryStudentUpsert> students,
                                         Long packetVersion) {}
+
+    public record GradeEntryReopenRequest(@NotNull UUID reportingPeriodId, @NotNull UUID classId,
+                                          @NotBlank String subjectCode, Long packetVersion) {}
 
     public record GradeEntryReviewRequest(@NotNull UUID reportingPeriodId, @NotNull UUID classId,
                                           @NotBlank String subjectCode, @NotBlank String action,

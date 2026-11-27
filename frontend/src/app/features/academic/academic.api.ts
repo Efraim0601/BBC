@@ -196,7 +196,7 @@ export interface GradeEntryView {
   submissionBlockers?: Array<{ code: string; subjectCode: string; studentName?: string | null; messageFr: string; messageEn: string; repairTarget: string; severity: string }>;
   warnings?: Array<{ code: string; subjectCode: string; studentName?: string | null; messageFr: string; messageEn: string; repairTarget: string; severity: string }>;
   assignmentReadiness?: GradeEntrySubject['assignmentReadiness'];
-  capabilities?: { canEditDraft: boolean; canSubmit: boolean; canReview: boolean; restrictedTeacher: boolean; oversightOnly: boolean; explanation?: string | null };
+  capabilities?: { canEditDraft: boolean; canSubmit: boolean; canReview: boolean; canReopenOwn?: boolean; restrictedTeacher: boolean; oversightOnly: boolean; explanation?: string | null };
 }
 export interface GradeEntryCellUpsert { assessmentId: string; mark: number | null; valueStatus: string; version?: number; }
 export interface GradeEntryStudentUpsert { studentId: string; values: GradeEntryCellUpsert[]; comment: string | null; }
@@ -389,6 +389,10 @@ export class AcademicApi {
 
   saveGradeEntry(body: GradeEntrySaveRequest): Observable<GradeEntryView> {
     return this.http.post<GradeEntryView>(`${this.base}/grade-entry/save`, body);
+  }
+
+  reopenOwnGradeEntry(reportingPeriodId: string, classId: string, subjectCode: string, packetVersion?: number): Observable<GradeEntryView> {
+    return this.http.post<GradeEntryView>(`${this.base}/grade-entry/reopen`, { reportingPeriodId, classId, subjectCode, packetVersion });
   }
 
   gradeEntryWorkflow(reportingPeriodId: string, classId: string, subjectCode: string, action: string, reason?: string, packetVersion?: number): Observable<GradeEntryView> {
