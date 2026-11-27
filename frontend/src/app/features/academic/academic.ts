@@ -174,6 +174,28 @@ const appreciation = (avg: number, fr: boolean): string => {
         </div>
       }
 
+      @if (gradeSaveBusy()) {
+        <div class="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/45 p-5 backdrop-blur-sm" role="status" aria-live="assertive" aria-busy="true">
+          <div class="w-full max-w-sm rounded-2xl bg-white p-6 text-center shadow-2xl">
+            <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-brand-50 text-brand-700">
+              <svg class="h-7 w-7 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="9" stroke="currentColor" stroke-width="3"></circle><path class="opacity-90" d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-linecap="round" stroke-width="3"></path></svg>
+            </div>
+            <h2 class="mt-4 text-lg font-bold text-ink">{{ fr() ? 'Enregistrement des notes…' : 'Saving grades…' }}</h2>
+            <p class="mt-2 text-sm text-mute">{{ fr() ? 'Veuillez patienter sans fermer cette page.' : 'Please wait and keep this page open.' }}</p>
+          </div>
+        </div>
+      }
+
+      @if (gradeSaveNotice(); as message) {
+        <div class="pointer-events-none fixed inset-x-4 top-5 z-[90] flex justify-center" role="status" aria-live="polite">
+          <div class="pointer-events-auto flex w-full max-w-lg items-start gap-3 rounded-xl border border-emerald-200 bg-white px-4 py-3 text-emerald-900 shadow-xl">
+            <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 font-bold">✓</div>
+            <div class="flex-1 text-sm font-semibold">{{ message }}</div>
+            <button type="button" (click)="dismissGradeSaveNotice()" class="shrink-0 text-emerald-800/70 hover:text-emerald-950" [attr.aria-label]="fr() ? 'Fermer le message' : 'Dismiss message'">×</button>
+          </div>
+        </div>
+      }
+
       <bbc-tabs [tabs]="tabs()" [value]="mode()" (change)="setMode($any($event))" />
 
       @if (mode() === 'grade-entry') {
@@ -482,7 +504,7 @@ const appreciation = (avg: number, fr: boolean): string => {
               <div class="flex flex-wrap gap-2 items-center mt-5 pt-4 border-t border-slate-100 print:hidden">
                 <div class="flex-1 min-w-0 sm:min-w-[260px] text-xs text-mute">{{ gradeOversight() ? (fr() ? 'Lecture seule : vous pouvez rouvrir cette feuille avec un motif si une correction est nécessaire.' : 'Read-only: you may reopen this sheet with a reason if a correction is needed.') : entry.packetStatus === 'RETURNED' ? (fr() ? 'Une correction a été demandée. Enregistrez vos modifications pour remettre immédiatement la feuille à disposition des bulletins.' : 'A correction was requested. Save your changes to make the sheet immediately available to report cards again.') : canReopenOwnGradePacket(entry) ? (fr() ? 'Enregistrée et prête pour les bulletins. Vous pouvez la rouvrir pour corriger vos propres notes.' : 'Saved and ready for report cards. You may reopen it to correct your own grades.') : entry.packetStatus === 'ACCEPTED' ? (fr() ? 'Enregistrée et prête pour les bulletins. La direction peut la rouvrir avec un motif si une correction est nécessaire.' : 'Saved and ready for report cards. Management can reopen it with a reason if a correction is needed.') : (fr() ? 'Enregistrer rend immédiatement les notes disponibles pour les bulletins.' : 'Saving immediately makes grades available to report cards.') }}</div>
                 @if (canWrite && (entry.packetStatus === 'DRAFT' || entry.packetStatus === 'RETURNED')) {
-                  <button type="button" (click)="saveGradeEntry()" [disabled]="gradeBusy() || entry.capabilities?.canEditDraft === false" class="h-10 px-4 rounded-lg bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700 disabled:opacity-50">{{ gradeBusy() ? '…' : (fr() ? 'Enregistrer les notes' : 'Save grades') }}</button>
+                  <button type="button" (click)="saveGradeEntry()" [disabled]="gradeBusy() || entry.capabilities?.canEditDraft === false" class="h-10 px-4 rounded-lg bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700 disabled:opacity-50">{{ gradeSaveBusy() ? (fr() ? 'Enregistrement…' : 'Saving…') : (fr() ? 'Enregistrer les notes' : 'Save grades') }}</button>
                 }
                 @if (canReturnGradePacket(entry)) {
                   <button type="button" (click)="reviewGradeEntry()" [disabled]="gradeBusy()" class="h-10 px-4 rounded-lg border border-rose-200 text-rose-700 text-sm font-semibold hover:bg-rose-50 disabled:opacity-50">{{ fr() ? 'Rouvrir pour correction' : 'Reopen for correction' }}</button>
@@ -1258,6 +1280,9 @@ export class AcademicComponent {
   protected bulletinBusy = signal(false);
   protected officialDocumentBusy = signal(false);
   protected officialDocument = signal<GeneratedDocumentView | null>(null);
+  protected gradeSaveBusy = signal(false);
+  protected gradeSaveNotice = signal<string | null>(null);
+  private gradeSaveNoticeTimer: ReturnType<typeof setTimeout> | null = null;
   protected gradeReviewDialog = signal<'RETURN' | 'SELF_REOPEN' | null>(null);
   protected gradeReviewReason = '';
   protected inputReviewTarget = signal<{ row: ReportCardInputRow; action: 'APPROVE' | 'RETURN' | 'REJECT' } | null>(null);
@@ -1878,12 +1903,26 @@ export class AcademicComponent {
   }
 
   protected saveGradeEntry(afterSave?: () => void): void {
-    const entry = this.gradeEntry(); if (!entry) return;
+    const entry = this.gradeEntry(); if (!entry || this.gradeBusy()) return;
     this.gradeBusy.set(true);
+    this.gradeSaveBusy.set(true);
+    this.dismissGradeSaveNotice();
     this.api.saveGradeEntry({ reportingPeriodId: entry.reportingPeriodId, classId: entry.classId, subjectCode: entry.subjectCode, packetVersion: entry.packetVersion, students: entry.students.map((row) => ({ studentId: row.studentId, comment: row.comment, values: row.values.map((cell) => ({ assessmentId: cell.assessmentId, mark: cell.mark, valueStatus: cell.valueStatus, version: cell.version })) })) }).subscribe({
-      next: (updated) => { this.gradeEntry.set(updated); this.selectedGradeSubjectCode.set(updated.subjectCode); this.gradeBusy.set(false); this.notice.set({ ok: true, text: this.fr() ? 'Notes enregistrées et prêtes pour les bulletins.' : 'Grades saved and ready for report cards.' }); afterSave?.(); },
-      error: (e) => { this.gradeBusy.set(false); this.fail(e); },
+      next: (updated) => { this.gradeEntry.set(updated); this.selectedGradeSubjectCode.set(updated.subjectCode); this.gradeBusy.set(false); this.gradeSaveBusy.set(false); this.showGradeSaveNotice(this.fr() ? 'Notes enregistrées. Elles sont prêtes pour les bulletins.' : 'Grades saved. They are ready for report cards.'); afterSave?.(); },
+      error: (e) => { this.gradeBusy.set(false); this.gradeSaveBusy.set(false); this.fail(e); },
     });
+  }
+
+  protected dismissGradeSaveNotice(): void {
+    if (this.gradeSaveNoticeTimer) clearTimeout(this.gradeSaveNoticeTimer);
+    this.gradeSaveNoticeTimer = null;
+    this.gradeSaveNotice.set(null);
+  }
+
+  private showGradeSaveNotice(message: string): void {
+    this.dismissGradeSaveNotice();
+    this.gradeSaveNotice.set(message);
+    this.gradeSaveNoticeTimer = setTimeout(() => this.dismissGradeSaveNotice(), 8_000);
   }
 
   protected saveAndOpenAssignmentRepair(entry: GradeEntryView): void {
