@@ -175,7 +175,7 @@ export interface AssessmentDefaultsApplyResponse {
   createdCount: number; existingCount: number; skippedCount: number;
 }
 export interface GradeEntrySubject {
-  code: string; label: string; coefficient: number; teacherId: string | null; teacherName: string | null;
+  code: string; label: string; labelEn?: string; coefficient: number; teacherId: string | null; teacherName: string | null;
   status?: string; errorCode?: string; message?: string | null; remarkRequired?: boolean;
   assignmentReadiness?: { status: string; code: string; teacherId: string | null; teacherName: string | null; teacherCode?: string | null; assignmentId?: string | null; assignmentVersion?: number; source?: string | null; role?: string | null; messageFr?: string | null; messageEn?: string | null; repairable?: boolean };
 }
@@ -188,7 +188,7 @@ export interface GradeEntryStudent {
 }
 export interface GradeEntryView {
   academicSessionId: string; reportingPeriodId: string; classId: string; className: string;
-  subjectCode: string; subjectLabel: string; coefficient: number; teacherId: string | null; teacherName: string | null;
+  subjectCode: string; subjectLabel: string; subjectLabelEn?: string; coefficient: number; teacherId: string | null; teacherName: string | null;
   packetStatus: 'DRAFT' | 'SUBMITTED' | 'RETURNED' | 'ACCEPTED' | 'LOCKED'; packetVersion: number;
   assessments: GradeEntryAssessment[]; students: GradeEntryStudent[]; totalStudents: number;
   completedStudents: number; blockers: string[]; availableSubjects: GradeEntrySubject[];

@@ -346,14 +346,14 @@ public class AcademicDtos {
                                              boolean oversightOnly,
                                              String explanation) {}
 
-    public record GradeEntrySubjectView(String code, String label, int coefficient,
+    public record GradeEntrySubjectView(String code, String label, String labelEn, int coefficient,
                                         UUID teacherId, String teacherName,
                                         String status, String errorCode, String message,
                                         boolean remarkRequired,
                                         TeacherAssignmentReadinessView assignmentReadiness) {
         public GradeEntrySubjectView(String code, String label, int coefficient,
                                      UUID teacherId, String teacherName) {
-            this(code, label, coefficient, teacherId, teacherName,
+            this(code, label, label, coefficient, teacherId, teacherName,
                     teacherId == null ? "MISSING" : "RESOLVED",
                     teacherId == null ? "ASSIGNMENT_MISSING" : "ASSIGNMENT_RESOLVED", null, false,
                     teacherId == null
@@ -366,7 +366,7 @@ public class AcademicDtos {
         public GradeEntrySubjectView(String code, String label, int coefficient,
                                      UUID teacherId, String teacherName, String status,
                                      String errorCode, String message, boolean remarkRequired) {
-            this(code, label, coefficient, teacherId, teacherName, status, errorCode, message,
+            this(code, label, label, coefficient, teacherId, teacherName, status, errorCode, message,
                     remarkRequired, new TeacherAssignmentReadinessView(status, errorCode, teacherId, teacherName,
                             null, null, 0, null, null, null, null, message, message, teacherId == null));
         }
@@ -380,7 +380,7 @@ public class AcademicDtos {
                                         String workflowStatus) {}
 
     public record GradeEntryView(UUID academicSessionId, UUID reportingPeriodId, UUID classId,
-                                 String className, String subjectCode, String subjectLabel,
+                                 String className, String subjectCode, String subjectLabel, String subjectLabelEn,
                                  int coefficient, UUID teacherId, String teacherName,
                                  String packetStatus, long packetVersion,
                                  List<GradeEntryAssessmentView> assessments,
@@ -402,7 +402,7 @@ public class AcademicDtos {
                               int totalStudents, int completedStudents,
                               List<String> blockers,
                               List<GradeEntrySubjectView> availableSubjects) {
-            this(academicSessionId, reportingPeriodId, classId, className, subjectCode, subjectLabel,
+            this(academicSessionId, reportingPeriodId, classId, className, subjectCode, subjectLabel, subjectLabel,
                     coefficient, teacherId, teacherName, packetStatus, packetVersion, assessments, students,
                     totalStudents, completedStudents, blockers, availableSubjects,
                     blockers.stream().map(message -> new GradeEntryBlockerView(

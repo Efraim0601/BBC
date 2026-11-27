@@ -166,7 +166,7 @@ public class GradeEntryService {
                 && editScope;
         int completed = (int) rows.stream().filter(r -> rowComplete(definition, r, subject.remarkRequired())).count();
         return new GradeEntryView(period.getAcademicSessionId(), periodId, classId, schoolClass.getName(),
-                subject.code(), subject.label(), subject.coefficient(), subject.teacherId(), subject.teacherName(),
+                subject.code(), subject.label(), subject.labelEn(), subject.coefficient(), subject.teacherId(), subject.teacherName(),
                 packet == null ? "DRAFT" : packet.getStatus(), packet == null ? 0 : packet.getVersion(),
                 definition, rows, rows.size(), completed, blockers, available, completionBlockers,
                 submissionBlockers, List.of(), readiness,
@@ -413,7 +413,10 @@ public class GradeEntryService {
     private List<GradeEntrySubjectView> availableSubjects(UUID sessionId, UUID classId, String className,
                                                            java.time.LocalDate effectiveDate) {
         List<GradeEntrySubjectView> all = jdbc.query("""
-                SELECT s.code, COALESCE(s.label->>'fr', s.label->>'en', s.code), cur.coefficient, cur.remark_required
+                SELECT s.code,
+                       COALESCE(s.label->>'fr', s.label->>'en', s.code),
+                       COALESCE(s.label->>'en', s.label->>'fr', s.code),
+                       cur.coefficient, cur.remark_required
                   FROM academic_curriculum_subject cur
                   JOIN subject s ON s.id=cur.subject_id
                  WHERE cur.school_id=? AND cur.academic_session_id=? AND cur.class_id=?
@@ -423,9 +426,9 @@ public class GradeEntryService {
                 """, (rs, n) -> {
                     String code = rs.getString(1);
                     TeachingAssignmentResolver.Resolution resolved = assignments.resolve(sessionId, classId, code, effectiveDate);
-                    return new GradeEntrySubjectView(code, rs.getString(2), rs.getInt(3), resolved.teacherId(),
+                    return new GradeEntrySubjectView(code, rs.getString(2), rs.getString(3), rs.getInt(4), resolved.teacherId(),
                             resolved.teacherName(), resolved.status(), resolved.code(),
-                            resolved.messageFr(), rs.getBoolean(4), assignmentReadiness(resolved));
+                            resolved.messageFr(), rs.getBoolean(5), assignmentReadiness(resolved));
                 }, TenantContext.get(), sessionId, classId, effectiveDate, effectiveDate);
         return all.stream().filter(subject ->
                 accessPolicy.can(AcademicAccessPolicyService.Capability.SUBJECT_GRADE_VIEW,

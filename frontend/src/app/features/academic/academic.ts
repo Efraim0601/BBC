@@ -6,7 +6,7 @@ import { forkJoin, of } from 'rxjs';
 import { catchError, switchMap } from 'rxjs/operators';
 import { StudentApi } from '../students/students.api';
 import { SetupApi, ClassView } from '../../core/setup.api';
-import { AcademicApi, BulletinView, BulletinSnapshotView, PvView, GradeEntryView, ReportCardInputsView, ReportCardInputRow, ReportCardInputUpsert, BulletinBatchJobView, BulletinBatchItemView } from './academic.api';
+import { AcademicApi, BulletinView, BulletinSnapshotView, PvView, GradeEntryView, GradeEntrySubject, ReportCardInputsView, ReportCardInputRow, ReportCardInputUpsert, BulletinBatchJobView, BulletinBatchItemView } from './academic.api';
 import { FoundationApi, AcademicReportingPeriodView, GeneratedDocumentView } from '../../core/foundation.api';
 import { AuthService } from '../../core/auth.service';
 import { ScopeService } from '../../core/scope.service';
@@ -249,7 +249,7 @@ const appreciation = (avg: number, fr: boolean): string => {
               <select [ngModel]="selectedGradeSubjectCode()" (ngModelChange)="onGradeSubjectChange($event)"
                 class="w-full h-10 px-3 rounded-lg border border-slate-200 text-sm bg-white text-ink focus:outline-none focus:border-brand-400 font-semibold">
                 @for (s of entry.availableSubjects; track s.code) {
-                  <option [value]="s.code">{{ display(s.label) }} · {{ fr() ? 'coefficient' : 'coefficient' }} {{ s.coefficient }}</option>
+                  <option [value]="s.code">{{ gradeSubjectLabel(s) }} · {{ fr() ? 'coefficient' : 'coefficient' }} {{ s.coefficient }}</option>
                 }
               </select>
               <div class="mt-1 text-xs text-mute">{{ fr() ? 'Les élèves et les évaluations apparaîtront ci-dessous.' : 'The students and assessments appear below.' }}</div>
@@ -337,7 +337,7 @@ const appreciation = (avg: number, fr: boolean): string => {
               <div class="flex flex-wrap items-start gap-3 justify-between">
                 <div>
                   <div class="text-xs font-semibold uppercase tracking-wide text-brand-700">{{ fr() ? 'Feuille de notes' : 'Grade sheet' }}</div>
-                  <h2 class="text-xl font-bold text-ink mt-1">{{ display(entry.subjectLabel) }}</h2>
+                  <h2 class="text-xl font-bold text-ink mt-1">{{ gradeEntrySubjectLabel(entry) }}</h2>
                   <div class="text-sm text-mute mt-1">{{ entry.className }} · {{ selectedReportingPeriodCode() }} · {{ fr() ? 'coefficient' : 'coefficient' }} {{ entry.coefficient }}</div>
                   <div class="text-xs text-mute mt-1">{{ fr() ? 'Enseignant responsable :' : 'Responsible teacher:' }} {{ display(entry.teacherName) || (fr() ? 'Non configuré' : 'Not configured') }}</div>
                 </div>
@@ -402,7 +402,7 @@ const appreciation = (avg: number, fr: boolean): string => {
               </div>
               @if (entry.assessments.length === 1) {
                 <div class="mt-3 flex items-center justify-between gap-3 rounded-lg border border-brand-200 bg-white px-3 py-2 text-sm">
-                  <span class="font-semibold text-ink">{{ selectedReportingPeriodCode() }} · {{ display(entry.subjectLabel) }}</span>
+                  <span class="font-semibold text-ink">{{ selectedReportingPeriodCode() }} · {{ gradeEntrySubjectLabel(entry) }}</span>
                   <span class="text-mute">{{ fr() ? 'sur' : 'out of' }} {{ entry.assessments[0].maxScore }}</span>
                 </div>
               } @else if (entry.assessments.length > 1) {
@@ -1686,8 +1686,16 @@ export class AcademicComponent {
       : 'Complete the indicated information before publishing the report card.');
   }
 
+  protected gradeSubjectLabel(subject: GradeEntrySubject): string {
+    return this.display(this.fr() ? subject.label : (subject.labelEn || subject.label));
+  }
+
+  protected gradeEntrySubjectLabel(entry: GradeEntryView): string {
+    return this.display(this.fr() ? entry.subjectLabel : (entry.subjectLabelEn || entry.subjectLabel));
+  }
+
   protected gradeAssessmentLabel(entry: GradeEntryView, assessment: GradeEntryView['assessments'][number]): string {
-    if (entry.assessments.length === 1) return this.display(entry.subjectLabel);
+    if (entry.assessments.length === 1) return this.gradeEntrySubjectLabel(entry);
     return this.display(assessment.label) || assessment.code;
   }
 
