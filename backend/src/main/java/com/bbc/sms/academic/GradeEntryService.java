@@ -196,7 +196,9 @@ public class GradeEntryService {
         requireEditablePacket(packet.getStatus());
         windows.assertOpen(period.getId(), AcademicWindowPolicyService.Action.GRADE_ENTRY);
         if (in.packetVersion() != null && packet.getId() != null && in.packetVersion() != packet.getVersion()) {
-            throw ApiException.conflict("La feuille de saisie a été modifiée par un autre utilisateur. Rechargez-la avant d'enregistrer.");
+            throw ApiException.staleVersion(
+                    "La feuille de saisie a été modifiée par un autre utilisateur. Rechargez-la avant d'enregistrer.",
+                    packet.getVersion(), in.packetVersion());
         }
         List<AcademicAssessment> applicableAssessments = assessments.findApplicable(
                 TenantContext.get(), period.getId(), in.classId(), subjectCode);
@@ -217,7 +219,9 @@ public class GradeEntryService {
                 AcademicGrade grade = grades.findBySchoolIdAndStudentIdAndAssessmentIdAndSubjectCode(
                         TenantContext.get(), row.studentId(), assessment.getId(), subjectCode).orElseGet(AcademicGrade::new);
                 if (cell.version() != null && grade.getId() != null && cell.version() != grade.getVersion()) {
-                    throw ApiException.conflict("Une note de " + studentName(row.studentId()) + " a été modifiée par un autre utilisateur");
+                    throw ApiException.staleVersion(
+                            "Une note de " + studentName(row.studentId()) + " a été modifiée par un autre utilisateur.",
+                            grade.getVersion(), cell.version());
                 }
                 grade.setSchoolId(TenantContext.get()); grade.setAcademicSessionId(period.getAcademicSessionId()); grade.setReportingPeriodId(period.getId());
                 grade.setAssessmentId(assessment.getId()); grade.setStudentId(row.studentId()); grade.setEnrollmentId(enrollmentId);

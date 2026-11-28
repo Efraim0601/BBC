@@ -196,6 +196,21 @@ const appreciation = (avg: number, fr: boolean): string => {
         </div>
       }
 
+      @if (gradeSaveFailure(); as message) {
+        <div class="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/45 p-5 backdrop-blur-sm" role="alertdialog" aria-live="assertive" aria-modal="true">
+          <div class="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <div class="flex h-12 w-12 items-center justify-center rounded-full bg-rose-100 text-xl font-bold text-rose-700">!</div>
+            <h2 class="mt-4 text-lg font-bold text-ink">{{ fr() ? 'Les notes ne sont pas encore enregistrées' : 'The grades have not been saved yet' }}</h2>
+            <p class="mt-2 text-sm leading-relaxed text-mute">{{ message }}</p>
+            <p class="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-950">{{ fr() ? 'Vos notes restent sur cette page. Ne fermez pas la page : vous pouvez réessayer sans tout saisir de nouveau.' : 'Your marks remain on this page. Do not close it: you can retry without entering everything again.' }}</p>
+            <div class="mt-5 flex flex-wrap justify-end gap-2">
+              <button type="button" (click)="dismissGradeSaveFailure()" class="h-10 px-4 rounded-lg border border-slate-300 text-sm font-semibold text-ink hover:bg-slate-50">{{ fr() ? 'Continuer la saisie' : 'Keep editing' }}</button>
+              <button type="button" (click)="retryGradeSave()" class="h-10 px-4 rounded-lg bg-brand-600 text-sm font-semibold text-white hover:bg-brand-700">{{ fr() ? 'Réessayer l’enregistrement' : 'Retry saving' }}</button>
+            </div>
+          </div>
+        </div>
+      }
+
       <bbc-tabs [tabs]="tabs()" [value]="mode()" (change)="setMode($any($event))" />
 
       @if (mode() === 'grade-entry') {
@@ -1282,7 +1297,10 @@ export class AcademicComponent {
   protected officialDocument = signal<GeneratedDocumentView | null>(null);
   protected gradeSaveBusy = signal(false);
   protected gradeSaveNotice = signal<string | null>(null);
+  protected gradeSaveFailure = signal<string | null>(null);
   private gradeSaveNoticeTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The server state from which the open grade sheet was loaded. */
+  private gradeEntryBaseline: GradeEntryView | null = null;
   protected gradeReviewDialog = signal<'RETURN' | 'SELF_REOPEN' | null>(null);
   protected gradeReviewReason = '';
   protected inputReviewTarget = signal<{ row: ReportCardInputRow; action: 'APPROVE' | 'RETURN' | 'REJECT' } | null>(null);
@@ -1481,6 +1499,8 @@ export class AcademicComponent {
     this.bulkBulletins.set([]);
     this.gradeEntryRequestId++;
     this.gradeEntry.set(null);
+    this.gradeEntryBaseline = null;
+    this.dismissGradeSaveFailure();
     this.reportInputs.set(null);
     this.inputDrafts.set({});
     if (!preserveSubjectCode) this.selectedGradeSubjectCode.set('');
@@ -1704,15 +1724,15 @@ export class AcademicComponent {
   }
 
   protected loadGradeEntry(subjectCode?: string): void {
-    if (!this.canUseGradeEntry()) { this.gradeEntry.set(null); return; }
+    if (!this.canUseGradeEntry()) { this.gradeEntry.set(null); this.gradeEntryBaseline = null; return; }
     const classId = this.selectedClassId(); const periodId = this.selectedReportingPeriodId();
-    if (!classId || !periodId) { this.gradeEntry.set(null); return; }
+    if (!classId || !periodId) { this.gradeEntry.set(null); this.gradeEntryBaseline = null; return; }
     const requestId = ++this.gradeEntryRequestId;
     const requestedSubjectCode = subjectCode || this.selectedGradeSubjectCode() || undefined;
     this.gradeEntryError.set(null);
     this.api.gradeEntry(periodId, classId, requestedSubjectCode).subscribe({
-      next: (entry) => { if (requestId !== this.gradeEntryRequestId || this.selectedClassId() !== classId || this.selectedReportingPeriodId() !== periodId) return; this.gradeEntry.set(this.refreshGradeProgress(entry)); this.gradeEntryError.set(null); this.selectedGradeSubjectCode.set(entry.subjectCode); },
-      error: (e) => { if (requestId !== this.gradeEntryRequestId || this.selectedClassId() !== classId || this.selectedReportingPeriodId() !== periodId) return; this.gradeEntry.set(null); this.gradeEntryError.set(this.explainError(e, 'grade-entry')); },
+      next: (entry) => { if (requestId !== this.gradeEntryRequestId || this.selectedClassId() !== classId || this.selectedReportingPeriodId() !== periodId) return; this.setLoadedGradeEntry(entry); this.gradeEntryError.set(null); this.selectedGradeSubjectCode.set(entry.subjectCode); },
+      error: (e) => { if (requestId !== this.gradeEntryRequestId || this.selectedClassId() !== classId || this.selectedReportingPeriodId() !== periodId) return; this.gradeEntry.set(null); this.gradeEntryBaseline = null; this.gradeEntryError.set(this.explainError(e, 'grade-entry')); },
     });
   }
 
@@ -1916,13 +1936,116 @@ export class AcademicComponent {
 
   protected saveGradeEntry(afterSave?: () => void): void {
     const entry = this.gradeEntry(); if (!entry || this.gradeBusy()) return;
+    this.dismissGradeSaveFailure();
+    this.saveGradeEntryAttempt(entry, afterSave, false);
+  }
+
+  protected retryGradeSave(): void {
+    this.dismissGradeSaveFailure();
+    this.saveGradeEntry();
+  }
+
+  protected dismissGradeSaveFailure(): void { this.gradeSaveFailure.set(null); }
+
+  private saveGradeEntryAttempt(entry: GradeEntryView, afterSave?: () => void, retriedAfterRefresh = false): void {
     this.gradeBusy.set(true);
     this.gradeSaveBusy.set(true);
     this.dismissGradeSaveNotice();
     this.api.saveGradeEntry({ reportingPeriodId: entry.reportingPeriodId, classId: entry.classId, subjectCode: entry.subjectCode, packetVersion: entry.packetVersion, students: entry.students.map((row) => ({ studentId: row.studentId, comment: row.comment, values: row.values.map((cell) => ({ assessmentId: cell.assessmentId, mark: cell.mark, valueStatus: cell.valueStatus, version: cell.version })) })) }).subscribe({
-      next: (updated) => { this.gradeEntry.set(updated); this.selectedGradeSubjectCode.set(updated.subjectCode); this.gradeBusy.set(false); this.gradeSaveBusy.set(false); this.showGradeSaveNotice(updated.packetStatus === 'ACCEPTED' ? (this.fr() ? 'Notes enregistrées. Elles sont prêtes pour les bulletins.' : 'Grades saved. They are ready for report cards.') : (this.fr() ? 'Brouillon enregistré. Vous pouvez continuer plus tard.' : 'Draft saved. You can continue later.')); afterSave?.(); },
-      error: (e) => { this.gradeBusy.set(false); this.gradeSaveBusy.set(false); this.fail(e); },
+      next: (updated) => { this.setLoadedGradeEntry(updated); this.selectedGradeSubjectCode.set(updated.subjectCode); this.gradeBusy.set(false); this.gradeSaveBusy.set(false); this.showGradeSaveNotice(updated.packetStatus === 'ACCEPTED' ? (this.fr() ? 'Notes enregistrées. Elles sont prêtes pour les bulletins.' : 'Grades saved. They are ready for report cards.') : (this.fr() ? 'Brouillon enregistré. Vous pouvez continuer plus tard.' : 'Draft saved. You can continue later.')); afterSave?.(); },
+      error: (e) => {
+        if (!retriedAfterRefresh && this.isStaleGradeEntrySave(e)) {
+          this.refreshAndRetryGradeEntrySave(entry, afterSave);
+          return;
+        }
+        this.gradeBusy.set(false);
+        this.gradeSaveBusy.set(false);
+        this.showGradeSaveFailure(this.explainError(e, 'grade-entry'));
+      },
     });
+  }
+
+  /**
+   * A teacher can spend a long time entering a whole class. If management has
+   * only changed the sheet workflow while that happens, safely carry the
+   * teacher's edits onto the newest server version and retry once. If another
+   * person changed the same mark, stop rather than silently overwriting it.
+   */
+  private refreshAndRetryGradeEntrySave(draft: GradeEntryView, afterSave?: () => void): void {
+    this.api.gradeEntry(draft.reportingPeriodId, draft.classId, draft.subjectCode).subscribe({
+      next: (latest) => {
+        const merged = this.mergeGradeEntryAfterStaleSave(draft, latest);
+        if (!merged) {
+          this.gradeBusy.set(false);
+          this.gradeSaveBusy.set(false);
+          this.gradeEntry.set(draft);
+          this.showGradeSaveFailure(this.fr()
+            ? 'Cette feuille a aussi été modifiée pour au moins une des mêmes notes. Rien n’a été écrasé : gardez cette page ouverte et contactez la direction pour décider quelles notes conserver.'
+            : 'This sheet was also changed for at least one of the same marks. Nothing was overwritten: keep this page open and contact management to decide which marks to keep.');
+          return;
+        }
+        const preparedLatest = this.refreshGradeProgress(latest);
+        this.gradeEntryBaseline = preparedLatest;
+        this.gradeEntry.set(merged);
+        this.saveGradeEntryAttempt(merged, afterSave, true);
+      },
+      error: (e) => {
+        this.gradeBusy.set(false);
+        this.gradeSaveBusy.set(false);
+        this.showGradeSaveFailure(this.explainError(e, 'grade-entry'));
+      },
+    });
+  }
+
+  private mergeGradeEntryAfterStaleSave(draft: GradeEntryView, latest: GradeEntryView): GradeEntryView | null {
+    const baseline = this.gradeEntryBaseline;
+    if (!baseline || baseline.reportingPeriodId !== draft.reportingPeriodId || baseline.classId !== draft.classId
+      || baseline.subjectCode !== draft.subjectCode || latest.reportingPeriodId !== draft.reportingPeriodId
+      || latest.classId !== draft.classId || latest.subjectCode !== draft.subjectCode) return null;
+
+    const baselineRows = new Map(baseline.students.map((row) => [row.studentId, row]));
+    const latestRows = new Map(latest.students.map((row) => [row.studentId, row]));
+    let unsafe = false;
+    const students = draft.students.map((draftRow) => {
+      const baselineRow = baselineRows.get(draftRow.studentId);
+      const latestRow = latestRows.get(draftRow.studentId);
+      if (!baselineRow || !latestRow) { unsafe = true; return draftRow; }
+      const baselineCells = new Map(baselineRow.values.map((cell) => [cell.assessmentId, cell]));
+      const latestCells = new Map(latestRow.values.map((cell) => [cell.assessmentId, cell]));
+      const values = draftRow.values.map((draftCell) => {
+        const baselineCell = baselineCells.get(draftCell.assessmentId);
+        const latestCell = latestCells.get(draftCell.assessmentId);
+        if (!baselineCell || !latestCell) { unsafe = true; return draftCell; }
+        const teacherChanged = !this.sameGradeEntryCell(draftCell, baselineCell);
+        const serverChanged = !this.sameGradeEntryCell(latestCell, baselineCell);
+        if (teacherChanged && serverChanged && !this.sameGradeEntryCell(draftCell, latestCell)) unsafe = true;
+        // Use the current server version even when retaining the teacher's
+        // value; it is what makes the retry a safe optimistic update.
+        return teacherChanged ? { ...draftCell, version: latestCell.version } : latestCell;
+      });
+      const teacherChangedComment = (draftRow.comment ?? '') !== (baselineRow.comment ?? '');
+      const serverChangedComment = (latestRow.comment ?? '') !== (baselineRow.comment ?? '');
+      if (teacherChangedComment && serverChangedComment && (draftRow.comment ?? '') !== (latestRow.comment ?? '')) unsafe = true;
+      return { ...latestRow, values, comment: teacherChangedComment ? draftRow.comment : latestRow.comment };
+    });
+    if (unsafe || students.length !== latest.students.length) return null;
+    return this.refreshGradeProgress({ ...latest, students });
+  }
+
+  private sameGradeEntryCell(a: GradeEntryView['students'][number]['values'][number], b: GradeEntryView['students'][number]['values'][number]): boolean {
+    return a.assessmentId === b.assessmentId && a.valueStatus === b.valueStatus && (a.mark ?? null) === (b.mark ?? null);
+  }
+
+  private isStaleGradeEntrySave(e: any): boolean {
+    const code = String(e?.error?.code ?? '');
+    const message = String(e?.error?.message ?? '').toLowerCase();
+    return e?.status === 409 && (code === 'STALE_VERSION' || message.includes('modifiée par un autre utilisateur'));
+  }
+
+  private setLoadedGradeEntry(entry: GradeEntryView): void {
+    const prepared = this.refreshGradeProgress(entry);
+    this.gradeEntry.set(prepared);
+    this.gradeEntryBaseline = prepared;
   }
 
   protected dismissGradeSaveNotice(): void {
@@ -1936,6 +2059,8 @@ export class AcademicComponent {
     this.gradeSaveNotice.set(message);
     this.gradeSaveNoticeTimer = setTimeout(() => this.dismissGradeSaveNotice(), 8_000);
   }
+
+  private showGradeSaveFailure(message: string): void { this.gradeSaveFailure.set(message); }
 
   protected saveAndOpenAssignmentRepair(entry: GradeEntryView): void {
     if (this.gradeBusy()) return;
@@ -1974,7 +2099,7 @@ export class AcademicComponent {
       ? this.api.reopenOwnGradeEntry(entry.reportingPeriodId, entry.classId, entry.subjectCode, entry.packetVersion)
       : this.api.gradeEntryWorkflow(entry.reportingPeriodId, entry.classId, entry.subjectCode, action, this.gradeReviewReason.trim(), entry.packetVersion);
     request.subscribe({
-      next: (updated) => { this.gradeEntry.set(updated); this.gradeBusy.set(false); this.cancelGradeReview(); this.notice.set({ ok: true, text: this.fr() ? 'Feuille rouverte pour correction.' : 'Grade sheet reopened for correction.' }); },
+      next: (updated) => { this.setLoadedGradeEntry(updated); this.gradeBusy.set(false); this.cancelGradeReview(); this.notice.set({ ok: true, text: this.fr() ? 'Feuille rouverte pour correction.' : 'Grade sheet reopened for correction.' }); },
       error: (e) => { this.gradeBusy.set(false); this.fail(e); },
     });
   }
