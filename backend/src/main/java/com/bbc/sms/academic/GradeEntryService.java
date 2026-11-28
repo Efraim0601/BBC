@@ -16,6 +16,7 @@ import com.bbc.sms.timetable.SchoolClass;
 import com.bbc.sms.timetable.SchoolClassRepository;
 import com.bbc.sms.timetable.TeachingAssignmentResolver;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -215,7 +216,7 @@ public class GradeEntryService {
                 AcademicAssessment assessment = definition.get(cell.assessmentId());
                 if (assessment == null) throw ApiException.badRequest("L'évaluation n'appartient pas à cette période");
                 String status = normalizeStatus(cell.valueStatus());
-                validateMark(cell.mark(), status, assessment);
+                validateMark(cell.mark(), status, assessment, row.studentId());
                 AcademicGrade grade = grades.findBySchoolIdAndStudentIdAndAssessmentIdAndSubjectCode(
                         TenantContext.get(), row.studentId(), assessment.getId(), subjectCode).orElseGet(AcademicGrade::new);
                 if (cell.version() != null && grade.getId() != null && cell.version() != grade.getVersion()) {
@@ -649,7 +650,20 @@ public class GradeEntryService {
         return true;
     }
     static String normalizeStatus(String raw) { String s = raw == null || raw.isBlank() ? "SCORED" : raw.trim().toUpperCase(Locale.ROOT); if (!Set.of("SCORED","MISSING","ABSENT","EXEMPT").contains(s)) throw ApiException.badRequest("Statut de note invalide"); return s; }
-    private void validateMark(BigDecimal mark, String status, AcademicAssessment a) { if ("SCORED".equals(status) && mark == null) throw ApiException.badRequest("Une note est obligatoire pour une valeur saisie"); if ("SCORED".equals(status) && (mark.compareTo(BigDecimal.ZERO) < 0 || mark.compareTo(a.getMaxScore()) > 0)) throw ApiException.badRequest("La note doit être comprise entre 0 et " + a.getMaxScore()); }
+    private void validateMark(BigDecimal mark, String status, AcademicAssessment assessment, UUID studentId) {
+        String field = studentId + ":" + assessment.getId();
+        if ("SCORED".equals(status) && mark == null) {
+            throw ApiException.field(HttpStatus.BAD_REQUEST, "GRADE_MARK_REQUIRED",
+                    "Une note est obligatoire pour une valeur saisie.", field,
+                    "Saisissez une note ou choisissez Absent / Dispensé.");
+        }
+        if ("SCORED".equals(status)
+                && (mark.compareTo(BigDecimal.ZERO) < 0 || mark.compareTo(assessment.getMaxScore()) > 0)) {
+            throw ApiException.field(HttpStatus.BAD_REQUEST, "GRADE_MARK_OUT_OF_RANGE",
+                    "La note doit être comprise entre 0 et " + assessment.getMaxScore() + ".", field,
+                    "La note doit être comprise entre 0 et " + assessment.getMaxScore() + ".");
+        }
+    }
     private AcademicReportingPeriod period(UUID id) { return periods.findByIdAndSchoolId(id, TenantContext.get()).orElseThrow(() -> ApiException.notFound("Période de résultat")); }
     private SchoolClass schoolClass(UUID id) { return classes.findByIdAndSchoolId(id, TenantContext.get()).orElseThrow(() -> ApiException.notFound("Classe")); }
     private GradeEntryAssessmentView assessmentView(AcademicAssessment a) { return new GradeEntryAssessmentView(a.getId(), a.getCode(), a.getLabel(), a.getMaxScore(), a.getWeight(), a.isMandatory(), a.getDisplayOrder()); }

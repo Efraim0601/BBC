@@ -432,6 +432,12 @@ const appreciation = (avg: number, fr: boolean): string => {
                 <div><h2 class="text-lg font-bold text-ink">{{ gradeReadOnly() ? (fr() ? '4. Vérifier les notes' : '4. Review marks') : (fr() ? '4. Saisir les notes' : '4. Enter marks') }}</h2><p class="mt-1 text-sm text-mute">{{ gradeReadOnly() ? (fr() ? 'Une ligne = un élève. Les valeurs de cette feuille sont affichées en lecture seule.' : 'One row = one student. Values from this sheet are shown read-only.') : (fr() ? 'Une ligne = un élève. Remplissez chaque colonne obligatoire.' : 'One row = one student. Complete every required column.') }}</p></div>
                 @if (entry.assessments.length) { <div class="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-sm font-semibold text-ink">{{ entry.completedStudents }} / {{ entry.totalStudents }} {{ fr() ? 'élève(s) complet(s)' : 'student(s) complete' }}</div> }
               </div>
+              @if (!gradeReadOnly() && gradeMarkErrorCount()) {
+                <div class="mx-5 mt-4 rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-950" role="alert">
+                  <div class="font-bold">{{ gradeMarkErrorCount() === 1 ? (fr() ? 'Une note doit être corrigée avant l’enregistrement.' : 'One mark must be corrected before saving.') : (fr() ? gradeMarkErrorCount() + ' notes doivent être corrigées avant l’enregistrement.' : gradeMarkErrorCount() + ' marks must be corrected before saving.') }}</div>
+                  <div class="mt-1 text-rose-900">{{ fr() ? 'Les champs concernés sont encadrés en rouge. Respectez le barème affiché à côté de chaque note.' : 'The affected fields are outlined in red. Use the scale shown next to each mark.' }}</div>
+                </div>
+              }
               @if (entry.assessments.length) {
               <div class="mt-4 grid gap-3 lg:hidden">
                 @for (row of entry.students; track row.studentId) {
@@ -450,8 +456,10 @@ const appreciation = (avg: number, fr: boolean): string => {
                               <span class="mb-1 block text-[11px] font-bold uppercase text-mute">{{ fr() ? 'Note' : 'Mark' }}</span>
                               <input type="number" min="0" [max]="entry.assessments[i].maxScore" step="0.01" [ngModel]="cell.mark" (ngModelChange)="updateGradeMark(row.studentId, i, $event)"
                                 [attr.aria-label]="(fr() ? 'Note de ' : 'Mark for ') + row.studentName + ' — ' + gradeAssessmentLabel(entry, entry.assessments[i])"
+                                [attr.aria-invalid]="gradeMarkError(row.studentId, cell.assessmentId) ? 'true' : null"
                                 [disabled]="entry.packetStatus === 'SUBMITTED' || entry.packetStatus === 'ACCEPTED' || entry.packetStatus === 'LOCKED' || entry.capabilities?.canEditDraft === false"
-                                class="field text-center font-semibold disabled:bg-slate-100" placeholder="—" />
+                                class="field text-center font-semibold disabled:bg-slate-100" [class.border-rose-500]="gradeMarkError(row.studentId, cell.assessmentId)" [class.bg-rose-50]="gradeMarkError(row.studentId, cell.assessmentId)" [class.ring-1]="gradeMarkError(row.studentId, cell.assessmentId)" [class.ring-rose-200]="gradeMarkError(row.studentId, cell.assessmentId)" placeholder="—" />
+                              @if (gradeMarkError(row.studentId, cell.assessmentId); as error) { <p class="mt-1 text-xs font-semibold text-rose-700" role="alert">{{ error }}</p> }
                             </label>
                             <label>
                               <span class="mb-1 block text-[11px] font-bold uppercase text-mute">{{ fr() ? 'Statut' : 'Status' }}</span>
@@ -496,8 +504,10 @@ const appreciation = (avg: number, fr: boolean): string => {
                             <div class="mb-1 text-[11px] text-mute">{{ fr() ? 'Note /' : 'Mark /' }} {{ entry.assessments[i].maxScore }}</div>
                             <input type="number" min="0" [max]="entry.assessments[i].maxScore" step="0.01" [ngModel]="cell.mark" (ngModelChange)="updateGradeMark(row.studentId, i, $event)"
                               [attr.aria-label]="(fr() ? 'Note de ' : 'Mark for ') + row.studentName + ' — ' + (gradeAssessmentLabel(entry, entry.assessments[i]))"
+                              [attr.aria-invalid]="gradeMarkError(row.studentId, cell.assessmentId) ? 'true' : null"
                               [disabled]="entry.packetStatus === 'SUBMITTED' || entry.packetStatus === 'ACCEPTED' || entry.packetStatus === 'LOCKED' || entry.capabilities?.canEditDraft === false"
-                              class="w-full h-10 px-2 text-center rounded-md border border-slate-300 bg-white text-base font-semibold focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 disabled:bg-slate-100" placeholder="—" />
+                              class="w-full h-10 px-2 text-center rounded-md border border-slate-300 bg-white text-base font-semibold focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 disabled:bg-slate-100" [class.border-rose-500]="gradeMarkError(row.studentId, cell.assessmentId)" [class.bg-rose-50]="gradeMarkError(row.studentId, cell.assessmentId)" [class.ring-rose-200]="gradeMarkError(row.studentId, cell.assessmentId)" placeholder="—" />
+                            @if (gradeMarkError(row.studentId, cell.assessmentId); as error) { <p class="mt-1 text-xs font-semibold text-rose-700" role="alert">{{ error }}</p> }
                             <select [ngModel]="cell.valueStatus" (ngModelChange)="updateGradeStatus(row.studentId, i, $event)"
                               [disabled]="entry.packetStatus === 'SUBMITTED' || entry.packetStatus === 'ACCEPTED' || entry.packetStatus === 'LOCKED' || entry.capabilities?.canEditDraft === false"
                               class="w-full h-8 mt-1 px-2 text-xs rounded border border-slate-200 bg-white text-mute">
@@ -519,7 +529,7 @@ const appreciation = (avg: number, fr: boolean): string => {
               <div class="flex flex-wrap gap-2 items-center mt-5 pt-4 border-t border-slate-100 print:hidden">
                 <div class="flex-1 min-w-0 sm:min-w-[260px] text-xs text-mute">{{ gradeOversight() ? (fr() ? 'Lecture seule : vous pouvez rouvrir cette feuille avec un motif si une correction est nécessaire.' : 'Read-only: you may reopen this sheet with a reason if a correction is needed.') : entry.packetStatus === 'RETURNED' ? (fr() ? 'Une correction a été demandée. Enregistrez pour conserver votre brouillon ou terminez toutes les notes pour le bulletin.' : 'A correction was requested. Save to keep your draft, or complete every mark to make it ready for report cards.') : canReopenOwnGradePacket(entry) ? (fr() ? 'Enregistrée et prête pour les bulletins. Vous pouvez la rouvrir pour corriger vos propres notes.' : 'Saved and ready for report cards. You may reopen it to correct your own grades.') : entry.packetStatus === 'ACCEPTED' ? (fr() ? 'Enregistrée et prête pour les bulletins. La direction peut la rouvrir avec un motif si une correction est nécessaire.' : 'Saved and ready for report cards. Management can reopen it with a reason if a correction is needed.') : gradeSheetComplete(entry) ? (fr() ? 'Toutes les notes sont prêtes. Enregistrez pour les rendre disponibles dans les bulletins.' : 'All marks are ready. Save to make them available on report cards.') : (fr() ? 'Enregistrer conserve votre brouillon. Vous pourrez continuer plus tard.' : 'Saving preserves your draft. You can continue later.') }}</div>
                 @if (canWrite && (entry.packetStatus === 'DRAFT' || entry.packetStatus === 'RETURNED')) {
-                  <button type="button" (click)="saveGradeEntry()" [disabled]="gradeBusy() || entry.capabilities?.canEditDraft === false" class="h-10 px-4 rounded-lg bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700 disabled:opacity-50">{{ gradeSaveBusy() ? (fr() ? 'Enregistrement…' : 'Saving…') : gradeSheetComplete(entry) ? (fr() ? 'Enregistrer les notes' : 'Save grades') : (fr() ? 'Enregistrer le brouillon' : 'Save draft') }}</button>
+                  <button type="button" (click)="saveGradeEntry()" [disabled]="gradeBusy() || gradeMarkErrorCount() > 0 || entry.capabilities?.canEditDraft === false" class="h-10 px-4 rounded-lg bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700 disabled:opacity-50">{{ gradeSaveBusy() ? (fr() ? 'Enregistrement…' : 'Saving…') : gradeSheetComplete(entry) ? (fr() ? 'Enregistrer les notes' : 'Save grades') : (fr() ? 'Enregistrer le brouillon' : 'Save draft') }}</button>
                 }
                 @if (canReturnGradePacket(entry)) {
                   <button type="button" (click)="reviewGradeEntry()" [disabled]="gradeBusy()" class="h-10 px-4 rounded-lg border border-rose-200 text-rose-700 text-sm font-semibold hover:bg-rose-50 disabled:opacity-50">{{ fr() ? 'Rouvrir pour correction' : 'Reopen for correction' }}</button>
@@ -1298,6 +1308,8 @@ export class AcademicComponent {
   protected gradeSaveBusy = signal(false);
   protected gradeSaveNotice = signal<string | null>(null);
   protected gradeSaveFailure = signal<string | null>(null);
+  protected gradeMarkErrors = signal<Record<string, string>>({});
+  protected gradeMarkErrorCount = computed(() => Object.keys(this.gradeMarkErrors()).length);
   private gradeSaveNoticeTimer: ReturnType<typeof setTimeout> | null = null;
   /** The server state from which the open grade sheet was loaded. */
   private gradeEntryBaseline: GradeEntryView | null = null;
@@ -1500,6 +1512,7 @@ export class AcademicComponent {
     this.gradeEntryRequestId++;
     this.gradeEntry.set(null);
     this.gradeEntryBaseline = null;
+    this.gradeMarkErrors.set({});
     this.dismissGradeSaveFailure();
     this.reportInputs.set(null);
     this.inputDrafts.set({});
@@ -1715,7 +1728,8 @@ export class AcademicComponent {
   }
 
   protected gradeSheetComplete(entry: GradeEntryView): boolean {
-    return entry.totalStudents > 0 && entry.assessments.length > 0 && entry.blockers.length === 0;
+    return entry.totalStudents > 0 && entry.assessments.length > 0
+      && entry.blockers.length === 0 && this.gradeMarkErrorCount() === 0;
   }
 
   protected gradeAssessmentLabel(entry: GradeEntryView, assessment: GradeEntryView['assessments'][number]): string {
@@ -1724,15 +1738,15 @@ export class AcademicComponent {
   }
 
   protected loadGradeEntry(subjectCode?: string): void {
-    if (!this.canUseGradeEntry()) { this.gradeEntry.set(null); this.gradeEntryBaseline = null; return; }
+    if (!this.canUseGradeEntry()) { this.gradeEntry.set(null); this.gradeEntryBaseline = null; this.gradeMarkErrors.set({}); return; }
     const classId = this.selectedClassId(); const periodId = this.selectedReportingPeriodId();
-    if (!classId || !periodId) { this.gradeEntry.set(null); this.gradeEntryBaseline = null; return; }
+    if (!classId || !periodId) { this.gradeEntry.set(null); this.gradeEntryBaseline = null; this.gradeMarkErrors.set({}); return; }
     const requestId = ++this.gradeEntryRequestId;
     const requestedSubjectCode = subjectCode || this.selectedGradeSubjectCode() || undefined;
     this.gradeEntryError.set(null);
     this.api.gradeEntry(periodId, classId, requestedSubjectCode).subscribe({
       next: (entry) => { if (requestId !== this.gradeEntryRequestId || this.selectedClassId() !== classId || this.selectedReportingPeriodId() !== periodId) return; this.setLoadedGradeEntry(entry); this.gradeEntryError.set(null); this.selectedGradeSubjectCode.set(entry.subjectCode); },
-      error: (e) => { if (requestId !== this.gradeEntryRequestId || this.selectedClassId() !== classId || this.selectedReportingPeriodId() !== periodId) return; this.gradeEntry.set(null); this.gradeEntryBaseline = null; this.gradeEntryError.set(this.explainError(e, 'grade-entry')); },
+      error: (e) => { if (requestId !== this.gradeEntryRequestId || this.selectedClassId() !== classId || this.selectedReportingPeriodId() !== periodId) return; this.gradeEntry.set(null); this.gradeEntryBaseline = null; this.gradeMarkErrors.set({}); this.gradeEntryError.set(this.explainError(e, 'grade-entry')); },
     });
   }
 
@@ -1907,7 +1921,8 @@ export class AcademicComponent {
       let ok = true;
       entry.assessments.forEach((assessment, index) => {
         const cell = row.values[index];
-        if (assessment.mandatory && (!cell || !['SCORED', 'ABSENT', 'EXEMPT'].includes(cell.valueStatus))) {
+        const invalidMark = !!cell && !!this.gradeMarkValidationMessage(cell.mark, cell.valueStatus, assessment.maxScore);
+        if (assessment.mandatory && (!cell || !['SCORED', 'ABSENT', 'EXEMPT'].includes(cell.valueStatus) || invalidMark)) {
           ok = false;
           blockers.push(`${row.studentName} · ${this.gradeAssessmentLabel(entry, assessment)}`);
         }
@@ -1923,11 +1938,60 @@ export class AcademicComponent {
 
   protected updateGradeMark(studentId: string, index: number, raw: unknown): void {
     const value = raw === '' || raw == null ? null : Number(raw);
-    this.updateGradeEntry((entry) => ({ ...entry, students: entry.students.map((row) => row.studentId !== studentId ? row : ({ ...row, values: row.values.map((cell, i) => i === index ? { ...cell, mark: Number.isFinite(value) ? value : null, valueStatus: Number.isFinite(value) ? 'SCORED' : 'MISSING' } : cell) })) }));
+    const entry = this.gradeEntry();
+    const assessment = entry?.assessments[index];
+    const mark = Number.isFinite(value) ? value : null;
+    this.updateGradeEntry((current) => ({ ...current, students: current.students.map((row) => row.studentId !== studentId ? row : ({ ...row, values: row.values.map((cell, i) => i === index ? { ...cell, mark, valueStatus: mark == null ? 'MISSING' : 'SCORED' } : cell) })) }));
+    if (assessment) this.setGradeMarkError(studentId, assessment.id, this.gradeMarkValidationMessage(mark, mark == null ? 'MISSING' : 'SCORED', assessment.maxScore));
   }
 
   protected updateGradeStatus(studentId: string, index: number, status: string): void {
-    this.updateGradeEntry((entry) => ({ ...entry, students: entry.students.map((row) => row.studentId !== studentId ? row : ({ ...row, values: row.values.map((cell, i) => i === index ? { ...cell, mark: status === 'SCORED' ? cell.mark : null, valueStatus: status as any } : cell) })) }));
+    const entry = this.gradeEntry();
+    const assessment = entry?.assessments[index];
+    const existing = entry?.students.find((row) => row.studentId === studentId)?.values[index];
+    const mark = status === 'SCORED' ? existing?.mark ?? null : null;
+    this.updateGradeEntry((current) => ({ ...current, students: current.students.map((row) => row.studentId !== studentId ? row : ({ ...row, values: row.values.map((cell, i) => i === index ? { ...cell, mark, valueStatus: status as any } : cell) })) }));
+    if (assessment) this.setGradeMarkError(studentId, assessment.id, this.gradeMarkValidationMessage(mark, status, assessment.maxScore));
+  }
+
+  protected gradeMarkError(studentId: string, assessmentId: string): string | null {
+    return this.gradeMarkErrors()[this.gradeMarkErrorKey(studentId, assessmentId)] ?? null;
+  }
+
+  private gradeMarkErrorKey(studentId: string, assessmentId: string): string { return `${studentId}:${assessmentId}`; }
+
+  private setGradeMarkError(studentId: string, assessmentId: string, error: string | null): void {
+    const key = this.gradeMarkErrorKey(studentId, assessmentId);
+    this.gradeMarkErrors.update((errors) => {
+      if (!error && !errors[key]) return errors;
+      const next = { ...errors };
+      if (error) next[key] = error; else delete next[key];
+      return next;
+    });
+  }
+
+  private gradeMarkValidationMessage(mark: number | null, status: string, maxScore: number): string | null {
+    if (status !== 'SCORED') return null;
+    if (mark == null || !Number.isFinite(mark)) return this.fr()
+      ? 'Saisissez une note ou choisissez Absent / Dispensé.'
+      : 'Enter a mark or choose Absent / Exempt.';
+    if (mark < 0 || mark > maxScore) return this.fr()
+      ? `La note doit être comprise entre 0 et ${maxScore}.`
+      : `The mark must be between 0 and ${maxScore}.`;
+    return null;
+  }
+
+  private rebuildGradeMarkErrors(entry: GradeEntryView): void {
+    const errors: Record<string, string> = {};
+    for (const row of entry.students) {
+      row.values.forEach((cell, index) => {
+        const assessment = entry.assessments[index];
+        if (!assessment) return;
+        const error = this.gradeMarkValidationMessage(cell.mark, cell.valueStatus, assessment.maxScore);
+        if (error) errors[this.gradeMarkErrorKey(row.studentId, cell.assessmentId)] = error;
+      });
+    }
+    this.gradeMarkErrors.set(errors);
   }
 
   protected updateGradeComment(studentId: string, comment: string): void {
@@ -1936,6 +2000,7 @@ export class AcademicComponent {
 
   protected saveGradeEntry(afterSave?: () => void): void {
     const entry = this.gradeEntry(); if (!entry || this.gradeBusy()) return;
+    if (this.gradeMarkErrorCount() > 0) return;
     this.dismissGradeSaveFailure();
     this.saveGradeEntryAttempt(entry, afterSave, false);
   }
@@ -1954,6 +2019,11 @@ export class AcademicComponent {
     this.api.saveGradeEntry({ reportingPeriodId: entry.reportingPeriodId, classId: entry.classId, subjectCode: entry.subjectCode, packetVersion: entry.packetVersion, students: entry.students.map((row) => ({ studentId: row.studentId, comment: row.comment, values: row.values.map((cell) => ({ assessmentId: cell.assessmentId, mark: cell.mark, valueStatus: cell.valueStatus, version: cell.version })) })) }).subscribe({
       next: (updated) => { this.setLoadedGradeEntry(updated); this.selectedGradeSubjectCode.set(updated.subjectCode); this.gradeBusy.set(false); this.gradeSaveBusy.set(false); this.showGradeSaveNotice(updated.packetStatus === 'ACCEPTED' ? (this.fr() ? 'Notes enregistrées. Elles sont prêtes pour les bulletins.' : 'Grades saved. They are ready for report cards.') : (this.fr() ? 'Brouillon enregistré. Vous pouvez continuer plus tard.' : 'Draft saved. You can continue later.')); afterSave?.(); },
       error: (e) => {
+        if (this.applyServerGradeMarkErrors(e)) {
+          this.gradeBusy.set(false);
+          this.gradeSaveBusy.set(false);
+          return;
+        }
         if (!retriedAfterRefresh && this.isStaleGradeEntrySave(e)) {
           this.refreshAndRetryGradeEntrySave(entry, afterSave);
           return;
@@ -2046,6 +2116,21 @@ export class AcademicComponent {
     const prepared = this.refreshGradeProgress(entry);
     this.gradeEntry.set(prepared);
     this.gradeEntryBaseline = prepared;
+    this.rebuildGradeMarkErrors(prepared);
+  }
+
+  /** Defensive fallback for invalid data submitted by an older client. */
+  private applyServerGradeMarkErrors(e: any): boolean {
+    if (!['GRADE_MARK_OUT_OF_RANGE', 'GRADE_MARK_REQUIRED'].includes(String(e?.error?.code ?? ''))) return false;
+    const fieldErrors = e?.error?.fieldErrors;
+    if (!fieldErrors || typeof fieldErrors !== 'object') return false;
+    const known = new Set<string>();
+    for (const row of this.gradeEntry()?.students ?? []) for (const cell of row.values) known.add(this.gradeMarkErrorKey(row.studentId, cell.assessmentId));
+    const additions = Object.entries(fieldErrors as Record<string, unknown>)
+      .filter(([key, message]) => known.has(key) && typeof message === 'string') as Array<[string, string]>;
+    if (!additions.length) return false;
+    this.gradeMarkErrors.update((errors) => ({ ...errors, ...Object.fromEntries(additions) }));
+    return true;
   }
 
   protected dismissGradeSaveNotice(): void {
