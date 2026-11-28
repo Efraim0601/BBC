@@ -29,6 +29,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -93,8 +94,9 @@ class GradeEntryServiceWorkflowTest {
             var row = mock(java.sql.ResultSet.class);
             when(row.getString(1)).thenReturn("FRANCAIS");
             when(row.getString(2)).thenReturn("Français");
-            when(row.getInt(3)).thenReturn(1);
-            when(row.getBoolean(4)).thenReturn(false);
+            when(row.getString(3)).thenReturn("French");
+            when(row.getInt(4)).thenReturn(1);
+            when(row.getBoolean(5)).thenReturn(false);
             return List.of(mapper.mapRow(row, 0));
         }).when(jdbc).query(anyString(), any(RowMapper.class), any(Object[].class));
 
@@ -176,8 +178,9 @@ class GradeEntryServiceWorkflowTest {
             var row = mock(java.sql.ResultSet.class);
             when(row.getString(1)).thenReturn("MATH");
             when(row.getString(2)).thenReturn("Mathematics");
-            when(row.getInt(3)).thenReturn(1);
-            when(row.getBoolean(4)).thenReturn(false);
+            when(row.getString(3)).thenReturn("Mathematics");
+            when(row.getInt(4)).thenReturn(1);
+            when(row.getBoolean(5)).thenReturn(false);
             return List.of(mapper.mapRow(row, 0));
         }).when(jdbc).query(anyString(), any(RowMapper.class), any(Object[].class));
 
@@ -239,8 +242,9 @@ class GradeEntryServiceWorkflowTest {
             var row = mock(java.sql.ResultSet.class);
             when(row.getString(1)).thenReturn("MATH");
             when(row.getString(2)).thenReturn("Mathematics");
-            when(row.getInt(3)).thenReturn(1);
-            when(row.getBoolean(4)).thenReturn(false);
+            when(row.getString(3)).thenReturn("Mathematics");
+            when(row.getInt(4)).thenReturn(1);
+            when(row.getBoolean(5)).thenReturn(false);
             return List.of(mapper.mapRow(row, 0));
         }).when(jdbc).query(anyString(), any(RowMapper.class), any(Object[].class));
 
@@ -324,8 +328,9 @@ class GradeEntryServiceWorkflowTest {
             if (sql.contains("academic_curriculum_subject")) {
                 when(row.getString(1)).thenReturn("MATH");
                 when(row.getString(2)).thenReturn("Mathematics");
-                when(row.getInt(3)).thenReturn(1);
-                when(row.getBoolean(4)).thenReturn(false);
+                when(row.getString(3)).thenReturn("Mathematics");
+                when(row.getInt(4)).thenReturn(1);
+                when(row.getBoolean(5)).thenReturn(false);
                 return List.of(mapper.mapRow(row, 0));
             }
             if (sql.contains("FROM student_enrollment")) {
@@ -370,6 +375,23 @@ class GradeEntryServiceWorkflowTest {
                 eq(schoolId), eq(periodId), eq("MATH"), eq(classId));
         verify(jdbc).update(contains("UPDATE subject_result_comment SET workflow_status=?"), eq("ACCEPTED"),
                 eq(schoolId), eq(periodId), eq(classId), eq("MATH"));
+    }
+
+    @Test
+    void incompleteSavePayloadStaysDraftUntilEveryRequiredValueIsPresent() {
+        UUID studentId = UUID.randomUUID();
+        UUID assessmentId = UUID.randomUUID();
+        AcademicAssessment assessment = new AcademicAssessment();
+        assessment.setId(assessmentId);
+        assessment.setMandatory(true);
+
+        GradeEntryStudentUpsert missing = new GradeEntryStudentUpsert(studentId,
+                List.of(new GradeEntryCellUpsert(assessmentId, null, "MISSING", null)), null);
+        GradeEntryStudentUpsert scored = new GradeEntryStudentUpsert(studentId,
+                List.of(new GradeEntryCellUpsert(assessmentId, BigDecimal.valueOf(14), "SCORED", null)), null);
+
+        assertThat(GradeEntryService.completeSavePayload(List.of(assessment), Set.of(studentId), List.of(missing), false)).isFalse();
+        assertThat(GradeEntryService.completeSavePayload(List.of(assessment), Set.of(studentId), List.of(scored), false)).isTrue();
     }
 
     @Test

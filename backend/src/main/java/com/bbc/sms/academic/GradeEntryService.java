@@ -198,10 +198,13 @@ public class GradeEntryService {
         if (in.packetVersion() != null && packet.getId() != null && in.packetVersion() != packet.getVersion()) {
             throw ApiException.conflict("La feuille de saisie a été modifiée par un autre utilisateur. Rechargez-la avant d'enregistrer.");
         }
-        Map<UUID, AcademicAssessment> definition = assessments.findApplicable(
-                TenantContext.get(), period.getId(), in.classId(), subjectCode).stream()
+        List<AcademicAssessment> applicableAssessments = assessments.findApplicable(
+                TenantContext.get(), period.getId(), in.classId(), subjectCode);
+        Map<UUID, AcademicAssessment> definition = applicableAssessments.stream()
                 .collect(Collectors.toMap(AcademicAssessment::getId, Function.identity()));
         Set<UUID> rosterIds = roster(period.getAcademicSessionId(), in.classId()).stream().map(RosterStudent::id).collect(Collectors.toSet());
+        boolean complete = completeSavePayload(applicableAssessments, rosterIds, in.students(), subject.remarkRequired());
+        String savedStatus = complete ? "ACCEPTED" : "DRAFT";
         for (GradeEntryStudentUpsert row : in.students()) {
             if (!rosterIds.contains(row.studentId())) throw ApiException.badRequest("L'élève ne fait pas partie de la classe pour cette session");
             UUID enrollmentId = resolveEnrollmentId(period.getAcademicSessionId(), in.classId(),
@@ -219,11 +222,9 @@ public class GradeEntryService {
                 grade.setSchoolId(TenantContext.get()); grade.setAcademicSessionId(period.getAcademicSessionId()); grade.setReportingPeriodId(period.getId());
                 grade.setAssessmentId(assessment.getId()); grade.setStudentId(row.studentId()); grade.setEnrollmentId(enrollmentId);
                 grade.setSubjectCode(subjectCode); grade.setMark("SCORED".equals(status) ? cell.mark() : null);
-                // A normal save is final for this subject sheet.  Persist the
-                // row in its report-card-ready state as well as promoting any
-                // older rows below; otherwise a new row can miss the JDBC
-                // bulk update before JPA flushes it at transaction commit.
-                grade.setValueStatus(status); grade.setWorkflowStatus("ACCEPTED"); grade.setEnteredBy(currentUserId()); grade.setTeacherId(subject.teacherId());
+                // A partial save is a true draft: teachers must be able to
+                // leave and resume it without falsely marking it as bulletin-ready.
+                grade.setValueStatus(status); grade.setWorkflowStatus(savedStatus); grade.setEnteredBy(currentUserId()); grade.setTeacherId(subject.teacherId());
                 grades.save(grade);
             }
             SubjectResultComment comment = comments.findBySchoolIdAndStudentIdAndReportingPeriodIdAndProgrammeClassIdAndSubjectCode(
@@ -231,23 +232,30 @@ public class GradeEntryService {
             if (row.comment() != null && row.comment().length() > 500) throw ApiException.badRequest("La remarque ne peut pas dépasser 500 caractères");
             comment.setSchoolId(TenantContext.get()); comment.setAcademicSessionId(period.getAcademicSessionId()); comment.setReportingPeriodId(period.getId());
             comment.setStudentId(row.studentId()); comment.setEnrollmentId(enrollmentId); comment.setProgrammeClassId(in.classId()); comment.setSubjectCode(subjectCode);
-            comment.setComment(row.comment() == null ? null : row.comment().trim()); comment.setWorkflowStatus("ACCEPTED"); comment.setTeacherId(subject.teacherId());
+            comment.setComment(row.comment() == null ? null : row.comment().trim()); comment.setWorkflowStatus(savedStatus); comment.setTeacherId(subject.teacherId());
             comments.save(comment);
         }
-        // Direct-save workflow: the saved sheet is ready for report cards.
-        // submittedBy retains its author: it keeps the independent management
-        // review rule intact and identifies who may use the narrow self-reopen
-        // correction path.
-        packet.setStatus("ACCEPTED");
-        packet.setSubmittedBy(currentUserId()); packet.setSubmittedAt(Instant.now());
-        packet.setReviewReason(null);
-        // Flush rows first so the bulk promotion also includes any existing
+        // A direct save is report-card ready only once every required value is
+        // supplied. Incomplete work remains an editable draft, preserving the
+        // teacher's progress instead of locking an empty or partial sheet.
+        packet.setStatus(savedStatus);
+        if (complete) {
+            // submittedBy retains its author: it keeps the independent management
+            // review rule intact and identifies who may use the narrow self-reopen
+            // correction path.
+            packet.setSubmittedBy(currentUserId()); packet.setSubmittedAt(Instant.now());
+            packet.setReviewReason(null); packet.setReviewedBy(null); packet.setReviewedAt(null);
+        } else {
+            packet.setSubmittedBy(null); packet.setSubmittedAt(null);
+        }
+        // Flush rows first so the bulk workflow update includes any existing
         // draft/returned rows that were not in this particular save payload.
         grades.flush();
         comments.flush();
-        updateWorkflow(period.getId(), in.classId(), subjectCode, "ACCEPTED");
+        updateWorkflow(period.getId(), in.classId(), subjectCode, savedStatus);
         packet.setLastSavedBy(currentUserId()); packet.setLastSavedAt(Instant.now()); packets.saveAndFlush(packet);
-        recordPacketTransition(packet, previousPacketStatus, "ACCEPTED", "Saved and made ready for report cards");
+        recordPacketTransition(packet, previousPacketStatus, savedStatus,
+                complete ? "Saved and made ready for report cards" : "Draft saved; completion required before report cards");
         return view(period.getId(), in.classId(), subjectCode);
     }
 
@@ -617,7 +625,26 @@ public class GradeEntryService {
         if (remarkRequired && (row.comment() == null || row.comment().isBlank())) return false;
         return true;
     }
-    private String normalizeStatus(String raw) { String s = raw == null || raw.isBlank() ? "SCORED" : raw.trim().toUpperCase(Locale.ROOT); if (!Set.of("SCORED","MISSING","ABSENT","EXEMPT").contains(s)) throw ApiException.badRequest("Statut de note invalide"); return s; }
+    static boolean completeSavePayload(List<AcademicAssessment> definition, Set<UUID> rosterIds,
+                                       List<GradeEntryStudentUpsert> rows, boolean remarkRequired) {
+        if (definition.isEmpty() || rosterIds.isEmpty() || rows == null) return false;
+        Map<UUID, GradeEntryStudentUpsert> byStudent = rows.stream()
+                .collect(Collectors.toMap(GradeEntryStudentUpsert::studentId, Function.identity(), (left, right) -> right));
+        if (!byStudent.keySet().containsAll(rosterIds)) return false;
+        for (UUID studentId : rosterIds) {
+            GradeEntryStudentUpsert row = byStudent.get(studentId);
+            Map<UUID, GradeEntryCellUpsert> values = (row.values() == null ? List.<GradeEntryCellUpsert>of() : row.values()).stream()
+                    .collect(Collectors.toMap(GradeEntryCellUpsert::assessmentId, Function.identity(), (left, right) -> right));
+            for (AcademicAssessment assessment : definition) {
+                GradeEntryCellUpsert cell = values.get(assessment.getId());
+                if (assessment.isMandatory() && (cell == null || !Set.of("SCORED", "ABSENT", "EXEMPT")
+                        .contains(normalizeStatus(cell.valueStatus())))) return false;
+            }
+            if (remarkRequired && (row.comment() == null || row.comment().isBlank())) return false;
+        }
+        return true;
+    }
+    static String normalizeStatus(String raw) { String s = raw == null || raw.isBlank() ? "SCORED" : raw.trim().toUpperCase(Locale.ROOT); if (!Set.of("SCORED","MISSING","ABSENT","EXEMPT").contains(s)) throw ApiException.badRequest("Statut de note invalide"); return s; }
     private void validateMark(BigDecimal mark, String status, AcademicAssessment a) { if ("SCORED".equals(status) && mark == null) throw ApiException.badRequest("Une note est obligatoire pour une valeur saisie"); if ("SCORED".equals(status) && (mark.compareTo(BigDecimal.ZERO) < 0 || mark.compareTo(a.getMaxScore()) > 0)) throw ApiException.badRequest("La note doit être comprise entre 0 et " + a.getMaxScore()); }
     private AcademicReportingPeriod period(UUID id) { return periods.findByIdAndSchoolId(id, TenantContext.get()).orElseThrow(() -> ApiException.notFound("Période de résultat")); }
     private SchoolClass schoolClass(UUID id) { return classes.findByIdAndSchoolId(id, TenantContext.get()).orElseThrow(() -> ApiException.notFound("Classe")); }
